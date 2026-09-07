@@ -160,92 +160,60 @@ function createRootResolver(req: NextRequest) {
       const cleanEscaped = cleanQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const normalizedRegex = new RegExp(`^${cleanEscaped.replace(/[-\s]/g, '[-_\\s]?')}$`, 'i');
 
-      let rawContainerShipments: any[] = await Shipment.find({
-        $or: [
-          { container: cleanQuery },
-          { container: normalizedRegex },
-          { containerNumber: new RegExp(`^${cleanEscaped}$`, 'i') },
-        ],
-      }).sort({ uploadedAt: -1 }).lean();
-
-      if (!rawContainerShipments || rawContainerShipments.length === 0) {
-        throw new Error(`No container record found for '${cleanQuery}'`);
+      const alphaNumericMatch = cleanQuery.match(/^([a-zA-Z]+)[-_\s]*0*(\d+)$/i);
+      let zeroPaddedRegex: RegExp | null = null;
+      if (alphaNumericMatch) {
+        const prefix = alphaNumericMatch[1];
+        const num = alphaNumericMatch[2];
+        zeroPaddedRegex = new RegExp(`^${prefix}[-_\\s]*0*${num}$`, 'i');
       }
 
-      const primaryShipment = rawContainerShipments[0];
-      const containerAlias = primaryShipment.container;
-      const etaStr = primaryShipment.eta;
-      let message = '';
-      let daysRemaining: number | null = null;
+      const orConditions: any[] = [
+        { container: cleanQuery },
+        { container: normalizedRegex },
+      ];
+      if (zeroPaddedRegex) {
+        orConditions.push({ container: zeroPaddedRegex });
+      }
+      orConditions.push({ containerNumber: new RegExp(`^${cleanEscaped}$`, 'i') });
 
-      if (etaStr && etaStr !== 'N/A' && !isNaN(new Date(etaStr).getTime())) {
-        const etaDate = new Date(etaStr);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const targetDate = new Date(etaDate);
-        targetDate.setHours(0, 0, 0, 0);
+      // 1. Check Container fleet model first
+      const foundContainer: any = await Container.findOne({ $or: orConditions }).lean();
 
-        const diffTime = targetDate.getTime() - today.getTime();
-        daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      let containerAlias = '';
+      let etaStr = 'Pending';
 
-        const dayName = etaDate.toLocaleDateString('en-US', { weekday: 'long' });
-        const dd = String(etaDate.getDate()).padStart(2, '0');
-        const mm = String(etaDate.getMonth() + 1).padStart(2, '0');
-        const yy = String(etaDate.getFullYear()).slice(-2);
-        const formattedDate = `${dd}/${mm}/${yy}`;
-
-        if (daysRemaining > 0) {
-          message = `${containerAlias} is arriving on ${dayName}, ${formattedDate} (${daysRemaining} ${daysRemaining === 1 ? 'day' : 'days'} remaining from today).`;
-        } else if (daysRemaining === 0) {
-          message = `${containerAlias} is arriving today, ${dayName}, ${formattedDate}.`;
-        } else {
-          const absDays = Math.abs(daysRemaining);
-          message = `${containerAlias} arrived on ${dayName}, ${formattedDate} (${absDays} ${absDays === 1 ? 'day' : 'days'} ago).`;
-        }
+      if (foundContainer) {
+        containerAlias = foundContainer.container;
+        etaStr = foundContainer.destinationDate || foundContainer.eta || 'Pending';
       } else {
-        message = `${containerAlias} ETA status is currently unconfirmed or pending.`;
+        // 2. Fallback to Shipment records
+        const rawContainerShipments: any[] = await Shipment.find({ $or: orConditions }).sort({ uploadedAt: -1 }).lean();
+        if (rawContainerShipments && rawContainerShipments.length > 0) {
+          containerAlias = rawContainerShipments[0].container;
+          etaStr = rawContainerShipments[0].eta || 'Pending';
+        }
       }
 
-      // Format associated cargo shipments strictly in English ONLY
-      const formattedCargo = rawContainerShipments.map((s) => ({
-        id: String(s._id),
-        receipt: s.receipt,
-        container: s.container,
-        containerNumber: null, // Strictly masked
-        shippingLine: null,
-        eta: s.eta || 'N/A',
-        status: s.status || 'Pending',
-        lastApiSync: s.lastApiSync ? new Date(s.lastApiSync).toISOString() : null,
-        warehouseEntry: s.warehouseEntry || 'N/A',
-        commodity: translateToEnglish(s.commodity || s.chinese || s.english),
-        chinese: translateToEnglish(s.chinese || s.commodity || s.english),
-        english: translateToEnglish(s.english || s.commodity || s.chinese),
-        quantity: s.quantity || '0',
-        weight: s.weight || 'N/A',
-        volume: s.volume || 'N/A',
-        stockstatus: s.stockstatus || 'N/A',
-        warehouse: s.warehouse || 'N/A',
-        packaging: s.packaging || 'N/A',
-        subMarka: s.subMarka || '',
-        mainMarka: s.mainMarka || '',
-        date: s.date || 'N/A',
-        uploadedAt: s.uploadedAt ? new Date(s.uploadedAt).toISOString() : null,
-      }));
+      if (!containerAlias) {
+        throw new Error(`No container found matching '${cleanQuery}'. Please check the container number and try again.`);
+      }
 
+      // STRICT PRIVACY: Return ONLY container alias and ETA date.
       return {
         success: true,
         container: containerAlias,
-        eta: etaStr || 'N/A',
-        status: primaryShipment.status || 'Pending',
-        shippedFrom: primaryShipment.shippedFrom || 'Ningbo / Shanghai, China',
-        shippedTo: primaryShipment.shippedTo || 'Nhava Sheva / Mundra, India',
-        currentLocation: 'In Transit',
-        startDate: primaryShipment.startDate || '',
-        destinationDate: primaryShipment.destinationDate || etaStr || '',
+        eta: etaStr || 'Pending',
+        status: 'Scheduled',
+        shippedFrom: null,
+        shippedTo: null,
+        currentLocation: null,
+        startDate: null,
+        destinationDate: null,
         vesselName: null,
         voyageNumber: null,
-        formattedArrivalMessage: message,
-        daysRemaining,
+        formattedArrivalMessage: null,
+        daysRemaining: null,
         shipments: [],
       };
     },

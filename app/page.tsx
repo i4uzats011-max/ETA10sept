@@ -172,95 +172,8 @@ export default function PublicTrackerPage() {
   const [receiptResult, setReceiptResult] = useState<any | null>(null);
   const [containerResult, setContainerResult] = useState<any | null>(null);
 
-  // Live Container Fleet Directory State
-  const [containerList, setContainerList] = useState<any[]>([]);
-  const [isContainerListLoading, setIsContainerListLoading] = useState(false);
-  const [containerFilter, setContainerFilter] = useState('');
-
   // FAQ Accordion state
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
-
-  // Fetch all active containers for navbar selector and fleet directory
-  useEffect(() => {
-    const fetchContainers = async () => {
-      setIsContainerListLoading(true);
-      try {
-        const res = await fetch('/api/containers/list');
-        const data = await res.json();
-        if (res.ok && data.containers) {
-          setContainerList(data.containers);
-        }
-      } catch (err) {
-        console.warn('Failed to fetch public container directory:', err);
-      } finally {
-        setIsContainerListLoading(false);
-      }
-    };
-    fetchContainers();
-  }, []);
-
-  // Quick Direct Track for any Container Alias selected by user across India
-  const trackContainerDirectly = async (containerAlias: string) => {
-    setActiveTab('container');
-    setSearchQuery(containerAlias);
-    setIsLoading(true);
-    setError(null);
-    setReceiptResult(null);
-    setContainerResult(null);
-
-    try {
-      const gqlQuery = `
-        query TrackContainer($container: String!) {
-          trackByContainer(container: $container) {
-            success
-            container
-            eta
-            status
-            shippedFrom
-            shippedTo
-            currentLocation
-            startDate
-            destinationDate
-            vesselName
-            voyageNumber
-            formattedArrivalMessage
-            daysRemaining
-            shipments {
-              id
-              receipt
-              english
-              commodity
-              quantity
-              weight
-              volume
-              status
-            }
-          }
-        }
-      `;
-
-      const response = await fetchGraphQL(gqlQuery, { container: containerAlias });
-
-      if (response.errors && response.errors.length > 0) {
-        const res = await fetch(`/api/track/container?container=${encodeURIComponent(containerAlias)}`);
-        const data = await res.json();
-        if (res.ok && data.container) {
-          setContainerResult(data);
-        } else {
-          throw new Error(data.error || response.errors[0].message);
-        }
-      } else if (response.data?.trackByContainer) {
-        setContainerResult(response.data.trackByContainer);
-      }
-    } catch (err: any) {
-      setError(err.message || 'Failed to track container');
-    } finally {
-      setIsLoading(false);
-      setTimeout(() => {
-        document.getElementById('results-section')?.scrollIntoView({ behavior: 'smooth' });
-      }, 50);
-    }
-  };
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -393,19 +306,6 @@ export default function PublicTrackerPage() {
   const receiptShipmentsList = receiptResult?.shipments || [];
   const distinctContainers = Array.from(new Set(receiptShipmentsList.map((s: any) => s.container).filter(Boolean)));
 
-  // Filtered containers for directory search
-  const filteredContainers = containerList.filter((c) => {
-    if (!containerFilter.trim()) return true;
-    const q = containerFilter.toLowerCase();
-    return (
-      c.container?.toLowerCase().includes(q) ||
-      c.shippedFrom?.toLowerCase().includes(q) ||
-      c.shippedTo?.toLowerCase().includes(q) ||
-      c.currentLocation?.toLowerCase().includes(q) ||
-      c.vesselName?.toLowerCase().includes(q) ||
-      c.status?.toLowerCase().includes(q)
-    );
-  });
 
   const faqs = [
     {
@@ -479,14 +379,6 @@ export default function PublicTrackerPage() {
 
           <nav className="hidden lg:flex items-center space-x-8 text-sm font-bold text-slate-700">
             <a href="#tracking" className="text-red-600 font-black hover:text-red-700 transition">Track Order</a>
-            <a href="#containers" className="hover:text-red-600 transition flex items-center space-x-1.5">
-              <span>Live Containers</span>
-              {containerList.length > 0 && (
-                <span className="bg-red-600 text-white text-[10px] px-2 py-0.5 rounded-full font-black animate-pulse">
-                  {containerList.length}
-                </span>
-              )}
-            </a>
             <a href="#services" className="hover:text-red-600 transition">Services</a>
             <a href="#process" className="hover:text-red-600 transition">Working Process</a>
             <a href="#reviews" className="hover:text-red-600 transition">Customer Reviews</a>
@@ -570,41 +462,11 @@ export default function PublicTrackerPage() {
 
                 {/* Search Form */}
                 <form onSubmit={handleSearch} className="p-6 sm:p-8 space-y-4">
-                  {/* Quick Interactive Container Selector for users nationwide */}
-                  {activeTab === 'container' && containerList.length > 0 && (
-                    <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-2xl space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-bold text-slate-700 flex items-center space-x-1.5">
-                          <Ship className="w-3.5 h-3.5 text-red-600" />
-                          <span>Select from Active Containers ({containerList.length} live in transit):</span>
-                        </label>
-                        <span className="text-[10px] text-red-600 font-bold uppercase">Click to Track</span>
-                      </div>
-                      <select
-                        value={containerList.some((c) => c.container === searchQuery) ? searchQuery : ''}
-                        onChange={(e) => {
-                          if (e.target.value) {
-                            setSearchQuery(e.target.value);
-                            trackContainerDirectly(e.target.value);
-                          }
-                        }}
-                        className="w-full py-2.5 px-3 rounded-xl border border-slate-300 text-xs font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-red-600"
-                      >
-                        <option value="">-- Choose Container Alias (e.g. USI-01, USI-03) --</option>
-                        {containerList.map((c) => (
-                          <option key={c.container} value={c.container}>
-                            {c.container} — {c.shippedFrom?.split(',')[0]} → {c.shippedTo?.split(',')[0]} (ETA: {c.destinationDate || c.eta})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
                       {activeTab === 'receipt'
                         ? 'Enter Receipt Number (e.g., REC-1002)'
-                        : 'Or Type Container ID Manually (e.g., USI-01 or USI 01)'}
+                        : 'Enter Container ID (e.g., USI-01)'}
                     </label>
                     <div className="relative flex items-center">
                       <input
@@ -979,142 +841,6 @@ export default function PublicTrackerPage() {
             </section>
           )}
         </div>
-
-        {/* 7. Interactive Live Container Fleet Directory Section */}
-        <section id="containers" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
-          <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 rounded-3xl p-8 sm:p-10 text-white shadow-xl border border-slate-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-            <div className="space-y-2 max-w-2xl">
-              <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-red-600/30 border border-red-500/40 text-red-300 text-xs font-bold uppercase tracking-wider">
-                <Ship className="w-3.5 h-3.5 text-red-400" />
-                <span>Live Container Fleet Directory</span>
-              </div>
-              <h2 className="text-2xl sm:text-4xl font-black tracking-tight text-white">
-                Active Containers In Ocean Transit
-              </h2>
-              <p className="text-slate-300 text-xs sm:text-sm leading-relaxed">
-                All scheduled ocean shipments currently en route from China to Indian seaports. Select any container alias to view its real-time location, journey progress, and confirmed delivery schedule.
-              </p>
-            </div>
-
-            {/* Quick Filter Input */}
-            <div className="w-full md:w-72 relative">
-              <input
-                type="text"
-                value={containerFilter}
-                onChange={(e) => setContainerFilter(e.target.value)}
-                placeholder="Filter container (e.g. USI-01)..."
-                className="w-full pl-10 pr-4 py-3 rounded-2xl bg-slate-800/90 border border-slate-700 text-xs font-semibold text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-red-600"
-              />
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-            </div>
-          </div>
-
-          {/* Container Cards Grid */}
-          {isContainerListLoading ? (
-            <div className="p-12 text-center space-y-3">
-              <div className="w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Loading active container fleet...</p>
-            </div>
-          ) : filteredContainers.length === 0 ? (
-            <div className="bg-white rounded-3xl p-10 text-center border border-slate-200 text-slate-500 space-y-2">
-              <Box className="w-10 h-10 text-slate-300 mx-auto" />
-              <p className="font-bold text-sm text-slate-700">No containers found</p>
-              <p className="text-xs text-slate-400">Try clearing the search filter above or check back shortly.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredContainers.map((c) => {
-                const isArrived = c.daysRemaining !== null && c.daysRemaining < 0;
-                const isToday = c.daysRemaining === 0;
-
-                return (
-                  <div
-                    key={c.container}
-                    className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm hover:shadow-xl hover:border-red-300 transition duration-300 flex flex-col justify-between space-y-5 group"
-                  >
-                    {/* Top Row: Container Alias & Delivery Status */}
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Container Alias</span>
-                        <h3 className="text-xl font-black font-mono text-slate-950 group-hover:text-red-600 transition flex items-center space-x-2">
-                          <span>{c.container}</span>
-                        </h3>
-                        {c.shipmentCount > 0 && (
-                          <p className="text-[11px] text-slate-500 font-bold mt-0.5">
-                            {c.shipmentCount} Cargo Package(s) Loaded
-                          </p>
-                        )}
-                      </div>
-
-                      <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        Scheduled Delivery
-                      </span>
-                    </div>
-
-                    {/* Route Progression Box */}
-                    <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/80 space-y-3">
-                      {/* Origin */}
-                      <div className="flex items-center space-x-2.5">
-                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 flex-shrink-0"></div>
-                        <div className="flex-1 min-w-0">
-                          <span className="text-[10px] font-bold uppercase text-slate-400 block">Origin Location</span>
-                          <p className="text-xs font-bold text-slate-800 truncate">{c.shippedFrom || 'Ningbo / Shanghai, China'}</p>
-                          {c.startDate && (
-                            <span className="text-[10px] font-mono text-slate-500">Departure: {c.startDate}</span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Delivery Date Highlight */}
-                      <div className="pl-1 border-l-2 border-dashed border-red-300 ml-1 py-1">
-                        <div className="flex items-center space-x-1.5 text-[11px] font-bold text-red-600 pl-2">
-                          <Clock className="w-3.5 h-3.5" />
-                          <span className="truncate">Expected Delivery: {c.destinationDate || c.eta || 'Pending'}</span>
-                        </div>
-                      </div>
-
-                      {/* Destination */}
-                      <div className="flex items-center space-x-2.5">
-                        <div className="w-2.5 h-2.5 rounded-full bg-red-600 flex-shrink-0"></div>
-                        <div className="flex-1 min-w-0">
-                          <span className="text-[10px] font-bold uppercase text-slate-400 block">Destination Port / CFS</span>
-                          <p className="text-xs font-bold text-slate-800 truncate">{c.shippedTo || 'Nhava Sheva / Mundra, India'}</p>
-                          {(c.destinationDate || c.eta) && (
-                            <span className="text-[10px] font-mono text-slate-500">ETA: {c.destinationDate || c.eta}</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Footer: Days Remaining & Action Button */}
-                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-3">
-                      <div>
-                        <span className="text-[10px] font-bold uppercase text-slate-400 block">Delivery Timing</span>
-                        <span className={`text-xs font-black ${
-                          isArrived ? 'text-slate-500' : isToday ? 'text-emerald-600 font-extrabold' : 'text-amber-600'
-                        }`}>
-                          {c.daysRemaining !== null ? (
-                            c.daysRemaining > 0 ? `${c.daysRemaining} days left` :
-                            c.daysRemaining === 0 ? 'Arriving Today' :
-                            `Arrived ${Math.abs(c.daysRemaining)}d ago`
-                          ) : 'ETA Pending'}
-                        </span>
-                      </div>
-
-                      <button
-                        onClick={() => trackContainerDirectly(c.container)}
-                        className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-red-600 text-white font-bold text-xs transition shadow-sm flex items-center space-x-1.5 group-hover:bg-red-600"
-                      >
-                        <span>View Delivery Date</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
 
         {/* 7. Image-Rich Core Services Section */}
         <section id="services" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-12">
