@@ -53,6 +53,20 @@ const CHINESE_TO_ENGLISH_DICTIONARY: Record<string, string> = {
   '货物商品': 'General Commercial Commodities',
 };
 
+const KEYWORD_MAP: [RegExp, string][] = [
+  [/\bled\b/i, 'LED Lighting & Fixtures'],
+  [/\blight(s|ing)?\b/i, 'Lighting Fixtures & Accessories'],
+  [/\b(bulb|lamp)s?\b/i, 'LED Bulbs & Lighting'],
+  [/\belectronic(s)?\b/i, 'Electronic Equipment & Components'],
+  [/\b(mobile|phone|charger|cable)s?\b/i, 'Mobile & Electronics Accessories'],
+  [/\b(fabric|cloth|garment|apparel)s?\b/i, 'Textile Fabrics & Garments'],
+  [/\b(tool|hardware)s?\b/i, 'Hardware Tools & Equipment'],
+  [/\b(plastic|pvc)s?\b/i, 'Plastic Products & Goods'],
+  [/\b(shoe|shoes|footwear)\b/i, 'Footwear & Shoes'],
+  [/\b(bag|bags|luggage)\b/i, 'Bags & Luggage'],
+  [/\b(toy|toys)\b/i, 'Toys & Educational Crafts'],
+];
+
 /**
  * Always translates any input string (Chinese or mixed) into clean English ONLY.
  */
@@ -61,7 +75,15 @@ export function translateToEnglish(input?: string): string {
     return 'General Merchandise';
   }
 
-  const clean = input.trim();
+  // Strip leading/trailing question marks, colons, slashes, or artifacts
+  const clean = input
+    .trim()
+    .replace(/^[\s?？\-_:：/／,，.]+|[\s?？\-_:：/／,，.]+$/g, '')
+    .trim();
+
+  if (!clean) {
+    return 'General Merchandise';
+  }
 
   // 1. Direct dictionary match
   if (CHINESE_TO_ENGLISH_DICTIONARY[clean]) {
@@ -75,10 +97,18 @@ export function translateToEnglish(input?: string): string {
     }
   }
 
-  // 3. Remove Chinese characters and brackets if mixed e.g. "电子配件 (Electronic Components)" -> "Electronic Components"
+  // 3. Keyword patterns (e.g. ??LED? -> LED Lighting & Fixtures)
+  for (const [regex, replacement] of KEYWORD_MAP) {
+    if (regex.test(clean)) {
+      return replacement;
+    }
+  }
+
+  // 4. Remove Chinese characters and brackets if mixed e.g. "电子配件 (Electronic Components)" -> "Electronic Components"
   const strippedOfChinese = clean
     .replace(/[\u4e00-\u9fa5]/g, '')
     .replace(/[\(\)（）]/g, '')
+    .replace(/[\?？]/g, '')
     .trim();
 
   if (strippedOfChinese.length > 1) {

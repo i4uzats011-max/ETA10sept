@@ -40,6 +40,21 @@ import {
   Download,
 } from 'lucide-react';
 
+function formatCBM(volume: any): string {
+  if (volume === null || volume === undefined || volume === '' || volume === 'N/A') {
+    return 'N/A';
+  }
+  const clean = String(volume).replace(/cbm|m3/gi, '').trim();
+  const num = parseFloat(clean);
+  if (!isNaN(num)) {
+    if (clean.includes('.')) {
+      return `${clean} CBM`;
+    }
+    return `${num.toFixed(2)} CBM`;
+  }
+  return `${volume} CBM`;
+}
+
 export default function PublicTrackerPage() {
   const [activeTab, setActiveTab] = useState<'receipt' | 'container'>('receipt');
   const [searchQuery, setSearchQuery] = useState('');
@@ -86,7 +101,7 @@ export default function PublicTrackerPage() {
       // Summary Overview Box
       doc.setFillColor(248, 250, 252);
       doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(14, 53, 182, 34, 3, 3, 'FD');
+      doc.roundedRect(14, 53, 182, 42, 3, 3, 'FD');
 
       doc.setTextColor(15, 23, 42);
       doc.setFontSize(9);
@@ -98,7 +113,7 @@ export default function PublicTrackerPage() {
       doc.setFont('helvetica', 'bold');
       doc.text('Container Alias:', 110, 61);
       doc.setFont('helvetica', 'normal');
-      doc.text(String(primary.container || 'N/A'), 142, 61);
+      doc.text(String(primary.container || 'N/A'), 145, 61);
 
       doc.setFont('helvetica', 'bold');
       doc.text('Receipt Date:', 18, 69);
@@ -106,10 +121,10 @@ export default function PublicTrackerPage() {
       doc.text(String(primary.date || 'N/A'), 50, 69);
 
       doc.setFont('helvetica', 'bold');
-      doc.text('Expected Delivery:', 110, 69);
+      doc.text('Expected Delivery (ETA):', 110, 69);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(220, 38, 38); // Highlight ETA in Red
-      doc.text(String(primary.eta || 'Pending'), 142, 69);
+      doc.text(String(primary.eta || 'Pending'), 155, 69);
       doc.setTextColor(15, 23, 42);
 
       doc.setFont('helvetica', 'bold');
@@ -120,24 +135,31 @@ export default function PublicTrackerPage() {
       doc.setFont('helvetica', 'bold');
       doc.text('Delivery Warehouse:', 110, 77);
       doc.setFont('helvetica', 'normal');
-      doc.text(String(primary.warehouseEntry || 'India Delivery Warehouse'), 142, 77);
+      doc.text(String(primary.warehouseEntry || 'India Delivery Warehouse'), 145, 77);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text('Cargo Marks:', 18, 85);
+      doc.setFont('helvetica', 'normal');
+      const marksStr = [primary.mainMarka ? `Main: ${primary.mainMarka}` : '', (primary.subMarka && primary.subMarka !== '??') ? `Sub: ${primary.subMarka}` : ''].filter(Boolean).join(' | ') || 'N/A';
+      doc.text(marksStr, 50, 85);
 
       // Manifest Table
-      const headers = ['#', 'Commodity / Description', 'Cartons (Qty)', 'Weight (KG)', 'Volume (CBM)', 'Warehouse', 'Expected ETA'];
+      const headers = ['#', 'Item / Commodity Name', 'Cargo Marks', 'Cartons (Qty)', 'Weight (KG)', 'Volume (CBM)', 'Loading Warehouse', 'Expected ETA'];
       const body = shipments.map((s, idx) => [
         idx + 1,
         s.english || s.commodity || 'General Cargo',
+        [s.mainMarka ? `M:${s.mainMarka}` : '', (s.subMarka && s.subMarka !== '??') ? `S:${s.subMarka}` : ''].filter(Boolean).join(' ') || 'N/A',
         `${s.quantity || s.cartons || '0'} CTN`,
         s.weight ? `${s.weight} KG` : 'N/A',
-        s.volume ? `${s.volume} CBM` : 'N/A',
-        s.warehouse || s.warehouseEntry || 'In Transit',
+        formatCBM(s.volume),
+        s.warehouse || 'China WH',
         s.eta || 'Pending',
       ]);
 
       autoTable(doc, {
         head: [headers],
         body: body,
-        startY: 93,
+        startY: 100,
         theme: 'grid',
         headStyles: { fillColor: [11, 25, 44], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
         styles: { fontSize: 8, cellPadding: 2.5 },
@@ -658,6 +680,15 @@ export default function PublicTrackerPage() {
                     </div>
 
                     <div className="flex items-center space-x-3">
+                      {/* Prominent Header ETA Badge */}
+                      <div className="flex items-center space-x-2 bg-gradient-to-r from-red-600 to-rose-600 text-white px-3.5 py-1.5 rounded-xl border border-red-400/40 shadow-sm">
+                        <Clock className="w-4 h-4 text-amber-300" />
+                        <div>
+                          <span className="text-[9px] uppercase font-bold text-rose-200 block">Confirmed ETA</span>
+                          <span className="text-sm font-black font-mono text-white">{item.eta || 'Pending'}</span>
+                        </div>
+                      </div>
+
                       <button
                         onClick={() => downloadReceiptPDF(item.receipt, [item])}
                         className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-red-600 text-white text-xs font-bold transition flex items-center space-x-1.5 border border-slate-700 shadow-sm"
@@ -676,40 +707,82 @@ export default function PublicTrackerPage() {
 
                   {/* Content Details Grid - ALL Details for this Receipt */}
                   <div className="p-6 sm:p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {/* Item Description & English Commodity Name */}
-                    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 col-span-1 md:col-span-2 lg:col-span-3 space-y-2">
+                    {/* 1. Large High-Visibility ETA Banner */}
+                    <div className="bg-gradient-to-r from-red-600 via-rose-600 to-red-700 text-white p-5 rounded-2xl shadow-md col-span-1 md:col-span-2 lg:col-span-3 flex flex-wrap items-center justify-between gap-4 border-2 border-red-400/40 animate-fadeIn">
+                      <div className="flex items-center space-x-3.5">
+                        <div className="p-3 bg-white/20 backdrop-blur-sm rounded-xl">
+                          <Clock className="w-7 h-7 text-amber-300" />
+                        </div>
+                        <div>
+                          <span className="text-xs font-bold uppercase tracking-wider text-rose-200 block">Expected Arrival Date (ETA)</span>
+                          <h4 className="text-2xl sm:text-3xl font-black font-mono text-white tracking-tight">
+                            {item.eta && item.eta !== 'N/A' && item.eta !== 'Pending' ? item.eta : 'ETA Confirmation Pending'}
+                          </h4>
+                        </div>
+                      </div>
+                      <div className="bg-white/10 px-4 py-2 rounded-xl border border-white/20 text-xs font-bold flex items-center space-x-2">
+                        <span className="text-rose-200">Loaded Container:</span>
+                        <span className="font-mono text-amber-300 font-black">{item.container}</span>
+                      </div>
+                    </div>
+
+                    {/* 2. Item Description & English Commodity Name */}
+                    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 col-span-1 md:col-span-2 lg:col-span-3 space-y-1.5">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-xs font-black uppercase text-slate-500 tracking-wider">Cargo Description & Commodity</span>
-                        {/* ENGLISH ONLY COMMODITY BADGE */}
-                        <span className="px-3.5 py-1.5 rounded-xl bg-slate-900 text-white font-black text-xs tracking-wide shadow-md flex items-center space-x-1.5 border border-slate-800">
-                          <span className="text-red-400 font-bold uppercase">Commodity (English):</span>
+                        <span className="text-xs font-black uppercase text-slate-500 tracking-wider">Item Name / Commodity</span>
+                        <span className="px-3 py-1 rounded-lg bg-slate-900 text-white font-black text-xs tracking-wide shadow-sm flex items-center space-x-1 border border-slate-800">
+                          <span className="text-red-400 font-bold uppercase">English Name:</span>
                           <span className="font-mono text-amber-300 font-bold text-xs">{item.commodity || item.english || 'General Cargo'}</span>
                         </span>
                       </div>
-                      <p className="text-lg font-black text-slate-900 leading-snug">
+                      <p className="text-xl font-black text-slate-900 leading-snug">
                         {item.english || item.commodity || 'General Cargo'}
                       </p>
                     </div>
 
-                    {/* Main Mark & Sub Mark Badges */}
-                    {(item.mainMarka || item.subMarka) && (
-                      <div className="bg-amber-50/60 p-4.5 rounded-2xl border border-amber-200 col-span-1 md:col-span-2 lg:col-span-3 flex flex-wrap items-center gap-4">
-                        <span className="text-xs font-black uppercase text-amber-900 tracking-wider">Cargo Marks:</span>
-                        {item.mainMarka && (
-                          <div className="flex items-center space-x-1.5 bg-amber-100 text-amber-900 px-3 py-1.5 rounded-xl border border-amber-300 text-xs font-bold">
-                            <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-600" />
-                            <span>Main Mark: <strong>{item.mainMarka}</strong></span>
-                          </div>
-                        )}
-                        {item.subMarka && (
-                          <div className="flex items-center space-x-1.5 bg-blue-100 text-blue-900 px-3 py-1.5 rounded-xl border border-blue-300 text-xs font-bold">
-                            <span>◆ Sub Mark: <strong>{item.subMarka}</strong></span>
-                          </div>
-                        )}
+                    {/* 3. Cargo Marks: Main Mark & Sub Mark Badges */}
+                    <div className="bg-amber-50/70 p-4.5 rounded-2xl border-2 border-amber-200 col-span-1 md:col-span-2 lg:col-span-3 flex flex-wrap items-center gap-3 sm:gap-6">
+                      <span className="text-xs font-black uppercase text-amber-900 tracking-wider flex items-center space-x-1.5">
+                        <Star className="w-4 h-4 text-amber-600 fill-amber-500" />
+                        <span>Cargo Marks:</span>
+                      </span>
+                      <div className="flex items-center space-x-2 bg-amber-100/90 text-amber-950 px-3.5 py-1.5 rounded-xl border border-amber-300 text-xs font-bold">
+                        <span className="text-amber-700 font-semibold">Main Mark:</span>
+                        <strong className="font-mono text-slate-900">{item.mainMarka || 'N/A'}</strong>
                       </div>
-                    )}
+                      <div className="flex items-center space-x-2 bg-blue-100/90 text-blue-950 px-3.5 py-1.5 rounded-xl border border-blue-300 text-xs font-bold">
+                        <span className="text-blue-700 font-semibold">Sub Mark:</span>
+                        <strong className="font-mono text-slate-900">{item.subMarka && item.subMarka !== '??' ? item.subMarka : 'N/A'}</strong>
+                      </div>
+                    </div>
 
-                    {/* Quantity - Kitne Carton Hain / Packets */}
+                    {/* 4. Receipt Date (Booking / Entry Date) */}
+                    <div className="bg-slate-50 p-4.5 rounded-2xl border border-slate-200 flex items-center space-x-3">
+                      <div className="p-3 bg-blue-100 text-blue-600 rounded-xl">
+                        <Calendar className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-slate-500 uppercase">Receipt Date</span>
+                        <p className="text-lg font-black text-slate-950 font-mono">{item.date || 'N/A'}</p>
+                        <span className="text-xs text-slate-400 font-medium">Receipt booking date</span>
+                      </div>
+                    </div>
+
+                    {/* 5. Volume in CBM (Show decimal point e.g., 1.45 CBM) */}
+                    <div className="bg-slate-50 p-4.5 rounded-2xl border border-slate-200 flex items-center space-x-3">
+                      <div className="p-3 bg-indigo-100 text-indigo-600 rounded-xl">
+                        <Layers className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-slate-500 uppercase">Volume (CBM)</span>
+                        <p className="text-xl font-black text-slate-950 font-mono">
+                          {formatCBM(item.volume)}
+                        </p>
+                        <span className="text-xs text-slate-400 font-medium">Cubic meters (decimal)</span>
+                      </div>
+                    </div>
+
+                    {/* 6. Quantity - Kitne Carton Hain / Packets */}
                     <div className="bg-slate-50 p-4.5 rounded-2xl border border-slate-200 flex items-center space-x-3">
                       <div className="p-3 bg-red-100 text-red-600 rounded-xl">
                         <Package className="w-5 h-5" />
@@ -725,7 +798,7 @@ export default function PublicTrackerPage() {
                       </div>
                     </div>
 
-                    {/* Weight in KG */}
+                    {/* 7. Gross Weight in KG */}
                     <div className="bg-slate-50 p-4.5 rounded-2xl border border-slate-200 flex items-center space-x-3">
                       <div className="p-3 bg-amber-100 text-amber-600 rounded-xl">
                         <Weight className="w-5 h-5" />
@@ -735,49 +808,11 @@ export default function PublicTrackerPage() {
                         <p className="text-xl font-black text-slate-950">
                           {item.weight || 'N/A'} {item.weight && !String(item.weight).toLowerCase().includes('kg') ? 'KG' : ''}
                         </p>
-                        <span className="text-xs text-slate-400 font-medium">Actual weight</span>
+                        <span className="text-xs text-slate-400 font-medium">Gross weight</span>
                       </div>
                     </div>
 
-                    {/* Volume in CBM */}
-                    <div className="bg-slate-50 p-4.5 rounded-2xl border border-slate-200 flex items-center space-x-3">
-                      <div className="p-3 bg-indigo-100 text-indigo-600 rounded-xl">
-                        <Layers className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <span className="text-xs font-bold text-slate-500 uppercase">Volume (CBM)</span>
-                        <p className="text-xl font-black text-slate-950">
-                          {item.volume || 'N/A'} {item.volume && !String(item.volume).toLowerCase().includes('cbm') ? 'CBM' : ''}
-                        </p>
-                        <span className="text-xs text-slate-400 font-medium">Cubic meters</span>
-                      </div>
-                    </div>
-
-                    {/* Receipt Date (Date in DB) */}
-                    <div className="bg-slate-50 p-4.5 rounded-2xl border border-slate-200 flex items-center space-x-3">
-                      <div className="p-3 bg-blue-100 text-blue-600 rounded-xl">
-                        <Calendar className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <span className="text-xs font-bold text-slate-500 uppercase">Receipt Date</span>
-                        <p className="text-base font-black text-slate-900">{item.date || 'N/A'}</p>
-                        <span className="text-xs text-slate-400 font-medium">Booking confirmation</span>
-                      </div>
-                    </div>
-
-                    {/* ETA Date (Exact from DB) */}
-                    <div className="bg-slate-50 p-4.5 rounded-2xl border-2 border-red-500/40 flex items-center space-x-3 bg-red-50/20">
-                      <div className="p-3 bg-red-100 text-red-600 rounded-xl">
-                        <Clock className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <span className="text-xs font-bold text-red-600 uppercase">ETA</span>
-                        <p className="text-xl font-black text-red-700 font-mono">{item.eta || 'Pending'}</p>
-                        <span className="text-xs text-slate-500 font-medium">Expected delivery date</span>
-                      </div>
-                    </div>
-
-                    {/* Loading Warehouse (Kis warehouse se chala hai) */}
+                    {/* 8. Loading Warehouse (Kis warehouse se chala hai) */}
                     <div className="bg-slate-50 p-4.5 rounded-2xl border border-slate-200 flex items-center space-x-3">
                       <div className="p-3 bg-emerald-100 text-emerald-600 rounded-xl">
                         <MapPin className="w-5 h-5" />
@@ -785,11 +820,11 @@ export default function PublicTrackerPage() {
                       <div>
                         <span className="text-xs font-bold text-slate-500 uppercase">Loading Warehouse</span>
                         <p className="text-base font-black text-slate-900">{item.warehouse || 'China Warehouse'}</p>
-                        <span className="text-xs text-slate-500 font-medium">Dispatched from warehouse</span>
+                        <span className="text-xs text-slate-500 font-medium">Dispatched from origin</span>
                       </div>
                     </div>
 
-                    {/* Receiving Warehouse / Warehouse Entry (Kis warehouse mein hai) */}
+                    {/* 9. Receiving Warehouse / Warehouse Entry (Kis warehouse mein hai) */}
                     <div className="bg-slate-50 p-4.5 rounded-2xl border border-slate-200 flex items-center space-x-3">
                       <div className="p-3 bg-teal-100 text-teal-600 rounded-xl">
                         <Truck className="w-5 h-5" />

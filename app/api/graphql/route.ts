@@ -114,31 +114,75 @@ function createRootResolver(req: NextRequest) {
         throw new Error(`No cargo record found for receipt number '${cleanQuery}'`);
       }
 
+      // Collect all container aliases to resolve confirmed ETA from Container fleet
+      const containerAliases = Array.from(new Set(rawShipments.map((s) => s.container).filter(Boolean)));
+      const containerDocs: any[] = await Container.find({
+        $or: containerAliases.map((c) => ({
+          container: new RegExp(`^${c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/[-\s]/g, '[-_\\s]?')}$`, 'i'),
+        })),
+      }).lean();
+
+      const containerEtaMap = new Map<string, string>();
+      containerDocs.forEach((c: any) => {
+        const eta = (c.destinationDate && c.destinationDate !== 'N/A') ? c.destinationDate : c.eta;
+        if (eta && eta !== 'N/A' && eta !== 'Pending') {
+          containerEtaMap.set(c.container.toLowerCase().trim(), eta);
+        }
+      });
+
       // Strict Data Masking: Omit containerNumber; Translate Chinese Commodity to English ONLY
-      const publicCargo = rawShipments.map((s) => ({
-        id: String(s._id),
-        receipt: s.receipt,
-        container: s.container,
-        containerNumber: null, // Strictly masked
-        shippingLine: null,
-        eta: s.eta || 'N/A',
-        status: s.status || 'Pending',
-        lastApiSync: s.lastApiSync ? new Date(s.lastApiSync).toISOString() : null,
-        warehouseEntry: s.warehouseEntry || 'N/A',
-        commodity: translateToEnglish(s.commodity || s.chinese || s.english),
-        chinese: translateToEnglish(s.chinese || s.commodity || s.english), // Enforce English translation ONLY
-        english: translateToEnglish(s.english || s.commodity || s.chinese),
-        quantity: s.quantity || '0',
-        weight: s.weight || 'N/A',
-        volume: s.volume || 'N/A',
-        stockstatus: s.stockstatus || 'N/A',
-        warehouse: s.warehouse || 'N/A',
-        packaging: s.packaging || 'N/A',
-        subMarka: s.subMarka || '',
-        mainMarka: s.mainMarka || '',
-        date: s.date || 'N/A',
-        uploadedAt: s.uploadedAt ? new Date(s.uploadedAt).toISOString() : null,
-      }));
+      const publicCargo = rawShipments.map((s) => {
+        const cClean = (s.container || '').toLowerCase().trim();
+        const directEta = containerEtaMap.get(cClean);
+        const fallbackDoc = containerDocs.find((cd: any) =>
+          cd.container.toLowerCase().replace(/[-\s]/g, '') === cClean.replace(/[-\s]/g, '')
+        );
+        const containerEta = directEta || fallbackDoc?.destinationDate || fallbackDoc?.eta || '';
+
+        const resolvedEta = (s.eta && s.eta !== 'N/A' && s.eta !== 'Pending')
+          ? s.eta
+          : (containerEta || s.eta || 'Pending');
+
+        // Async backfill if shipment was missing ETA
+        if ((!s.eta || s.eta === 'N/A' || s.eta === 'Pending') && resolvedEta && resolvedEta !== 'Pending') {
+          Shipment.updateOne({ _id: s._id }, { $set: { eta: resolvedEta } }).exec().catch(() => {});
+        }
+
+        // Format CBM preserving decimals
+        let formattedVolume = s.volume || 'N/A';
+        if (formattedVolume !== 'N/A') {
+          const cleanVol = String(formattedVolume).replace(/cbm|m3/gi, '').trim();
+          const n = parseFloat(cleanVol);
+          if (!isNaN(n)) {
+            formattedVolume = cleanVol.includes('.') ? cleanVol : n.toFixed(2);
+          }
+        }
+
+        return {
+          id: String(s._id),
+          receipt: s.receipt,
+          container: s.container,
+          containerNumber: null, // Strictly masked
+          shippingLine: null,
+          eta: resolvedEta,
+          status: s.status || 'In Transit',
+          lastApiSync: s.lastApiSync ? new Date(s.lastApiSync).toISOString() : null,
+          warehouseEntry: s.warehouseEntry || 'N/A',
+          commodity: translateToEnglish(s.commodity || s.chinese || s.english),
+          chinese: translateToEnglish(s.chinese || s.commodity || s.english), // Enforce English translation ONLY
+          english: translateToEnglish(s.english || s.commodity || s.chinese),
+          quantity: s.quantity || '0',
+          weight: s.weight || 'N/A',
+          volume: formattedVolume,
+          stockstatus: s.stockstatus || 'N/A',
+          warehouse: s.warehouse || 'N/A',
+          packaging: s.packaging || 'N/A',
+          subMarka: s.subMarka || '',
+          mainMarka: s.mainMarka || '',
+          date: s.date || 'N/A',
+          uploadedAt: s.uploadedAt ? new Date(s.uploadedAt).toISOString() : null,
+        };
+      });
 
       return {
         success: true,
