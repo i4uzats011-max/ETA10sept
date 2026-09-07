@@ -70,27 +70,10 @@ export async function GET(req: NextRequest) {
       message = `${containerAlias} ETA status is currently unconfirmed or pending.`;
     }
 
-    // Fetch all cargo packages assigned to this container alias
-    const allShipments: any[] = await Shipment.find({
-      container: { $regex: normalizedRegex },
-    }).sort({ uploadedAt: -1 }).lean();
-
-    const publicShipments = allShipments.map((s) => ({
-      id: s._id,
-      receipt: s.receipt,
-      english: s.english || s.commodity || 'General Cargo',
-      commodity: s.commodity || s.english || 'General Cargo',
-      quantity: s.quantity || '0',
-      weight: s.weight || 'N/A',
-      volume: s.volume || 'N/A',
-      warehouse: s.warehouse || 'China Warehouse',
-      warehouseEntry: s.warehouseEntry || 'India Delivery Warehouse',
-      date: s.date || 'N/A',
-    }));
-
-    // STRICT DATA PRIVACY: Return ONLY public alias, confirmed delivery ETA date, message, and cargo list.
-    // ZERO JSONCargo API calls are made here (strictly local MongoDB read).
-    // NO actual containerNumber (e.g. MSCU...), shippingLine, vessel, voyage, or raw carrier data is ever exposed!
+    // STRICT DATA PRIVACY: Return ONLY public alias and confirmed delivery ETA date.
+    // ZERO JSONCargo API calls (strictly local MongoDB read).
+    // NO actual container number (MSCU...), NO shipping line, and NO manifest packages.
+    // Full cargo details are accessible only via Receipt Number search.
     return NextResponse.json({
       success: true,
       container: containerAlias,
@@ -99,8 +82,6 @@ export async function GET(req: NextRequest) {
       expectedDeliveryDate: formattedDate || etaStr || 'Pending',
       formattedArrivalMessage: message,
       daysRemaining,
-      shipmentCount: publicShipments.length,
-      shipments: publicShipments,
     });
   } catch (error: any) {
     return NextResponse.json(

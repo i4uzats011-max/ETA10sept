@@ -246,7 +246,7 @@ function createRootResolver(req: NextRequest) {
         voyageNumber: null,
         formattedArrivalMessage: message,
         daysRemaining,
-        shipments: formattedCargo,
+        shipments: [],
       };
     },
 

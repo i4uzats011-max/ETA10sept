@@ -1038,44 +1038,27 @@ export default function PublicTrackerPage() {
                     )}
                   </div>
 
-                  {/* Associated Cargo Packages In Container */}
-                  {containerResult.shipments && containerResult.shipments.length > 0 && (
-                    <div className="bg-slate-50 rounded-2xl border border-slate-200 p-5 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <h5 className="text-xs font-black uppercase text-slate-700 tracking-wider flex items-center space-x-2">
-                          <Package className="w-4 h-4 text-red-600" />
-                          <span>Cargo Packages In Container ({containerResult.shipments.length})</span>
-                        </h5>
-                        <span className="text-[11px] font-bold text-slate-500">English Commodity Manifest</span>
-                      </div>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs border-collapse">
-                          <thead>
-                            <tr className="border-b border-slate-200 text-slate-500 font-bold uppercase text-[10px]">
-                              <th className="py-2.5 px-3">Receipt No</th>
-                              <th className="py-2.5 px-3">Commodity (English)</th>
-                              <th className="py-2.5 px-3">Cartons (Qty)</th>
-                              <th className="py-2.5 px-3">Weight</th>
-                              <th className="py-2.5 px-3">Volume</th>
-                              <th className="py-2.5 px-3">Warehouse</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-200">
-                            {containerResult.shipments.map((s: any, idx: number) => (
-                              <tr key={s.id || idx} className="hover:bg-white transition">
-                                <td className="py-2.5 px-3 font-mono font-bold text-slate-900">{s.receipt}</td>
-                                <td className="py-2.5 px-3 font-medium text-slate-800">{s.english || s.commodity || 'General Cargo'}</td>
-                                <td className="py-2.5 px-3 font-bold text-slate-900">{s.quantity || '0'} Cartons</td>
-                                <td className="py-2.5 px-3 text-slate-600">{s.weight || 'N/A'}</td>
-                                <td className="py-2.5 px-3 text-slate-600">{s.volume || 'N/A'}</td>
-                                <td className="py-2.5 px-3 text-slate-600">{s.warehouse || s.warehouseEntry || 'Origin'}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                  {/* Clean Notice: Full Manifest Details via Receipt Number Only */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex items-center justify-between gap-4 text-xs">
+                    <div className="flex items-center space-x-2.5 text-slate-600">
+                      <FileText className="w-4 h-4 text-red-600 flex-shrink-0" />
+                      <span>
+                        To view complete commodity, carton count, weight, volume, and warehouse details, please switch to <strong>Search by Receipt (Bill No)</strong> above.
+                      </span>
                     </div>
-                  )}
+                    <button
+                      onClick={() => {
+                        setActiveTab('receipt');
+                        setSearchQuery('');
+                        setContainerResult(null);
+                        setReceiptResult(null);
+                        window.scrollTo({ top: 300, behavior: 'smooth' });
+                      }}
+                      className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl transition whitespace-nowrap shadow-sm text-xs"
+                    >
+                      Search Receipt
+                    </button>
+                  </div>
                 </div>
               </div>
             </section>
