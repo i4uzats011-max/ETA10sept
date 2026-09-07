@@ -34,54 +34,15 @@ export async function GET(req: NextRequest) {
     }
 
     const containerAlias = shipment.container;
-    const etaStr = shipment.eta;
+    const etaStr = shipment.eta || 'N/A';
 
-    let message = '';
-    let daysRemaining: number | null = null;
-    let formattedDate = '';
-    let status = shipment.status || 'Pending';
-
-    if (etaStr && etaStr !== 'N/A' && !isNaN(new Date(etaStr).getTime())) {
-      const etaDate = new Date(etaStr);
-      const today = new Date();
-      // Normalize time to start of day for accurate diff
-      today.setHours(0, 0, 0, 0);
-      const targetDate = new Date(etaDate);
-      targetDate.setHours(0, 0, 0, 0);
-
-      const diffTime = targetDate.getTime() - today.getTime();
-      daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-      const dayName = etaDate.toLocaleDateString('en-US', { weekday: 'long' });
-      const dd = String(etaDate.getDate()).padStart(2, '0');
-      const mm = String(etaDate.getMonth() + 1).padStart(2, '0');
-      const yy = String(etaDate.getFullYear()).slice(-2);
-      formattedDate = `${dd}/${mm}/${yy}`;
-
-      if (daysRemaining > 0) {
-        message = `${containerAlias} is arriving on ${dayName}, ${formattedDate} (${daysRemaining} ${daysRemaining === 1 ? 'day' : 'days'} remaining from today).`;
-      } else if (daysRemaining === 0) {
-        message = `${containerAlias} is arriving today, ${dayName}, ${formattedDate}.`;
-      } else {
-        const absDays = Math.abs(daysRemaining);
-        message = `${containerAlias} arrived on ${dayName}, ${formattedDate} (${absDays} ${absDays === 1 ? 'day' : 'days'} ago).`;
-      }
-    } else {
-      message = `${containerAlias} ETA status is currently unconfirmed or pending.`;
-    }
-
-    // STRICT DATA PRIVACY: Return ONLY public alias and confirmed delivery ETA date.
+    // STRICT DATA PRIVACY: Return ONLY container alias and ETA date.
     // ZERO JSONCargo API calls (strictly local MongoDB read).
-    // NO actual container number (MSCU...), NO shipping line, and NO manifest packages.
-    // Full cargo details are accessible only via Receipt Number search.
+    // NO date calculations, NO actual container number, NO shipping line.
     return NextResponse.json({
       success: true,
       container: containerAlias,
-      eta: etaStr || 'N/A',
-      destinationDate: shipment.destinationDate || etaStr || 'N/A',
-      expectedDeliveryDate: formattedDate || etaStr || 'Pending',
-      formattedArrivalMessage: message,
-      daysRemaining,
+      eta: etaStr,
     });
   } catch (error: any) {
     return NextResponse.json(

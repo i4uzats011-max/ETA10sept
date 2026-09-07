@@ -39,7 +39,6 @@ import {
   Printer,
   Download,
 } from 'lucide-react';
-import { calculateDaysToDeliver } from '@/lib/dateUtils';
 
 export default function PublicTrackerPage() {
   const [activeTab, setActiveTab] = useState<'receipt' | 'container'>('receipt');
@@ -525,7 +524,7 @@ export default function PublicTrackerPage() {
                   Seamless Ocean & Air Cargo Tracking
                 </h1>
                 <p className="text-slate-300 text-sm sm:text-base leading-relaxed">
-                  Track your cargo receipts and container arrival dates instantly. Automated JSONCargo API tracking includes +7 days filing buffer, while admin-defined actual dates are displayed directly.
+                  Track your cargo receipts and container arrival dates instantly. Search by Receipt number for complete consignment details, or Container number to check its ETA directly.
                 </p>
               </div>
 
@@ -773,9 +772,6 @@ export default function PublicTrackerPage() {
               )}
 
               {receiptShipmentsList.map((item: any, idx: number) => {
-                const daysToDeliver = calculateDaysToDeliver(item.date, item.eta, item.uploadedAt);
-                const isLate = daysToDeliver !== null && daysToDeliver > 35;
-
                 return (
                 <div key={item.id || idx} className="bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden space-y-6 animate-fadeIn">
                   {/* Header Banner */}
@@ -907,33 +903,15 @@ export default function PublicTrackerPage() {
                       </div>
                     </div>
 
-                    {/* ETA Arrival Date - Kab Milega */}
+                    {/* ETA Date (Exact from DB) */}
                     <div className="bg-slate-50 p-4.5 rounded-2xl border-2 border-red-500/40 flex items-center space-x-3 bg-red-50/20">
                       <div className="p-3 bg-red-100 text-red-600 rounded-xl">
                         <Clock className="w-5 h-5" />
                       </div>
                       <div>
-                        <span className="text-xs font-bold text-red-600 uppercase">Expected Delivery Date (ETA)</span>
+                        <span className="text-xs font-bold text-red-600 uppercase">ETA</span>
                         <p className="text-xl font-black text-red-700 font-mono">{item.eta || 'Pending'}</p>
-                        <span className="text-xs text-slate-500 font-medium">Container arrival date</span>
-                      </div>
-                    </div>
-
-                    {/* Days to Deliver / Transit Time */}
-                    <div className="bg-slate-50 p-4.5 rounded-2xl border border-slate-200 flex items-center space-x-3">
-                      <div className={`p-3 rounded-xl ${isLate ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-600'}`}>
-                        <TrendingUp className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <span className="text-xs font-bold text-slate-500 uppercase">Days to Deliver</span>
-                        <p className="text-base font-black text-slate-900">
-                          {daysToDeliver !== null ? `${daysToDeliver} days` : 'Calculating...'}
-                        </p>
-                        {isLate && (
-                          <span className="text-[10px] font-bold text-red-600 uppercase bg-red-50 px-1.5 py-0.5 rounded border border-red-200">
-                            Late ({daysToDeliver - 35}d over 35d)
-                          </span>
-                        )}
+                        <span className="text-xs text-slate-500 font-medium">Expected delivery date</span>
                       </div>
                     </div>
 
@@ -980,84 +958,21 @@ export default function PublicTrackerPage() {
             </section>
           )}
 
-          {/* 6. Container Search Results (Clean Delivery Schedule - ZERO carrier internals exposed) */}
+          {/* 6. Container Search Results (CONTAINER NO. AND ETA ONLY - NOTHING ELSE) */}
           {activeTab === 'container' && containerResult && (
-            <section className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-fadeIn space-y-6">
-                {/* Clean Header Banner */}
-                <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 p-6 sm:p-8 text-white border-b border-slate-800 flex flex-wrap items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <span className="text-xs uppercase font-bold text-red-400 tracking-wider flex items-center gap-1.5">
-                      <Box className="w-4 h-4 text-red-500" />
-                      <span>Container Delivery Schedule</span>
-                    </span>
-                    <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center space-x-3">
-                      <span>Container:</span>
-                      <span className="font-mono text-amber-300 bg-slate-800 px-3 py-1 rounded-xl border border-amber-500/30">
-                        {containerResult.container}
-                      </span>
-                    </h2>
-                  </div>
-
-                  <div className="flex flex-col items-start sm:items-end space-y-1.5">
-                    <span className="text-[11px] text-slate-400 uppercase font-semibold">Delivery Status</span>
-                    <span className="px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-wider bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 flex items-center space-x-2">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-white" />
-                      <span>Scheduled for Delivery</span>
-                    </span>
+            <section className="max-w-md mx-auto px-4 sm:px-6 space-y-4">
+              <div className="bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden p-8 space-y-6 text-center animate-fadeIn">
+                <div className="space-y-1">
+                  <span className="text-xs uppercase font-bold text-slate-500 tracking-wider">Container No.</span>
+                  <div className="text-3xl font-black font-mono text-slate-950">
+                    {containerResult.container}
                   </div>
                 </div>
 
-                <div className="p-6 sm:p-8 space-y-6">
-                  {/* Prominent Expected Delivery Date Card (Itne tareekh ko container mil jayega) */}
-                  <div className="p-8 rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white shadow-xl space-y-4 border border-slate-800 text-center">
-                    <span className="text-xs font-black uppercase tracking-widest text-slate-400 block">
-                      EXPECTED DATE CONTAINER WILL BE DELIVERED
-                    </span>
-                    <div className="text-4xl sm:text-6xl font-black font-mono tracking-tight text-amber-300">
-                      {containerResult.expectedDeliveryDate || containerResult.destinationDate || containerResult.eta || 'Pending'}
-                    </div>
-
-                    {containerResult.daysRemaining !== null && containerResult.daysRemaining !== undefined && (
-                      <div className="inline-flex items-center space-x-2 px-4 py-1.5 rounded-full bg-red-600/30 border border-red-500/40 text-red-300 text-xs font-bold">
-                        <Clock className="w-3.5 h-3.5 text-red-400" />
-                        <span>
-                          {containerResult.daysRemaining > 0
-                            ? `${containerResult.daysRemaining} days remaining until delivery in India`
-                            : containerResult.daysRemaining === 0
-                            ? 'Arriving Today at Destination Port'
-                            : `Arrived ${Math.abs(containerResult.daysRemaining)} days ago`}
-                        </span>
-                      </div>
-                    )}
-
-                    {containerResult.formattedArrivalMessage && (
-                      <p className="text-xs sm:text-sm text-slate-300 font-medium max-w-2xl mx-auto pt-2 bg-slate-800/60 p-3 rounded-xl border border-slate-700">
-                        {containerResult.formattedArrivalMessage}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Clean Notice: Full Manifest Details via Receipt Number Only */}
-                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex items-center justify-between gap-4 text-xs">
-                    <div className="flex items-center space-x-2.5 text-slate-600">
-                      <FileText className="w-4 h-4 text-red-600 flex-shrink-0" />
-                      <span>
-                        To view complete commodity, carton count, weight, volume, and warehouse details, please switch to <strong>Search by Receipt (Bill No)</strong> above.
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => {
-                        setActiveTab('receipt');
-                        setSearchQuery('');
-                        setContainerResult(null);
-                        setReceiptResult(null);
-                        window.scrollTo({ top: 300, behavior: 'smooth' });
-                      }}
-                      className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl transition whitespace-nowrap shadow-sm text-xs"
-                    >
-                      Search Receipt
-                    </button>
+                <div className="p-6 rounded-2xl bg-slate-900 text-white space-y-1 border border-slate-800">
+                  <span className="text-xs font-bold uppercase tracking-widest text-slate-400">ETA</span>
+                  <div className="text-4xl font-black font-mono text-amber-300">
+                    {containerResult.eta || 'Pending'}
                   </div>
                 </div>
               </div>
