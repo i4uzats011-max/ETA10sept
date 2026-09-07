@@ -8,8 +8,8 @@
     "start": "next start",
     "cron:7am": "node scripts/cron-7am-sync.js",
     "cloudflare:build": "opennextjs-cloudflare build --dangerouslyUseUnsupportedNextVersion",
-  "deploy": "opennextjs-cloudflare build --dangerouslyUseUnsupportedNextVersion && wrangler deploy",
-  "build:worker": "opennextjs-cloudflare build --dangerouslyUseUnsupportedNextVersion"
+    "deploy": "opennextjs-cloudflare build --dangerouslyUseUnsupportedNextVersion && wrangler deploy",
+    "build:worker": "opennextjs-cloudflare build --dangerouslyUseUnsupportedNextVersion"
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -28,6 +28,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@opennextjs/cloudflare": "^1.20.6",
     "@types/jsonwebtoken": "^9.0.7",
     "@types/node": "^20.17.12",
     "@types/react": "^18.3.18",
