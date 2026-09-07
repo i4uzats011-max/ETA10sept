@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "cron:7am": "node scripts/cron-7am-sync.js"
+    "cron:7am": "node scripts/cron-7am-sync.js",
+    "cloudflare:build": "opennextjs-cloudflare build --dangerouslyUseUnsupportedNextVersion",
+  "deploy": "opennextjs-cloudflare build --dangerouslyUseUnsupportedNextVersion && wrangler deploy"
   },
   "dependencies": {
     "clsx": "^2.1.1",
