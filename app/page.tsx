@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { fetchGraphQL } from '@/lib/graphql';
 import {
   Package,
@@ -34,6 +36,8 @@ import {
   ArrowRight,
   TrendingUp,
   Compass,
+  Printer,
+  Download,
 } from 'lucide-react';
 import { calculateDaysToDeliver } from '@/lib/dateUtils';
 
@@ -42,6 +46,128 @@ export default function PublicTrackerPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Download & Print Sanitized PDF Receipt (ZERO carrier details exposed)
+  const downloadReceiptPDF = (receiptNumber: string, shipments: any[]) => {
+    if (!shipments || shipments.length === 0) return;
+    try {
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const primary = shipments[0];
+
+      // Navy Blue Header Banner
+      doc.setFillColor(11, 25, 44);
+      doc.rect(0, 0, 210, 32, 'F');
+
+      // Title & Company Contact Info
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('US INTERNATIONAL LOGISTICS', 14, 13);
+
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.text('China to India Freight & Cargo Forwarding Solutions', 14, 19);
+      doc.text('Phone: +91 9355456060   |   Email: info@usinternationallogistics.com   |   Delhi, India', 14, 25);
+
+      // Red Accent Divider
+      doc.setFillColor(220, 38, 38);
+      doc.rect(0, 32, 210, 2, 'F');
+
+      // Document Header
+      doc.setTextColor(15, 23, 42);
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('CARGO RECEIPT & DELIVERY CONFIRMATION SLIP', 14, 43);
+
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Generated: ${new Date().toLocaleString()}   |   Total Cargo Items: ${shipments.length}`, 14, 49);
+
+      // Summary Overview Box
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(14, 53, 182, 34, 3, 3, 'FD');
+
+      doc.setTextColor(15, 23, 42);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Receipt Number:', 18, 61);
+      doc.setFont('helvetica', 'normal');
+      doc.text(String(receiptNumber || primary.receipt), 50, 61);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text('Container Alias:', 110, 61);
+      doc.setFont('helvetica', 'normal');
+      doc.text(String(primary.container || 'N/A'), 142, 61);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text('Receipt Date:', 18, 69);
+      doc.setFont('helvetica', 'normal');
+      doc.text(String(primary.date || 'N/A'), 50, 69);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text('Expected Delivery:', 110, 69);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(220, 38, 38); // Highlight ETA in Red
+      doc.text(String(primary.eta || 'Pending'), 142, 69);
+      doc.setTextColor(15, 23, 42);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text('Loading Warehouse:', 18, 77);
+      doc.setFont('helvetica', 'normal');
+      doc.text(String(primary.warehouse || 'China Warehouse'), 50, 77);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text('Delivery Warehouse:', 110, 77);
+      doc.setFont('helvetica', 'normal');
+      doc.text(String(primary.warehouseEntry || 'India Delivery Warehouse'), 142, 77);
+
+      // Manifest Table
+      const headers = ['#', 'Commodity / Description', 'Cartons (Qty)', 'Weight (KG)', 'Volume (CBM)', 'Warehouse', 'Expected ETA'];
+      const body = shipments.map((s, idx) => [
+        idx + 1,
+        s.english || s.commodity || 'General Cargo',
+        `${s.quantity || s.cartons || '0'} CTN`,
+        s.weight ? `${s.weight} KG` : 'N/A',
+        s.volume ? `${s.volume} CBM` : 'N/A',
+        s.warehouse || s.warehouseEntry || 'In Transit',
+        s.eta || 'Pending',
+      ]);
+
+      autoTable(doc, {
+        head: [headers],
+        body: body,
+        startY: 93,
+        theme: 'grid',
+        headStyles: { fillColor: [11, 25, 44], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+        styles: { fontSize: 8, cellPadding: 2.5 },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+      });
+
+      const finalY = (doc as any).lastAutoTable?.finalY || 150;
+
+      // Note & Confidentiality Disclaimer
+      doc.setFontSize(7.5);
+      doc.setTextColor(100, 116, 139);
+      doc.setFont('helvetica', 'italic');
+      doc.text(
+        'Note: Official cargo tracking slip. Expected delivery dates include standard port customs clearance turnaround.',
+        14,
+        finalY + 10
+      );
+      doc.text(
+        'For delivery inquiries or support, please contact +91 9355456060 or info@usinternationallogistics.com.',
+        14,
+        finalY + 15
+      );
+
+      doc.save(`USI_Receipt_${receiptNumber || 'Cargo'}.pdf`);
+    } catch (err: any) {
+      console.error('PDF generation error:', err);
+      alert('Unable to generate PDF: ' + (err?.message || 'Error occurred'));
+    }
+  };
 
   // Results state
   const [receiptResult, setReceiptResult] = useState<any | null>(null);
@@ -575,14 +701,24 @@ export default function PublicTrackerPage() {
         <div id="results-section" className="space-y-8">
           {activeTab === 'receipt' && receiptShipmentsList.length > 0 && (
             <section className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
-              <div className="bg-red-50 border border-red-200 p-4 rounded-2xl flex items-center justify-between text-xs font-bold text-red-950 shadow-sm">
+              <div className="bg-red-50 border border-red-200 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs font-bold text-red-950 shadow-sm">
                 <span className="flex items-center space-x-2">
                   <FileText className="w-4 h-4 text-red-600" />
-                  <span>Receipt Number: <strong className="font-mono text-sm">{receiptResult.receipt}</strong></span>
+                  <span>Receipt Number: <strong className="font-mono text-sm text-slate-950">{receiptResult.receipt}</strong></span>
                 </span>
-                <span className="bg-red-600 text-white px-3 py-1 rounded-full font-bold">
-                  Found {receiptShipmentsList.length} cargo record(s)
-                </span>
+
+                <div className="flex items-center space-x-3">
+                  <button
+                    onClick={() => downloadReceiptPDF(receiptResult.receipt, receiptShipmentsList)}
+                    className="px-4 py-2 bg-slate-900 hover:bg-red-600 text-white rounded-xl text-xs font-black transition flex items-center space-x-1.5 shadow-sm"
+                  >
+                    <Download className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Download / Print PDF Receipt</span>
+                  </button>
+                  <span className="bg-red-600 text-white px-3 py-1 rounded-full font-bold">
+                    Found {receiptShipmentsList.length} cargo record(s)
+                  </span>
+                </div>
               </div>
 
               {/* Split Cargo Shipment Notice (When Receipt spans 2 or more containers) */}
@@ -597,7 +733,7 @@ export default function PublicTrackerPage() {
                         Split Cargo Shipment: Found Across {distinctContainers.length} Containers
                       </h4>
                       <p className="text-xs text-amber-800">
-                        Goods under receipt <strong className="font-mono">{receiptResult.receipt}</strong> are distributed across multiple ocean containers. Each container has separate arrival tracking below:
+                        Goods under receipt <strong className="font-mono">{receiptResult.receipt}</strong> are loaded across multiple containers. Each container delivery date is detailed below:
                       </p>
                     </div>
                   </div>
@@ -616,16 +752,16 @@ export default function PublicTrackerPage() {
                               {containerName}
                             </span>
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 uppercase">
-                              {primary?.status || 'In Transit'}
+                              Scheduled Delivery
                             </span>
                           </div>
                           <div className="text-xs space-y-1 text-slate-600">
                             <div className="flex items-center justify-between">
-                              <span className="text-[11px] text-slate-500 font-medium">ETA Arrival:</span>
-                              <strong className="text-slate-900 font-mono text-xs">{primary?.eta || 'Pending'}</strong>
+                              <span className="text-[11px] text-slate-500 font-medium">Expected Delivery:</span>
+                              <strong className="text-red-700 font-mono text-xs">{primary?.eta || 'Pending'}</strong>
                             </div>
                             <div className="flex items-center justify-between">
-                              <span className="text-[11px] text-slate-500 font-medium">Cargo In Ctr:</span>
+                              <span className="text-[11px] text-slate-500 font-medium">Cargo Items:</span>
                               <span className="font-bold text-slate-800">{containerItems.length} package(s)</span>
                             </div>
                           </div>
@@ -643,14 +779,14 @@ export default function PublicTrackerPage() {
                 return (
                 <div key={item.id || idx} className="bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden space-y-6 animate-fadeIn">
                   {/* Header Banner */}
-                  <div className="bg-gradient-to-r from-slate-900 to-slate-950 p-6 text-white flex flex-wrap items-center justify-between gap-4 border-b border-slate-800">
+                  <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 p-6 text-white flex flex-wrap items-center justify-between gap-4 border-b border-slate-800">
                     <div>
                       <span className="text-xs uppercase font-bold text-red-400 tracking-wider">Cargo Item #{idx + 1} • Receipt {item.receipt}</span>
                       <h3 className="text-2xl font-black font-mono tracking-tight mt-0.5 text-white">{item.receipt}</h3>
                       <p className="text-xs text-slate-300 mt-1 flex flex-wrap items-center gap-2">
                         <span className="flex items-center space-x-1.5">
                           <Box className="w-4 h-4 text-amber-400" />
-                          <span>Container Alias:</span>
+                          <span>Container:</span>
                         </span>
                         <strong className="text-amber-300 font-mono bg-slate-800 px-2.5 py-0.5 rounded text-xs border border-amber-500/40">
                           {item.container}
@@ -662,11 +798,21 @@ export default function PublicTrackerPage() {
                         )}
                       </p>
                     </div>
-                    <div className="flex flex-col items-end">
-                      <span className="text-[11px] text-slate-400 mb-1 font-semibold uppercase">Status</span>
-                      <span className="px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-red-600 text-white shadow-md shadow-red-600/30">
-                        {item.status || 'In Transit'}
-                      </span>
+
+                    <div className="flex items-center space-x-3">
+                      <button
+                        onClick={() => downloadReceiptPDF(item.receipt, [item])}
+                        className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-red-600 text-white text-xs font-bold transition flex items-center space-x-1.5 border border-slate-700 shadow-sm"
+                      >
+                        <Printer className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Print PDF Slip</span>
+                      </button>
+                      <div className="flex flex-col items-end">
+                        <span className="text-[11px] text-slate-400 mb-0.5 font-semibold uppercase">Status</span>
+                        <span className="px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-red-600 text-white shadow-md shadow-red-600/30">
+                          {item.status || 'In Transit'}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -705,39 +851,47 @@ export default function PublicTrackerPage() {
                       </div>
                     )}
 
-                    {/* Quantity & Packaging */}
+                    {/* Quantity - Kitne Carton Hain / Packets */}
                     <div className="bg-slate-50 p-4.5 rounded-2xl border border-slate-200 flex items-center space-x-3">
                       <div className="p-3 bg-red-100 text-red-600 rounded-xl">
                         <Package className="w-5 h-5" />
                       </div>
                       <div>
-                        <span className="text-xs font-bold text-slate-500 uppercase">Quantity</span>
-                        <p className="text-lg font-bold text-slate-900">{item.quantity || '0'}</p>
-                        {item.packaging && (
-                          <span className="text-xs text-slate-500 font-medium">Pkg: {item.packaging}</span>
-                        )}
+                        <span className="text-xs font-bold text-slate-500 uppercase">Cartons / Packets (Qty)</span>
+                        <p className="text-xl font-black text-slate-950">
+                          {item.quantity || item.cartons || '0'} Cartons
+                        </p>
+                        <span className="text-xs text-slate-500 font-semibold">
+                          ({item.packaging || 'Cartons / Packets'})
+                        </span>
                       </div>
                     </div>
 
-                    {/* Weight */}
+                    {/* Weight in KG */}
                     <div className="bg-slate-50 p-4.5 rounded-2xl border border-slate-200 flex items-center space-x-3">
                       <div className="p-3 bg-amber-100 text-amber-600 rounded-xl">
                         <Weight className="w-5 h-5" />
                       </div>
                       <div>
-                        <span className="text-xs font-bold text-slate-500 uppercase">Weight</span>
-                        <p className="text-lg font-bold text-slate-900">{item.weight || 'N/A'}</p>
+                        <span className="text-xs font-bold text-slate-500 uppercase">Gross Weight</span>
+                        <p className="text-xl font-black text-slate-950">
+                          {item.weight || 'N/A'} {item.weight && !String(item.weight).toLowerCase().includes('kg') ? 'KG' : ''}
+                        </p>
+                        <span className="text-xs text-slate-400 font-medium">Actual weight</span>
                       </div>
                     </div>
 
-                    {/* Volume */}
+                    {/* Volume in CBM */}
                     <div className="bg-slate-50 p-4.5 rounded-2xl border border-slate-200 flex items-center space-x-3">
                       <div className="p-3 bg-indigo-100 text-indigo-600 rounded-xl">
                         <Layers className="w-5 h-5" />
                       </div>
                       <div>
-                        <span className="text-xs font-bold text-slate-500 uppercase">Volume</span>
-                        <p className="text-lg font-bold text-slate-900">{item.volume || 'N/A'}</p>
+                        <span className="text-xs font-bold text-slate-500 uppercase">Volume (CBM)</span>
+                        <p className="text-xl font-black text-slate-950">
+                          {item.volume || 'N/A'} {item.volume && !String(item.volume).toLowerCase().includes('cbm') ? 'CBM' : ''}
+                        </p>
+                        <span className="text-xs text-slate-400 font-medium">Cubic meters</span>
                       </div>
                     </div>
 
@@ -748,18 +902,20 @@ export default function PublicTrackerPage() {
                       </div>
                       <div>
                         <span className="text-xs font-bold text-slate-500 uppercase">Receipt Date</span>
-                        <p className="text-base font-bold text-slate-900">{item.date || 'N/A'}</p>
+                        <p className="text-base font-black text-slate-900">{item.date || 'N/A'}</p>
+                        <span className="text-xs text-slate-400 font-medium">Booking confirmation</span>
                       </div>
                     </div>
 
-                    {/* ETA Arrival Date */}
-                    <div className="bg-slate-50 p-4.5 rounded-2xl border border-slate-200 flex items-center space-x-3">
-                      <div className="p-3 bg-rose-100 text-rose-600 rounded-xl">
+                    {/* ETA Arrival Date - Kab Milega */}
+                    <div className="bg-slate-50 p-4.5 rounded-2xl border-2 border-red-500/40 flex items-center space-x-3 bg-red-50/20">
+                      <div className="p-3 bg-red-100 text-red-600 rounded-xl">
                         <Clock className="w-5 h-5" />
                       </div>
                       <div>
-                        <span className="text-xs font-bold text-slate-500 uppercase">ETA Arrival Date</span>
-                        <p className="text-base font-bold text-slate-900">{item.eta || 'N/A'}</p>
+                        <span className="text-xs font-bold text-red-600 uppercase">Expected Delivery Date (ETA)</span>
+                        <p className="text-xl font-black text-red-700 font-mono">{item.eta || 'Pending'}</p>
+                        <span className="text-xs text-slate-500 font-medium">Container arrival date</span>
                       </div>
                     </div>
 
@@ -770,7 +926,7 @@ export default function PublicTrackerPage() {
                       </div>
                       <div>
                         <span className="text-xs font-bold text-slate-500 uppercase">Days to Deliver</span>
-                        <p className="text-base font-bold text-slate-900">
+                        <p className="text-base font-black text-slate-900">
                           {daysToDeliver !== null ? `${daysToDeliver} days` : 'Calculating...'}
                         </p>
                         {isLate && (
@@ -781,17 +937,27 @@ export default function PublicTrackerPage() {
                       </div>
                     </div>
 
-                    {/* Warehouse Entry & Warehouse Name */}
+                    {/* Loading Warehouse (Kis warehouse se chala hai) */}
                     <div className="bg-slate-50 p-4.5 rounded-2xl border border-slate-200 flex items-center space-x-3">
                       <div className="p-3 bg-emerald-100 text-emerald-600 rounded-xl">
                         <MapPin className="w-5 h-5" />
                       </div>
                       <div>
-                        <span className="text-xs font-bold text-slate-500 uppercase">Warehouse Entry</span>
-                        <p className="text-base font-bold text-slate-900">{item.warehouseEntry || 'N/A'}</p>
-                        {item.warehouse && (
-                          <span className="text-xs text-slate-500 font-medium">{item.warehouse}</span>
-                        )}
+                        <span className="text-xs font-bold text-slate-500 uppercase">Loading Warehouse</span>
+                        <p className="text-base font-black text-slate-900">{item.warehouse || 'China Warehouse'}</p>
+                        <span className="text-xs text-slate-500 font-medium">Dispatched from warehouse</span>
+                      </div>
+                    </div>
+
+                    {/* Receiving Warehouse / Warehouse Entry (Kis warehouse mein hai) */}
+                    <div className="bg-slate-50 p-4.5 rounded-2xl border border-slate-200 flex items-center space-x-3">
+                      <div className="p-3 bg-teal-100 text-teal-600 rounded-xl">
+                        <Truck className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-slate-500 uppercase">Warehouse Entry / Destination</span>
+                        <p className="text-base font-black text-slate-900">{item.warehouseEntry || 'India Delivery Warehouse'}</p>
+                        <span className="text-xs text-slate-500 font-medium">CFS / Entry destination</span>
                       </div>
                     </div>
 
@@ -814,126 +980,42 @@ export default function PublicTrackerPage() {
             </section>
           )}
 
-          {/* 6. Container Search Results (Professional Route Journey Dashboard) */}
+          {/* 6. Container Search Results (Clean Delivery Schedule - ZERO carrier internals exposed) */}
           {activeTab === 'container' && containerResult && (
             <section className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
               <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-fadeIn space-y-6">
-                {/* Header Banner */}
+                {/* Clean Header Banner */}
                 <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 p-6 sm:p-8 text-white border-b border-slate-800 flex flex-wrap items-center justify-between gap-4">
                   <div className="space-y-1">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-xs uppercase font-bold text-red-400 tracking-wider flex items-center gap-1.5">
-                        <Ship className="w-4 h-4 text-red-500" />
-                        <span>Ocean Container Vessel Tracking</span>
-                      </span>
-                    </div>
+                    <span className="text-xs uppercase font-bold text-red-400 tracking-wider flex items-center gap-1.5">
+                      <Box className="w-4 h-4 text-red-500" />
+                      <span>Container Delivery Schedule</span>
+                    </span>
                     <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center space-x-3">
                       <span>Container:</span>
                       <span className="font-mono text-amber-300 bg-slate-800 px-3 py-1 rounded-xl border border-amber-500/30">
                         {containerResult.container}
                       </span>
                     </h2>
-                    {(containerResult.vesselName || containerResult.voyageNumber) && (
-                      <p className="text-xs text-slate-300 flex items-center space-x-2 pt-1">
-                        <span className="text-slate-400 font-medium">Carrier Vessel:</span>
-                        <strong className="text-white font-mono">{containerResult.vesselName || 'Ocean Vessel'}</strong>
-                        {containerResult.voyageNumber && (
-                          <span className="text-slate-400 font-mono">/ Voy: {containerResult.voyageNumber}</span>
-                        )}
-                      </p>
-                    )}
                   </div>
 
                   <div className="flex flex-col items-start sm:items-end space-y-1.5">
-                    <span className="text-[11px] text-slate-400 uppercase font-semibold">Live Transit Status</span>
-                    <span className="px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-wider bg-red-600 text-white shadow-lg shadow-red-600/30 flex items-center space-x-2">
-                      <span className="w-2 h-2 rounded-full bg-white animate-ping"></span>
-                      <span>{containerResult.status || 'In Transit'}</span>
+                    <span className="text-[11px] text-slate-400 uppercase font-semibold">Delivery Status</span>
+                    <span className="px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-wider bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 flex items-center space-x-2">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+                      <span>Scheduled for Delivery</span>
                     </span>
                   </div>
                 </div>
 
-                {/* Route Journey Visualizer (Departure -> High Seas -> Arrival) */}
                 <div className="p-6 sm:p-8 space-y-6">
-                  <div className="bg-slate-50 border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-6">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-black uppercase tracking-wider text-slate-500 flex items-center space-x-2">
-                        <Compass className="w-4 h-4 text-red-600" />
-                        <span>Route Journey Progression</span>
-                      </h4>
-                      <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-                        Active Voyage
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 relative">
-                      {/* Step 1: Origin Port */}
-                      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-2 relative">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-black uppercase text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                            Origin Port
-                          </span>
-                          <Anchor className="w-4 h-4 text-emerald-600" />
-                        </div>
-                        <h5 className="font-extrabold text-base text-slate-900 leading-snug">
-                          {containerResult.shippedFrom || 'Ningbo / Shanghai, China'}
-                        </h5>
-                        <div className="text-xs text-slate-500 space-y-0.5">
-                          <span className="block font-medium">Departure Date:</span>
-                          <strong className="text-slate-800 font-mono text-xs">
-                            {containerResult.startDate || 'Departed Origin Port'}
-                          </strong>
-                        </div>
-                      </div>
-
-                      {/* Step 2: Current Location */}
-                      <div className="bg-white p-5 rounded-2xl border-2 border-red-500/40 shadow-sm space-y-2 relative">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-black uppercase text-red-600 bg-red-50 px-2 py-0.5 rounded border border-red-200 flex items-center space-x-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-ping"></span>
-                            <span>Current Position</span>
-                          </span>
-                          <Ship className="w-4 h-4 text-red-600" />
-                        </div>
-                        <h5 className="font-extrabold text-base text-slate-900 leading-snug">
-                          {containerResult.currentLocation || 'In Transit (High Seas)'}
-                        </h5>
-                        <div className="text-xs text-slate-500 space-y-0.5">
-                          <span className="block font-medium">Vessel Movement:</span>
-                          <strong className="text-red-700 font-semibold text-xs">
-                            En Route to India
-                          </strong>
-                        </div>
-                      </div>
-
-                      {/* Step 3: Destination Port */}
-                      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-2 relative">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-black uppercase text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                            Destination Port
-                          </span>
-                          <MapPin className="w-4 h-4 text-amber-600" />
-                        </div>
-                        <h5 className="font-extrabold text-base text-slate-900 leading-snug">
-                          {containerResult.shippedTo || 'Nhava Sheva / Mundra, India'}
-                        </h5>
-                        <div className="text-xs text-slate-500 space-y-0.5">
-                          <span className="block font-medium">Scheduled ETA:</span>
-                          <strong className="text-slate-900 font-mono text-xs">
-                            {containerResult.destinationDate || containerResult.eta || 'Pending'}
-                          </strong>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Big ETA Countdown Card */}
-                  <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white shadow-xl space-y-4 border border-slate-800 text-center">
+                  {/* Prominent Expected Delivery Date Card (Itne tareekh ko container mil jayega) */}
+                  <div className="p-8 rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white shadow-xl space-y-4 border border-slate-800 text-center">
                     <span className="text-xs font-black uppercase tracking-widest text-slate-400 block">
-                      ESTIMATED TIME OF ARRIVAL (ETA)
+                      EXPECTED DATE CONTAINER WILL BE DELIVERED
                     </span>
-                    <div className="text-4xl sm:text-5xl font-black font-mono tracking-tight text-amber-300">
-                      {containerResult.eta || containerResult.destinationDate || 'N/A'}
+                    <div className="text-4xl sm:text-6xl font-black font-mono tracking-tight text-amber-300">
+                      {containerResult.expectedDeliveryDate || containerResult.destinationDate || containerResult.eta || 'Pending'}
                     </div>
 
                     {containerResult.daysRemaining !== null && containerResult.daysRemaining !== undefined && (
@@ -941,7 +1023,7 @@ export default function PublicTrackerPage() {
                         <Clock className="w-3.5 h-3.5 text-red-400" />
                         <span>
                           {containerResult.daysRemaining > 0
-                            ? `${containerResult.daysRemaining} days remaining until delivery`
+                            ? `${containerResult.daysRemaining} days remaining until delivery in India`
                             : containerResult.daysRemaining === 0
                             ? 'Arriving Today at Destination Port'
                             : `Arrived ${Math.abs(containerResult.daysRemaining)} days ago`}
@@ -950,31 +1032,32 @@ export default function PublicTrackerPage() {
                     )}
 
                     {containerResult.formattedArrivalMessage && (
-                      <p className="text-xs sm:text-sm text-slate-300 font-medium max-w-2xl mx-auto pt-1">
+                      <p className="text-xs sm:text-sm text-slate-300 font-medium max-w-2xl mx-auto pt-2 bg-slate-800/60 p-3 rounded-xl border border-slate-700">
                         {containerResult.formattedArrivalMessage}
                       </p>
                     )}
                   </div>
 
-                  {/* Associated Cargo Packages Table (If cargo is attached to this container) */}
+                  {/* Associated Cargo Packages In Container */}
                   {containerResult.shipments && containerResult.shipments.length > 0 && (
                     <div className="bg-slate-50 rounded-2xl border border-slate-200 p-5 space-y-3">
                       <div className="flex items-center justify-between">
-                        <h5 className="text-xs font-black uppercase text-slate-600 tracking-wider flex items-center space-x-2">
-                          <Box className="w-4 h-4 text-slate-500" />
+                        <h5 className="text-xs font-black uppercase text-slate-700 tracking-wider flex items-center space-x-2">
+                          <Package className="w-4 h-4 text-red-600" />
                           <span>Cargo Packages In Container ({containerResult.shipments.length})</span>
                         </h5>
-                        <span className="text-[11px] font-bold text-slate-500">English Commodity Names</span>
+                        <span className="text-[11px] font-bold text-slate-500">English Commodity Manifest</span>
                       </div>
                       <div className="overflow-x-auto">
                         <table className="w-full text-left text-xs border-collapse">
                           <thead>
                             <tr className="border-b border-slate-200 text-slate-500 font-bold uppercase text-[10px]">
-                              <th className="py-2 px-3">Receipt No</th>
-                              <th className="py-2 px-3">Commodity (English)</th>
-                              <th className="py-2 px-3">Qty</th>
-                              <th className="py-2 px-3">Weight</th>
-                              <th className="py-2 px-3">Status</th>
+                              <th className="py-2.5 px-3">Receipt No</th>
+                              <th className="py-2.5 px-3">Commodity (English)</th>
+                              <th className="py-2.5 px-3">Cartons (Qty)</th>
+                              <th className="py-2.5 px-3">Weight</th>
+                              <th className="py-2.5 px-3">Volume</th>
+                              <th className="py-2.5 px-3">Warehouse</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-200">
@@ -982,13 +1065,10 @@ export default function PublicTrackerPage() {
                               <tr key={s.id || idx} className="hover:bg-white transition">
                                 <td className="py-2.5 px-3 font-mono font-bold text-slate-900">{s.receipt}</td>
                                 <td className="py-2.5 px-3 font-medium text-slate-800">{s.english || s.commodity || 'General Cargo'}</td>
-                                <td className="py-2.5 px-3 font-semibold text-slate-700">{s.quantity || '0'}</td>
+                                <td className="py-2.5 px-3 font-bold text-slate-900">{s.quantity || '0'} Cartons</td>
                                 <td className="py-2.5 px-3 text-slate-600">{s.weight || 'N/A'}</td>
-                                <td className="py-2.5 px-3">
-                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-red-50 text-red-700 border border-red-200">
-                                    {s.status || 'In Transit'}
-                                  </span>
-                                </td>
+                                <td className="py-2.5 px-3 text-slate-600">{s.volume || 'N/A'}</td>
+                                <td className="py-2.5 px-3 text-slate-600">{s.warehouse || s.warehouseEntry || 'Origin'}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -1054,32 +1134,32 @@ export default function PublicTrackerPage() {
                     key={c.container}
                     className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm hover:shadow-xl hover:border-red-300 transition duration-300 flex flex-col justify-between space-y-5 group"
                   >
-                    {/* Top Row: Container Alias & Status */}
+                    {/* Top Row: Container Alias & Delivery Status */}
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Container Alias</span>
                         <h3 className="text-xl font-black font-mono text-slate-950 group-hover:text-red-600 transition flex items-center space-x-2">
                           <span>{c.container}</span>
                         </h3>
-                        {c.vesselName && (
-                          <p className="text-[11px] text-slate-500 font-mono mt-0.5">
-                            {c.vesselName} {c.voyageNumber ? `• ${c.voyageNumber}` : ''}
+                        {c.shipmentCount > 0 && (
+                          <p className="text-[11px] text-slate-500 font-bold mt-0.5">
+                            {c.shipmentCount} Cargo Package(s) Loaded
                           </p>
                         )}
                       </div>
 
-                      <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-50 text-red-700 border border-red-200">
-                        {c.status || 'In Transit'}
+                      <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        Scheduled Delivery
                       </span>
                     </div>
 
-                    {/* Route Journey Visual */}
+                    {/* Route Progression Box */}
                     <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/80 space-y-3">
                       {/* Origin */}
                       <div className="flex items-center space-x-2.5">
                         <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 flex-shrink-0"></div>
                         <div className="flex-1 min-w-0">
-                          <span className="text-[10px] font-bold uppercase text-slate-400 block">Start Location</span>
+                          <span className="text-[10px] font-bold uppercase text-slate-400 block">Origin Location</span>
                           <p className="text-xs font-bold text-slate-800 truncate">{c.shippedFrom || 'Ningbo / Shanghai, China'}</p>
                           {c.startDate && (
                             <span className="text-[10px] font-mono text-slate-500">Departure: {c.startDate}</span>
@@ -1087,11 +1167,11 @@ export default function PublicTrackerPage() {
                         </div>
                       </div>
 
-                      {/* Current Location / In-transit line */}
+                      {/* Delivery Date Highlight */}
                       <div className="pl-1 border-l-2 border-dashed border-red-300 ml-1 py-1">
                         <div className="flex items-center space-x-1.5 text-[11px] font-bold text-red-600 pl-2">
-                          <Ship className="w-3.5 h-3.5" />
-                          <span className="truncate">{c.currentLocation || 'In High Seas Transit'}</span>
+                          <Clock className="w-3.5 h-3.5" />
+                          <span className="truncate">Expected Delivery: {c.destinationDate || c.eta || 'Pending'}</span>
                         </div>
                       </div>
 
@@ -1099,7 +1179,7 @@ export default function PublicTrackerPage() {
                       <div className="flex items-center space-x-2.5">
                         <div className="w-2.5 h-2.5 rounded-full bg-red-600 flex-shrink-0"></div>
                         <div className="flex-1 min-w-0">
-                          <span className="text-[10px] font-bold uppercase text-slate-400 block">Destination Port</span>
+                          <span className="text-[10px] font-bold uppercase text-slate-400 block">Destination Port / CFS</span>
                           <p className="text-xs font-bold text-slate-800 truncate">{c.shippedTo || 'Nhava Sheva / Mundra, India'}</p>
                           {(c.destinationDate || c.eta) && (
                             <span className="text-[10px] font-mono text-slate-500">ETA: {c.destinationDate || c.eta}</span>
@@ -1111,7 +1191,7 @@ export default function PublicTrackerPage() {
                     {/* Footer: Days Remaining & Action Button */}
                     <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-3">
                       <div>
-                        <span className="text-[10px] font-bold uppercase text-slate-400 block">Arrival Timing</span>
+                        <span className="text-[10px] font-bold uppercase text-slate-400 block">Delivery Timing</span>
                         <span className={`text-xs font-black ${
                           isArrived ? 'text-slate-500' : isToday ? 'text-emerald-600 font-extrabold' : 'text-amber-600'
                         }`}>
@@ -1127,7 +1207,7 @@ export default function PublicTrackerPage() {
                         onClick={() => trackContainerDirectly(c.container)}
                         className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-red-600 text-white font-bold text-xs transition shadow-sm flex items-center space-x-1.5 group-hover:bg-red-600"
                       >
-                        <span>Track Container</span>
+                        <span>View Delivery Date</span>
                         <ArrowRight className="w-3.5 h-3.5" />
                       </button>
                     </div>

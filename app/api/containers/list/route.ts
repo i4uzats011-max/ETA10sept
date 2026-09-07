@@ -95,27 +95,27 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 3. Format clean public output list
+    // 3. Format clean output list with strict privacy enforcement for public visitors
     const containers = Array.from(containerMap.values()).map((c) => {
       const destinationDate = c.destinationDate || c.eta || '';
       const daysRemaining = calculateDaysRemaining(destinationDate);
 
       return {
         container: c.container, // Public alias (e.g. "USI-01")
-        containerNumber: c.containerNumber || undefined,
-        shippingLine: c.shippingLine || 'MSC', // Shipping Line / Company Name
+        containerNumber: isStaffOrAdmin ? c.containerNumber : undefined,
+        shippingLine: isStaffOrAdmin ? (c.shippingLine || 'MSC') : undefined,
         shippedFrom: c.shippedFrom || 'Ningbo / Shanghai, China',
         shippedTo: c.shippedTo || 'Nhava Sheva / Mundra, India',
-        currentLocation: c.currentLocation || c.status || 'In Transit',
+        currentLocation: isStaffOrAdmin ? (c.currentLocation || c.status || 'In Transit') : 'Scheduled Delivery',
         startDate: c.startDate || '',
         destinationDate: destinationDate,
         eta: c.eta || 'N/A',
-        status: c.status || 'In Transit',
+        status: isStaffOrAdmin ? (c.status || 'In Transit') : 'In Transit',
         daysRemaining: daysRemaining,
-        vesselName: c.vesselName || '',
-        voyageNumber: c.voyageNumber || '',
+        vesselName: isStaffOrAdmin ? (c.vesselName || '') : undefined,
+        voyageNumber: isStaffOrAdmin ? (c.voyageNumber || '') : undefined,
         shipmentCount: c.shipmentCount || 0,
-        lastApiSync: c.lastApiSync ? new Date(c.lastApiSync).toISOString() : null,
+        lastApiSync: isStaffOrAdmin ? (c.lastApiSync ? new Date(c.lastApiSync).toISOString() : null) : undefined,
       };
     });
 

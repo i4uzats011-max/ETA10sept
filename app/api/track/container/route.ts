@@ -70,23 +70,37 @@ export async function GET(req: NextRequest) {
       message = `${containerAlias} ETA status is currently unconfirmed or pending.`;
     }
 
-    // STRICT DATA MASKING: Return ONLY public alias, route details, and timing.
-    // NO actual containerNumber (e.g. MSCU...) is ever exposed!
+    // Fetch all cargo packages assigned to this container alias
+    const allShipments: any[] = await Shipment.find({
+      container: { $regex: normalizedRegex },
+    }).sort({ uploadedAt: -1 }).lean();
+
+    const publicShipments = allShipments.map((s) => ({
+      id: s._id,
+      receipt: s.receipt,
+      english: s.english || s.commodity || 'General Cargo',
+      commodity: s.commodity || s.english || 'General Cargo',
+      quantity: s.quantity || '0',
+      weight: s.weight || 'N/A',
+      volume: s.volume || 'N/A',
+      warehouse: s.warehouse || 'China Warehouse',
+      warehouseEntry: s.warehouseEntry || 'India Delivery Warehouse',
+      date: s.date || 'N/A',
+    }));
+
+    // STRICT DATA PRIVACY: Return ONLY public alias, confirmed delivery ETA date, message, and cargo list.
+    // ZERO JSONCargo API calls are made here (strictly local MongoDB read).
+    // NO actual containerNumber (e.g. MSCU...), shippingLine, vessel, voyage, or raw carrier data is ever exposed!
     return NextResponse.json({
       success: true,
       container: containerAlias,
-      eta: etaStr,
-      status: status,
-      shippedFrom: shipment.shippedFrom || 'Ningbo / Shanghai, China',
-      shippedTo: shipment.shippedTo || 'Nhava Sheva / Mundra, India',
-      currentLocation: shipment.currentLocation || shipment.status || 'In Transit',
-      startDate: shipment.startDate || '',
-      destinationDate: shipment.destinationDate || etaStr || '',
-      vesselName: shipment.vesselName || '',
-      voyageNumber: shipment.voyageNumber || '',
-      lastApiSync: shipment.lastApiSync ? new Date(shipment.lastApiSync).toISOString() : null,
+      eta: etaStr || 'N/A',
+      destinationDate: shipment.destinationDate || etaStr || 'N/A',
+      expectedDeliveryDate: formattedDate || etaStr || 'Pending',
       formattedArrivalMessage: message,
       daysRemaining,
+      shipmentCount: publicShipments.length,
+      shipments: publicShipments,
     });
   } catch (error: any) {
     return NextResponse.json(

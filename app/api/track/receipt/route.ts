@@ -37,6 +37,8 @@ export async function GET(req: NextRequest) {
       chinese: translateToEnglish(shipment.chinese || shipment.commodity || shipment.english),
       commodity: translateToEnglish(shipment.commodity || shipment.english || shipment.chinese),
       quantity: shipment.quantity || '0',
+      cartons: shipment.quantity || '0', // Explicit cartons count alias
+      packets: shipment.quantity || '0', // Explicit packets count alias
       weight: shipment.weight || 'N/A',
       volume: shipment.volume || 'N/A',
       date: shipment.date || 'N/A',
@@ -48,6 +50,7 @@ export async function GET(req: NextRequest) {
       subMarka: shipment.subMarka || '',
       status: shipment.status || 'Pending',
       eta: shipment.eta || 'N/A',
+      expectedDeliveryDate: shipment.eta || 'N/A',
     }));
 
     return NextResponse.json({
