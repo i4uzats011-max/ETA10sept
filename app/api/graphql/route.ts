@@ -3,6 +3,7 @@ import { buildSchema, graphql } from 'graphql';
 import { connectToDatabase } from '@/lib/mongodb';
 import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
+import WarehouseReceipt from '@/models/WarehouseReceipt';
 import { isAdminAuthenticated } from '@/lib/auth';
 import { fetchContainerTracking, fetchApiKeyStats, addFilingBufferDays } from '@/lib/jsoncargo';
 import { translateToEnglish } from '@/lib/translate';
@@ -37,7 +38,71 @@ const schema = buildSchema(`
     subMarka: String
     mainMarka: String
     date: String
+    isSplit: Boolean
+    splitIndex: Int
+    originalTotalQuantity: String
     uploadedAt: String
+  }
+
+  type WarehouseReceipt {
+    id: ID!
+    receipt: String!
+    warehouse: String!
+    warehouseEntry: String
+    date: String
+    quantity: Int!
+    loadedQuantity: Int!
+    remainingQuantity: Int!
+    weight: String
+    volume: String
+    commodity: String
+    chinese: String
+    english: String
+    packaging: String
+    mainMarka: String
+    subMarka: String
+    status: String!
+    stockstatus: String
+    uploadedAt: String
+  }
+
+  type LoadingItem {
+    id: ID!
+    receipt: String!
+    container: String!
+    containerNumber: String
+    shippingLine: String
+    quantity: String!
+    originalTotalQuantity: String
+    isSplit: Boolean
+    splitIndex: Int
+    weight: String
+    volume: String
+    commodity: String
+    english: String
+    chinese: String
+    warehouse: String
+    date: String
+    eta: String
+    status: String
+  }
+
+  type LoadingPlan {
+    id: ID!
+    container: String!
+    containerNumber: String
+    shippingLine: String
+    warehouse: String
+    planStatus: String!
+    isFinalized: Boolean!
+    finalizedAt: String
+    allottedActualAt: String
+    eta: String
+    destinationDate: String
+    status: String
+    totalQuantity: Int
+    shipmentCount: Int
+    items: [LoadingItem!]
   }
 
   type ContainerArrival {
@@ -61,6 +126,8 @@ const schema = buildSchema(`
     success: Boolean!
     count: Int!
     receipt: String!
+    isSplit: Boolean
+    warehouseReceipt: WarehouseReceipt
     shipments: [Shipment!]!
   }
 
@@ -82,10 +149,18 @@ const schema = buildSchema(`
     trackByReceipt(receipt: String!): ReceiptSearchResult!
     trackByContainer(container: String!): ContainerArrival!
     shipments(search: String): [Shipment!]!
+    warehouseReceipts(warehouse: String, status: String, search: String): [WarehouseReceipt!]!
+    warehouseReceipt(receipt: String!): WarehouseReceipt
+    loadingPlans(status: String): [LoadingPlan!]!
+    loadingPlan(container: String!): LoadingPlan
     apiKeyStats: ApiKeyStats!
   }
 
   type Mutation {
+    createLoadingPlan(container: String!, warehouse: String, notes: String): MutationResult!
+    splitAndLoadReceipt(receipt: String!, container: String!, quantityToLoad: Int!, weightToLoad: String, volumeToLoad: String): MutationResult!
+    allotActualContainer(container: String!, containerNumber: String!, shippingLine: String!, autoSync: Boolean): MutationResult!
+    finalizeLoadingPlan(container: String!, containerNumber: String, shippingLine: String): MutationResult!
     updateContainerMapping(container: String!, containerNumber: String!, shippingLine: String!): MutationResult!
     updateManualEta(container: String!, manualEta: String!, status: String, applyFilingBuffer: Boolean): MutationResult!
   }
@@ -110,8 +185,52 @@ function createRootResolver(req: NextRequest) {
         rawShipments = await Shipment.find({ receipt: regex }).sort({ uploadedAt: -1 }).lean();
       }
 
-      if (!rawShipments || rawShipments.length === 0) {
+      // Check if goods exist in China Warehouse Inward Stock
+      const whItem: any = await WarehouseReceipt.findOne({
+        receipt: new RegExp(`^${cleanQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+      }).lean();
+
+      if ((!rawShipments || rawShipments.length === 0) && !whItem) {
         throw new Error(`No cargo record found for receipt number '${cleanQuery}'`);
+      }
+
+      const formattedWhReceipt = whItem
+        ? {
+            id: String(whItem._id),
+            receipt: whItem.receipt,
+            warehouse: whItem.warehouse,
+            warehouseEntry: whItem.warehouseEntry || 'N/A',
+            date: whItem.date || 'N/A',
+            quantity: whItem.quantity || 0,
+            loadedQuantity: whItem.loadedQuantity || 0,
+            remainingQuantity:
+              whItem.remainingQuantity !== undefined
+                ? whItem.remainingQuantity
+                : whItem.quantity - (whItem.loadedQuantity || 0),
+            weight: whItem.weight || 'N/A',
+            volume: whItem.volume || 'N/A',
+            commodity: translateToEnglish(whItem.commodity || whItem.chinese || whItem.english),
+            chinese: translateToEnglish(whItem.chinese || whItem.commodity || whItem.english),
+            english: translateToEnglish(whItem.english || whItem.commodity || whItem.chinese),
+            packaging: whItem.packaging || 'N/A',
+            mainMarka: whItem.mainMarka || '',
+            subMarka: whItem.subMarka || '',
+            status: whItem.status || 'Received',
+            stockstatus: whItem.stockstatus || 'In Stock',
+            uploadedAt: whItem.uploadedAt ? new Date(whItem.uploadedAt).toISOString() : null,
+          }
+        : null;
+
+      // If goods are received in China warehouse but not yet allocated into any container
+      if (!rawShipments || rawShipments.length === 0) {
+        return {
+          success: true,
+          count: 0,
+          receipt: cleanQuery,
+          isSplit: false,
+          warehouseReceipt: formattedWhReceipt,
+          shipments: [],
+        };
       }
 
       // Collect all container aliases to resolve confirmed ETA from Container fleet
@@ -124,7 +243,7 @@ function createRootResolver(req: NextRequest) {
 
       const containerEtaMap = new Map<string, string>();
       containerDocs.forEach((c: any) => {
-        const eta = (c.destinationDate && c.destinationDate !== 'N/A') ? c.destinationDate : c.eta;
+        const eta = c.destinationDate && c.destinationDate !== 'N/A' ? c.destinationDate : c.eta;
         if (eta && eta !== 'N/A' && eta !== 'Pending') {
           containerEtaMap.set(c.container.toLowerCase().trim(), eta);
         }
@@ -134,14 +253,15 @@ function createRootResolver(req: NextRequest) {
       const publicCargo = rawShipments.map((s) => {
         const cClean = (s.container || '').toLowerCase().trim();
         const directEta = containerEtaMap.get(cClean);
-        const fallbackDoc = containerDocs.find((cd: any) =>
-          cd.container.toLowerCase().replace(/[-\s]/g, '') === cClean.replace(/[-\s]/g, '')
+        const fallbackDoc = containerDocs.find(
+          (cd: any) => cd.container.toLowerCase().replace(/[-\s]/g, '') === cClean.replace(/[-\s]/g, '')
         );
         const containerEta = directEta || fallbackDoc?.destinationDate || fallbackDoc?.eta || '';
 
-        const resolvedEta = (s.eta && s.eta !== 'N/A' && s.eta !== 'Pending')
-          ? s.eta
-          : (containerEta || s.eta || 'Pending');
+        const resolvedEta =
+          s.eta && s.eta !== 'N/A' && s.eta !== 'Pending'
+            ? s.eta
+            : containerEta || s.eta || 'Pending';
 
         // Async backfill if shipment was missing ETA
         if ((!s.eta || s.eta === 'N/A' || s.eta === 'Pending') && resolvedEta && resolvedEta !== 'Pending') {
@@ -180,6 +300,9 @@ function createRootResolver(req: NextRequest) {
           subMarka: s.subMarka || '',
           mainMarka: s.mainMarka || '',
           date: s.date || 'N/A',
+          isSplit: Boolean(s.isSplit || rawShipments.length > 1),
+          splitIndex: s.splitIndex || 1,
+          originalTotalQuantity: s.originalTotalQuantity || s.quantity || '0',
           uploadedAt: s.uploadedAt ? new Date(s.uploadedAt).toISOString() : null,
         };
       });
@@ -188,6 +311,8 @@ function createRootResolver(req: NextRequest) {
         success: true,
         count: publicCargo.length,
         receipt: cleanQuery,
+        isSplit: publicCargo.length > 1 || rawShipments.some((s) => s.isSplit),
+        warehouseReceipt: formattedWhReceipt,
         shipments: publicCargo,
       };
     },
@@ -316,6 +441,210 @@ function createRootResolver(req: NextRequest) {
         throw new Error('Unauthorized');
       }
       return await fetchApiKeyStats();
+    },
+
+    // 4a. Warehouse Inward Receipts Query
+    warehouseReceipts: async ({
+      warehouse,
+      status,
+      search,
+    }: {
+      warehouse?: string;
+      status?: string;
+      search?: string;
+    }) => {
+      await connectToDatabase();
+      const query: any = {};
+      if (warehouse && warehouse !== 'ALL') {
+        query.warehouse = new RegExp(`^${warehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+      }
+      if (status && status !== 'all') {
+        query.status = status;
+      }
+      if (search) {
+        const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        query.$or = [{ receipt: regex }, { commodity: regex }, { warehouse: regex }, { mainMarka: regex }];
+      }
+      const list: any[] = await WarehouseReceipt.find(query).sort({ uploadedAt: -1 }).limit(500).lean();
+      return list.map((w: any) => ({
+        id: String(w._id),
+        receipt: w.receipt,
+        warehouse: w.warehouse,
+        warehouseEntry: w.warehouseEntry || 'N/A',
+        date: w.date || 'N/A',
+        quantity: w.quantity || 0,
+        loadedQuantity: w.loadedQuantity || 0,
+        remainingQuantity:
+          w.remainingQuantity !== undefined ? w.remainingQuantity : (w.quantity || 0) - (w.loadedQuantity || 0),
+        weight: w.weight || 'N/A',
+        volume: w.volume || 'N/A',
+        commodity: w.commodity || 'N/A',
+        chinese: w.chinese || w.commodity || '',
+        english: w.english || w.commodity || '',
+        packaging: w.packaging || 'N/A',
+        mainMarka: w.mainMarka || '',
+        subMarka: w.subMarka || '',
+        status: w.status || 'Received',
+        stockstatus: w.stockstatus || 'In Stock',
+        uploadedAt: w.uploadedAt ? new Date(w.uploadedAt).toISOString() : null,
+      }));
+    },
+
+    // 4b. Single Warehouse Receipt Query
+    warehouseReceipt: async ({ receipt }: { receipt: string }) => {
+      await connectToDatabase();
+      const w: any = await WarehouseReceipt.findOne({
+        receipt: new RegExp(`^${receipt.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+      }).lean();
+      if (!w) return null;
+      return {
+        id: String(w._id),
+        receipt: w.receipt,
+        warehouse: w.warehouse,
+        warehouseEntry: w.warehouseEntry || 'N/A',
+        date: w.date || 'N/A',
+        quantity: w.quantity || 0,
+        loadedQuantity: w.loadedQuantity || 0,
+        remainingQuantity:
+          w.remainingQuantity !== undefined ? w.remainingQuantity : (w.quantity || 0) - (w.loadedQuantity || 0),
+        weight: w.weight || 'N/A',
+        volume: w.volume || 'N/A',
+        commodity: w.commodity || 'N/A',
+        chinese: w.chinese || w.commodity || '',
+        english: w.english || w.commodity || '',
+        packaging: w.packaging || 'N/A',
+        mainMarka: w.mainMarka || '',
+        subMarka: w.subMarka || '',
+        status: w.status || 'Received',
+        stockstatus: w.stockstatus || 'In Stock',
+        uploadedAt: w.uploadedAt ? new Date(w.uploadedAt).toISOString() : null,
+      };
+    },
+
+    // 4c. Loading Plans Query
+    loadingPlans: async ({ status }: { status?: string }) => {
+      await connectToDatabase();
+      const query: any = {};
+      if (status) query.planStatus = status;
+
+      const containers: any[] = await Container.find(query).sort({ updatedAt: -1 }).lean();
+      const cAliases = containers.map((c) => c.container);
+      const shipments: any[] = await Shipment.find({ container: { $in: cAliases } })
+        .sort({ createdAt: -1 })
+        .lean();
+
+      const map = new Map<string, any[]>();
+      shipments.forEach((s) => {
+        const key = (s.container || '').toUpperCase().trim();
+        if (!map.has(key)) map.set(key, []);
+        map.get(key)!.push(s);
+      });
+
+      return containers.map((c) => {
+        const key = (c.container || '').toUpperCase().trim();
+        const items = map.get(key) || [];
+        let totalQ = 0;
+        items.forEach((i) => {
+          const q = parseInt(String(i.quantity || 0), 10);
+          if (!isNaN(q)) totalQ += q;
+        });
+
+        return {
+          id: String(c._id),
+          container: c.container,
+          containerNumber: c.containerNumber || '',
+          shippingLine: c.shippingLine || 'MSC',
+          warehouse: c.warehouse || 'China Warehouse',
+          planStatus: c.planStatus || (c.containerNumber ? 'Finalized' : 'Planning'),
+          isFinalized: Boolean(c.isFinalized || (c.containerNumber && c.containerNumber.trim().length > 0)),
+          finalizedAt: c.finalizedAt ? new Date(c.finalizedAt).toISOString() : null,
+          allottedActualAt: c.allottedActualAt ? new Date(c.allottedActualAt).toISOString() : null,
+          eta: c.destinationDate || c.eta || 'Pending',
+          destinationDate: c.destinationDate || c.eta || 'N/A',
+          status: c.status || 'Pending',
+          totalQuantity: totalQ || c.totalQuantity || 0,
+          shipmentCount: items.length,
+          items: items.map((i: any) => ({
+            id: String(i._id),
+            receipt: i.receipt,
+            container: i.container,
+            containerNumber: i.containerNumber,
+            shippingLine: i.shippingLine,
+            quantity: String(i.quantity || 0),
+            originalTotalQuantity: i.originalTotalQuantity ? String(i.originalTotalQuantity) : String(i.quantity || 0),
+            isSplit: Boolean(i.isSplit),
+            splitIndex: i.splitIndex || 1,
+            weight: i.weight,
+            volume: i.volume,
+            commodity: i.commodity,
+            english: i.english,
+            chinese: i.chinese,
+            warehouse: i.warehouse,
+            date: i.date,
+            eta: i.eta,
+            status: i.status,
+          })),
+        };
+      });
+    },
+
+    // 4d. Single Loading Plan Query
+    loadingPlan: async ({ container }: { container: string }) => {
+      await connectToDatabase();
+      const cleanAlias = container.trim();
+      const c: any = await Container.findOne({
+        container: new RegExp(`^${cleanAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+      }).lean();
+      if (!c) return null;
+
+      const items: any[] = await Shipment.find({
+        container: new RegExp(`^${cleanAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+      })
+        .sort({ createdAt: -1 })
+        .lean();
+
+      let totalQ = 0;
+      items.forEach((i) => {
+        const q = parseInt(String(i.quantity || 0), 10);
+        if (!isNaN(q)) totalQ += q;
+      });
+
+      return {
+        id: String(c._id),
+        container: c.container,
+        containerNumber: c.containerNumber || '',
+        shippingLine: c.shippingLine || 'MSC',
+        warehouse: c.warehouse || 'China Warehouse',
+        planStatus: c.planStatus || (c.containerNumber ? 'Finalized' : 'Planning'),
+        isFinalized: Boolean(c.isFinalized || (c.containerNumber && c.containerNumber.trim().length > 0)),
+        finalizedAt: c.finalizedAt ? new Date(c.finalizedAt).toISOString() : null,
+        allottedActualAt: c.allottedActualAt ? new Date(c.allottedActualAt).toISOString() : null,
+        eta: c.destinationDate || c.eta || 'Pending',
+        destinationDate: c.destinationDate || c.eta || 'N/A',
+        status: c.status || 'Pending',
+        totalQuantity: totalQ || c.totalQuantity || 0,
+        shipmentCount: items.length,
+        items: items.map((i: any) => ({
+          id: String(i._id),
+          receipt: i.receipt,
+          container: i.container,
+          containerNumber: i.containerNumber,
+          shippingLine: i.shippingLine,
+          quantity: String(i.quantity || 0),
+          originalTotalQuantity: i.originalTotalQuantity ? String(i.originalTotalQuantity) : String(i.quantity || 0),
+          isSplit: Boolean(i.isSplit),
+          splitIndex: i.splitIndex || 1,
+          weight: i.weight,
+          volume: i.volume,
+          commodity: i.commodity,
+          english: i.english,
+          chinese: i.chinese,
+          warehouse: i.warehouse,
+          date: i.date,
+          eta: i.eta,
+          status: i.status,
+        })),
+      };
     },
 
     // 5. Admin 3-Column Container Mapping & Auto Sync Mutation
@@ -466,6 +795,311 @@ function createRootResolver(req: NextRequest) {
         success: true,
         message: `Set manual ETA to '${finalEta}' for ${updateResult.modifiedCount} receipt(s) under container '${cleanQuery}'`,
         count: updateResult.modifiedCount,
+      };
+    },
+
+    // 7. Create Loading Plan (Internal Container) Mutation
+    createLoadingPlan: async ({
+      container,
+      warehouse,
+      notes,
+    }: {
+      container: string;
+      warehouse?: string;
+      notes?: string;
+    }) => {
+      if (!isAdminAuthenticated(req)) {
+        throw new Error('Unauthorized');
+      }
+
+      const cleanAlias = container.trim().toUpperCase();
+      if (!cleanAlias) {
+        throw new Error('Container alias is required');
+      }
+
+      await connectToDatabase();
+      const existing = await Container.findOne({
+        container: new RegExp(`^${cleanAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+      });
+
+      if (existing) {
+        throw new Error(`Loading plan / container '${cleanAlias}' already exists`);
+      }
+
+      const cleanWh = (warehouse || 'China Warehouse').trim();
+      await Container.create({
+        container: cleanAlias,
+        planNumber: cleanAlias,
+        containerNumber: '',
+        shippingLine: 'MSC',
+        warehouse: cleanWh,
+        planStatus: 'Planning',
+        isFinalized: false,
+        shippedFrom: `${cleanWh}, China`,
+        shippedTo: 'Nhava Sheva / Mundra, India',
+        status: 'Planning',
+        eta: 'Pending',
+        destinationDate: 'N/A',
+        totalQuantity: 0,
+        shipmentCount: 0,
+      });
+
+      return {
+        success: true,
+        message: `Loading plan '${cleanAlias}' created successfully for ${cleanWh}`,
+        count: 1,
+      };
+    },
+
+    // 8. Split & Load Cargo Mutation
+    splitAndLoadReceipt: async ({
+      receipt,
+      container,
+      quantityToLoad,
+      weightToLoad,
+      volumeToLoad,
+    }: {
+      receipt: string;
+      container: string;
+      quantityToLoad: number;
+      weightToLoad?: string;
+      volumeToLoad?: string;
+    }) => {
+      if (!isAdminAuthenticated(req)) {
+        throw new Error('Unauthorized');
+      }
+
+      const cleanReceipt = receipt.trim();
+      const cleanContainer = container.trim();
+      const qty = parseInt(String(quantityToLoad), 10);
+
+      if (!cleanReceipt || !cleanContainer) {
+        throw new Error('Receipt and Container alias are required');
+      }
+      if (isNaN(qty) || qty <= 0) {
+        throw new Error('Quantity to load must be greater than 0');
+      }
+
+      await connectToDatabase();
+
+      const targetContainer = await Container.findOne({
+        container: new RegExp(`^${cleanContainer.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+      });
+      if (!targetContainer) {
+        throw new Error(`Container '${cleanContainer}' not found`);
+      }
+
+      let whReceipt = await WarehouseReceipt.findOne({
+        receipt: new RegExp(`^${cleanReceipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+      });
+
+      if (!whReceipt) {
+        whReceipt = await WarehouseReceipt.create({
+          receipt: cleanReceipt,
+          warehouse: targetContainer.warehouse || 'China Warehouse',
+          quantity: qty,
+          loadedQuantity: 0,
+          remainingQuantity: qty,
+          status: 'Received',
+          stockstatus: 'In Stock',
+          uploadedAt: new Date(),
+        });
+      }
+
+      const available =
+        whReceipt.remainingQuantity !== undefined
+          ? whReceipt.remainingQuantity
+          : whReceipt.quantity - (whReceipt.loadedQuantity || 0);
+
+      if (qty > available) {
+        throw new Error(
+          `Cannot load ${qty} units. Only ${available} units remaining in warehouse for receipt '${cleanReceipt}'`
+        );
+      }
+
+      const existingSplits = await Shipment.countDocuments({
+        receipt: new RegExp(`^${cleanReceipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+      });
+
+      await Shipment.create({
+        receipt: whReceipt.receipt,
+        receiptId: whReceipt._id,
+        container: targetContainer.container,
+        containerNumber: targetContainer.containerNumber || '',
+        shippingLine: targetContainer.shippingLine || 'MSC',
+        quantity: String(qty),
+        originalTotalQuantity: String(whReceipt.quantity),
+        isSplit: qty < whReceipt.quantity || existingSplits > 0,
+        splitIndex: existingSplits + 1,
+        weight: weightToLoad || whReceipt.weight || '',
+        volume: volumeToLoad || whReceipt.volume || '',
+        commodity: whReceipt.commodity || '',
+        chinese: whReceipt.chinese || '',
+        english: whReceipt.english || '',
+        packaging: whReceipt.packaging || '',
+        mainMarka: whReceipt.mainMarka || '',
+        subMarka: whReceipt.subMarka || '',
+        warehouse: whReceipt.warehouse || targetContainer.warehouse || 'China Warehouse',
+        warehouseEntry: whReceipt.warehouseEntry || '',
+        date: whReceipt.date || '',
+        eta: targetContainer.destinationDate || targetContainer.eta || 'Pending',
+        status: targetContainer.status || 'Planning',
+        uploadedAt: new Date(),
+      });
+
+      whReceipt.loadedQuantity = (whReceipt.loadedQuantity || 0) + qty;
+      whReceipt.remainingQuantity = Math.max(0, whReceipt.quantity - whReceipt.loadedQuantity);
+      if (whReceipt.remainingQuantity === 0) {
+        whReceipt.status = 'Fully Loaded';
+        whReceipt.stockstatus = 'Dispatched';
+      } else {
+        whReceipt.status = 'Partially Loaded';
+        whReceipt.stockstatus = 'Partially Dispatched';
+      }
+      await whReceipt.save();
+
+      targetContainer.shipmentCount = (targetContainer.shipmentCount || 0) + 1;
+      targetContainer.totalQuantity = (targetContainer.totalQuantity || 0) + qty;
+      await targetContainer.save();
+
+      return {
+        success: true,
+        message: `Successfully loaded ${qty} units of '${whReceipt.receipt}' into ${targetContainer.container}`,
+        count: qty,
+      };
+    },
+
+    // 9. Allot Actual Carrier Container Mutation
+    allotActualContainer: async ({
+      container,
+      containerNumber,
+      shippingLine,
+      autoSync,
+    }: {
+      container: string;
+      containerNumber: string;
+      shippingLine: string;
+      autoSync?: boolean;
+    }) => {
+      if (!isAdminAuthenticated(req)) {
+        throw new Error('Unauthorized');
+      }
+
+      const cleanAlias = container.trim();
+      const cleanNum = containerNumber.trim();
+      const cleanCarrier = (shippingLine || 'MSC').trim();
+
+      if (!cleanAlias || !cleanNum) {
+        throw new Error('Container alias and actual container number are required');
+      }
+
+      await connectToDatabase();
+
+      const target = await Container.findOne({
+        container: new RegExp(`^${cleanAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+      });
+      if (!target) {
+        throw new Error(`Container '${cleanAlias}' not found`);
+      }
+
+      let trackingEta = target.eta || 'Pending';
+      let trackingStatus = 'In Transit';
+      let trackingDetails: any = null;
+
+      if (autoSync) {
+        try {
+          const tracking = await fetchContainerTracking(cleanNum, cleanCarrier);
+          if (tracking.eta && tracking.eta !== 'N/A') trackingEta = tracking.eta;
+          if (tracking.status) trackingStatus = tracking.status;
+          trackingDetails = tracking.dataDetails;
+        } catch {
+          // graceful fallback
+        }
+      }
+
+      const now = new Date();
+      target.containerNumber = cleanNum;
+      target.shippingLine = cleanCarrier;
+      target.planStatus = 'Finalized';
+      target.isFinalized = true;
+      target.allottedActualAt = now;
+      target.status = trackingStatus;
+      if (trackingEta && trackingEta !== 'Pending') {
+        target.eta = trackingEta;
+        target.destinationDate = trackingEta;
+      }
+      if (trackingDetails) {
+        target.jsonCargoData = trackingDetails;
+        target.lastApiSync = now;
+      }
+      await target.save();
+
+      const res = await Shipment.updateMany(
+        { container: target.container },
+        {
+          $set: {
+            containerNumber: cleanNum,
+            shippingLine: cleanCarrier,
+            status: trackingStatus,
+            ...(trackingEta && trackingEta !== 'Pending' ? { eta: trackingEta, destinationDate: trackingEta } : {}),
+            ...(trackingDetails ? { jsonCargoData: trackingDetails, lastApiSync: now } : {}),
+          },
+        }
+      );
+
+      return {
+        success: true,
+        message: `Container '${cleanAlias}' finalized. Allotted actual container '${cleanNum}' (${cleanCarrier}) across ${res.modifiedCount} item(s)`,
+        count: res.modifiedCount,
+      };
+    },
+
+    // 10. Finalize Loading Plan Mutation
+    finalizeLoadingPlan: async ({
+      container,
+      containerNumber,
+      shippingLine,
+    }: {
+      container: string;
+      containerNumber?: string;
+      shippingLine?: string;
+    }) => {
+      if (!isAdminAuthenticated(req)) {
+        throw new Error('Unauthorized');
+      }
+
+      const cleanAlias = container.trim();
+      if (!cleanAlias) throw new Error('Container alias is required');
+
+      await connectToDatabase();
+      const target = await Container.findOne({
+        container: new RegExp(`^${cleanAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+      });
+      if (!target) throw new Error(`Container '${cleanAlias}' not found`);
+
+      target.isFinalized = true;
+      target.finalizedAt = new Date();
+      target.planStatus = 'Finalized';
+      if (containerNumber) target.containerNumber = containerNumber.trim();
+      if (shippingLine) target.shippingLine = shippingLine.trim();
+      await target.save();
+
+      if (containerNumber) {
+        await Shipment.updateMany(
+          { container: target.container },
+          {
+            $set: {
+              containerNumber: containerNumber.trim(),
+              shippingLine: (shippingLine || target.shippingLine || 'MSC').trim(),
+            },
+          }
+        );
+      }
+
+      return {
+        success: true,
+        message: `Loading plan '${cleanAlias}' marked as Finalized`,
+        count: target.shipmentCount || 0,
       };
     },
   };

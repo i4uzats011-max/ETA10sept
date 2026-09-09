@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
+import WarehouseReceipt from '@/models/WarehouseReceipt';
 import { translateToEnglish } from '@/lib/translate';
+import { calculatePublicDeliveryDate } from '@/lib/dateUtils';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,11 +37,26 @@ export async function GET(req: NextRequest) {
       receipt: { $regex: new RegExp(`^${receiptQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
     }).sort({ uploadedAt: -1 }).lean();
 
-    if (!rawShipments || rawShipments.length === 0) {
+    const whItem: any = await WarehouseReceipt.findOne({
+      receipt: { $regex: new RegExp(`^${receiptQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+    }).lean();
+
+    if ((!rawShipments || rawShipments.length === 0) && !whItem) {
       return NextResponse.json(
         { error: `No cargo record found for receipt number '${receiptQuery}'` },
         { status: 404 }
       );
+    }
+
+    if (!rawShipments || rawShipments.length === 0) {
+      return NextResponse.json({
+        success: true,
+        count: 0,
+        receipt: receiptQuery,
+        warehouseReceipt: whItem,
+        shipments: [],
+        message: `Goods received at ${whItem.warehouse || 'China Warehouse'}. Loading plan in progress.`,
+      });
     }
 
     // Collect all container aliases to resolve confirmed ETA from Container fleet
@@ -76,28 +93,32 @@ export async function GET(req: NextRequest) {
         Shipment.updateOne({ _id: shipment._id }, { $set: { eta: resolvedEta } }).exec().catch(() => {});
       }
 
+      const publicDeliveryDate = calculatePublicDeliveryDate(resolvedEta);
+
       return {
         id: shipment._id,
         receipt: shipment.receipt,
-        container: shipment.container, // Public Container Alias e.g. 'USI 01'
+        party: shipment.party || whItem?.party || 'General Party',
+        container: shipment.container, // Internal Container Alias only (e.g. 'USI-01')
+        dateOfDelivery: publicDeliveryDate,
+        expectedDeliveryDate: publicDeliveryDate,
+        eta: publicDeliveryDate, // For backwards compatibility with UI components expecting eta
         english: translateToEnglish(shipment.english || shipment.commodity || shipment.chinese),
-        chinese: translateToEnglish(shipment.chinese || shipment.commodity || shipment.english),
         commodity: translateToEnglish(shipment.commodity || shipment.english || shipment.chinese),
         quantity: shipment.quantity || '0',
-        cartons: shipment.quantity || '0', // Explicit cartons count alias
-        packets: shipment.quantity || '0', // Explicit packets count alias
+        cartons: shipment.quantity || '0',
+        packets: shipment.quantity || '0',
+        originalTotalQuantity: shipment.originalTotalQuantity || whItem?.quantity || shipment.quantity,
+        isSplit: Boolean(shipment.isSplit),
+        splitIndex: shipment.splitIndex || 1,
         weight: shipment.weight || 'N/A',
         volume: formatVolumeWithDecimals(shipment.volume),
         date: shipment.date || 'N/A',
+        warehouse: shipment.warehouse || whItem?.warehouse || 'China Warehouse',
         warehouseEntry: shipment.warehouseEntry || 'N/A',
-        warehouse: shipment.warehouse || 'N/A',
-        stockstatus: shipment.stockstatus || 'N/A',
         packaging: shipment.packaging || 'N/A',
         mainMarka: shipment.mainMarka || '',
         subMarka: shipment.subMarka || '',
-        status: shipment.status || 'In Transit',
-        eta: resolvedEta,
-        expectedDeliveryDate: resolvedEta,
       };
     });
 

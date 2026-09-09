@@ -1705,7 +1705,14 @@ export default function InternalEmployeeViewPage() {
                       </div>
                     </th>
 
-                    {/* 14. Warehouse Entry */}
+                    {/* 14. Destination */}
+                    <th className="py-3 px-4 text-left">
+                      <div className="flex items-center">
+                        <span>Destination</span>
+                      </div>
+                    </th>
+
+                    {/* 15. Warehouse Entry */}
                     <th className="py-3 px-4 text-left">
                       <div className="flex items-center">
                         <span>Warehouse Entry</span>
@@ -1797,6 +1804,11 @@ export default function InternalEmployeeViewPage() {
                         {/* 4. Receipt No */}
                         <td className="py-2.5 px-4 font-mono font-black text-slate-950 whitespace-nowrap">
                           <span>{item.receipt}</span>
+                          {item.party && (
+                            <div className="font-sans font-medium text-[10px] text-slate-500 truncate max-w-[130px]" title={item.party}>
+                              {item.party}
+                            </div>
+                          )}
                           {receiptContainers.get(item.receipt) && receiptContainers.get(item.receipt)!.size > 1 ? (
                             <span
                               className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 inline-flex items-center"
@@ -1896,7 +1908,12 @@ export default function InternalEmployeeViewPage() {
                           </span>
                         </td>
 
-                        {/* 14. Warehouse Entry */}
+                        {/* 14. Destination */}
+                        <td className="py-2.5 px-4 whitespace-nowrap font-medium text-slate-700 text-[11px]">
+                          {item.shippedTo || 'Nhava Sheva / Mundra, India'}
+                        </td>
+
+                        {/* 15. Warehouse Entry */}
                         <td className="py-2.5 px-4 whitespace-nowrap text-[11px] text-slate-600">
                           {item.warehouseEntry || '—'}
                         </td>

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
+import { calculatePublicDeliveryDate } from '@/lib/dateUtils';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,16 +48,17 @@ export async function GET(req: NextRequest) {
 
     let containerAlias = '';
     let etaStr = '';
+    let foundShipment: any = null;
 
     if (foundContainer) {
       containerAlias = foundContainer.container;
       etaStr = foundContainer.destinationDate || foundContainer.eta || 'Pending';
     } else {
       // 2. Fallback to Shipment records
-      const shipment: any = await Shipment.findOne({ $or: orConditions }).sort({ uploadedAt: -1 }).lean();
-      if (shipment) {
-        containerAlias = shipment.container;
-        etaStr = shipment.eta || 'Pending';
+      foundShipment = await Shipment.findOne({ $or: orConditions }).sort({ uploadedAt: -1 }).lean();
+      if (foundShipment) {
+        containerAlias = foundShipment.container;
+        etaStr = foundShipment.eta || 'Pending';
       }
     }
 
@@ -67,13 +69,17 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // STRICT DATA PRIVACY: Return ONLY container alias and ETA date.
-    // ZERO JSONCargo API calls (strictly local MongoDB read).
-    // NO date calculations, NO actual container number, NO shipping line.
+    const target = foundContainer || foundShipment;
+    const rawEta = target.destinationDate || target.eta || '';
+    const dateOfDelivery = calculatePublicDeliveryDate(rawEta);
+
+    // Public tracking security: Users cannot see actual container no., status, or destination.
+    // They can ONLY see date of delivery (ETA + 10 days) and internal container alias.
     return NextResponse.json({
       success: true,
-      container: containerAlias,
-      eta: etaStr || 'Pending',
+      container: target.container,
+      dateOfDelivery,
+      eta: dateOfDelivery, // Backwards compatibility for UI fields
     });
   } catch (error: any) {
     return NextResponse.json(

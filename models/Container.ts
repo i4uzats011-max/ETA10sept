@@ -19,6 +19,17 @@ export interface IContainer extends Document {
   daysToDeliver?: number | null; // Calculated turnaround days from loading/receipt to delivery
   isDelivered?: boolean;        // Whether container is delivered
   shipmentCount?: number;       // Number of shipments inside container
+  // Loading Plan & Multi-Warehouse Workflow Fields
+  planNumber?: string;          // Loading Plan identifier (defaults to container alias)
+  warehouse?: string;           // China origin loading warehouse (e.g. 'Guangzhou', 'Yiwu')
+  loadingDate?: string;         // Loading / departure date from warehouse
+  planStatus?: 'Draft' | 'Planning' | 'Finalized' | 'In Transit' | 'Delivered'; // Loading plan status
+  isFinalized?: boolean;        // Whether the loading plan has been finalized by loader
+  finalizedAt?: Date | null;    // Timestamp when plan was finalized
+  allottedActualAt?: Date | null; // Timestamp when actual container number was allotted
+  totalQuantity?: number;       // Total packages / cartons planned inside
+  totalWeight?: string;         // Aggregated weight
+  totalVolume?: string;         // Aggregated volume (CBM)
   createdAt: Date;
   updatedAt: Date;
 }
@@ -43,6 +54,21 @@ const ContainerSchema = new Schema<IContainer>(
     lastApiSync: { type: Date, default: null },
     jsonCargoData: { type: Schema.Types.Mixed, default: null },
     shipmentCount: { type: Number, default: 0 },
+    planNumber: { type: String, default: '' },
+    warehouse: { type: String, default: 'China Warehouse' },
+    loadingDate: { type: String, default: '' },
+    planStatus: {
+      type: String,
+      enum: ['Draft', 'Planning', 'Finalized', 'In Transit', 'Delivered'],
+      default: 'Planning',
+      index: true,
+    },
+    isFinalized: { type: Boolean, default: false, index: true },
+    finalizedAt: { type: Date, default: null },
+    allottedActualAt: { type: Date, default: null },
+    totalQuantity: { type: Number, default: 0 },
+    totalWeight: { type: String, default: '' },
+    totalVolume: { type: String, default: '' },
   },
   {
     timestamps: true,

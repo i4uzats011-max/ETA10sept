@@ -36,6 +36,14 @@ export interface IShipment extends Document {
   lastApiSync?: Date | null;    // Timestamp of last JSONCargo API sync
   deliveryDate?: string;        // Delivery date (when marked delivered)
   daysToDeliver?: number | null; // Calculated turnaround days
+  isDelivered?: boolean;        // Delivery flag
+  // Multi-Warehouse & Split Cargo Workflow Fields
+  party?: string;               // Party / customer / shipper name
+  loadingDate?: string;         // Loading date into container
+  receiptId?: any;              // Ref to WarehouseReceipt document
+  originalTotalQuantity?: string; // Original total receipt quantity (e.g. '100')
+  isSplit?: boolean;            // Whether this receipt was split into multiple containers
+  splitIndex?: number;          // Split allotment number (e.g., 1, 2, 3)
   uploadedAt: Date;             // Record creation timestamp
 }
 
@@ -59,10 +67,18 @@ const ShipmentSchema = new Schema<IShipment>({
   subMarka: { type: String, default: '' },
   mainMarka: { type: String, default: '' },
 
+  party: { type: String, default: '', index: true, trim: true },
+  loadingDate: { type: String, default: '' },
+  receiptId: { type: Schema.Types.ObjectId, ref: 'WarehouseReceipt', default: null },
+  originalTotalQuantity: { type: String, default: '' },
+  isSplit: { type: Boolean, default: false, index: true },
+  splitIndex: { type: Number, default: 1 },
+
   eta: { type: String, default: 'N/A' },
   status: { type: String, default: 'Pending' },
   deliveryDate: { type: String, default: '' },
   daysToDeliver: { type: Number, default: null },
+  isDelivered: { type: Boolean, default: false },
   shippedFrom: { type: String, default: '' },
   shippedTo: { type: String, default: '' },
   currentLocation: { type: String, default: '' },

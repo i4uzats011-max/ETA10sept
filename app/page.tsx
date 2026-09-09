@@ -217,6 +217,21 @@ export default function PublicTrackerPage() {
               success
               count
               receipt
+              isSplit
+              warehouseReceipt {
+                id
+                receipt
+                warehouse
+                warehouseEntry
+                date
+                quantity
+                loadedQuantity
+                remainingQuantity
+                commodity
+                chinese
+                english
+                status
+              }
               shipments {
                 id
                 receipt
@@ -236,6 +251,9 @@ export default function PublicTrackerPage() {
                 mainMarka
                 status
                 eta
+                isSplit
+                splitIndex
+                originalTotalQuantity
                 lastApiSync
               }
             }
@@ -247,7 +265,7 @@ export default function PublicTrackerPage() {
         if (response.errors && response.errors.length > 0) {
           const res = await fetch(`/api/track/receipt?receipt=${encodeURIComponent(queryInput)}`);
           const data = await res.json();
-          if (res.ok && data.shipments && data.shipments.length > 0) {
+          if (res.ok && ((data.shipments && data.shipments.length > 0) || data.warehouseReceipt)) {
             setReceiptResult(data);
           } else {
             // Smart Fallback: Check if user entered a container alias/number while on receipt tab
@@ -583,6 +601,69 @@ export default function PublicTrackerPage() {
 
         {/* 5. Receipt & Container Search Results */}
         <div id="results-section" className="space-y-8">
+          {/* Warehouse Received In Stock (Cargo in China Warehouse - Loading Plan Pending) */}
+          {activeTab === 'receipt' && receiptResult?.warehouseReceipt && receiptShipmentsList.length === 0 && (
+            <section className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6 animate-fadeIn">
+              <div className="bg-gradient-to-r from-blue-50 via-sky-50 to-indigo-50 border-2 border-blue-200 p-6 rounded-3xl shadow-md space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-blue-100 pb-4">
+                  <div className="flex items-center space-x-3">
+                    <div className="p-3 bg-blue-600 text-white rounded-2xl shadow-sm">
+                      <Package className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <span className="text-[11px] font-black uppercase tracking-wider text-blue-700 bg-blue-100 px-2.5 py-0.5 rounded-full">
+                        Cargo Safely Received in China
+                      </span>
+                      <h3 className="text-xl font-black text-slate-900 font-mono mt-1">
+                        Receipt: {receiptResult.receipt}
+                      </h3>
+                    </div>
+                  </div>
+
+                  <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-black bg-amber-100 text-amber-900 border border-amber-300">
+                    <Clock className="w-3.5 h-3.5 text-amber-700" />
+                    <span>Loading Plan In Progress</span>
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-2">
+                  <div className="bg-white/80 p-3.5 rounded-2xl border border-blue-100">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase">Receiving Warehouse</span>
+                    <div className="font-bold text-slate-900 text-sm mt-0.5 flex items-center space-x-1">
+                      <MapPin className="w-3.5 h-3.5 text-blue-600" />
+                      <span>{receiptResult.warehouseReceipt.warehouse || 'China Warehouse'}</span>
+                    </div>
+                  </div>
+
+                  <div className="bg-white/80 p-3.5 rounded-2xl border border-blue-100">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase">Received Date</span>
+                    <div className="font-bold text-slate-900 text-sm mt-0.5">
+                      {formatGlobalDate(receiptResult.warehouseReceipt.date) || receiptResult.warehouseReceipt.date || 'Recent'}
+                    </div>
+                  </div>
+
+                  <div className="bg-white/80 p-3.5 rounded-2xl border border-blue-100">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase">Inward Quantity</span>
+                    <div className="font-black text-blue-700 text-sm mt-0.5">
+                      {receiptResult.warehouseReceipt.quantity} CTN / Packages
+                    </div>
+                  </div>
+
+                  <div className="bg-white/80 p-3.5 rounded-2xl border border-blue-100">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase">Commodity</span>
+                    <div className="font-bold text-slate-900 text-sm mt-0.5 truncate" title={receiptResult.warehouseReceipt.english || receiptResult.warehouseReceipt.commodity}>
+                      {receiptResult.warehouseReceipt.english || receiptResult.warehouseReceipt.commodity || 'General Cargo'}
+                    </div>
+                  </div>
+                </div>
+
+                <p className="text-xs text-slate-600 bg-white/60 p-3 rounded-xl border border-blue-100/50">
+                  ℹ️ Your goods have been safely unloaded and verified at our China warehouse. Our logistics loaders are currently creating the loading plan and internal container allotment. Once container loading and customs filing are finalized, the sea transit ETA will be updated automatically.
+                </p>
+              </div>
+            </section>
+          )}
+
           {activeTab === 'receipt' && receiptShipmentsList.length > 0 && (
             <section className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
               <div className="bg-red-50 border border-red-200 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs font-bold text-red-950 shadow-sm">
@@ -682,19 +763,15 @@ export default function PublicTrackerPage() {
                     </div>
 
                     <div className="flex items-center space-x-3">
-                      {/* Prominent Header ETA Badge */}
-                      <div className={`flex items-center space-x-2 text-white px-3.5 py-1.5 rounded-xl border shadow-sm ${
-                        isItemDelivered
-                          ? 'bg-gradient-to-r from-emerald-600 to-teal-600 border-emerald-400/40'
-                          : 'bg-gradient-to-r from-red-600 to-rose-600 border-red-400/40'
-                      }`}>
+                      {/* Prominent Header Delivery Date Badge (ETA + 10 Days) */}
+                      <div className="flex items-center space-x-2 text-white px-4 py-2 rounded-xl border shadow-sm bg-gradient-to-r from-red-600 to-rose-600 border-red-400/40">
                         <Clock className="w-4 h-4 text-amber-300" />
                         <div>
                           <span className="text-[9px] uppercase font-bold text-rose-200 block">
-                            {isItemDelivered ? 'Delivery Date' : 'Confirmed ETA'}
+                            Date of Delivery (ETA + 10 Days)
                           </span>
                           <span className="text-sm font-black font-mono text-white">
-                            {formatGlobalDate(item.deliveryDate || item.eta) || 'Pending'}
+                            {item.dateOfDelivery || formatGlobalDate(item.eta) || 'Pending'}
                           </span>
                         </div>
                       </div>
@@ -706,44 +783,28 @@ export default function PublicTrackerPage() {
                         <Printer className="w-3.5 h-3.5 text-amber-400" />
                         <span>Print PDF Slip</span>
                       </button>
-                      <div className="flex flex-col items-end">
-                        <span className="text-[11px] text-slate-400 mb-0.5 font-semibold uppercase">Status</span>
-                        <span className={`px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider text-white shadow-md ${
-                          isItemDelivered
-                            ? 'bg-emerald-600 shadow-emerald-600/30'
-                            : 'bg-red-600 shadow-red-600/30'
-                        }`}>
-                          {item.status || 'In Transit'}
-                        </span>
-                      </div>
                     </div>
                   </div>
 
                   {/* Content Details Grid - ALL Details for this Receipt */}
                   <div className="p-6 sm:p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {/* 1. Large High-Visibility ETA Banner */}
-                    <div className={`text-white p-5 rounded-2xl shadow-md col-span-1 md:col-span-2 lg:col-span-3 flex flex-wrap items-center justify-between gap-4 border-2 animate-fadeIn ${
-                      isItemDelivered
-                        ? 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 border-emerald-400/40'
-                        : 'bg-gradient-to-r from-red-600 via-rose-600 to-red-700 border-red-400/40'
-                    }`}>
+                    {/* 1. Large High-Visibility Delivery Date Banner (ETA + 10 Days) */}
+                    <div className="text-white p-5 rounded-2xl shadow-md col-span-1 md:col-span-2 lg:col-span-3 flex flex-wrap items-center justify-between gap-4 border-2 bg-gradient-to-r from-red-600 via-rose-600 to-red-700 border-red-400/40 animate-fadeIn">
                       <div className="flex items-center space-x-3.5">
                         <div className="p-3 bg-white/20 backdrop-blur-sm rounded-xl">
                           <Clock className="w-7 h-7 text-amber-300" />
                         </div>
                         <div>
                           <span className="text-xs font-bold uppercase tracking-wider text-rose-200 block">
-                            {isItemDelivered ? 'Cargo Delivered On' : 'Expected Arrival Date (ETA)'}
+                            Expected Date of Delivery (ETA + 10 Days)
                           </span>
                           <h4 className="text-2xl sm:text-3xl font-black font-mono text-white tracking-tight">
-                            {isItemDelivered
-                              ? formatGlobalDate(item.deliveryDate || item.eta)
-                              : (item.eta && item.eta !== 'N/A' && item.eta !== 'Pending' ? formatGlobalDate(item.eta) : 'ETA Confirmation Pending')}
+                            {item.dateOfDelivery || (item.eta && item.eta !== 'N/A' && item.eta !== 'Pending' ? formatGlobalDate(item.eta) : 'Pending Confirmation')}
                           </h4>
                         </div>
                       </div>
                       <div className="bg-white/10 px-4 py-2 rounded-xl border border-white/20 text-xs font-bold flex items-center space-x-2">
-                        <span className="text-rose-200">Loaded Container:</span>
+                        <span className="text-rose-200">Container Alias:</span>
                         <span className="font-mono text-amber-300 font-black">{item.container}</span>
                       </div>
                     </div>
@@ -877,28 +938,27 @@ export default function PublicTrackerPage() {
             </section>
           )}
 
-          {/* 6. Container Search Results (CONTAINER NO. AND ETA ONLY - NOTHING ELSE) */}
+          {/* 6. Container Search Results (CONTAINER ALIAS AND DATE OF DELIVERY (ETA + 10 DAYS) ONLY) */}
           {activeTab === 'container' && containerResult && (
             <section className="max-w-md mx-auto px-4 sm:px-6 space-y-4">
               <div className="bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden p-8 space-y-6 text-center animate-fadeIn">
                 <div className="space-y-1">
-                  <span className="text-xs uppercase font-bold text-slate-500 tracking-wider">Container No.</span>
+                  <span className="text-xs uppercase font-bold text-slate-500 tracking-wider">Container Alias</span>
                   <div className="text-3xl font-black font-mono text-slate-950">
                     {containerResult.container}
                   </div>
                 </div>
 
-                <div className="p-6 rounded-2xl bg-slate-900 text-white space-y-1 border border-slate-800">
+                <div className="p-6 rounded-2xl bg-slate-900 text-white space-y-2 border border-slate-800">
                   <span className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                    {containerResult.status === 'Delivered' ? 'Delivery Status' : 'ETA'}
+                    Date of Delivery (ETA + 10 Days)
                   </span>
-                  <div className={`text-3xl sm:text-4xl font-black font-mono ${
-                    containerResult.status === 'Delivered' ? 'text-emerald-400' : 'text-amber-300'
-                  }`}>
-                    {containerResult.status === 'Delivered'
-                      ? `Delivered: ${formatGlobalDate(containerResult.deliveryDate || containerResult.eta)}`
-                      : (formatGlobalDate(containerResult.eta) || 'Pending')}
+                  <div className="text-3xl sm:text-4xl font-black font-mono text-amber-300">
+                    {containerResult.dateOfDelivery || formatGlobalDate(containerResult.eta) || 'Pending'}
                   </div>
+                  <p className="text-[11px] text-slate-400">
+                    Estimated final arrival date including 10 days port terminal clearance buffer.
+                  </p>
                 </div>
               </div>
             </section>

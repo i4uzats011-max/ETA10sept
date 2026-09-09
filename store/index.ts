@@ -1,9 +1,11 @@
 import { configureStore } from '@reduxjs/toolkit';
 import cargoMasterReducer from './cargoMasterSlice';
+import loadingPlanReducer from './loadingPlanSlice';
 
 export const store = configureStore({
   reducer: {
     cargoMaster: cargoMasterReducer,
+    loadingPlan: loadingPlanReducer,
   },
   devTools: process.env.NODE_ENV !== 'production',
 });

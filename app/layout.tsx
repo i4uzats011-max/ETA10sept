@@ -1,5 +1,6 @@
 import './globals.css';
 import type { Metadata } from 'next';
+import { ReduxProvider } from '@/store/ReduxProvider';
 
 export const metadata: Metadata = {
   title: 'Cargo & Container Tracking Portal',
@@ -14,7 +15,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="antialiased font-sans text-slate-900 bg-slate-50 min-h-screen">
-        {children}
+        <ReduxProvider>
+          {children}
+        </ReduxProvider>
       </body>
     </html>
   );

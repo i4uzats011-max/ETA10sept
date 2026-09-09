@@ -300,6 +300,15 @@ export default function CargoMasterTable({
         },
       },
       {
+        accessorKey: 'shippedTo',
+        header: 'Destination',
+        cell: ({ row }) => (
+          <span className="font-semibold text-xs text-slate-700 truncate max-w-[150px]" title={row.original.shippedTo || 'Nhava Sheva / Mundra, India'}>
+            {row.original.shippedTo || 'Nhava Sheva / Mundra, India'}
+          </span>
+        ),
+      },
+      {
         accessorKey: 'shipmentCount',
         header: 'Packages',
         cell: ({ row }) => (

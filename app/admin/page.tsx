@@ -11,10 +11,12 @@ import {
   getDeliveryTurnaroundStatus,
 } from '@/lib/dateUtils';
 import CargoMasterTable from '@/components/CargoMasterTable';
+import LoaderHub from '@/components/LoaderHub';
 import { ReduxProvider } from '@/store/ReduxProvider';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
+  Warehouse,
   ShieldCheck,
   Upload,
   RefreshCw,
@@ -216,8 +218,8 @@ export default function AdminDashboardPage() {
   const [liveJsonCargoDetails, setLiveJsonCargoDetails] = useState<any | null>(null);
 
   // Modern Modular Menu Bar Tabs state
-  type AdminTab = 'shipments' | 'containers' | 'upload' | 'api-sync' | 'manual-eta' | 'alerts';
-  const [activeAdminTab, setActiveAdminTab] = useState<AdminTab>('shipments');
+  type AdminTab = 'loader-hub' | 'shipments' | 'containers' | 'upload' | 'api-sync' | 'manual-eta' | 'alerts';
+  const [activeAdminTab, setActiveAdminTab] = useState<AdminTab>('loader-hub');
 
   // Container Fleet Directory state (Table view)
   const [containerFleet, setContainerFleet] = useState<any[]>([]);
@@ -258,6 +260,7 @@ export default function AdminDashboardPage() {
   const [headerMapping, setHeaderMapping] = useState<Record<string, string>>({
     container: '',
     receipt: '',
+    party: '',
     mainMarka: '',
     subMarka: '',
     date: '',
@@ -276,32 +279,34 @@ export default function AdminDashboardPage() {
     containerNumber: '',
   });
 
-  // Candidate alias dictionary for automatic header matching
+  // Candidate alias dictionary for automatic header matching (English + Chinese Logistics Headers)
   const HEADER_CANDIDATES: Record<string, string[]> = {
-    container: ['container', 'containernumber', 'container_number', 'container no', 'container_no', 'container alias', 'container_alias', 'cntr', 'cntr no', 'cntr_no', 'cntrno', 'container id', 'container_id'],
-    receipt: ['receipt', 'receipt no', 'receipt_no', 'receipt number', 'receipt_number', 'bill_no', 'bill no', 'bill_number', 'bill number', 'bl no', 'bl_no', 'b/l no', 'b/l', 'rcpt', 'bill'],
-    mainMarka: ['main_marka', 'main marka', 'main_mark', 'main mark', 'mainmarka', 'mainmark', 'marks', 'mark', 'marka', 'main_mark_name', 'shipper mark', 'shipping mark'],
-    subMarka: ['sub_marka', 'sub marka', 'sub_mark', 'sub mark', 'submarka', 'submark', 'sub marks', 'sub_marks', 'sub'],
-    date: ['date', 'receipt date', 'receipt_date', 'date of receipt', 'rcpt date', 'receiving date', 'entry date', 'inward date'],
-    commodity: ['commodity', '中文品名', '中文', 'goods', 'cargo', 'item', 'description', 'chinese', 'chineseName', 'commodity_cn'],
-    english: ['english', 'english description', 'english name', 'description in english', 'item english'],
-    quantity: ['quantity', 'qty', 'ctns', 'cartons', 'pcs', 'packages', 'pkg qty', 'total qty', 'total packages', 'boxes', 'no of pkgs'],
-    weight: ['weight', 'gross weight', 'gw', 'wt', 'weight (kg)', 'weight(kg)', 'kgs', 'gross wt', 'total weight'],
-    volume: ['volumem', 'volumem³', 'volumemü', 'volume', 'vol', 'cbm', 'volume (cbm)', 'volume(cbm)', 'm3', 'cbm volume'],
-    warehouseEntry: ['warehouse entry', 'warehouseentry', 'warehouse_entry', 'entry no', 'entry_no', 'wh entry', 'wh_entry'],
-    warehouse: ['warehouse', 'wh', 'warehouse name', 'godown'],
-    stockstatus: ['stockstatus', 'stock status', 'stock_status', 'status of stock', 'stock'],
-    packaging: ['packaging', 'pkg', 'package type', 'packing', 'packing type'],
-    eta: ['eta', 'eta date', 'arrival date', 'expected arrival'],
-    status: ['status', 'container status', 'delivery status'],
-    shippingLine: ['shippingline', 'shipping line', 'shipping_line', 'carrier', 'line'],
-    containerNumber: ['containernumber', 'container_number', 'actual container', 'actual container no', 'carrier container'],
+    container: ['container', 'containernumber', 'container_number', 'container no', 'container_no', 'container alias', 'container_alias', 'cntr', 'cntr no', 'cntr_no', 'cntrno', 'container id', 'container_id', '柜号', '集装箱号', '箱号', '货柜号', '内部柜号', '柜号别名'],
+    receipt: ['receipt', 'receipt no', 'receipt_no', 'receipt number', 'receipt_number', 'bill_no', 'bill no', 'bill_number', 'bill number', 'bl no', 'bl_no', 'b/l no', 'b/l', 'rcpt', 'bill', '单号', '收据号', '入库单号', '提单号', '票号', '运单号', '仓单号', '单据编号', '凭证号', '货单号', '收单号', '入库单'],
+    party: ['party', 'party name', 'party_name', 'partyname', 'shipper', 'customer', 'client', 'supplier', 'consignee', 'importer', 'merchant', 'party/shipper', '客户', '客户名称', '货主', '货主名称', '发货人', '托运人', '委托人', '供应商', '买家', '客户/货主'],
+    mainMarka: ['main_marka', 'main marka', 'main_mark', 'main mark', 'mainmarka', 'mainmark', 'marks', 'mark', 'marka', 'main_mark_name', 'shipper mark', 'shipping mark', '唛头', '主唛', '大唛', '箱唛', '运输标志', '标记', '正唛'],
+    subMarka: ['sub_marka', 'sub marka', 'sub_mark', 'sub mark', 'submarka', 'submark', 'sub marks', 'sub_marks', 'sub', '副唛', '小唛', '侧唛'],
+    date: ['date', 'receipt date', 'receipt_date', 'date of receipt', 'rcpt date', 'receiving date', 'entry date', 'inward date', '日期', '收货日期', '入库日期', '进仓日期', '到货日期', '送货日期', '开单日期', '接收日期'],
+    commodity: ['commodity', '中文品名', '中文', 'goods', 'cargo', 'item', 'description', 'chinese', 'chineseName', 'commodity_cn', '品名', '货物名称', '商品名称', '货物', '产品名称', '品名描述', '货物描述', '物品名称', '商品', '货名'],
+    english: ['english', 'english description', 'english name', 'description in english', 'item english', '英文品名', '英文描述', '英文', '英文名'],
+    quantity: ['quantity', 'qty', 'ctns', 'cartons', 'pcs', 'packages', 'pkg qty', 'total qty', 'total packages', 'boxes', 'no of pkgs', '件数', '数量', '箱数', '总件数', '总箱数', '包数', '件', '支数', '总数'],
+    weight: ['weight', 'gross weight', 'gw', 'wt', 'weight (kg)', 'weight(kg)', 'kgs', 'gross wt', 'total weight', '重量', '毛重', '总重量', '重量(kg)', '毛重(kg)', '净重', '总毛重'],
+    volume: ['volumem', 'volumem³', 'volumemü', 'volume', 'vol', 'cbm', 'volume (cbm)', 'volume(cbm)', 'm3', 'cbm volume', '体积', '总体积', '体积(cbm)', '方数', '立方', '总体积(cbm)', '立方数'],
+    warehouseEntry: ['warehouse entry', 'warehouseentry', 'warehouse_entry', 'entry no', 'entry_no', 'wh entry', 'wh_entry', '入库号', '进仓号', '入仓单号', '仓库记录号', '仓储号'],
+    warehouse: ['warehouse', 'wh', 'warehouse name', 'godown', '仓库', '仓库名称', '所在仓库', '仓位', '交货仓库', '入库仓库', '收货仓库'],
+    stockstatus: ['stockstatus', 'stock status', 'stock_status', 'status of stock', 'stock', '库存状态', '库存', '货物状态'],
+    packaging: ['packaging', 'pkg', 'package type', 'packing', 'packing type', '包装', '包装类型', '包装方式', '包装种类', '外包装'],
+    eta: ['eta', 'eta date', 'arrival date', 'expected arrival', '预计到港', '到港日期', '预计到达'],
+    status: ['status', 'container status', 'delivery status', '状态', '柜状态', '运输状态'],
+    shippingLine: ['shippingline', 'shipping line', 'shipping_line', 'carrier', 'line', '船公司', '船名', '船运公司'],
+    containerNumber: ['containernumber', 'container_number', 'actual container', 'actual container no', 'carrier container', '实际柜号', '大柜号', '船公司柜号', '真实柜号'],
   };
 
   const autoMatchHeaders = (rawHeaders: string[]) => {
     const matched: Record<string, string> = {
       container: '',
       receipt: '',
+      party: '',
       mainMarka: '',
       subMarka: '',
       date: '',
@@ -378,9 +383,13 @@ export default function AdminDashboardPage() {
       setHeaderMapping(matched);
 
       if (!matched.container) {
-        setHeaderCheckError(
-          "Could not auto-detect 'Container' column. Please select which column represents the Container alias below."
-        );
+        if (matched.receipt || matched.commodity) {
+          setHeaderCheckError(null);
+        } else {
+          setHeaderCheckError(
+            "Could not auto-detect 'Container' or 'Receipt' column. Please select column mappings below."
+          );
+        }
       }
     } catch (err: any) {
       setHeaderCheckError(err?.message || 'Failed to inspect file headers');
@@ -1329,7 +1338,20 @@ export default function AdminDashboardPage() {
 
         {/* ── MODERN ADMIN MENU BAR (Zero Scrollbars - Responsive Grid) ── */}
         <div className="bg-white border border-slate-200 rounded-2xl p-2 shadow-sm">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 w-full">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 w-full">
+            <button
+              type="button"
+              onClick={() => setActiveAdminTab('loader-hub')}
+              className={`px-3 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 w-full ${
+                activeAdminTab === 'loader-hub'
+                  ? 'bg-red-600 text-white shadow-sm'
+                  : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
+              }`}
+            >
+              <Warehouse className="w-4 h-4 shrink-0" />
+              <span className="truncate">Loader Hub</span>
+            </button>
+
             <button
               type="button"
               onClick={() => setActiveAdminTab('shipments')}
@@ -2121,63 +2143,70 @@ export default function AdminDashboardPage() {
                       {headerMapping.container ? (
                         <span className="text-[11px] font-bold text-emerald-700 flex items-center">
                           <Check className="w-3.5 h-3.5 mr-1 text-emerald-600" />
-                          Ready to Ingest
+                          Container Manifest Mode (Ready to Ingest)
+                        </span>
+                      ) : (headerMapping.receipt || headerMapping.commodity) ? (
+                        <span className="text-[11px] font-bold text-blue-700 flex items-center">
+                          <Check className="w-3.5 h-3.5 mr-1 text-blue-600" />
+                          China Warehouse Inward Mode (Auto-Translate Chinese to English)
                         </span>
                       ) : (
-                        <span className="text-[11px] font-bold text-red-600 flex items-center">
+                        <span className="text-[11px] font-bold text-amber-700 flex items-center">
                           <AlertTriangle className="w-3.5 h-3.5 mr-1" />
-                          Container mapping required
+                          Map Receipt or Container
                         </span>
                       )}
                     </div>
 
                     {/* Mapped Fields Badges */}
-                    <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-[11px]">
                       <div
                         className={`p-2 rounded-lg border font-medium flex items-center justify-between ${
                           headerMapping.container
                             ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-                            : 'bg-red-50 border-red-200 text-red-800 animate-pulse'
+                            : (headerMapping.receipt || headerMapping.commodity)
+                            ? 'bg-blue-50 border-blue-200 text-blue-900'
+                            : 'bg-slate-50 border-slate-200 text-slate-600'
                         }`}
                       >
-                        <span className="font-bold">Container *:</span>
-                        <span className="font-mono truncate ml-1 max-w-[100px]" title={headerMapping.container || 'Missing'}>
-                          {headerMapping.container || '⚠️ Required'}
+                        <span className="font-bold">Container:</span>
+                        <span className="font-mono truncate ml-1 max-w-[90px]" title={headerMapping.container || 'Inward stock'}>
+                          {headerMapping.container || 'Inward Stock'}
                         </span>
                       </div>
 
                       <div className="p-2 rounded-lg border bg-white border-slate-200 text-slate-700 font-medium flex items-center justify-between">
                         <span className="font-bold">Receipt No:</span>
-                        <span className="font-mono truncate ml-1 max-w-[100px]" title={headerMapping.receipt || 'Unmapped'}>
+                        <span className="font-mono truncate ml-1 max-w-[90px]" title={headerMapping.receipt || 'Unmapped'}>
                           {headerMapping.receipt || 'None'}
                         </span>
                       </div>
 
                       <div className="p-2 rounded-lg border bg-white border-slate-200 text-slate-700 font-medium flex items-center justify-between">
+                        <span className="font-bold">Party/Shipper:</span>
+                        <span className="font-mono truncate ml-1 max-w-[90px]" title={headerMapping.party || 'Auto'}>
+                          {headerMapping.party || 'Auto'}
+                        </span>
+                      </div>
+
+                      <div className="p-2 rounded-lg border bg-white border-slate-200 text-slate-700 font-medium flex items-center justify-between">
+                        <span className="font-bold">Commodity:</span>
+                        <span className="font-mono truncate ml-1 max-w-[90px]" title={headerMapping.commodity || 'None'}>
+                          {headerMapping.commodity || 'None'}
+                        </span>
+                      </div>
+
+                      <div className="p-2 rounded-lg border bg-white border-slate-200 text-slate-700 font-medium flex items-center justify-between">
                         <span className="font-bold">Main Mark:</span>
-                        <span className="font-mono truncate ml-1 max-w-[100px]" title={headerMapping.mainMarka || 'Unmapped'}>
+                        <span className="font-mono truncate ml-1 max-w-[90px]" title={headerMapping.mainMarka || 'Unmapped'}>
                           {headerMapping.mainMarka || 'None'}
                         </span>
                       </div>
 
                       <div className="p-2 rounded-lg border bg-white border-slate-200 text-slate-700 font-medium flex items-center justify-between">
-                        <span className="font-bold">Sub Mark:</span>
-                        <span className="font-mono truncate ml-1 max-w-[100px]" title={headerMapping.subMarka || 'Unmapped'}>
-                          {headerMapping.subMarka || 'None'}
-                        </span>
-                      </div>
-
-                      <div className="p-2 rounded-lg border bg-white border-slate-200 text-slate-700 font-medium flex items-center justify-between">
-                        <span className="font-bold">Receipt Date:</span>
-                        <span className="font-mono truncate ml-1 max-w-[100px]" title={headerMapping.date || 'Unmapped'}>
-                          {headerMapping.date || 'None'}
-                        </span>
-                      </div>
-
-                      <div className="p-2 rounded-lg border bg-white border-slate-200 text-slate-700 font-medium flex items-center justify-between">
-                        <span className="font-bold">Volume / M³:</span>
-                        <span className="font-mono truncate ml-1 max-w-[100px]" title={headerMapping.volume || 'Unmapped'}>
-                          {headerMapping.volume || 'None'}
+                        <span className="font-bold">Qty / Boxes:</span>
+                        <span className="font-mono truncate ml-1 max-w-[90px]" title={headerMapping.quantity || 'None'}>
+                          {headerMapping.quantity || 'None'}
                         </span>
                       </div>
                     </div>
@@ -2209,8 +2238,9 @@ export default function AdminDashboardPage() {
                           </p>
 
                           {[
-                            { key: 'container', label: 'Container (Mandatory *)' },
+                            { key: 'container', label: 'Container (Optional for Inward)' },
                             { key: 'receipt', label: 'Receipt No' },
+                            { key: 'party', label: 'Party / Customer' },
                             { key: 'mainMarka', label: 'Main Marka' },
                             { key: 'subMarka', label: 'Sub Marka' },
                             { key: 'date', label: 'Date of Receipt' },
@@ -2774,6 +2804,15 @@ export default function AdminDashboardPage() {
         </div>
         )}
 
+        {/* ── TAB 0: LOADER HUB (CHINA WAREHOUSE INWARD STOCK & LOADING PLANS) ── */}
+        {activeAdminTab === 'loader-hub' && (
+          <div className="animate-fadeIn">
+            <ReduxProvider>
+              <LoaderHub />
+            </ReduxProvider>
+          </div>
+        )}
+
         {/* ── TAB 1: SEARCH-FIRST CARGO SHIPMENTS TABLE ── */}
         {activeAdminTab === 'shipments' && (
           <div className="animate-fadeIn">
@@ -3083,6 +3122,7 @@ export default function AdminDashboardPage() {
                     <th className="p-3">ETA</th>
                     <th className="p-3">Turnaround</th>
                     <th className="p-3">Status</th>
+                    <th className="p-3">Destination</th>
                     <th className="p-3">Warehouse Entry</th>
                     <th className="p-3 text-right">Actions</th>
                   </tr>
