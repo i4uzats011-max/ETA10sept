@@ -15,7 +15,10 @@ export interface IContainer extends Document {
   voyageNumber?: string;        // Voyage number
   lastApiSync?: Date | null;    // Timestamp of last JSONCargo API sync
   jsonCargoData?: Record<string, any>; // Full raw/structured payload from JSONCargo API
-  shipmentCount?: number;       // Number of cargo packages loaded in this container
+  deliveryDate?: string;        // Delivery date (when marked delivered by user/admin)
+  daysToDeliver?: number | null; // Calculated turnaround days from loading/receipt to delivery
+  isDelivered?: boolean;        // Whether container is delivered
+  shipmentCount?: number;       // Number of shipments inside container
   createdAt: Date;
   updatedAt: Date;
 }
@@ -32,6 +35,9 @@ const ContainerSchema = new Schema<IContainer>(
     destinationDate: { type: String, default: 'N/A' },
     eta: { type: String, default: 'N/A' },
     status: { type: String, default: 'Pending' },
+    deliveryDate: { type: String, default: '' },
+    daysToDeliver: { type: Number, default: null },
+    isDelivered: { type: Boolean, default: false, index: true },
     vesselName: { type: String, default: '' },
     voyageNumber: { type: String, default: '' },
     lastApiSync: { type: Date, default: null },

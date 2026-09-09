@@ -61,6 +61,50 @@ export function formatReceiptDate(dateStr?: string | null): string {
   return parsed.toISOString().slice(0, 10);
 }
 
+/**
+ * Global Date Formatter: Ddd, Dd-mm-yy (e.g. 'Wed, 09-09-26' / 'Sun, 30-08-26')
+ * Parses any date format (ISO, DD-MM-YY, DD/MM/YYYY, Excel serials) and outputs
+ * standardized 3-letter day abbreviation followed by DD-MM-YY.
+ */
+export function formatGlobalDate(dateInput?: string | number | Date | null): string {
+  if (dateInput === null || dateInput === undefined) return '—';
+  const strVal = String(dateInput).trim();
+  if (!strVal || strVal === 'N/A' || strVal === 'Pending' || strVal === '—') {
+    return strVal || '—';
+  }
+
+  let d: Date | null = null;
+  if (dateInput instanceof Date) {
+    d = isNaN(dateInput.getTime()) ? null : dateInput;
+  } else {
+    d = parseReceiptDate(dateInput);
+  }
+
+  if (!d) return strVal;
+
+  const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const dayName = daysOfWeek[d.getUTCDay()];
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const yy = String(d.getUTCFullYear()).slice(-2);
+
+  return `${dayName}, ${dd}-${mm}-${yy}`;
+}
+
+/**
+ * Calculates elapsed days between two date strings (e.g. loading departure date to delivery date)
+ */
+export function calculateDaysBetween(
+  startDateStr?: string | null,
+  endDateStr?: string | null
+): number | null {
+  const start = parseReceiptDate(startDateStr);
+  const end = parseReceiptDate(endDateStr);
+  if (!start || !end) return null;
+
+  return Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+}
+
 export function isContainerLate(
   dateStr?: string | null,
   etaStr?: string | null,

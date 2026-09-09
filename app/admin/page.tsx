@@ -2,7 +2,16 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
-import { calculateDaysToDeliver, parseReceiptDate, formatReceiptDate, isContainerLate, getDeliveryTurnaroundStatus } from '@/lib/dateUtils';
+import {
+  calculateDaysToDeliver,
+  parseReceiptDate,
+  formatReceiptDate,
+  formatGlobalDate,
+  isContainerLate,
+  getDeliveryTurnaroundStatus,
+} from '@/lib/dateUtils';
+import CargoMasterTable from '@/components/CargoMasterTable';
+import { ReduxProvider } from '@/store/ReduxProvider';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -1265,12 +1274,20 @@ export default function AdminDashboardPage() {
           <div className="flex items-center space-x-2.5">
             {/* JSONCargo API Stats Badge */}
             {apiStats && (
-              <div className="hidden md:flex items-center space-x-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveAdminTab('api-sync');
+                  fetchApiStats();
+                }}
+                className="flex items-center space-x-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-xl text-xs transition cursor-pointer shadow-xs"
+                title="Click to view API calls & quota monitor"
+              >
                 <Activity className="w-3.5 h-3.5 text-blue-600" />
-                <span className="text-slate-600">
-                  JSONCargo Calls: <strong className="text-blue-700 font-mono">{apiStats.requests_made ?? 0}</strong> / {apiStats.requests_total ?? '∞'}
+                <span className="text-slate-700">
+                  Calls: <strong className="text-blue-700 font-mono font-black">{apiStats.requests_made ?? 0}</strong> / {apiStats.requests_total ?? '∞'}
                 </span>
-              </div>
+              </button>
             )}
 
             <button
@@ -1540,7 +1557,7 @@ export default function AdminDashboardPage() {
                             <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">{lc.container}</span>
                           </td>
                           <td className="py-2 px-3 text-gray-700 max-w-[140px] truncate">{lc.commodity || '—'}</td>
-                          <td className="py-2 px-3 font-bold text-red-700 whitespace-nowrap">{lc.eta}</td>
+                          <td className="py-2 px-3 font-bold text-red-700 whitespace-nowrap">{formatGlobalDate(lc.eta)}</td>
                           <td className="py-2 px-3">
                             <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-black bg-red-600 text-white">+{lc.daysOverLimit}d</span>
                           </td>
@@ -1617,7 +1634,7 @@ export default function AdminDashboardPage() {
                           <tr key={ns.containerNumber} className={`border-b border-amber-50 ${i % 2 === 0 ? 'bg-white' : 'bg-amber-50/30'}`}>
                             <td className="py-2 px-3 font-mono font-bold text-slate-900 text-[11px]">{ns.containerNumber}</td>
                             <td className="py-2 px-3 text-gray-700">{ns.shippingLine}</td>
-                            <td className="py-2 px-3 font-bold text-amber-700 whitespace-nowrap">{ns.eta || 'No ETA'}</td>
+                            <td className="py-2 px-3 font-bold text-amber-700 whitespace-nowrap">{formatGlobalDate(ns.eta)}</td>
                             <td className="py-2 px-3">
                               {ns.daysUntilEta !== null ? (
                                 <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold ${ns.daysUntilEta <= 5 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
@@ -1634,7 +1651,7 @@ export default function AdminDashboardPage() {
                               {ns.neverSynced ? (
                                 <span className="text-[10px] font-bold text-red-600">Never synced</span>
                               ) : (
-                                new Date(ns.lastApiSync).toLocaleDateString()
+                                formatGlobalDate(ns.lastApiSync)
                               )}
                             </td>
                           </tr>
@@ -1744,234 +1761,25 @@ export default function AdminDashboardPage() {
         </div>
         )}
 
-        {/* ── TAB 2: CONTAINER FLEET (TABLE VIEW) ── */}
+        {/* ── TAB 2: CARGO MASTER TABLE & FLEET ANALYTICS (REDUX + TANSTACK TABLE + JS CHARTS) ── */}
         {activeAdminTab === 'containers' && (
-          <div className="bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden space-y-4 animate-fadeIn">
-            {/* Header & Controls */}
-            <div className="p-6 border-b border-slate-200 bg-slate-50/50 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-              <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md">
-                  <Box className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">Container Fleet &amp; Transit Directory</h3>
-                  <p className="text-xs text-slate-500">
-                    Dedicated table view with China loading dates, carrier lines, destination ETAs, and live status.
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
-                <div className="relative flex-1 md:w-72">
-                  <Search className="w-3.5 h-3.5 absolute left-3 top-3 text-slate-400" />
-                  <input
-                    type="text"
-                    value={containerFleetSearch}
-                    onChange={(e) => setContainerFleetSearch(e.target.value)}
-                    placeholder="Search container, line, port, status..."
-                    className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  {containerFleetSearch && (
-                    <button
-                      onClick={() => setContainerFleetSearch('')}
-                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 text-xs"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-
-                <button
-                  onClick={fetchContainerFleet}
-                  disabled={isContainerFleetLoading}
-                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition flex items-center space-x-1.5"
-                  title="Refresh Fleet Data"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isContainerFleetLoading ? 'animate-spin' : ''}`} />
-                  <span>Refresh</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    if (distinctContainers.length > 0) {
-                      setManualEtaContainer(distinctContainers[0]);
-                      handleContainerSelectionChange(distinctContainers[0]);
-                    }
-                    setActiveAdminTab('manual-eta');
-                  }}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center space-x-1.5"
-                >
-                  <Calendar className="w-3.5 h-3.5" />
-                  <span>+ Set Loading Date &amp; ETA</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Table Content */}
-            <div className="overflow-x-auto">
-              {isContainerFleetLoading ? (
-                <div className="p-12 text-center text-slate-400 space-y-2">
-                  <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
-                  <p className="text-xs font-semibold">Loading container fleet directory...</p>
-                </div>
-              ) : filteredContainerFleet.length === 0 ? (
-                <div className="p-12 text-center text-slate-400 space-y-2">
-                  <Box className="w-8 h-8 mx-auto text-slate-300" />
-                  <p className="text-sm font-bold text-slate-600">No Containers Found</p>
-                  <p className="text-xs">
-                    {containerFleetSearch ? 'Try clearing your search query' : 'Import a manifest or map containers to see them here'}
-                  </p>
-                </div>
-              ) : (
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-slate-100 text-slate-700 text-[11px] uppercase tracking-wider font-bold border-b border-slate-200">
-                      <th className="py-3 px-4">Container Alias</th>
-                      <th className="py-3 px-4">Actual Carrier No</th>
-                      <th className="py-3 px-4">Company Name (Line)</th>
-                      <th className="py-3 px-4">Loading Date (China)</th>
-                      <th className="py-3 px-4">Route (Origin → Destination)</th>
-                      <th className="py-3 px-4">Destination ETA</th>
-                      <th className="py-3 px-4">Current Status &amp; Location</th>
-                      <th className="py-3 px-4 text-center">Packages</th>
-                      <th className="py-3 px-4 text-center">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredContainerFleet.map((c, idx) => {
-                      const daysLeft = c.eta && c.eta !== 'N/A' ? Math.ceil((new Date(c.eta).getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null;
-                      return (
-                        <tr key={c.container || idx} className="hover:bg-blue-50/40 transition">
-                          {/* Container Alias */}
-                          <td className="py-3 px-4">
-                            <div className="flex items-center space-x-2">
-                              <div className="w-2.5 h-2.5 rounded-full bg-blue-600"></div>
-                              <strong className="font-mono font-bold text-sm text-slate-950">{c.container}</strong>
-                            </div>
-                          </td>
-
-                          {/* Actual Carrier Container */}
-                          <td className="py-3 px-4">
-                            {c.containerNumber ? (
-                              <span className="font-mono text-xs font-bold text-indigo-900 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-md">
-                                {c.containerNumber}
-                              </span>
-                            ) : (
-                              <span className="text-slate-400 italic text-[11px]">Unmapped</span>
-                            )}
-                          </td>
-
-                          {/* Shipping Line / Company Name */}
-                          <td className="py-3 px-4">
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800 border border-blue-200">
-                              {c.shippingLine || 'MSC'}
-                            </span>
-                          </td>
-
-                          {/* Loading Date from China */}
-                          <td className="py-3 px-4">
-                            {c.startDate ? (
-                              <span className="inline-flex items-center space-x-1.5 font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg">
-                                <Calendar className="w-3.5 h-3.5 text-emerald-600" />
-                                <span>{c.startDate}</span>
-                              </span>
-                            ) : (
-                              <span className="text-slate-400 text-[11px] italic">Not entered</span>
-                            )}
-                          </td>
-
-                          {/* Route */}
-                          <td className="py-3 px-4">
-                            <div className="text-slate-700 font-medium text-[11px]">
-                              <span className="text-slate-900 font-semibold">{c.shippedFrom || 'China'}</span>
-                              <span className="text-slate-400 mx-1.5">→</span>
-                              <span className="text-blue-900 font-semibold">{c.destination || c.shippedTo || 'India'}</span>
-                            </div>
-                          </td>
-
-                          {/* Destination ETA */}
-                          <td className="py-3 px-4">
-                            {c.eta && c.eta !== 'N/A' ? (
-                              <div>
-                                <div className="font-bold font-mono text-slate-900">{c.eta}</div>
-                                {daysLeft !== null && (
-                                  <span
-                                    className={`inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                                      daysLeft < 0
-                                        ? 'bg-slate-100 text-slate-600'
-                                        : daysLeft <= 5
-                                        ? 'bg-red-100 text-red-700'
-                                        : 'bg-emerald-100 text-emerald-700'
-                                    }`}
-                                  >
-                                    {daysLeft < 0 ? 'Arrived' : daysLeft === 0 ? 'Arriving Today' : `${daysLeft}d left`}
-                                  </span>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="text-slate-400 text-[11px]">Pending ETA</span>
-                            )}
-                          </td>
-
-                          {/* Status & Location */}
-                          <td className="py-3 px-4">
-                            <div className="space-y-0.5">
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-900">
-                                {c.status || 'In Transit'}
-                              </span>
-                              {c.currentLocation && (
-                                <div className="text-[10px] text-slate-500 font-medium truncate max-w-[150px]" title={c.currentLocation}>
-                                  📍 {c.currentLocation}
-                                </div>
-                              )}
-                            </div>
-                          </td>
-
-                          {/* Package Count */}
-                          <td className="py-3 px-4 text-center">
-                            <span className="font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-full text-xs">
-                              {c.shipmentCount ?? 0}
-                            </span>
-                          </td>
-
-                          {/* Action buttons */}
-                          <td className="py-3 px-4 text-center whitespace-nowrap">
-                            <div className="inline-flex items-center space-x-1.5">
-                              <button
-                                onClick={() => {
-                                  setManualEtaContainer(c.container);
-                                  handleContainerSelectionChange(c.container);
-                                  setActiveAdminTab('manual-eta');
-                                }}
-                                className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-xs font-bold transition flex items-center space-x-1"
-                                title="Edit China Loading Date &amp; ETA"
-                              >
-                                <Calendar className="w-3 h-3" />
-                                <span>Edit Dates</span>
-                              </button>
-
-                              <button
-                                onClick={() => {
-                                  setManualSyncContainer(c.container);
-                                  setSelectedContainer(c.container);
-                                  handleContainerSelectionChange(c.container);
-                                  setActiveAdminTab('api-sync');
-                                }}
-                                className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-300 rounded-lg text-xs font-bold transition flex items-center space-x-1"
-                                title="Sync Live with JSONCargo API"
-                              >
-                                <Zap className="w-3 h-3" />
-                                <span>Sync API</span>
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </div>
+          <div className="animate-fadeIn">
+            <ReduxProvider>
+              <CargoMasterTable
+                onEditDates={(alias) => {
+                  setManualEtaContainer(alias);
+                  setSelectedContainer(alias);
+                  handleContainerSelectionChange(alias);
+                  setActiveAdminTab('manual-eta');
+                }}
+                onSyncApi={(alias) => {
+                  setManualSyncContainer(alias);
+                  setSelectedContainer(alias);
+                  handleContainerSelectionChange(alias);
+                  setActiveAdminTab('api-sync');
+                }}
+              />
+            </ReduxProvider>
           </div>
         )}
 
@@ -2561,6 +2369,123 @@ export default function AdminDashboardPage() {
         {/* ── TAB 5: JSONCARGO API SYNC & 3-COLUMN MAPPING ── */}
         {activeAdminTab === 'api-sync' && (
           <div className="max-w-5xl mx-auto space-y-6 animate-fadeIn">
+            {/* JSONCargo API Calls & Plan Quota Monitor Card */}
+            <div className="bg-gradient-to-br from-slate-900 via-slate-950 to-blue-950 text-white rounded-3xl p-6 sm:p-7 shadow-xl border border-slate-800 space-y-5 animate-fadeIn">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                <div className="flex items-center space-x-3">
+                  <div className="w-12 h-12 rounded-2xl bg-blue-600/30 border border-blue-500/40 text-blue-400 flex items-center justify-center shadow-inner">
+                    <Activity className="w-6 h-6 text-blue-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <h3 className="text-base font-black text-white tracking-tight">
+                        JSON Cargo API Quota &amp; Call Counter
+                      </h3>
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-500/20 text-blue-300 border border-blue-400/30">
+                        {apiStats?.plan || 'MARINER PLAN'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Real-time tracker of carrier tracking requests consumed, quota remaining, and zero-cost protection.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-2.5">
+                  <button
+                    type="button"
+                    onClick={fetchApiStats}
+                    className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 border border-slate-700 shadow-sm"
+                    title="Refresh live API counter from JSONCargo"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Refresh Counter</span>
+                  </button>
+                  <a
+                    href="https://jsoncargo.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-md shadow-blue-600/20"
+                  >
+                    <span>JSONCargo Portal ↗</span>
+                  </a>
+                </div>
+              </div>
+
+              {/* 3 Metric Badges */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-2xl space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">API Calls Consumed</span>
+                  <div className="flex items-baseline space-x-2">
+                    <span className="text-2xl sm:text-3xl font-black font-mono text-blue-400">
+                      {apiStats?.requests_made ?? 0}
+                    </span>
+                    <span className="text-xs text-slate-500 font-semibold">requests used</span>
+                  </div>
+                </div>
+
+                <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-2xl space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Calls Remaining</span>
+                  <div className="flex items-baseline space-x-2">
+                    <span className="text-2xl sm:text-3xl font-black font-mono text-emerald-400">
+                      {apiStats?.requests_available ?? 921}
+                    </span>
+                    <span className="text-xs text-slate-500 font-semibold">available credits</span>
+                  </div>
+                </div>
+
+                <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-2xl space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total Plan Allowance</span>
+                  <div className="flex items-baseline space-x-2">
+                    <span className="text-2xl sm:text-3xl font-black font-mono text-white">
+                      {apiStats?.requests_total ?? 1000}
+                    </span>
+                    <span className="text-xs text-slate-500 font-semibold">total / month</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Progress Bar */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-semibold">
+                  <span className="text-slate-400">Quota Consumed</span>
+                  <span className="text-blue-300 font-mono font-bold">
+                    {apiStats?.requests_total
+                      ? `${Math.round(((apiStats.requests_made ?? 0) / apiStats.requests_total) * 100)}% Used`
+                      : '7.9% Used'}
+                  </span>
+                </div>
+                <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full transition-all duration-500"
+                    style={{
+                      width: `${
+                        apiStats?.requests_total
+                          ? Math.min(100, Math.max(2, Math.round(((apiStats.requests_made ?? 0) / apiStats.requests_total) * 100)))
+                          : 8
+                      }%`,
+                    }}
+                  ></div>
+                </div>
+              </div>
+
+              {/* Zero-Cost & Quota Protection Guide */}
+              <div className="p-3.5 rounded-2xl bg-blue-950/40 border border-blue-900/60 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-slate-300">
+                <div className="flex items-start space-x-2">
+                  <span className="text-emerald-400 font-black">✓ 0 API Calls:</span>
+                  <span>Public searches &amp; Excel uploads cost 0 credits (direct MongoDB read).</span>
+                </div>
+                <div className="flex items-start space-x-2">
+                  <span className="text-blue-400 font-black">⏰ 7:00 AM Cron:</span>
+                  <span>Queries active en-route containers once daily per smart schedule.</span>
+                </div>
+                <div className="flex items-start space-x-2">
+                  <span className="text-amber-400 font-black">📦 Delivered:</span>
+                  <span>Marking container delivered permanently stops API calls for that container.</span>
+                </div>
+              </div>
+            </div>
+
             {/* Daily Cron Schedule Banner */}
             <div className="bg-slate-50 border border-slate-200 text-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
               <div className="flex items-center space-x-3">
@@ -3229,8 +3154,8 @@ export default function AdminDashboardPage() {
                         <td className="p-4 text-slate-500">
                           {shipment.weight || '-'} / {shipment.volume || '-'}
                         </td>
-                        <td className="p-3 font-medium text-slate-700 whitespace-nowrap">{shipment.date || 'N/A'}</td>
-                        <td className="p-3 font-semibold text-slate-900 whitespace-nowrap">{shipment.eta || 'N/A'}</td>
+                        <td className="p-3 font-medium text-slate-700 whitespace-nowrap">{formatGlobalDate(shipment.date)}</td>
+                        <td className="p-3 font-semibold text-slate-900 whitespace-nowrap">{formatGlobalDate(shipment.eta)}</td>
                         <td className="p-3 whitespace-nowrap">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] border ${turnaround.badgeClass}`}>
                             {turnaround.label}

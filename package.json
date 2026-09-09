@@ -9,6 +9,9 @@
     "cron:7am": "node scripts/cron-7am-sync.js"
   },
   "dependencies": {
+    "@reduxjs/toolkit": "^2.12.0",
+    "@tanstack/react-table": "^8.21.3",
+    "chart.js": "^4.5.1",
     "clsx": "^2.1.1",
     "csv-parse": "^5.6.0",
     "graphql": "^17.0.2",
@@ -20,7 +23,9 @@
     "mongoose": "^8.9.3",
     "next": "^14.2.23",
     "react": "^18.3.1",
+    "react-chartjs-2": "^5.3.1",
     "react-dom": "^18.3.1",
+    "react-redux": "^9.3.0",
     "tailwind-merge": "^2.6.0",
     "xlsx": "^0.18.5"
   },

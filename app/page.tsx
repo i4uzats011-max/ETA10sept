@@ -6,6 +6,7 @@ import Image from 'next/image';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { fetchGraphQL } from '@/lib/graphql';
+import { formatGlobalDate } from '@/lib/dateUtils';
 import {
   Package,
   Truck,
@@ -118,13 +119,13 @@ export default function PublicTrackerPage() {
       doc.setFont('helvetica', 'bold');
       doc.text('Receipt Date:', 18, 69);
       doc.setFont('helvetica', 'normal');
-      doc.text(String(primary.date || 'N/A'), 50, 69);
+      doc.text(String(formatGlobalDate(primary.date)), 50, 69);
 
       doc.setFont('helvetica', 'bold');
       doc.text('Expected Delivery (ETA):', 110, 69);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(220, 38, 38); // Highlight ETA in Red
-      doc.text(String(primary.eta || 'Pending'), 155, 69);
+      doc.text(String(formatGlobalDate(primary.eta) || 'Pending'), 155, 69);
       doc.setTextColor(15, 23, 42);
 
       doc.setFont('helvetica', 'bold');
@@ -153,7 +154,7 @@ export default function PublicTrackerPage() {
         s.weight ? `${s.weight} KG` : 'N/A',
         formatCBM(s.volume),
         s.warehouse || 'China WH',
-        s.eta || 'Pending',
+        formatGlobalDate(s.eta) || 'Pending',
       ]);
 
       autoTable(doc, {
@@ -641,7 +642,7 @@ export default function PublicTrackerPage() {
                           <div className="text-xs space-y-1 text-slate-600">
                             <div className="flex items-center justify-between">
                               <span className="text-[11px] text-slate-500 font-medium">Expected Delivery:</span>
-                              <strong className="text-red-700 font-mono text-xs">{primary?.eta || 'Pending'}</strong>
+                              <strong className="text-red-700 font-mono text-xs">{formatGlobalDate(primary?.eta) || 'Pending'}</strong>
                             </div>
                             <div className="flex items-center justify-between">
                               <span className="text-[11px] text-slate-500 font-medium">Cargo Items:</span>
@@ -656,6 +657,7 @@ export default function PublicTrackerPage() {
               )}
 
               {receiptShipmentsList.map((item: any, idx: number) => {
+                const isItemDelivered = item.status === 'Delivered';
                 return (
                 <div key={item.id || idx} className="bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden space-y-6 animate-fadeIn">
                   {/* Header Banner */}
@@ -681,11 +683,19 @@ export default function PublicTrackerPage() {
 
                     <div className="flex items-center space-x-3">
                       {/* Prominent Header ETA Badge */}
-                      <div className="flex items-center space-x-2 bg-gradient-to-r from-red-600 to-rose-600 text-white px-3.5 py-1.5 rounded-xl border border-red-400/40 shadow-sm">
+                      <div className={`flex items-center space-x-2 text-white px-3.5 py-1.5 rounded-xl border shadow-sm ${
+                        isItemDelivered
+                          ? 'bg-gradient-to-r from-emerald-600 to-teal-600 border-emerald-400/40'
+                          : 'bg-gradient-to-r from-red-600 to-rose-600 border-red-400/40'
+                      }`}>
                         <Clock className="w-4 h-4 text-amber-300" />
                         <div>
-                          <span className="text-[9px] uppercase font-bold text-rose-200 block">Confirmed ETA</span>
-                          <span className="text-sm font-black font-mono text-white">{item.eta || 'Pending'}</span>
+                          <span className="text-[9px] uppercase font-bold text-rose-200 block">
+                            {isItemDelivered ? 'Delivery Date' : 'Confirmed ETA'}
+                          </span>
+                          <span className="text-sm font-black font-mono text-white">
+                            {formatGlobalDate(item.deliveryDate || item.eta) || 'Pending'}
+                          </span>
                         </div>
                       </div>
 
@@ -698,7 +708,11 @@ export default function PublicTrackerPage() {
                       </button>
                       <div className="flex flex-col items-end">
                         <span className="text-[11px] text-slate-400 mb-0.5 font-semibold uppercase">Status</span>
-                        <span className="px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-red-600 text-white shadow-md shadow-red-600/30">
+                        <span className={`px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider text-white shadow-md ${
+                          isItemDelivered
+                            ? 'bg-emerald-600 shadow-emerald-600/30'
+                            : 'bg-red-600 shadow-red-600/30'
+                        }`}>
                           {item.status || 'In Transit'}
                         </span>
                       </div>
@@ -708,15 +722,23 @@ export default function PublicTrackerPage() {
                   {/* Content Details Grid - ALL Details for this Receipt */}
                   <div className="p-6 sm:p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {/* 1. Large High-Visibility ETA Banner */}
-                    <div className="bg-gradient-to-r from-red-600 via-rose-600 to-red-700 text-white p-5 rounded-2xl shadow-md col-span-1 md:col-span-2 lg:col-span-3 flex flex-wrap items-center justify-between gap-4 border-2 border-red-400/40 animate-fadeIn">
+                    <div className={`text-white p-5 rounded-2xl shadow-md col-span-1 md:col-span-2 lg:col-span-3 flex flex-wrap items-center justify-between gap-4 border-2 animate-fadeIn ${
+                      isItemDelivered
+                        ? 'bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 border-emerald-400/40'
+                        : 'bg-gradient-to-r from-red-600 via-rose-600 to-red-700 border-red-400/40'
+                    }`}>
                       <div className="flex items-center space-x-3.5">
                         <div className="p-3 bg-white/20 backdrop-blur-sm rounded-xl">
                           <Clock className="w-7 h-7 text-amber-300" />
                         </div>
                         <div>
-                          <span className="text-xs font-bold uppercase tracking-wider text-rose-200 block">Expected Arrival Date (ETA)</span>
+                          <span className="text-xs font-bold uppercase tracking-wider text-rose-200 block">
+                            {isItemDelivered ? 'Cargo Delivered On' : 'Expected Arrival Date (ETA)'}
+                          </span>
                           <h4 className="text-2xl sm:text-3xl font-black font-mono text-white tracking-tight">
-                            {item.eta && item.eta !== 'N/A' && item.eta !== 'Pending' ? item.eta : 'ETA Confirmation Pending'}
+                            {isItemDelivered
+                              ? formatGlobalDate(item.deliveryDate || item.eta)
+                              : (item.eta && item.eta !== 'N/A' && item.eta !== 'Pending' ? formatGlobalDate(item.eta) : 'ETA Confirmation Pending')}
                           </h4>
                         </div>
                       </div>
@@ -763,7 +785,7 @@ export default function PublicTrackerPage() {
                       </div>
                       <div>
                         <span className="text-xs font-bold text-slate-500 uppercase">Receipt Date</span>
-                        <p className="text-lg font-black text-slate-950 font-mono">{item.date || 'N/A'}</p>
+                        <p className="text-lg font-black text-slate-950 font-mono">{formatGlobalDate(item.date)}</p>
                         <span className="text-xs text-slate-400 font-medium">Receipt booking date</span>
                       </div>
                     </div>
@@ -867,9 +889,15 @@ export default function PublicTrackerPage() {
                 </div>
 
                 <div className="p-6 rounded-2xl bg-slate-900 text-white space-y-1 border border-slate-800">
-                  <span className="text-xs font-bold uppercase tracking-widest text-slate-400">ETA</span>
-                  <div className="text-4xl font-black font-mono text-amber-300">
-                    {containerResult.eta || 'Pending'}
+                  <span className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                    {containerResult.status === 'Delivered' ? 'Delivery Status' : 'ETA'}
+                  </span>
+                  <div className={`text-3xl sm:text-4xl font-black font-mono ${
+                    containerResult.status === 'Delivered' ? 'text-emerald-400' : 'text-amber-300'
+                  }`}>
+                    {containerResult.status === 'Delivered'
+                      ? `Delivered: ${formatGlobalDate(containerResult.deliveryDate || containerResult.eta)}`
+                      : (formatGlobalDate(containerResult.eta) || 'Pending')}
                   </div>
                 </div>
               </div>
