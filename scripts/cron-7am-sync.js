@@ -96,19 +96,13 @@ function shouldSync(lastApiSync, eta, now = new Date(), status) {
     }
   }
 
-  if (!lastApiSync || !eta || eta === 'N/A' || isNaN(new Date(eta).getTime())) {
+  if (!lastApiSync) {
     return true;
   }
 
-  const etaDate = new Date(eta);
-  const daysUntilEta = Math.ceil((etaDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  // 1 call per day automated schedule (at least 24 hours between calls)
   const daysSinceLastSync = (now.getTime() - new Date(lastApiSync).getTime()) / (1000 * 60 * 60 * 24);
-
-  if (daysUntilEta >= 1 && daysUntilEta <= 5) return daysSinceLastSync >= 1;
-  if (daysUntilEta > 5 && daysUntilEta <= 11) return daysSinceLastSync >= 2;
-  if (daysUntilEta > 11 && daysUntilEta <= 17) return daysSinceLastSync >= 5;
-  if (daysUntilEta > 17 && daysUntilEta <= 25) return daysSinceLastSync >= 7;
-  return daysSinceLastSync >= 10;
+  return daysSinceLastSync >= 1.0;
 }
 
 function addFilingBufferDays(etaDateInput, daysToAdd = 7) {
@@ -261,7 +255,9 @@ async function run7amSync() {
             voyageNumber: tracking.voyageNumber,
             jsonCargoData: tracking.jsonCargoData,
             lastApiSync: now,
+            apiCalled: true,
           },
+          $inc: { apiCallCount: 1 },
         }
       );
 
@@ -285,6 +281,16 @@ async function run7amSync() {
             jsonCargoData: tracking.jsonCargoData,
             shipmentCount: updateResult.matchedCount || item.count,
             lastApiSync: now,
+            apiCalled: true,
+          },
+          $inc: { apiCallCount: 1 },
+          $push: {
+            apiCallHistory: {
+              timestamp: now,
+              source: 'cron',
+              eta: tracking.eta,
+              status: tracking.status,
+            },
           },
         },
         { upsert: true, new: true }

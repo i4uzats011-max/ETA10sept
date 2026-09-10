@@ -160,50 +160,77 @@ export function shouldSyncContainer(
   lastApiSync: Date | null | undefined,
   eta: string | undefined,
   currentDate: Date = new Date(),
-  status?: string | undefined
+  status?: string | undefined,
+  rawEta?: string | undefined
 ): boolean {
-  // If container is already delivered or customs cleared, skip API call
+  // If container has arrived at final destination, reached port, or is delivered/customs cleared,
+  // automated ETA tracking halts completely
   if (status) {
     const s = status.toLowerCase();
-    if (s.includes('delivered') || s.includes('custom clear') || s.includes('completed')) {
+    if (
+      s.includes('delivered') ||
+      s.includes('custom clear') ||
+      s.includes('completed') ||
+      s.includes('reached') ||
+      s.includes('final destination') ||
+      s.includes('arrived') ||
+      s.includes('discharged')
+    ) {
       return false;
     }
   }
 
-  // Always sync if never synced or ETA is missing/invalid
-  if (!lastApiSync || !eta || eta === 'N/A' || isNaN(new Date(eta).getTime())) {
+  // Always sync if never synced
+  if (!lastApiSync) {
     return true;
   }
 
-  const etaDate = new Date(eta);
-  const daysUntilEta = Math.ceil((etaDate.getTime() - currentDate.getTime()) / (1000 * 60 * 60 * 24));
-  const daysSinceLastSync = (currentDate.getTime() - new Date(lastApiSync).getTime()) / (1000 * 60 * 60 * 24);
+  // Determine actual carrier ETA date (rawEta preferred over buffered clearance eta)
+  // Per user rule: Sync schedule is calculated based on actual vessel ETA date, NOT buffered +10 days
+  const etaStringToUse = rawEta || eta;
+  let daysUntilEta: number | null = null;
 
-  // Smart interval schedule based on ETA proximity:
-  // ETA 1-5 days away → sync daily (every 1 day)
-  if (daysUntilEta >= 1 && daysUntilEta <= 5) {
-    return daysSinceLastSync >= 1;
+  if (etaStringToUse && etaStringToUse !== 'N/A' && etaStringToUse !== 'Pending') {
+    const dateMatch = String(etaStringToUse).match(/\d{4}-\d{2}-\d{2}/);
+    let baseDate: Date | null = null;
+    if (dateMatch) {
+      baseDate = new Date(dateMatch[0]);
+    } else if (!isNaN(new Date(etaStringToUse).getTime())) {
+      baseDate = new Date(etaStringToUse);
+    }
+    if (baseDate && !isNaN(baseDate.getTime())) {
+      const today = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
+      const etaDay = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate());
+      daysUntilEta = Math.round((etaDay.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    }
   }
-  // ETA 5-11 days away → sync every 2 days
-  if (daysUntilEta > 5 && daysUntilEta <= 11) {
-    return daysSinceLastSync >= 2;
-  }
-  // ETA 11-17 days away → sync every 5 days
-  if (daysUntilEta > 11 && daysUntilEta <= 17) {
-    return daysSinceLastSync >= 5;
-  }
-  // ETA 17-25 days away → sync every 7 days
-  if (daysUntilEta > 17 && daysUntilEta <= 25) {
-    return daysSinceLastSync >= 7;
-  }
-  // ETA more than 25 days away → sync every 10 days
-  return daysSinceLastSync >= 10;
+
+  const requiredIntervalDays = getRequiredSyncIntervalDays(daysUntilEta);
+  const daysSinceLastSync = (currentDate.getTime() - new Date(lastApiSync).getTime()) / (1000 * 60 * 60 * 24);
+  return daysSinceLastSync >= requiredIntervalDays;
 }
 
 /**
- * Adds 7 days filing buffer to any base ETA date.
+ * Stepped carrier sync frequency schedule based on days to actual carrier ETA:
+ * - 1d to 7d (and overdue / <=0d): Check daily (1 day interval)
+ * - 8d to 12d: Check 1 time in 2 days (2 days interval)
+ * - 13d to 20d: Check 1 time in 5 days (5 days interval)
+ * - 21d to 30d (20d-30d): Check 1 time in 7 days (7 days interval)
+ * - 30+ days: Check 1 time in 10 days (10 days interval)
  */
-export function addFilingBufferDays(etaDateInput: string | Date, daysToAdd: number = 7): string {
+export function getRequiredSyncIntervalDays(daysUntilEta: number | null | undefined): number {
+  if (daysUntilEta === null || daysUntilEta === undefined) return 1.0;
+  if (daysUntilEta <= 7) return 1.0;
+  if (daysUntilEta <= 12) return 2.0;
+  if (daysUntilEta <= 20) return 5.0;
+  if (daysUntilEta <= 30) return 7.0;
+  return 10.0;
+}
+
+/**
+ * Adds clearance procedure buffer days to any base ETA date (default +10 days for customs clearance procedure).
+ */
+export function addFilingBufferDays(etaDateInput: string | Date, daysToAdd: number = 10): string {
   const dateMatch = String(etaDateInput).match(/\d{4}-\d{2}-\d{2}/);
   let baseDate: Date | null = null;
   
@@ -217,7 +244,7 @@ export function addFilingBufferDays(etaDateInput: string | Date, daysToAdd: numb
     return 'N/A';
   }
 
-  // Add filing buffer days (default +7 days)
+  // Add clearance procedure buffer days (+10 days)
   baseDate.setDate(baseDate.getDate() + daysToAdd);
   const yyyy = baseDate.getFullYear();
   const mm = String(baseDate.getMonth() + 1).padStart(2, '0');
@@ -228,6 +255,7 @@ export function addFilingBufferDays(etaDateInput: string | Date, daysToAdd: numb
 
 export interface ContainerTrackingResult {
   eta: string;
+  rawEta?: string;
   status: string;
   shippedFrom: string;
   shippedTo: string;
@@ -282,21 +310,58 @@ export async function fetchContainerTracking(
         dataObj?.current_status ||
         (dataObj?.last_location ? `Location: ${dataObj.last_location}` : 'In Transit');
 
+      // Check if container has reached final destination or arrived at port
+      const statusLower = String(rawStatus || '').toLowerCase();
+      const locLower = String(dataObj?.last_location || '').toLowerCase();
+      const isDestinationReached =
+        statusLower.includes('arrived') ||
+        statusLower.includes('discharge') ||
+        statusLower.includes('destination') ||
+        statusLower.includes('delivered') ||
+        statusLower.includes('customs clear') ||
+        locLower.includes('destination') ||
+        locLower.includes('discharged');
+
+      const finalStatus = isDestinationReached
+        ? 'Container reached to the final destination'
+        : rawStatus;
+
       let formattedEta = 'N/A';
+      let normalizedRawEta = '';
       if (rawEta) {
-        formattedEta = addFilingBufferDays(rawEta, 7);
+        const dateMatch = String(rawEta).match(/\d{4}-\d{2}-\d{2}/);
+        let baseDate: Date | null = null;
+        if (dateMatch) {
+          baseDate = new Date(dateMatch[0]);
+        } else if (!isNaN(new Date(rawEta).getTime())) {
+          baseDate = new Date(rawEta);
+        }
+
+        if (baseDate && !isNaN(baseDate.getTime())) {
+          const yyyy = baseDate.getFullYear();
+          const mm = String(baseDate.getMonth() + 1).padStart(2, '0');
+          const dd = String(baseDate.getDate()).padStart(2, '0');
+          normalizedRawEta = `${yyyy}-${mm}-${dd}`;
+
+          // Clearance Delivery ETA: Actual Carrier Vessel ETA + 10 days clearance procedure
+          formattedEta = addFilingBufferDays(baseDate, 10);
+        } else {
+          normalizedRawEta = String(rawEta);
+          formattedEta = String(rawEta);
+        }
       }
 
       const shippedFrom = dataObj?.shipped_from || dataObj?.loading_port || 'Ningbo / Shanghai, China';
       const shippedTo = dataObj?.shipped_to || dataObj?.discharging_port || 'Nhava Sheva / Mundra, India';
-      const currentLocation = dataObj?.last_location || (dataObj?.next_location ? `Approaching ${dataObj.next_location}` : rawStatus || 'In Transit');
+      const currentLocation = dataObj?.last_location || (dataObj?.next_location ? `Approaching ${dataObj.next_location}` : finalStatus || 'In Transit');
       const startDate = dataObj?.atd_origin || dataObj?.atd_last_location || '';
       const vesselName = dataObj?.current_vessel_name || dataObj?.last_vessel_name || '';
       const voyageNumber = dataObj?.current_voyage_number || dataObj?.last_voyage_number || '';
 
       return {
         eta: formattedEta,
-        status: rawStatus,
+        rawEta: normalizedRawEta || (rawEta ? String(rawEta) : ''),
+        status: finalStatus,
         shippedFrom,
         shippedTo,
         currentLocation,
@@ -307,11 +372,14 @@ export async function fetchContainerTracking(
         dataDetails: {
           ...dataObj,
           eta_final_destination: formattedEta,
+          raw_carrier_eta: normalizedRawEta || rawEta || null,
+          clearance_eta: formattedEta,
           shipped_from: shippedFrom,
           shipped_to: shippedTo,
           last_location: currentLocation,
           current_vessel_name: vesselName,
           current_voyage_number: voyageNumber,
+          container_status: finalStatus,
         },
         rawResponse: resData,
       };
@@ -330,17 +398,19 @@ export async function fetchContainerTracking(
 
     // Only allow mock data if explicitly enabled via environment variable
     if (process.env.MOCK_CARGO_FALLBACK === 'true') {
-      const baseMock = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000);
-      const mockEtaWithBuffer = addFilingBufferDays(baseMock, 7);
+      const baseMock = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000); // 5 days away
+      const rawMockEta = baseMock.toISOString().slice(0, 10);
+      const clearanceMockEta = addFilingBufferDays(rawMockEta, 10);
       const mockStartDate = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
       const mockData: JSONCargoContainerData = {
         container_id: containerNumber.trim(),
         container_status: `In Transit (${shippingLineCode})`,
         shipping_line_name: shippingLineCode,
-        eta_final_destination: mockEtaWithBuffer,
+        eta_final_destination: clearanceMockEta,
+        raw_carrier_eta: rawMockEta,
         shipped_from: 'Ningbo / Shanghai, China',
-        shipped_to: 'Nhava Sheva / Mundra, India',
+        shippedTo: 'Nhava Sheva / Mundra, India',
         last_location: 'In Transit (Singapore Strait / Malacca)',
         atd_origin: mockStartDate,
         current_vessel_name: 'MSC LORETTA',
@@ -349,13 +419,14 @@ export async function fetchContainerTracking(
       };
 
       return {
-        eta: mockEtaWithBuffer,
+        eta: clearanceMockEta,
+        rawEta: rawMockEta,
         status: `In Transit (${shippingLineCode})`,
         shippedFrom: 'Ningbo / Shanghai, China',
         shippedTo: 'Nhava Sheva / Mundra, India',
         currentLocation: 'In Transit (Singapore Strait / Malacca)',
         startDate: mockStartDate,
-        destinationDate: mockEtaWithBuffer,
+        destinationDate: clearanceMockEta,
         vesselName: 'MSC LORETTA',
         voyageNumber: '2508W',
         dataDetails: mockData,

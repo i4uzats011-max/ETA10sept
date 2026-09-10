@@ -58,6 +58,7 @@ export async function GET(req: NextRequest) {
           startDate: { $first: '$startDate' },
           destinationDate: { $first: '$destinationDate' },
           eta: { $first: '$eta' },
+          rawEta: { $first: '$rawEta' },
           status: { $first: '$status' },
           vesselName: { $first: '$vesselName' },
           voyageNumber: { $first: '$voyageNumber' },
@@ -80,6 +81,7 @@ export async function GET(req: NextRequest) {
           startDate: sc.startDate || '',
           destinationDate: sc.destinationDate || sc.eta || '',
           eta: sc.eta || 'N/A',
+          rawEta: sc.rawEta || '',
           status: sc.status || 'Pending',
           vesselName: sc.vesselName || '',
           voyageNumber: sc.voyageNumber || '',
@@ -92,24 +94,31 @@ export async function GET(req: NextRequest) {
         if (!existing.shipmentCount || existing.shipmentCount === 0) {
           existing.shipmentCount = sc.shipmentCount;
         }
+        if (!existing.rawEta && sc.rawEta) {
+          existing.rawEta = sc.rawEta;
+        }
       }
     }
 
     // 3. Format clean output list with strict privacy enforcement for public visitors
     const containers = Array.from(containerMap.values()).map((c) => {
-      const destinationDate = c.destinationDate || c.eta || '';
+      const isMappedWithActual = Boolean(c.containerNumber && c.containerNumber.trim().length > 0 && c.containerNumber.trim().toLowerCase() !== c.container.trim().toLowerCase());
+      const destinationDate = isMappedWithActual ? (c.destinationDate || c.eta || 'Pending') : 'Pending';
       const daysRemaining = calculateDaysRemaining(destinationDate);
 
       return {
         container: c.container, // Public alias (e.g. "USI-01")
-        containerNumber: isStaffOrAdmin ? c.containerNumber : undefined,
+        containerNumber: isStaffOrAdmin ? (c.containerNumber || '') : undefined,
+        isMappedWithActual,
         shippingLine: isStaffOrAdmin ? (c.shippingLine || 'MSC') : undefined,
+        warehouse: c.warehouse || 'China Warehouse',
         shippedFrom: c.shippedFrom || 'Ningbo / Shanghai, China',
         shippedTo: c.shippedTo || 'Nhava Sheva / Mundra, India',
         currentLocation: isStaffOrAdmin ? (c.currentLocation || c.status || 'In Transit') : 'Scheduled Delivery',
         startDate: c.startDate || '',
         destinationDate: destinationDate,
-        eta: c.eta || 'N/A',
+        eta: destinationDate,
+        rawEta: isStaffOrAdmin ? (c.rawEta || '') : undefined,
         status: isStaffOrAdmin ? (c.status || 'In Transit') : (c.status === 'Delivered' ? 'Delivered' : 'In Transit'),
         deliveryDate: c.deliveryDate || '',
         daysToDeliver: c.daysToDeliver ?? null,
@@ -118,6 +127,8 @@ export async function GET(req: NextRequest) {
         vesselName: isStaffOrAdmin ? (c.vesselName || '') : undefined,
         voyageNumber: isStaffOrAdmin ? (c.voyageNumber || '') : undefined,
         shipmentCount: c.shipmentCount || 0,
+        apiCalled: Boolean(c.apiCalled || c.lastApiSync),
+        apiCallCount: c.apiCallCount || 0,
         lastApiSync: isStaffOrAdmin ? (c.lastApiSync ? new Date(c.lastApiSync).toISOString() : null) : undefined,
       };
     });

@@ -61,6 +61,7 @@ export async function GET(req: NextRequest) {
         daysToDeliver: c.daysToDeliver !== undefined ? c.daysToDeliver : null,
         isDelivered: Boolean(c.isDelivered),
         eta: c.destinationDate || c.eta || 'Pending',
+        rawEta: c.rawEta || '',
         destinationDate: c.destinationDate || c.eta || 'N/A',
         status: c.status || 'Pending',
         shipmentCount: items.length,
@@ -92,6 +93,7 @@ export async function GET(req: NextRequest) {
           deliveryDate: i.deliveryDate || c.deliveryDate || '',
           daysToDeliver: i.daysToDeliver !== undefined ? i.daysToDeliver : null,
           isDelivered: Boolean(i.isDelivered),
+          rawEta: i.rawEta || c.rawEta || '',
           eta: i.eta,
           status: i.status,
         })),
@@ -201,25 +203,38 @@ export async function POST(req: NextRequest) {
       });
 
       if (!whReceipt) {
-        // Auto-create receipt if it didn't exist in WarehouseReceipt yet
-        whReceipt = await WarehouseReceipt.create({
-          receipt: cleanReceipt,
-          warehouse: targetContainer.warehouse || 'China Warehouse',
-          quantity: qtyToLoad,
-          loadedQuantity: 0,
-          remainingQuantity: qtyToLoad,
-          status: 'Received',
-          stockstatus: 'In Stock',
-          uploadedAt: new Date(),
-        });
+        return NextResponse.json(
+          {
+            error: `Receipt '${cleanReceipt}' has not been received in China warehouse stock yet. Goods must be received in warehouse inventory before they can be loaded into a container plan.`,
+          },
+          { status: 400 }
+        );
+      }
+
+      if (!whReceipt.quantity || whReceipt.quantity <= 0) {
+        return NextResponse.json(
+          {
+            error: `Cannot load cargo: No goods were received in China warehouse for receipt '${cleanReceipt}' (Received Quantity: 0). A container cannot be loaded without received goods.`,
+          },
+          { status: 400 }
+        );
       }
 
       const availableQty = whReceipt.remainingQuantity !== undefined ? whReceipt.remainingQuantity : (whReceipt.quantity - (whReceipt.loadedQuantity || 0));
 
+      if (availableQty <= 0) {
+        return NextResponse.json(
+          {
+            error: `Receipt '${cleanReceipt}' is already fully loaded (${whReceipt.loadedQuantity} of ${whReceipt.quantity} CTN loaded). No remaining stock in China warehouse to load.`,
+          },
+          { status: 400 }
+        );
+      }
+
       if (qtyToLoad > availableQty) {
         return NextResponse.json(
           {
-            error: `Cannot load ${qtyToLoad} units. Only ${availableQty} units remaining in warehouse for receipt '${cleanReceipt}'`,
+            error: `Strict Rule Violation: You cannot load more goods than received in China warehouse. Requested ${qtyToLoad} units, but only ${availableQty} units are remaining in stock for receipt '${cleanReceipt}' (Total received: ${whReceipt.quantity}, already loaded: ${whReceipt.loadedQuantity || 0}).`,
           },
           { status: 400 }
         );
@@ -356,6 +371,14 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Internal Container alias is required' }, { status: 400 });
       }
 
+      // Strict Rule: Loading Date is mandatory when allotting actual carrier container
+      if (!cleanLoadingDate) {
+        return NextResponse.json(
+          { error: 'Loading Date is mandatory when allotting actual carrier container number.' },
+          { status: 400 }
+        );
+      }
+
       const targetContainer = await Container.findOne({
         container: new RegExp(`^${cleanAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
       });
@@ -364,7 +387,22 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: `Loading plan '${cleanAlias}' not found` }, { status: 404 });
       }
 
+      // Enforce Rule: A container cannot be finalized/loaded without received goods
+      const loadedCargoCount = await Shipment.countDocuments({
+        container: targetContainer.container,
+      });
+
+      if (loadedCargoCount === 0) {
+        return NextResponse.json(
+          {
+            error: `Cannot load or finalize container '${cleanAlias}': No received goods have been loaded into this container. You cannot load any container without first receiving goods and allocating them into the container plan.`,
+          },
+          { status: 400 }
+        );
+      }
+
       let trackingEta = targetContainer.eta || 'Pending';
+      let trackingRawEta = targetContainer.rawEta || '';
       let trackingStatus = 'In Transit';
       let trackingDetails: any = null;
 
@@ -374,6 +412,9 @@ export async function POST(req: NextRequest) {
           const tracking = await fetchContainerTracking(cleanNum, cleanCarrier);
           if (tracking.eta && tracking.eta !== 'N/A') {
             trackingEta = tracking.eta;
+          }
+          if (tracking.rawEta) {
+            trackingRawEta = tracking.rawEta;
           }
           if (tracking.status) {
             trackingStatus = tracking.status;
@@ -388,10 +429,8 @@ export async function POST(req: NextRequest) {
 
       targetContainer.containerNumber = cleanNum;
       targetContainer.shippingLine = cleanCarrier;
-      if (cleanLoadingDate) {
-        targetContainer.loadingDate = cleanLoadingDate;
-        targetContainer.startDate = cleanLoadingDate;
-      }
+      targetContainer.loadingDate = cleanLoadingDate;
+      targetContainer.startDate = cleanLoadingDate;
       if (cleanShippedTo) {
         targetContainer.shippedTo = cleanShippedTo;
       }
@@ -404,6 +443,9 @@ export async function POST(req: NextRequest) {
         targetContainer.eta = trackingEta;
         targetContainer.destinationDate = trackingEta;
       }
+      if (trackingRawEta) {
+        targetContainer.rawEta = trackingRawEta;
+      }
       if (trackingDetails) {
         targetContainer.jsonCargoData = trackingDetails;
         targetContainer.lastApiSync = now;
@@ -415,17 +457,18 @@ export async function POST(req: NextRequest) {
         containerNumber: cleanNum,
         shippingLine: cleanCarrier,
         status: trackingStatus,
+        loadingDate: cleanLoadingDate,
+        startDate: cleanLoadingDate,
       };
-      if (cleanLoadingDate) {
-        updateShipmentPayload.loadingDate = cleanLoadingDate;
-        updateShipmentPayload.startDate = cleanLoadingDate;
-      }
       if (cleanShippedTo) {
         updateShipmentPayload.shippedTo = cleanShippedTo;
       }
       if (trackingEta && trackingEta !== 'Pending') {
         updateShipmentPayload.eta = trackingEta;
         updateShipmentPayload.destinationDate = trackingEta;
+      }
+      if (trackingRawEta) {
+        updateShipmentPayload.rawEta = trackingRawEta;
       }
       if (trackingDetails) {
         updateShipmentPayload.jsonCargoData = trackingDetails;
@@ -439,7 +482,7 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: `Plan '${cleanAlias}' finalized. Allotted actual container '${cleanNum}' (${cleanCarrier})${cleanLoadingDate ? ` loaded on ${cleanLoadingDate}` : ''} across ${updateResult.modifiedCount} cargo items.`,
+        message: `Plan '${cleanAlias}' finalized. Allotted actual container '${cleanNum}' (${cleanCarrier}) loaded on ${cleanLoadingDate} across ${updateResult.modifiedCount} cargo items.`,
         plan: targetContainer,
       });
     }
@@ -448,12 +491,20 @@ export async function POST(req: NextRequest) {
     // Action 5: Mark Container / Shipments as Delivered
     // ----------------------------------------------------
     if (action === 'mark-delivered') {
-      const { container, deliveryDate } = body;
+      const { container, deliveryDate, excludedReceipts } = body;
       const cleanAlias = (container || '').trim();
-      const cleanDeliveryDate = (deliveryDate || new Date().toISOString().split('T')[0]).trim();
+      const cleanDeliveryDate = (deliveryDate || '').trim();
 
       if (!cleanAlias) {
         return NextResponse.json({ error: 'Container identifier is required' }, { status: 400 });
+      }
+
+      // Strict Rule: Delivery Date is mandatory when marking cargo delivered
+      if (!cleanDeliveryDate) {
+        return NextResponse.json(
+          { error: 'Delivery Date is mandatory when marking container / cargo as delivered.' },
+          { status: 400 }
+        );
       }
 
       const targetContainer = await Container.findOne({
@@ -465,6 +516,33 @@ export async function POST(req: NextRequest) {
 
       if (!targetContainer) {
         return NextResponse.json({ error: `Container '${cleanAlias}' not found` }, { status: 404 });
+      }
+
+      // Fetch all cargo shipments loaded in this container
+      const containerShipments = await Shipment.find({ container: targetContainer.container });
+      if (containerShipments.length === 0) {
+        return NextResponse.json({ error: `No cargo shipments found in container '${targetContainer.container}' to deliver.` }, { status: 400 });
+      }
+
+      // Handle Excluded Receipts (Partial Delivery Exclusion)
+      const excludedReceiptsSet = new Set<string>(
+        Array.isArray(excludedReceipts)
+          ? excludedReceipts.map((r: any) => String(r).trim().toLowerCase()).filter(Boolean)
+          : []
+      );
+
+      const toDeliverShipments = containerShipments.filter(
+        (s) => !excludedReceiptsSet.has(String(s.receipt || '').trim().toLowerCase())
+      );
+      const toExcludeShipments = containerShipments.filter(
+        (s) => excludedReceiptsSet.has(String(s.receipt || '').trim().toLowerCase())
+      );
+
+      if (toDeliverShipments.length === 0) {
+        return NextResponse.json(
+          { error: 'All cargo receipts were excluded. At least one receipt must be selected for delivery.' },
+          { status: 400 }
+        );
       }
 
       // Calculate days to deliver
@@ -482,16 +560,20 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      const isAllDelivered = toExcludeShipments.length === 0;
+
+      // Update Container
       targetContainer.deliveryDate = cleanDeliveryDate;
       targetContainer.daysToDeliver = daysToDeliver;
-      targetContainer.isDelivered = true;
-      targetContainer.status = 'Delivered';
-      targetContainer.planStatus = 'Delivered';
+      targetContainer.isDelivered = isAllDelivered;
+      targetContainer.status = isAllDelivered ? 'Delivered' : 'Partially Delivered';
+      targetContainer.planStatus = isAllDelivered ? 'Delivered' : 'Partially Delivered';
       await targetContainer.save();
 
-      // Update all shipments under this container
+      // Update Delivered Shipments
+      const deliverIds = toDeliverShipments.map((s) => s._id);
       await Shipment.updateMany(
-        { container: targetContainer.container },
+        { _id: { $in: deliverIds } },
         {
           $set: {
             deliveryDate: cleanDeliveryDate,
@@ -502,32 +584,382 @@ export async function POST(req: NextRequest) {
         }
       );
 
-      // Find all receipts affected and update WarehouseReceipt
-      const affectedShipments = await Shipment.find({ container: targetContainer.container }).lean();
-      const affectedReceipts = Array.from(new Set(affectedShipments.map((s) => s.receipt).filter(Boolean)));
-      for (const r of affectedReceipts) {
-        await WarehouseReceipt.findOneAndUpdate(
-          { receipt: r },
+      // If any shipments were excluded, ensure they remain in transit / pending
+      if (toExcludeShipments.length > 0) {
+        const excludeIds = toExcludeShipments.map((s) => s._id);
+        await Shipment.updateMany(
+          { _id: { $in: excludeIds } },
           {
             $set: {
-              deliveryDate: cleanDeliveryDate,
-              isDelivered: true,
-              status: 'Delivered',
-              stockstatus: 'Delivered',
+              deliveryDate: '',
+              isDelivered: false,
+              status: 'In Transit (Undelivered / Excluded)',
             },
           }
         );
       }
 
+      // Update WarehouseReceipt records for delivered receipts
+      const deliveredReceipts = Array.from(new Set(toDeliverShipments.map((s) => s.receipt).filter(Boolean)));
+      for (const r of deliveredReceipts) {
+        // Check if any split of this receipt is still undelivered
+        const undeliveredCount = await Shipment.countDocuments({
+          receipt: new RegExp(`^${r.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+          isDelivered: { $ne: true },
+        });
+
+        if (undeliveredCount === 0) {
+          await WarehouseReceipt.findOneAndUpdate(
+            { receipt: new RegExp(`^${r.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+            {
+              $set: {
+                deliveryDate: cleanDeliveryDate,
+                isDelivered: true,
+                status: 'Delivered',
+                stockstatus: 'Delivered',
+              },
+            }
+          );
+        } else {
+          await WarehouseReceipt.findOneAndUpdate(
+            { receipt: new RegExp(`^${r.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+            {
+              $set: {
+                status: 'Partially Delivered',
+                stockstatus: 'Partially Delivered',
+              },
+            }
+          );
+        }
+      }
+
       return NextResponse.json({
         success: true,
-        message: `Container '${targetContainer.container}' marked as DELIVERED on ${cleanDeliveryDate}${daysToDeliver !== null ? ` (${daysToDeliver} days turnaround)` : ''}.`,
+        message: isAllDelivered
+          ? `Container '${targetContainer.container}' completely marked as DELIVERED on ${cleanDeliveryDate}${daysToDeliver !== null ? ` (${daysToDeliver} days turnaround)` : ''}.`
+          : `Container '${targetContainer.container}' marked as PARTIALLY DELIVERED on ${cleanDeliveryDate}. (${toDeliverShipments.length} items delivered, ${toExcludeShipments.length} receipt items excluded and kept in transit).`,
         plan: targetContainer,
+        deliveredCount: toDeliverShipments.length,
+        excludedCount: toExcludeShipments.length,
+      });
+    }
+
+    // ----------------------------------------------------
+    // Action 6: De-map Actual Carrier Container from Plan
+    // ----------------------------------------------------
+    if (action === 'demap-actual') {
+      const { container } = body;
+      const cleanAlias = (container || '').trim();
+
+      if (!cleanAlias) {
+        return NextResponse.json({ error: 'Container identifier is required to de-map actual container' }, { status: 400 });
+      }
+
+      const targetContainer = await Container.findOne({
+        container: new RegExp(`^${cleanAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+      });
+
+      if (!targetContainer) {
+        return NextResponse.json({ error: `Container plan '${cleanAlias}' not found` }, { status: 404 });
+      }
+
+      const previousActual = targetContainer.containerNumber;
+
+      targetContainer.containerNumber = '';
+      targetContainer.allottedActualAt = null;
+      targetContainer.planStatus = 'Planning';
+      targetContainer.isFinalized = false;
+      targetContainer.status = 'Planning';
+      await targetContainer.save();
+
+      // Update all shipment records under this internal container
+      await Shipment.updateMany(
+        { container: targetContainer.container },
+        {
+          $set: {
+            containerNumber: '',
+            status: 'Planning',
+          },
+        }
+      );
+
+      return NextResponse.json({
+        success: true,
+        message: `Successfully de-mapped actual carrier container '${previousActual || 'Unassigned'}' from internal container '${cleanAlias}'. The container is now unallotted.`,
+        plan: targetContainer,
+      });
+    }
+
+    // ----------------------------------------------------
+    // Action 6b: Alter Container Identifier / Actual No / Carrier Across Entire Database
+    // ----------------------------------------------------
+    if (action === 'alter-container') {
+      const {
+        oldContainer,
+        newContainer,
+        containerNumber,
+        shippingLine,
+        warehouse,
+        loadingDate,
+        shippedTo,
+        autoSync,
+      } = body;
+
+      const cleanOldAlias = (oldContainer || '').trim();
+      if (!cleanOldAlias) {
+        return NextResponse.json({ error: 'Original container alias is required' }, { status: 400 });
+      }
+
+      const targetContainer = await Container.findOne({
+        container: new RegExp(`^${cleanOldAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+      });
+
+      if (!targetContainer) {
+        return NextResponse.json({ error: `Container '${cleanOldAlias}' not found` }, { status: 404 });
+      }
+
+      const cleanNewAlias = (newContainer || '').trim().toUpperCase();
+      const isRenamingAlias = cleanNewAlias && cleanNewAlias !== targetContainer.container.toUpperCase();
+
+      if (isRenamingAlias) {
+        const conflict = await Container.findOne({
+          container: new RegExp(`^${cleanNewAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        });
+        if (conflict) {
+          return NextResponse.json(
+            { error: `Container alias '${cleanNewAlias}' already exists. Please choose a different unique identifier.` },
+            { status: 400 }
+          );
+        }
+      }
+
+      const finalAlias = isRenamingAlias ? cleanNewAlias : targetContainer.container;
+      const cleanCarrierNum = containerNumber !== undefined ? String(containerNumber).trim() : targetContainer.containerNumber;
+      const cleanShippingLine = shippingLine !== undefined ? String(shippingLine).trim() : targetContainer.shippingLine;
+      const cleanWarehouse = warehouse !== undefined ? String(warehouse).trim() : targetContainer.warehouse;
+      const cleanLoadingDate = loadingDate !== undefined ? String(loadingDate).trim() : targetContainer.loadingDate;
+      const cleanShippedTo = shippedTo !== undefined ? String(shippedTo).trim() : targetContainer.shippedTo;
+
+      // Strict Rule: Loading Date is mandatory when assigning an actual carrier container number
+      if (cleanCarrierNum && !cleanLoadingDate) {
+        return NextResponse.json(
+          { error: 'Loading Date is mandatory when assigning an actual carrier container number.' },
+          { status: 400 }
+        );
+      }
+
+      // Update Container document
+      targetContainer.container = finalAlias;
+      targetContainer.planNumber = finalAlias;
+      targetContainer.containerNumber = cleanCarrierNum;
+      targetContainer.shippingLine = cleanShippingLine || 'MSC';
+      if (cleanWarehouse) {
+        targetContainer.warehouse = cleanWarehouse;
+        targetContainer.shippedFrom = `${cleanWarehouse}, China`;
+      }
+      if (cleanLoadingDate) targetContainer.loadingDate = cleanLoadingDate;
+      if (cleanShippedTo) targetContainer.shippedTo = cleanShippedTo;
+
+      // If carrier container changed/set and autoSync requested
+      if (autoSync && cleanCarrierNum) {
+        try {
+          const tracking = await fetchContainerTracking(cleanCarrierNum, cleanShippingLine || 'MSC');
+          if (tracking.eta && tracking.eta !== 'N/A') {
+            targetContainer.eta = tracking.eta;
+            targetContainer.destinationDate = tracking.destinationDate;
+            targetContainer.rawEta = tracking.rawEta || '';
+            targetContainer.status = tracking.status;
+            targetContainer.currentLocation = tracking.currentLocation;
+            targetContainer.vesselName = tracking.vesselName;
+            targetContainer.voyageNumber = tracking.voyageNumber;
+            targetContainer.jsonCargoData = tracking.dataDetails;
+            targetContainer.lastApiSync = new Date();
+            targetContainer.apiCalled = true;
+            targetContainer.apiCallCount = (targetContainer.apiCallCount || 0) + 1;
+            targetContainer.apiCallHistory = targetContainer.apiCallHistory || [];
+            targetContainer.apiCallHistory.push({
+              timestamp: new Date(),
+              source: 'alter_container_sync',
+              eta: tracking.eta,
+              status: tracking.status,
+            });
+          }
+        } catch (e: any) {
+          console.warn('Auto sync on alter container failed:', e?.message);
+        }
+      }
+
+      if (cleanCarrierNum) {
+        targetContainer.isFinalized = true;
+        targetContainer.planStatus = targetContainer.status === 'Delivered' ? 'Delivered' : 'Finalized';
+      }
+
+      await targetContainer.save();
+
+      // Update ALL shipments in Shipment collection across the entire database
+      const shipmentUpdatePayload: Record<string, any> = {
+        container: finalAlias,
+        containerNumber: cleanCarrierNum,
+        shippingLine: cleanShippingLine || 'MSC',
+      };
+      if (cleanWarehouse) shipmentUpdatePayload.warehouse = cleanWarehouse;
+      if (cleanLoadingDate) shipmentUpdatePayload.loadingDate = cleanLoadingDate;
+      if (cleanShippedTo) shipmentUpdatePayload.shippedTo = cleanShippedTo;
+      if (targetContainer.eta && targetContainer.eta !== 'Pending') {
+        shipmentUpdatePayload.eta = targetContainer.eta;
+        shipmentUpdatePayload.destinationDate = targetContainer.destinationDate || targetContainer.eta;
+      }
+      if (targetContainer.rawEta) shipmentUpdatePayload.rawEta = targetContainer.rawEta;
+      if (targetContainer.status && targetContainer.status !== 'Planning') {
+        shipmentUpdatePayload.status = targetContainer.status;
+      }
+      if (targetContainer.apiCalled) shipmentUpdatePayload.apiCalled = true;
+
+      const shipmentsUpdated = await Shipment.updateMany(
+        { container: new RegExp(`^${cleanOldAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+        { $set: shipmentUpdatePayload }
+      );
+
+      // Update SyncError collection if any records exist
+      try {
+        const SyncError = (await import('@/models/SyncError')).default;
+        await SyncError.updateMany(
+          { container: new RegExp(`^${cleanOldAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+          { $set: { container: finalAlias } }
+        );
+      } catch {}
+
+      return NextResponse.json({
+        success: true,
+        message: `Container successfully updated to '${finalAlias}' (Actual: ${cleanCarrierNum || 'Unassigned'}) across Container record and ${shipmentsUpdated.modifiedCount} shipment(s).`,
+        plan: targetContainer,
+        modifiedShipments: shipmentsUpdated.modifiedCount,
+      });
+    }
+
+    // ----------------------------------------------------
+    // Action 7: Delete Loading Plan / Container (With Strict Integrity Rules)
+    // ----------------------------------------------------
+    if (action === 'delete-plan') {
+      const { container } = body;
+      const cleanAlias = (container || '').trim();
+
+      if (!cleanAlias) {
+        return NextResponse.json({ error: 'Container identifier is required for deletion' }, { status: 400 });
+      }
+
+      const targetContainer = await Container.findOne({
+        container: new RegExp(`^${cleanAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+      });
+
+      if (!targetContainer) {
+        return NextResponse.json({ error: `Container plan '${cleanAlias}' not found` }, { status: 404 });
+      }
+
+      // Rule: If container has any loaded cargo items, all mapped loaded items must be deleted/de-allocated first
+      const shipmentsCount = await Shipment.countDocuments({
+        container: targetContainer.container,
+      });
+
+      if (shipmentsCount > 0) {
+        return NextResponse.json(
+          {
+            error: `Cannot delete container '${cleanAlias}': It still contains ${shipmentsCount} loaded cargo item(s) mapped to it. Under system integrity rules, all loaded/planned cargo items in this container must be deleted/de-allocated first before deleting this container.`,
+            hasShipments: true,
+            shipmentsCount,
+          },
+          { status: 400 }
+        );
+      }
+
+      // All loaded items cleared -> delete container cleanly
+      await Container.findByIdAndDelete(targetContainer._id);
+
+      // Clean up SyncError collection if any records exist
+      try {
+        const SyncError = (await import('@/models/SyncError')).default;
+        await SyncError.deleteMany({
+          container: new RegExp(`^${cleanAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        });
+      } catch {}
+
+      return NextResponse.json({
+        success: true,
+        message: `Container '${cleanAlias}' has been successfully deleted.`,
+        deletedContainer: cleanAlias,
       });
     }
 
     return NextResponse.json({ error: `Invalid action '${action}'` }, { status: 400 });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Loading plan operation failed' }, { status: 500 });
+  }
+}
+
+// DELETE: HTTP DELETE endpoint supporting query params ?container=...
+export async function DELETE(req: NextRequest) {
+  if (!isStaffOrAdminAuthenticated(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  try {
+    const { searchParams } = new URL(req.url);
+    let container = searchParams.get('container')?.trim();
+
+    if (!container) {
+      try {
+        const body = await req.json();
+        container = body.container?.trim();
+      } catch {}
+    }
+
+    if (!container) {
+      return NextResponse.json({ error: 'Container alias is required for deletion' }, { status: 400 });
+    }
+
+    await connectToDatabase();
+
+    const targetContainer = await Container.findOne({
+      container: new RegExp(`^${container.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+    });
+
+    if (!targetContainer) {
+      return NextResponse.json({ error: `Container plan '${container}' not found` }, { status: 404 });
+    }
+
+    // Rule: If container has any loaded cargo items, all mapped loaded items must be deleted/de-allocated first
+    const shipmentsCount = await Shipment.countDocuments({
+      container: targetContainer.container,
+    });
+
+    if (shipmentsCount > 0) {
+      return NextResponse.json(
+        {
+          error: `Cannot delete container '${container}': It still contains ${shipmentsCount} loaded cargo item(s) mapped to it. Under system integrity rules, all loaded/planned cargo items in this container must be deleted/de-allocated first before deleting this container.`,
+          hasShipments: true,
+          shipmentsCount,
+        },
+        { status: 400 }
+      );
+    }
+
+    // All loaded items cleared -> delete container cleanly
+    await Container.findByIdAndDelete(targetContainer._id);
+
+    // Clean up SyncError collection if any records exist
+    try {
+      const SyncError = (await import('@/models/SyncError')).default;
+      await SyncError.deleteMany({
+        container: new RegExp(`^${container.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+      });
+    } catch {}
+
+    return NextResponse.json({
+      success: true,
+      message: `Container '${container}' has been successfully deleted.`,
+      deletedContainer: container,
+    });
+  } catch (error: any) {
+    return NextResponse.json({ error: error?.message || 'Failed to delete container' }, { status: 500 });
   }
 }

@@ -52,6 +52,7 @@ export interface LoadingItemAllocation {
   daysToDeliver?: number | null;
   isDelivered?: boolean;
   eta?: string;
+  rawEta?: string;
   status?: string;
 }
 
@@ -71,6 +72,7 @@ export interface LoadingPlanItem {
   finalizedAt?: string | null;
   allottedActualAt?: string | null;
   eta?: string;
+  rawEta?: string;
   destinationDate?: string;
   status?: string;
   shipmentCount?: number;
@@ -277,6 +279,7 @@ export const markContainerDelivered = createAsyncThunk(
     payload: {
       container: string;
       deliveryDate: string;
+      excludedReceipts?: string[];
     },
     { rejectWithValue }
   ) => {
@@ -297,6 +300,225 @@ export const markContainerDelivered = createAsyncThunk(
     }
   }
 );
+
+// 8. Delete Wrong Warehouse Receipt
+export const deleteWarehouseReceipt = createAsyncThunk(
+  'loadingPlan/deleteWarehouseReceipt',
+  async (
+    payload: { id?: string; receipt?: string; force?: boolean },
+    { rejectWithValue }
+  ) => {
+    try {
+      const params = new URLSearchParams();
+      if (payload.id) params.append('id', payload.id);
+      if (payload.receipt) params.append('receipt', payload.receipt);
+      if (payload.force) params.append('force', 'true');
+
+      const res = await fetch(`/api/warehouse/receipts?${params.toString()}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete warehouse receipt');
+      return { id: payload.id, receipt: payload.receipt || data.receipt, message: data.message };
+    } catch (err: any) {
+      return rejectWithValue(err.message || 'Error deleting warehouse receipt');
+    }
+  }
+);
+
+// 9. Bulk Delete Warehouse Receipts
+export const bulkDeleteWarehouseReceipts = createAsyncThunk(
+  'loadingPlan/bulkDeleteWarehouseReceipts',
+  async (
+    payload: { ids?: string[]; receipts?: string[]; force?: boolean },
+    { rejectWithValue }
+  ) => {
+    try {
+      const res = await fetch('/api/warehouse/receipts/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'bulk-delete',
+          ...payload,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete warehouse receipts');
+      return {
+        ids: payload.ids || [],
+        receipts: payload.receipts || data.deletedReceipts || [],
+        deletedCount: data.deletedCount,
+        message: data.message,
+      };
+    } catch (err: any) {
+      return rejectWithValue(err.message || 'Error deleting warehouse receipts');
+    }
+  }
+);
+
+// 10. Bulk Edit Warehouse Receipts
+export const bulkEditWarehouseReceipts = createAsyncThunk(
+  'loadingPlan/bulkEditWarehouseReceipts',
+  async (
+    payload: { ids?: string[]; receipts?: string[]; updates: Partial<WarehouseReceiptItem> },
+    { rejectWithValue }
+  ) => {
+    try {
+      const res = await fetch('/api/warehouse/receipts/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'bulk-edit',
+          ...payload,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to bulk edit warehouse receipts');
+      return {
+        receipts: data.receipts as WarehouseReceiptItem[],
+        count: data.count,
+        message: data.message,
+      };
+    } catch (err: any) {
+      return rejectWithValue(err.message || 'Error updating warehouse receipts');
+    }
+  }
+);
+
+// 11. Edit Single Warehouse Receipt
+export const editSingleWarehouseReceipt = createAsyncThunk(
+  'loadingPlan/editSingleWarehouseReceipt',
+  async (
+    receiptData: Partial<WarehouseReceiptItem> & { receipt: string },
+    { rejectWithValue }
+  ) => {
+    try {
+      const res = await fetch('/api/warehouse/receipts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(receiptData),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update warehouse receipt');
+      return data.receipt as WarehouseReceiptItem;
+    } catch (err: any) {
+      return rejectWithValue(err.message || 'Error updating warehouse receipt');
+    }
+  }
+);
+
+// 12. De-map Actual Container from Plan
+export const demapActualContainer = createAsyncThunk(
+  'loadingPlan/demapActualContainer',
+  async (payload: { container: string }, { rejectWithValue }) => {
+    try {
+      const res = await fetch('/api/loading-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'demap-actual',
+          ...payload,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to de-map actual container');
+      return data;
+    } catch (err: any) {
+      return rejectWithValue(err.message || 'Error de-mapping actual container');
+    }
+  }
+);
+
+// 13. Alter Container Identifier / Actual Container / Carrier Database-Wide
+export const alterContainer = createAsyncThunk(
+  'loadingPlan/alterContainer',
+  async (
+    payload: {
+      oldContainer: string;
+      newContainer?: string;
+      containerNumber?: string;
+      shippingLine?: string;
+      warehouse?: string;
+      loadingDate?: string;
+      shippedTo?: string;
+      autoSync?: boolean;
+    },
+    { rejectWithValue }
+  ) => {
+    try {
+      const res = await fetch('/api/loading-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'alter-container',
+          ...payload,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to alter container');
+      return data;
+    } catch (err: any) {
+      return rejectWithValue(err.message || 'Error altering container');
+    }
+  }
+);
+
+// 14. Delete Loading Plan / Container
+export const deleteLoadingPlan = createAsyncThunk(
+  'loadingPlan/deleteLoadingPlan',
+  async (payload: { container: string }, { rejectWithValue }) => {
+    try {
+      const res = await fetch(`/api/loading-plan?container=${encodeURIComponent(payload.container)}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete loading plan');
+      return { container: payload.container, message: data.message };
+    } catch (err: any) {
+      return rejectWithValue(err.message || 'Error deleting loading plan');
+    }
+  }
+);
+
+// 15. Delete Warehouse (Strict rule: zero mapped records required)
+export const deleteWarehouse = createAsyncThunk(
+  'loadingPlan/deleteWarehouse',
+  async (payload: { name: string }, { rejectWithValue }) => {
+    try {
+      const res = await fetch(`/api/warehouse?name=${encodeURIComponent(payload.name)}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete warehouse');
+      return { name: payload.name, message: data.message };
+    } catch (err: any) {
+      return rejectWithValue(err.message || 'Error deleting warehouse');
+    }
+  }
+);
+
+// 16. Edit / Rename Warehouse (propagates database-wide)
+export const updateWarehouse = createAsyncThunk(
+  'loadingPlan/updateWarehouse',
+  async (
+    payload: { oldName: string; newName: string; code?: string; city?: string; address?: string; contact?: string },
+    { rejectWithValue }
+  ) => {
+    try {
+      const res = await fetch('/api/warehouse', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update warehouse');
+      return data;
+    } catch (err: any) {
+      return rejectWithValue(err.message || 'Error updating warehouse');
+    }
+  }
+);
+export const editWarehouse = updateWarehouse;
 
 export const loadingPlanSlice = createSlice({
   name: 'loadingPlan',
@@ -509,6 +731,258 @@ export const loadingPlanSlice = createSlice({
       state.actionMessage = {
         type: 'error',
         text: (action.payload as string) || 'Failed to mark container as delivered',
+      };
+    });
+
+    // 8. deleteWarehouseReceipt
+    builder.addCase(deleteWarehouseReceipt.pending, (state) => {
+      state.actionLoading = true;
+      state.actionMessage = null;
+    });
+    builder.addCase(deleteWarehouseReceipt.fulfilled, (state, action) => {
+      state.actionLoading = false;
+      state.actionMessage = {
+        type: 'success',
+        text: action.payload.message || 'Warehouse receipt deleted successfully',
+      };
+      if (action.payload.id) {
+        state.warehouseReceipts = state.warehouseReceipts.filter((r) => r._id !== action.payload.id);
+      } else if (action.payload.receipt) {
+        state.warehouseReceipts = state.warehouseReceipts.filter((r) => r.receipt !== action.payload.receipt);
+      }
+    });
+    builder.addCase(deleteWarehouseReceipt.rejected, (state, action) => {
+      state.actionLoading = false;
+      state.actionMessage = {
+        type: 'error',
+        text: (action.payload as string) || 'Failed to delete warehouse receipt',
+      };
+    });
+
+    // 9. bulkDeleteWarehouseReceipts
+    builder.addCase(bulkDeleteWarehouseReceipts.pending, (state) => {
+      state.actionLoading = true;
+      state.actionMessage = null;
+    });
+    builder.addCase(bulkDeleteWarehouseReceipts.fulfilled, (state, action) => {
+      state.actionLoading = false;
+      state.actionMessage = {
+        type: 'success',
+        text: action.payload.message || 'Selected warehouse receipts deleted successfully',
+      };
+      const deletedIds = new Set(action.payload.ids);
+      const deletedReceipts = new Set(action.payload.receipts);
+      state.warehouseReceipts = state.warehouseReceipts.filter(
+        (r) => !deletedIds.has(r._id) && !deletedReceipts.has(r.receipt)
+      );
+    });
+    builder.addCase(bulkDeleteWarehouseReceipts.rejected, (state, action) => {
+      state.actionLoading = false;
+      state.actionMessage = {
+        type: 'error',
+        text: (action.payload as string) || 'Failed to bulk delete warehouse receipts',
+      };
+    });
+
+    // 10. bulkEditWarehouseReceipts
+    builder.addCase(bulkEditWarehouseReceipts.pending, (state) => {
+      state.actionLoading = true;
+      state.actionMessage = null;
+    });
+    builder.addCase(bulkEditWarehouseReceipts.fulfilled, (state, action) => {
+      state.actionLoading = false;
+      state.actionMessage = {
+        type: 'success',
+        text: action.payload.message || 'Warehouse receipts updated successfully',
+      };
+      if (action.payload.receipts && action.payload.receipts.length > 0) {
+        const updatedMap = new Map(action.payload.receipts.map((r) => [r._id || r.receipt, r]));
+        state.warehouseReceipts = state.warehouseReceipts.map((r) => {
+          const updated = updatedMap.get(r._id) || updatedMap.get(r.receipt);
+          return updated ? { ...r, ...updated } : r;
+        });
+      }
+    });
+    builder.addCase(bulkEditWarehouseReceipts.rejected, (state, action) => {
+      state.actionLoading = false;
+      state.actionMessage = {
+        type: 'error',
+        text: (action.payload as string) || 'Failed to update warehouse receipts',
+      };
+    });
+
+    // 11. editSingleWarehouseReceipt
+    builder.addCase(editSingleWarehouseReceipt.pending, (state) => {
+      state.actionLoading = true;
+      state.actionMessage = null;
+    });
+    builder.addCase(editSingleWarehouseReceipt.fulfilled, (state, action) => {
+      state.actionLoading = false;
+      state.actionMessage = {
+        type: 'success',
+        text: `Warehouse receipt '${action.payload.receipt}' updated successfully`,
+      };
+      const idx = state.warehouseReceipts.findIndex(
+        (r) => r._id === action.payload._id || r.receipt === action.payload.receipt
+      );
+      if (idx !== -1) {
+        state.warehouseReceipts[idx] = action.payload;
+      } else {
+        state.warehouseReceipts.unshift(action.payload);
+      }
+    });
+    builder.addCase(editSingleWarehouseReceipt.rejected, (state, action) => {
+      state.actionLoading = false;
+      state.actionMessage = {
+        type: 'error',
+        text: (action.payload as string) || 'Failed to update warehouse receipt',
+      };
+    });
+
+    // 12. demapActualContainer
+    builder.addCase(demapActualContainer.pending, (state) => {
+      state.actionLoading = true;
+      state.actionMessage = null;
+    });
+    builder.addCase(demapActualContainer.fulfilled, (state, action) => {
+      state.actionLoading = false;
+      state.actionMessage = {
+        type: 'success',
+        text: action.payload.message || 'Actual carrier container unassigned successfully',
+      };
+      if (action.payload.plan) {
+        const p = action.payload.plan;
+        const idx = state.loadingPlans.findIndex((lp) => lp.container.toLowerCase() === p.container.toLowerCase());
+        if (idx !== -1) {
+          state.loadingPlans[idx] = { ...state.loadingPlans[idx], ...p, containerNumber: '', isFinalized: false, planStatus: 'Planning' };
+        }
+        if (state.activePlan && state.activePlan.container.toLowerCase() === p.container.toLowerCase()) {
+          state.activePlan = { ...state.activePlan, ...p, containerNumber: '', isFinalized: false, planStatus: 'Planning' };
+        }
+      }
+    });
+    builder.addCase(demapActualContainer.rejected, (state, action) => {
+      state.actionLoading = false;
+      state.actionMessage = {
+        type: 'error',
+        text: (action.payload as string) || 'Failed to de-map actual container',
+      };
+    });
+
+    // 13. alterContainer
+    builder.addCase(alterContainer.pending, (state) => {
+      state.actionLoading = true;
+      state.actionMessage = null;
+    });
+    builder.addCase(alterContainer.fulfilled, (state, action) => {
+      state.actionLoading = false;
+      state.actionMessage = {
+        type: 'success',
+        text: action.payload.message || 'Container altered successfully across database',
+      };
+      if (action.payload.plan) {
+        const updated = action.payload.plan;
+        const oldAlias = action.meta.arg.oldContainer;
+        const idx = state.loadingPlans.findIndex(
+          (lp) => lp.container.toLowerCase() === oldAlias.toLowerCase() || lp.container.toLowerCase() === updated.container.toLowerCase()
+        );
+        if (idx !== -1) {
+          state.loadingPlans[idx] = { ...state.loadingPlans[idx], ...updated };
+        }
+        if (state.activePlan && (state.activePlan.container.toLowerCase() === oldAlias.toLowerCase() || state.activePlan.container.toLowerCase() === updated.container.toLowerCase())) {
+          state.activePlan = { ...state.activePlan, ...updated };
+        }
+      }
+    });
+    builder.addCase(alterContainer.rejected, (state, action) => {
+      state.actionLoading = false;
+      state.actionMessage = {
+        type: 'error',
+        text: (action.payload as string) || 'Failed to alter container',
+      };
+    });
+
+    // 14. deleteLoadingPlan
+    builder.addCase(deleteLoadingPlan.pending, (state) => {
+      state.actionLoading = true;
+      state.actionMessage = null;
+    });
+    builder.addCase(deleteLoadingPlan.fulfilled, (state, action) => {
+      state.actionLoading = false;
+      state.actionMessage = {
+        type: 'success',
+        text: action.payload.message || 'Loading plan deleted successfully',
+      };
+      state.loadingPlans = state.loadingPlans.filter(
+        (p) => p.container.toLowerCase() !== action.payload.container.toLowerCase()
+      );
+      if (state.activePlan && state.activePlan.container.toLowerCase() === action.payload.container.toLowerCase()) {
+        state.activePlan = null;
+      }
+    });
+    builder.addCase(deleteLoadingPlan.rejected, (state, action) => {
+      state.actionLoading = false;
+      state.actionMessage = {
+        type: 'error',
+        text: (action.payload as string) || 'Failed to delete loading plan',
+      };
+    });
+
+    // 15. deleteWarehouse
+    builder.addCase(deleteWarehouse.pending, (state) => {
+      state.actionLoading = true;
+      state.actionMessage = null;
+    });
+    builder.addCase(deleteWarehouse.fulfilled, (state, action) => {
+      state.actionLoading = false;
+      state.actionMessage = {
+        type: 'success',
+        text: action.payload.message || 'Warehouse deleted successfully',
+      };
+      if (state.selectedWarehouse.toLowerCase() === action.payload.name.toLowerCase()) {
+        state.selectedWarehouse = 'ALL';
+      }
+    });
+    builder.addCase(deleteWarehouse.rejected, (state, action) => {
+      state.actionLoading = false;
+      state.actionMessage = {
+        type: 'error',
+        text: (action.payload as string) || 'Failed to delete warehouse',
+      };
+    });
+
+    // 16. updateWarehouse
+    builder.addCase(updateWarehouse.pending, (state) => {
+      state.actionLoading = true;
+      state.actionMessage = null;
+    });
+    builder.addCase(updateWarehouse.fulfilled, (state, action) => {
+      state.actionLoading = false;
+      state.actionMessage = {
+        type: 'success',
+        text: action.payload.message || 'Warehouse updated successfully',
+      };
+      const oldName = action.payload.oldName;
+      const newName = action.payload.newName;
+      if (state.selectedWarehouse && state.selectedWarehouse.toLowerCase() === oldName.toLowerCase()) {
+        state.selectedWarehouse = newName;
+      }
+      state.warehouseReceipts.forEach((r) => {
+        if (r.warehouse && r.warehouse.toLowerCase() === oldName.toLowerCase()) {
+          r.warehouse = newName;
+        }
+      });
+      state.loadingPlans.forEach((p) => {
+        if (p.warehouse && p.warehouse.toLowerCase() === oldName.toLowerCase()) {
+          p.warehouse = newName;
+        }
+      });
+    });
+    builder.addCase(updateWarehouse.rejected, (state, action) => {
+      state.actionLoading = false;
+      state.actionMessage = {
+        type: 'error',
+        text: (action.payload as string) || 'Failed to update warehouse',
       };
     });
   },

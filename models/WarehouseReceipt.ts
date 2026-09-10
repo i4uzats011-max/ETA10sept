@@ -29,7 +29,7 @@ export interface IWarehouseReceipt extends Document {
 
 const WarehouseReceiptSchema = new Schema<IWarehouseReceipt>(
   {
-    receipt: { type: String, required: true, unique: true, index: true, trim: true },
+    receipt: { type: String, required: true, index: true, trim: true },
     party: { type: String, default: '', index: true, trim: true },
     warehouse: { type: String, default: 'China Warehouse', index: true, trim: true },
     warehouseEntry: { type: String, default: '', trim: true },
@@ -62,6 +62,12 @@ const WarehouseReceiptSchema = new Schema<IWarehouseReceipt>(
     strict: false,
   }
 );
+
+// Enforce that receipt numbers are strictly unique warehouse-wise
+WarehouseReceiptSchema.index({ receipt: 1, warehouse: 1 }, { unique: true });
+
+// Fast search indexes for warehouse stock filtering and fast receipt search
+WarehouseReceiptSchema.index({ warehouse: 1, status: 1 });
 
 // Auto-calculate remainingQuantity and status before save
 WarehouseReceiptSchema.pre('save', function (next) {

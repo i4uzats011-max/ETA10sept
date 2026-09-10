@@ -49,6 +49,7 @@ async function handleSync(req: NextRequest) {
           container: { $first: '$container' },
           shippingLine: { $first: '$shippingLine' },
           eta: { $first: '$eta' },
+          rawEta: { $first: '$rawEta' },
           status: { $first: '$status' },
           lastApiSync: { $first: '$lastApiSync' },
           count: { $sum: 1 },
@@ -66,11 +67,12 @@ async function handleSync(req: NextRequest) {
       const containerAlias = group.container || containerNumber;
       const shippingLine = group.shippingLine || 'Default';
       const eta = group.eta;
+      const rawEta = group.rawEta;
       const status = group.status;
       const lastApiSync = group.lastApiSync ? new Date(group.lastApiSync) : null;
 
-      // Evaluate against the defined parameter schedule (Daily for 1-5d, 2d for 5-11d, 5d for 11-17d, etc.)
-      if (shouldSyncContainer(lastApiSync, eta, now, status)) {
+      // Evaluate against stepped parameter schedule using actual carrier ETA (rawEta)
+      if (shouldSyncContainer(lastApiSync, eta, now, status, rawEta)) {
         try {
           const tracking = await fetchContainerTracking(containerNumber, shippingLine);
 
@@ -79,6 +81,7 @@ async function handleSync(req: NextRequest) {
             {
               $set: {
                 eta: tracking.eta,
+                rawEta: tracking.rawEta || '',
                 status: tracking.status,
                 shippedFrom: tracking.shippedFrom,
                 shippedTo: tracking.shippedTo,
@@ -89,7 +92,9 @@ async function handleSync(req: NextRequest) {
                 voyageNumber: tracking.voyageNumber,
                 jsonCargoData: tracking.dataDetails,
                 lastApiSync: now,
+                apiCalled: true,
               },
+              $inc: { apiCallCount: 1 },
             }
           );
 
@@ -102,6 +107,7 @@ async function handleSync(req: NextRequest) {
                   containerNumber,
                   shippingLine,
                   eta: tracking.eta,
+                  rawEta: tracking.rawEta || '',
                   status: tracking.status,
                   shippedFrom: tracking.shippedFrom,
                   shippedTo: tracking.shippedTo,
@@ -113,6 +119,16 @@ async function handleSync(req: NextRequest) {
                   jsonCargoData: tracking.dataDetails,
                   shipmentCount: group.count,
                   lastApiSync: now,
+                  apiCalled: true,
+                },
+                $inc: { apiCallCount: 1 },
+                $push: {
+                  apiCallHistory: {
+                    timestamp: now,
+                    source: 'cron',
+                    eta: tracking.eta,
+                    status: tracking.status,
+                  },
                 },
               },
               { upsert: true, new: true }

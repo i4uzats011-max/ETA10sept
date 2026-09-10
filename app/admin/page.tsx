@@ -869,6 +869,47 @@ export default function AdminDashboardPage() {
         throw new Error(data.error || 'Upload failed');
       }
 
+      if (data.requiresConfirmation) {
+        const splitCount = data.splitWarnings?.length || 0;
+        const confirmMsg =
+          `WARNING: Loading Less Goods (Split Cargo)\n\n` +
+          `The uploaded planning list is loading less goods than received in warehouse for ${splitCount} receipt(s).\n` +
+          `These receipts will be SPLIT across containers, and remaining balance will stay in China warehouse stock.\n\n` +
+          `Do you want to confirm splitting these goods? Click OK to proceed.`;
+        const ok = window.confirm(confirmMsg);
+        if (!ok) {
+          setIsUploading(false);
+          return;
+        }
+
+        // Re-submit with confirmSplit: true
+        formData.append('confirmSplit', 'true');
+        const confirmedRes = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+        const confirmedData = await confirmedRes.json();
+        if (!confirmedRes.ok) {
+          throw new Error(confirmedData.error || 'Upload failed');
+        }
+
+        setUploadStatus({
+          type: 'success',
+          message: confirmedData.message || `Successfully processed and split loading plans!`,
+        });
+
+        setUploadFile(null);
+        setFileHeaders([]);
+        setFileSheets([]);
+        setSelectedSheet('');
+        setSampleRows([]);
+        setTotalFileRows(0);
+        setHeaderCheckError(null);
+        fetchDistinctContainers();
+        fetchApiStats();
+        return;
+      }
+
       setUploadStatus({
         type: 'success',
         message: data.message || `Successfully imported shipment records!`,
@@ -1627,11 +1668,11 @@ export default function AdminDashboardPage() {
                 {/* Smart Interval Legend */}
                 <div className="px-4 py-2 bg-amber-50/50 border-b border-amber-100">
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] font-semibold text-amber-800">
-                    <span>📅 1–5d → Daily</span>
-                    <span>📅 5–11d → Every 2d</span>
-                    <span>📅 11–17d → Every 5d</span>
-                    <span>📅 17–25d → Every 7d</span>
-                    <span>📅 25+d → Every 10d</span>
+                    <span>📅 1–7d → Daily</span>
+                    <span>📅 8–12d → Every 2d</span>
+                    <span>📅 13–20d → Every 5d</span>
+                    <span>📅 21–30d → Every 7d</span>
+                    <span>📅 30+d → Every 10d</span>
                   </div>
                 </div>
                 <div className="overflow-auto max-h-60">

@@ -18,6 +18,11 @@ export interface ContainerMasterItem {
   vesselName?: string;
   voyageNumber?: string;
   shipmentCount?: number;
+  warehouse?: string;
+  isMappedWithActual?: boolean;
+  apiCalled?: boolean;
+  apiCallCount?: number;
+  rawEta?: string;
   lastApiSync?: string | null;
 }
 
@@ -71,14 +76,24 @@ export const fetchCargoFleet = createAsyncThunk(
 export const markContainerDelivered = createAsyncThunk(
   'cargoMaster/markContainerDelivered',
   async (
-    { container, deliveryDate, isDelivered = true }: { container: string; deliveryDate: string; isDelivered?: boolean },
+    {
+      container,
+      deliveryDate,
+      isDelivered = true,
+      excludedReceipts,
+    }: {
+      container: string;
+      deliveryDate: string;
+      isDelivered?: boolean;
+      excludedReceipts?: string[];
+    },
     { rejectWithValue }
   ) => {
     try {
       const res = await fetch('/api/containers/deliver', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ container, deliveryDate, isDelivered }),
+        body: JSON.stringify({ container, deliveryDate, isDelivered, excludedReceipts }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to mark container delivered');

@@ -10,6 +10,10 @@ import {
   deallocateItem,
   finalizeAndAllotContainer,
   markContainerDelivered,
+  deleteWarehouseReceipt,
+  bulkDeleteWarehouseReceipts,
+  bulkEditWarehouseReceipts,
+  editSingleWarehouseReceipt,
   setSelectedWarehouse,
   setStatusFilter,
   setSearchTerm,
@@ -19,6 +23,11 @@ import {
   openAllotModal,
   closeAllotModal,
   clearActionMessage,
+  demapActualContainer,
+  alterContainer,
+  deleteLoadingPlan,
+  deleteWarehouse,
+  updateWarehouse,
   WarehouseReceiptItem,
   LoadingPlanItem,
 } from '@/store/loadingPlanSlice';
@@ -45,8 +54,22 @@ import {
   Anchor,
   FileSpreadsheet,
   Upload,
+  Pencil,
+  CheckSquare,
+  Square,
+  Check,
+  SlidersHorizontal,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import {
+  useReactTable,
+  getCoreRowModel,
+  getSortedRowModel,
+  getPaginationRowModel,
+  flexRender,
+  ColumnDef,
+  SortingState,
+} from '@tanstack/react-table';
 import { formatGlobalDate } from '@/lib/dateUtils';
 import { translateCommodity, translatePackaging, translateWarehouse, translateMark } from '@/lib/translate';
 
@@ -64,15 +87,8 @@ const SHIPPING_CARRIERS = [
   'PIL',
 ];
 
-const DEFAULT_CHINA_WAREHOUSES = [
-  'ALL',
-  'Guangzhou Warehouse',
-  'Yiwu Warehouse',
-  'Ningbo Warehouse',
-  'Shenzhen Warehouse',
-  'Shanghai Warehouse',
-  'Keqiao Warehouse',
-];
+// No hardcoded warehouses; user creates and manages China warehouses dynamically
+const DEFAULT_CHINA_WAREHOUSES: string[] = ['ALL'];
 
 export default function LoaderHub() {
   const dispatch = useAppDispatch();
@@ -99,7 +115,7 @@ export default function LoaderHub() {
   // Local state for Create Plan modal
   const [isCreatePlanOpen, setIsCreatePlanOpen] = useState(false);
   const [newPlanAlias, setNewPlanAlias] = useState('');
-  const [newPlanWarehouse, setNewPlanWarehouse] = useState('Guangzhou Warehouse');
+  const [newPlanWarehouse, setNewPlanWarehouse] = useState('');
 
   // Local state for Split modal inputs
   const [selectedPlanForAllocation, setSelectedPlanForAllocation] = useState('');
@@ -108,6 +124,7 @@ export default function LoaderHub() {
   const [splitVolumeInput, setSplitVolumeInput] = useState('');
 
   // Local state for Allot modal inputs
+  const [allotSelectedContainer, setAllotSelectedContainer] = useState('');
   const [actualContainerNoInput, setActualContainerNoInput] = useState('');
   const [allotCarrierInput, setAllotCarrierInput] = useState('MSC');
   const [loadingDateInput, setLoadingDateInput] = useState('');
@@ -118,7 +135,7 @@ export default function LoaderHub() {
   const [isReceiveModalOpen, setIsReceiveModalOpen] = useState(false);
   const [receiveReceipt, setReceiveReceipt] = useState('');
   const [receiveParty, setReceiveParty] = useState('');
-  const [receiveWarehouse, setReceiveWarehouse] = useState('Guangzhou Warehouse');
+  const [receiveWarehouse, setReceiveWarehouse] = useState('');
   const [receiveDate, setReceiveDate] = useState(new Date().toISOString().split('T')[0]);
   const [receiveQuantity, setReceiveQuantity] = useState<number | ''>('');
   const [receiveCommodity, setReceiveCommodity] = useState('');
@@ -126,20 +143,538 @@ export default function LoaderHub() {
   const [receiveVolume, setReceiveVolume] = useState('');
   const [receiveMainMark, setReceiveMainMark] = useState('');
   const [receiveSubMark, setReceiveSubMark] = useState('');
+  const [receivePackaging, setReceivePackaging] = useState('Carton');
+  const [receiveWarehouseEntry, setReceiveWarehouseEntry] = useState('');
+  const [receiveNotes, setReceiveNotes] = useState('');
+  const [receiveAssignToPlan, setReceiveAssignToPlan] = useState(false);
+  const [receiveLoadingPlan, setReceiveLoadingPlan] = useState('');
+  const [isReceivingGoods, setIsReceivingGoods] = useState(false);
+
+  // Local state for Alter / Rename Container Database-Wide
+  const [isAlterContainerOpen, setIsAlterContainerOpen] = useState(false);
+  const [containerToAlter, setContainerToAlter] = useState<LoadingPlanItem | null>(null);
+  const [alterContainerAlias, setAlterContainerAlias] = useState('');
+  const [alterActualNumber, setAlterActualNumber] = useState('');
+  const [alterShippingLine, setAlterShippingLine] = useState('MSC');
+  const [alterWarehouse, setAlterWarehouse] = useState('');
+  const [alterLoadingDate, setAlterLoadingDate] = useState('');
+  const [alterShippedTo, setAlterShippedTo] = useState('Nhava Sheva / Mundra, India');
+  const [alterAutoSync, setAlterAutoSync] = useState(true);
+  const [isSubmittingAlter, setIsSubmittingAlter] = useState(false);
+
+  // Local state for Container-Wise Cargo Loading (Container-wise planning only)
+  const [isContainerWiseLoadOpen, setIsContainerWiseLoadOpen] = useState(false);
+  const [containerWisePlan, setContainerWisePlan] = useState<LoadingPlanItem | null>(null);
+  const [containerWiseReceiptId, setContainerWiseReceiptId] = useState('');
+  const [containerWiseQuantity, setContainerWiseQuantity] = useState<number | ''>('');
+  const [containerWiseWeight, setContainerWiseWeight] = useState('');
+  const [containerWiseVolume, setContainerWiseVolume] = useState('');
+  const [isContainerWiseLoading, setIsContainerWiseLoading] = useState(false);
 
   // Local state for Mark Delivered modal
   const [isDeliverModalOpen, setIsDeliverModalOpen] = useState(false);
   const [planToDeliver, setPlanToDeliver] = useState<LoadingPlanItem | null>(null);
   const [deliveryDateInput, setDeliveryDateInput] = useState(new Date().toISOString().split('T')[0]);
+  const [excludedReceiptsForDelivery, setExcludedReceiptsForDelivery] = useState<Set<string>>(new Set());
+
+  // Filter and Search for Loading Plans tab (including date-wise sorting for delivered)
+  const [planFilterStatus, setPlanFilterStatus] = useState<'all' | 'active' | 'delivered'>('all');
+  const [planSearchQuery, setPlanSearchQuery] = useState('');
 
   // Local state for Chinese Excel Import Modal
   const [isExcelUploadOpen, setIsExcelUploadOpen] = useState(false);
+  const [excelUploadType, setExcelUploadType] = useState<'stock' | 'plan'>('stock');
+  const [excelTargetContainer, setExcelTargetContainer] = useState('');
   const [excelFile, setExcelFile] = useState<File | null>(null);
-  const [excelUploadWarehouse, setExcelUploadWarehouse] = useState('Guangzhou Warehouse');
+  const [excelUploadWarehouse, setExcelUploadWarehouse] = useState('');
   const [excelPreviewRows, setExcelPreviewRows] = useState<any[]>([]);
   const [excelTotalRows, setExcelTotalRows] = useState(0);
   const [isUploadingExcel, setIsUploadingExcel] = useState(false);
   const [excelUploadStatus, setExcelUploadStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Multi-Selection State for China Warehouse Stock
+  const [selectedReceiptIds, setSelectedReceiptIds] = useState<Set<string>>(new Set());
+
+  // Bulk Delete Modal State
+  const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
+  const [forceBulkDelete, setForceBulkDelete] = useState(false);
+
+  // Bulk Edit Modal State
+  const [isBulkEditOpen, setIsBulkEditOpen] = useState(false);
+  const [bulkEditWarehouse, setBulkEditWarehouse] = useState('');
+  const [bulkEditParty, setBulkEditParty] = useState('');
+  const [bulkEditDate, setBulkEditDate] = useState('');
+  const [bulkEditPackaging, setBulkEditPackaging] = useState('');
+  const [bulkEditCommodity, setBulkEditCommodity] = useState('');
+  const [bulkEditMainMark, setBulkEditMainMark] = useState('');
+  const [bulkEditSubMark, setBulkEditSubMark] = useState('');
+  const [bulkEditNotes, setBulkEditNotes] = useState('');
+  const [bulkFieldsToUpdate, setBulkFieldsToUpdate] = useState<Record<string, boolean>>({
+    warehouse: false,
+    party: false,
+    date: false,
+    packaging: false,
+    commodity: false,
+    marks: false,
+    notes: false,
+  });
+
+  // Single Edit Modal State
+  const [isSingleEditOpen, setIsSingleEditOpen] = useState(false);
+  const [editingReceiptItem, setEditingReceiptItem] = useState<WarehouseReceiptItem | null>(null);
+  const [editReceiptNumber, setEditReceiptNumber] = useState('');
+  const [editParty, setEditParty] = useState('');
+  const [singleEditWarehouse, setSingleEditWarehouse] = useState('');
+  const [editDate, setEditDate] = useState('');
+  const [editQuantity, setEditQuantity] = useState<number | ''>('');
+  const [editCommodity, setEditCommodity] = useState('');
+  const [editPackaging, setEditPackaging] = useState('Carton');
+  const [editMainMark, setEditMainMark] = useState('');
+  const [editSubMark, setEditSubMark] = useState('');
+  const [editWeight, setEditWeight] = useState('');
+  const [editVolume, setEditVolume] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+
+  // Dynamic China Warehouse Management
+  const [dynamicWarehouses, setDynamicWarehouses] = useState<string[]>([]);
+  const [isAddWarehouseModalOpen, setIsAddWarehouseModalOpen] = useState(false);
+  const [newWarehouseName, setNewWarehouseName] = useState('');
+  const [newWarehouseCity, setNewWarehouseCity] = useState('');
+  const [newWarehouseCode, setNewWarehouseCode] = useState('');
+  const [isCreatingWarehouse, setIsCreatingWarehouse] = useState(false);
+  const [warehouseModalContext, setWarehouseModalContext] = useState<'filter' | 'receive' | 'plan' | 'excel' | 'alter' | 'bulkEdit' | 'singleEdit'>('filter');
+
+  // Real-time duplicate receipt detection warehouse-wise
+  const receiveReceiptDuplicate = useMemo(() => {
+    if (!receiveReceipt.trim() || !receiveWarehouse.trim()) return null;
+    const cleanRec = receiveReceipt.trim().toLowerCase();
+    const cleanWh = receiveWarehouse.trim().toLowerCase();
+    return warehouseReceipts.find(
+      (r) => (r.receipt || '').trim().toLowerCase() === cleanRec && (r.warehouse || '').trim().toLowerCase() === cleanWh
+    );
+  }, [receiveReceipt, receiveWarehouse, warehouseReceipts]);
+
+  const singleEditReceiptDuplicate = useMemo(() => {
+    if (!editReceiptNumber.trim() || !singleEditWarehouse.trim() || !editingReceiptItem) return null;
+    const cleanR = editReceiptNumber.trim().toLowerCase();
+    const cleanW = singleEditWarehouse.trim().toLowerCase();
+    const curId = String(editingReceiptItem._id || (editingReceiptItem as any).id || '');
+    return warehouseReceipts.find(
+      (r) =>
+        (r.receipt || '').trim().toLowerCase() === cleanR &&
+        (r.warehouse || '').trim().toLowerCase() === cleanW &&
+        String(r._id || (r as any).id || '') !== curId
+    );
+  }, [editReceiptNumber, singleEditWarehouse, editingReceiptItem, warehouseReceipts]);
+
+  const fetchWarehouses = async () => {
+    try {
+      const res = await fetch('/api/warehouse');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.warehouses)) {
+          setDynamicWarehouses(data.warehouses);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load warehouses:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchWarehouses();
+  }, []);
+
+  const handleCreateWarehouse = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newWarehouseName.trim()) {
+      alert('Warehouse name is required');
+      return;
+    }
+    setIsCreatingWarehouse(true);
+    try {
+      const res = await fetch('/api/warehouse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newWarehouseName.trim(),
+          city: newWarehouseCity.trim(),
+          code: newWarehouseCode.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create warehouse');
+
+      const createdName = data.warehouse?.name || newWarehouseName.trim();
+      setDynamicWarehouses((prev) => Array.from(new Set([...prev, createdName])));
+
+      if (warehouseModalContext === 'receive') {
+        setReceiveWarehouse(createdName);
+      } else if (warehouseModalContext === 'plan') {
+        setNewPlanWarehouse(createdName);
+      } else if (warehouseModalContext === 'excel') {
+        setExcelUploadWarehouse(createdName);
+      } else if (warehouseModalContext === 'alter') {
+        setAlterWarehouse(createdName);
+      } else if (warehouseModalContext === 'bulkEdit') {
+        setBulkEditWarehouse(createdName);
+      } else if (warehouseModalContext === 'singleEdit') {
+        setSingleEditWarehouse(createdName);
+      } else {
+        dispatch(setSelectedWarehouse(createdName));
+      }
+
+      setNewWarehouseName('');
+      setNewWarehouseCity('');
+      setNewWarehouseCode('');
+      setIsAddWarehouseModalOpen(false);
+      fetchWarehouses();
+    } catch (err: any) {
+      alert(err.message || 'Failed to create warehouse');
+    } finally {
+      setIsCreatingWarehouse(false);
+    }
+  };
+
+  // Delete Warehouse with Strict Zero-Data Check
+  const handleDeleteWarehouse = async (targetWh?: string | React.MouseEvent) => {
+    const whToDelete = typeof targetWh === 'string' && targetWh ? targetWh : selectedWarehouse;
+    if (!whToDelete || whToDelete === 'ALL') {
+      alert('Please select a specific warehouse to delete.');
+      return;
+    }
+    if (
+      !confirm(
+        `Are you sure you want to delete warehouse '${whToDelete}'?\n\nStrict Rule: If any data (receipts, container plans, shipments) is mapped to this warehouse, deletion will be rejected.`
+      )
+    ) {
+      return;
+    }
+    const res = await dispatch(deleteWarehouse({ name: whToDelete }));
+    if (deleteWarehouse.fulfilled.match(res)) {
+      alert(res.payload?.message || `Warehouse '${whToDelete}' deleted successfully.`);
+      fetchWarehouses();
+      dispatch(fetchWarehouseReceipts());
+      dispatch(fetchLoadingPlans());
+      if (isEditWarehouseOpen) setIsEditWarehouseOpen(false);
+    } else {
+      alert((res.payload as string) || `Cannot delete warehouse '${whToDelete}'.`);
+    }
+  };
+
+  // Edit / Rename Warehouse Handlers
+  const [isEditWarehouseOpen, setIsEditWarehouseOpen] = useState(false);
+  const [editWarehouseOldName, setEditWarehouseOldName] = useState('');
+  const [editWarehouseNewName, setEditWarehouseNewName] = useState('');
+  const [editWarehouseCity, setEditWarehouseCity] = useState('');
+  const [editWarehouseCode, setEditWarehouseCode] = useState('');
+  const [isSubmittingEditWarehouse, setIsSubmittingEditWarehouse] = useState(false);
+
+  const handleOpenEditWarehouse = () => {
+    if (!selectedWarehouse || selectedWarehouse === 'ALL') {
+      alert('Please select a specific warehouse from the dropdown to edit its name.');
+      return;
+    }
+    setEditWarehouseOldName(selectedWarehouse);
+    setEditWarehouseNewName(selectedWarehouse);
+    setEditWarehouseCity('');
+    setEditWarehouseCode('');
+    setIsEditWarehouseOpen(true);
+  };
+
+  const handleEditWarehouseSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editWarehouseNewName.trim()) {
+      alert('New warehouse name is required.');
+      return;
+    }
+    setIsSubmittingEditWarehouse(true);
+    try {
+      const res = await dispatch(
+        updateWarehouse({
+          oldName: editWarehouseOldName,
+          newName: editWarehouseNewName.trim(),
+          city: editWarehouseCity.trim(),
+          code: editWarehouseCode.trim(),
+        })
+      );
+      if (updateWarehouse.fulfilled.match(res)) {
+        alert(res.payload?.message || `Warehouse renamed to '${editWarehouseNewName.trim()}' successfully.`);
+        setIsEditWarehouseOpen(false);
+        fetchWarehouses();
+        dispatch(fetchWarehouseReceipts());
+        dispatch(fetchLoadingPlans());
+      } else {
+        alert((res.payload as string) || 'Failed to update warehouse');
+      }
+    } finally {
+      setIsSubmittingEditWarehouse(false);
+    }
+  };
+
+  // Manual Goods Received Entry Handler (Direct Form Input, Not Via Excel Uploading)
+  const handleReceiveGoodsSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const userWhs = availableWarehouses.filter((w) => w !== 'ALL');
+    if (userWhs.length === 0) {
+      alert('Cannot enter received goods until at least one China warehouse is created. Please create a warehouse first.');
+      setWarehouseModalContext('receive');
+      setIsAddWarehouseModalOpen(true);
+      return;
+    }
+    if (!receiveReceipt.trim()) {
+      alert('Receipt number is required');
+      return;
+    }
+    if (!receiveWarehouse.trim() || receiveWarehouse === 'ALL') {
+      alert('Please select a valid China warehouse.');
+      return;
+    }
+    const qtyNum = typeof receiveQuantity === 'number' ? receiveQuantity : parseInt(String(receiveQuantity || 0), 10);
+    if (isNaN(qtyNum) || qtyNum <= 0) {
+      alert('Quantity must be a positive number greater than 0');
+      return;
+    }
+
+    if (receiveAssignToPlan && !receiveLoadingPlan.trim()) {
+      alert('Loading Plan Number (Internal Container Number) is mandatory when loading goods into a plan.');
+      return;
+    }
+
+    const cleanRec = receiveReceipt.trim().toLowerCase();
+    const cleanWh = receiveWarehouse.trim().toLowerCase();
+    const isDup = warehouseReceipts.some(
+      (r) => (r.receipt || '').trim().toLowerCase() === cleanRec && (r.warehouse || '').trim().toLowerCase() === cleanWh
+    );
+    if (isDup) {
+      alert(`Duplicate Receipt Error: Receipt #${receiveReceipt.trim()} already exists in warehouse '${receiveWarehouse.trim()}'.\n\nEvery warehouse must have strictly unique receipt numbers. Duplicate entries are rejected.`);
+      return;
+    }
+
+    setIsReceivingGoods(true);
+    try {
+      const res = await fetch('/api/warehouse/receipts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          receipt: receiveReceipt.trim(),
+          party: receiveParty.trim(),
+          warehouse: receiveWarehouse.trim(),
+          date: receiveDate.trim(),
+          warehouseEntry: receiveWarehouseEntry.trim(),
+          quantity: qtyNum,
+          commodity: receiveCommodity.trim(),
+          packaging: receivePackaging.trim() || 'Carton',
+          mainMarka: receiveMainMark.trim(),
+          subMarka: receiveSubMark.trim(),
+          weight: receiveWeight.trim(),
+          volume: receiveVolume.trim(),
+          notes: receiveNotes.trim(),
+          loadIntoPlan: receiveAssignToPlan,
+          loadingPlan: receiveAssignToPlan ? receiveLoadingPlan.trim().toUpperCase() : '',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save received goods');
+
+      setIsReceiveModalOpen(false);
+      setReceiveReceipt('');
+      setReceiveParty('');
+      setReceiveQuantity('');
+      setReceiveCommodity('');
+      setReceiveWeight('');
+      setReceiveVolume('');
+      setReceiveMainMark('');
+      setReceiveSubMark('');
+      setReceiveWarehouseEntry('');
+      setReceiveNotes('');
+      setReceiveAssignToPlan(false);
+      setReceiveLoadingPlan('');
+      dispatch(fetchWarehouseReceipts());
+      dispatch(fetchLoadingPlans());
+      alert(data.message || `Receipt '${receiveReceipt.trim()}' successfully recorded in ${receiveWarehouse}`);
+    } catch (err: any) {
+      alert(err.message || 'Failed to record received goods');
+    } finally {
+      setIsReceivingGoods(false);
+    }
+  };
+
+  // Alter / Rename Container Database-Wide Handlers
+  const handleOpenAlterModal = (plan: LoadingPlanItem) => {
+    setContainerToAlter(plan);
+    setAlterContainerAlias(plan.container);
+    setAlterActualNumber(plan.containerNumber || '');
+    setAlterShippingLine(plan.shippingLine || 'MSC');
+    setAlterWarehouse(plan.warehouse || '');
+    setAlterLoadingDate(plan.loadingDate || '');
+    setAlterShippedTo(plan.shippedTo || 'Nhava Sheva / Mundra, India');
+    setAlterAutoSync(true);
+    setIsAlterContainerOpen(true);
+  };
+
+  const handleAlterContainerSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!containerToAlter) return;
+    if (!alterContainerAlias.trim()) {
+      alert('Container alias / identifier is required');
+      return;
+    }
+    if (alterActualNumber.trim() && !alterLoadingDate.trim()) {
+      alert('Loading Date is strictly mandatory when assigning an actual carrier container number.');
+      return;
+    }
+    setIsSubmittingAlter(true);
+    try {
+      const res = await dispatch(
+        alterContainer({
+          oldContainer: containerToAlter.container,
+          newContainer: alterContainerAlias.trim().toUpperCase(),
+          containerNumber: alterActualNumber.trim(),
+          shippingLine: alterShippingLine.trim(),
+          warehouse: alterWarehouse.trim(),
+          loadingDate: alterLoadingDate.trim(),
+          shippedTo: alterShippedTo.trim(),
+          autoSync: alterAutoSync,
+        })
+      );
+      if (alterContainer.fulfilled.match(res)) {
+        setIsAlterContainerOpen(false);
+        setContainerToAlter(null);
+        dispatch(fetchLoadingPlans());
+        dispatch(fetchWarehouseReceipts());
+      }
+    } finally {
+      setIsSubmittingAlter(false);
+    }
+  };
+
+  // De-map Actual Container from Plan Handler
+  const handleDemapActual = async (plan: LoadingPlanItem) => {
+    if (
+      !confirm(
+        `Are you sure you want to de-map carrier container '${plan.containerNumber}' from plan '${plan.container}'?\n\nThe container will be unallotted and return to Planning status.`
+      )
+    ) {
+      return;
+    }
+    await dispatch(demapActualContainer({ container: plan.container }));
+    dispatch(fetchLoadingPlans());
+  };
+
+  // Delete Loading Plan / Container Handler
+  const handleDeletePlan = async (plan: LoadingPlanItem) => {
+    if (plan.shipmentCount && plan.shipmentCount > 0) {
+      alert(
+        `Cannot delete container '${plan.container}': It still contains ${plan.shipmentCount} loaded cargo item(s) mapped to it.\n\nRule: You must delete/de-allocate all loaded cargo items from this container first before deleting the container.`
+      );
+      return;
+    }
+    if (
+      !confirm(
+        `Are you sure you want to delete container plan '${plan.container}'?\n\nThis action cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    const res = await dispatch(deleteLoadingPlan({ container: plan.container }));
+    if (deleteLoadingPlan.fulfilled.match(res)) {
+      alert(res.payload?.message || `Container '${plan.container}' deleted successfully.`);
+      dispatch(fetchLoadingPlans());
+    } else {
+      alert((res.payload as string) || `Failed to delete container '${plan.container}'.`);
+    }
+  };
+
+  // Warehouse receipts that have remaining stock available to load container-wise
+  const availableReceiptsWithStock = useMemo(() => {
+    return warehouseReceipts.filter((r) => {
+      const remaining = r.remainingQuantity !== undefined ? r.remainingQuantity : r.quantity - (r.loadedQuantity || 0);
+      return remaining > 0;
+    });
+  }, [warehouseReceipts]);
+
+  // Currently selected receipt in Container-Wise load modal
+  const selectedContainerWiseReceipt = useMemo(() => {
+    if (!containerWiseReceiptId) return availableReceiptsWithStock[0] || null;
+    return (
+      availableReceiptsWithStock.find((r) => (r._id || r.receipt) === containerWiseReceiptId) ||
+      availableReceiptsWithStock[0] ||
+      null
+    );
+  }, [containerWiseReceiptId, availableReceiptsWithStock]);
+
+  // Open Container-Wise Load Modal
+  const handleOpenContainerWiseLoad = (plan: LoadingPlanItem) => {
+    setContainerWisePlan(plan);
+    const firstStock = availableReceiptsWithStock[0];
+    if (firstStock) {
+      setContainerWiseReceiptId(firstStock._id || firstStock.receipt);
+      const rem =
+        firstStock.remainingQuantity !== undefined
+          ? firstStock.remainingQuantity
+          : firstStock.quantity - (firstStock.loadedQuantity || 0);
+      setContainerWiseQuantity(rem > 0 ? rem : '');
+      setContainerWiseWeight(firstStock.weight || '');
+      setContainerWiseVolume(firstStock.volume || '');
+    } else {
+      setContainerWiseReceiptId('');
+      setContainerWiseQuantity('');
+      setContainerWiseWeight('');
+      setContainerWiseVolume('');
+    }
+    setIsContainerWiseLoadOpen(true);
+  };
+
+  // Submit Container-Wise Cargo Allocation
+  const handleContainerWiseLoadSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!containerWisePlan) return;
+    if (!selectedContainerWiseReceipt) {
+      alert('No received goods selected with available warehouse stock.');
+      return;
+    }
+    const qtyNum =
+      typeof containerWiseQuantity === 'number'
+        ? containerWiseQuantity
+        : parseInt(String(containerWiseQuantity || 0), 10);
+    if (isNaN(qtyNum) || qtyNum <= 0) {
+      alert('Please enter a valid positive quantity greater than 0.');
+      return;
+    }
+    const maxAvail =
+      selectedContainerWiseReceipt.remainingQuantity !== undefined
+        ? selectedContainerWiseReceipt.remainingQuantity
+        : selectedContainerWiseReceipt.quantity - (selectedContainerWiseReceipt.loadedQuantity || 0);
+
+    if (qtyNum > maxAvail) {
+      alert(
+        `Cannot load ${qtyNum} units: Exceeds received warehouse stock (${maxAvail} remaining). You cannot load more goods than received.`
+      );
+      return;
+    }
+
+    setIsContainerWiseLoading(true);
+    try {
+      const res = await dispatch(
+        allocateReceiptSplit({
+          receipt: selectedContainerWiseReceipt.receipt,
+          container: containerWisePlan.container,
+          quantityToLoad: qtyNum,
+          weightToLoad: containerWiseWeight.trim(),
+          volumeToLoad: containerWiseVolume.trim(),
+        })
+      );
+      if (allocateReceiptSplit.fulfilled.match(res)) {
+        setIsContainerWiseLoadOpen(false);
+        setContainerWisePlan(null);
+        dispatch(fetchLoadingPlans());
+        dispatch(fetchWarehouseReceipts());
+      }
+    } finally {
+      setIsContainerWiseLoading(false);
+    }
+  };
 
   // Live translation of commodity entered in Chinese
   const liveTranslation = useMemo(() => {
@@ -152,14 +687,33 @@ export default function LoaderHub() {
     dispatch(fetchLoadingPlans());
   }, [dispatch]);
 
-  // Available warehouse list dynamically aggregated from receipts + defaults
+  // Available warehouse list dynamically aggregated from user-created warehouses (API) + existing receipts
   const availableWarehouses = useMemo(() => {
-    const set = new Set<string>(DEFAULT_CHINA_WAREHOUSES);
+    const set = new Set<string>(['ALL']);
+    dynamicWarehouses.forEach((w) => {
+      if (w && typeof w === 'string' && w.trim()) set.add(w.trim());
+    });
     warehouseReceipts.forEach((r) => {
-      if (r.warehouse) set.add(r.warehouse);
+      if (r.warehouse && typeof r.warehouse === 'string' && r.warehouse.trim()) {
+        set.add(r.warehouse.trim());
+      }
     });
     return Array.from(set);
-  }, [warehouseReceipts]);
+  }, [warehouseReceipts, dynamicWarehouses]);
+
+  // Synchronize initial selections to first user warehouse when available
+  useEffect(() => {
+    const userWhs = availableWarehouses.filter((w) => w !== 'ALL');
+    if (userWhs.length > 0) {
+      const firstWh = userWhs[0];
+      setNewPlanWarehouse((prev) => (prev && userWhs.includes(prev) ? prev : firstWh));
+      setReceiveWarehouse((prev) => (prev && userWhs.includes(prev) ? prev : firstWh));
+      setAlterWarehouse((prev) => (prev && userWhs.includes(prev) ? prev : firstWh));
+      setExcelUploadWarehouse((prev) => (prev && userWhs.includes(prev) ? prev : firstWh));
+      setBulkEditWarehouse((prev) => (prev && userWhs.includes(prev) ? prev : firstWh));
+      setSingleEditWarehouse((prev) => (prev && userWhs.includes(prev) ? prev : firstWh));
+    }
+  }, [availableWarehouses]);
 
   // Filtered Warehouse Stock
   const filteredReceipts = useMemo(() => {
@@ -208,6 +762,43 @@ export default function LoaderHub() {
     };
   }, [warehouseReceipts, loadingPlans]);
 
+  // Filtered and Date-Sorted Loading Plans (including dedicated view for Delivered containers)
+  const filteredLoadingPlans = useMemo(() => {
+    let list = [...loadingPlans];
+
+    if (planFilterStatus === 'active') {
+      list = list.filter((p) => !p.isDelivered && !(p.status && p.status.toLowerCase().includes('deliver')));
+    } else if (planFilterStatus === 'delivered') {
+      list = list.filter(
+        (p) =>
+          p.isDelivered ||
+          (p.status &&
+            (p.status.toLowerCase().includes('deliver') ||
+              p.status.toLowerCase().includes('destination') ||
+              p.status.toLowerCase().includes('arrived') ||
+              p.status.toLowerCase().includes('reached')))
+      );
+      // Date-wise sorting (newest delivery/loading date first)
+      list.sort((a, b) => {
+        const dA = new Date(a.deliveryDate || a.loadingDate || 0).getTime();
+        const dB = new Date(b.deliveryDate || b.loadingDate || 0).getTime();
+        return dB - dA;
+      });
+    }
+
+    if (planSearchQuery.trim()) {
+      const q = planSearchQuery.toLowerCase();
+      list = list.filter(
+        (p) =>
+          p.container.toLowerCase().includes(q) ||
+          (p.containerNumber || '').toLowerCase().includes(q) ||
+          (p.warehouse || '').toLowerCase().includes(q) ||
+          (p.shippingLine || '').toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [loadingPlans, planFilterStatus, planSearchQuery]);
+
   // Handle open split modal
   const handleOpenSplit = (receipt: WarehouseReceiptItem) => {
     dispatch(openSplitModal({ receipt, targetContainer: targetContainerForSplit }));
@@ -220,13 +811,60 @@ export default function LoaderHub() {
     }
   };
 
-  // Submit split & load
+  // Delete Wrong Warehouse Receipt
+  const handleDeleteReceipt = async (receiptItem: WarehouseReceiptItem) => {
+    if (receiptItem.loadedQuantity && receiptItem.loadedQuantity > 0) {
+      alert(
+        `Cannot delete received goods record '${receiptItem.receipt}': ${receiptItem.loadedQuantity} carton(s) are currently loaded and mapped in container plan(s).\n\nRule: First delete/remove this cargo entry from the container loading plan (do NOT delete the container, only remove this loaded entry). After removing it from the container, you can delete this received goods record.`
+      );
+      return;
+    }
+
+    const confirmDelete = window.confirm(
+      `Are you sure you want to delete receipt '${receiptItem.receipt}' from China warehouse stock?\n\nThis action cannot be undone.`
+    );
+    if (!confirmDelete) return;
+
+    const res = await dispatch(deleteWarehouseReceipt({ id: receiptItem._id }));
+    if (deleteWarehouseReceipt.fulfilled.match(res)) {
+      alert(res.payload?.message || `Warehouse receipt '${receiptItem.receipt}' deleted successfully.`);
+      dispatch(fetchWarehouseReceipts());
+    } else {
+      alert((res.payload as string) || `Failed to delete receipt '${receiptItem.receipt}'.`);
+    }
+  };
+
+  // Submit split & load with strict limits and warning confirmation
   const handleConfirmSplitAndLoad = async () => {
     if (!activeReceiptForSplit || !selectedPlanForAllocation) return;
     const qty = Number(splitQuantityInput);
     if (isNaN(qty) || qty <= 0) {
       alert('Please enter a valid quantity greater than 0');
       return;
+    }
+
+    const avail = activeReceiptForSplit.remainingQuantity !== undefined
+      ? activeReceiptForSplit.remainingQuantity
+      : activeReceiptForSplit.quantity - (activeReceiptForSplit.loadedQuantity || 0);
+
+    // 1. Strict validation: Cannot load more than received/remaining in warehouse
+    if (qty > avail) {
+      alert(
+        `ERROR: Cannot load ${qty} units!\n\nOnly ${avail} units remain in warehouse for receipt '${activeReceiptForSplit.receipt}' (Total received: ${activeReceiptForSplit.quantity}, Already loaded: ${activeReceiptForSplit.loadedQuantity || 0}).`
+      );
+      return;
+    }
+
+    // 2. Loading less quantity triggers split warning & user confirmation
+    if (qty < avail) {
+      const remainingAfter = avail - qty;
+      const ok = window.confirm(
+        `WARNING: Loading Less Goods (Split Cargo)\n\n` +
+        `You are loading ${qty} units out of ${avail} available units for Receipt '${activeReceiptForSplit.receipt}'.\n\n` +
+        `This will SPLIT the cargo. The remaining ${remainingAfter} units will stay in warehouse stock to be loaded into another container.\n\n` +
+        `Do you confirm this split? Click OK to proceed.`
+      );
+      if (!ok) return;
     }
 
     const res = await dispatch(
@@ -249,6 +887,17 @@ export default function LoaderHub() {
   const handleCreatePlan = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPlanAlias.trim()) return;
+    const userWhs = availableWarehouses.filter((w) => w !== 'ALL');
+    if (userWhs.length === 0) {
+      alert('Cannot create loading plan until at least one China warehouse is created. Please create a warehouse first.');
+      setWarehouseModalContext('plan');
+      setIsAddWarehouseModalOpen(true);
+      return;
+    }
+    if (!newPlanWarehouse.trim() || newPlanWarehouse === 'ALL') {
+      alert('Please create and select a valid China warehouse.');
+      return;
+    }
 
     const res = await dispatch(
       createLoadingPlan({
@@ -265,28 +914,42 @@ export default function LoaderHub() {
   };
 
   // Open Allot Modal
-  const handleOpenAllotModal = (plan: LoadingPlanItem) => {
-    dispatch(openAllotModal(plan));
-    setActualContainerNoInput(plan.containerNumber || '');
-    setAllotCarrierInput(plan.shippingLine || 'MSC');
-    setLoadingDateInput(plan.loadingDate || new Date().toISOString().split('T')[0]);
-    setDestinationInput(plan.shippedTo || 'Nhava Sheva / Mundra, India');
+  const handleOpenAllotModal = (plan?: LoadingPlanItem) => {
+    const targetPlan = plan || (loadingPlans.length > 0 ? loadingPlans[0] : null);
+    if (!targetPlan) {
+      alert('No loading plans found in system. Please create a loading plan first.');
+      return;
+    }
+    dispatch(openAllotModal(targetPlan));
+    setAllotSelectedContainer(targetPlan.container);
+    setActualContainerNoInput(targetPlan.containerNumber || '');
+    setAllotCarrierInput(targetPlan.shippingLine || 'MSC');
+    setLoadingDateInput(targetPlan.loadingDate || new Date().toISOString().split('T')[0]);
+    setDestinationInput(targetPlan.shippedTo || 'Nhava Sheva / Mundra, India');
   };
 
   // Submit Allot Actual Container
   const handleConfirmAllotContainer = async () => {
-    if (!activePlanForAllot) return;
+    const targetPlanContainer = allotSelectedContainer || activePlanForAllot?.container;
+    if (!targetPlanContainer) {
+      alert('Internal container selection is mandatory. Please select an internal container first.');
+      return;
+    }
     if (!actualContainerNoInput.trim()) {
       alert('Please enter the actual carrier container number (e.g. MSCU1234567)');
+      return;
+    }
+    if (!loadingDateInput.trim()) {
+      alert('Loading Date is strictly mandatory when allotting actual carrier container number.');
       return;
     }
 
     const res = await dispatch(
       finalizeAndAllotContainer({
-        container: activePlanForAllot.container,
+        container: targetPlanContainer,
         containerNumber: actualContainerNoInput.trim().toUpperCase(),
         shippingLine: allotCarrierInput,
-        loadingDate: loadingDateInput,
+        loadingDate: loadingDateInput.trim(),
         shippedTo: destinationInput,
         autoSync: autoSyncEtaChecked,
       })
@@ -297,77 +960,33 @@ export default function LoaderHub() {
     }
   };
 
-  // Submit Inward Goods Receipt (Direct Entry from Party)
-  const handleReceiveGoodsSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!receiveReceipt.trim()) {
-      alert('Receipt number is required');
-      return;
-    }
-    const qty = Number(receiveQuantity);
-    if (isNaN(qty) || qty <= 0) {
-      alert('Please enter a valid positive quantity');
-      return;
-    }
-
-    try {
-      const res = await fetch('/api/warehouse/receipts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          receipt: receiveReceipt.trim(),
-          party: receiveParty.trim() || 'General Party',
-          warehouse: receiveWarehouse,
-          date: receiveDate,
-          quantity: qty,
-          commodity: receiveCommodity.trim() || liveTranslation.english,
-          chinese: liveTranslation.chinese,
-          english: liveTranslation.english,
-          weight: receiveWeight.trim(),
-          volume: receiveVolume.trim(),
-          mainMarka: receiveMainMark.trim(),
-          subMarka: receiveSubMark.trim(),
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to record received goods');
-
-      setIsReceiveModalOpen(false);
-      setReceiveReceipt('');
-      setReceiveParty('');
-      setReceiveCommodity('');
-      setReceiveQuantity('');
-      setReceiveWeight('');
-      setReceiveVolume('');
-      setReceiveMainMark('');
-      setReceiveSubMark('');
-      dispatch(fetchWarehouseReceipts());
-    } catch (err: any) {
-      alert(err.message);
-    }
-  };
-
   // Open Deliver Modal
   const handleOpenDeliverModal = (plan: LoadingPlanItem) => {
     setPlanToDeliver(plan);
     setDeliveryDateInput(plan.deliveryDate || new Date().toISOString().split('T')[0]);
+    setExcludedReceiptsForDelivery(new Set());
     setIsDeliverModalOpen(true);
   };
 
   // Confirm Mark Delivered
   const handleConfirmDeliver = async () => {
     if (!planToDeliver) return;
+    if (!deliveryDateInput.trim()) {
+      alert('Delivery Date is strictly mandatory when marking container delivered.');
+      return;
+    }
     const res = await dispatch(
       markContainerDelivered({
         container: planToDeliver.container,
-        deliveryDate: deliveryDateInput,
+        deliveryDate: deliveryDateInput.trim(),
+        excludedReceipts: Array.from(excludedReceiptsForDelivery),
       })
     );
 
     if (markContainerDelivered.fulfilled.match(res)) {
       setIsDeliverModalOpen(false);
       setPlanToDeliver(null);
+      setExcludedReceiptsForDelivery(new Set());
       dispatch(fetchWarehouseReceipts());
       dispatch(fetchLoadingPlans());
     }
@@ -423,6 +1042,23 @@ export default function LoaderHub() {
   // Upload and Ingest Chinese Excel into DB
   const handleConfirmExcelUpload = async () => {
     if (!excelFile) return;
+
+    const userWhs = availableWarehouses.filter((w) => w !== 'ALL');
+    if (userWhs.length === 0) {
+      alert('No China warehouse found in system. You cannot upload goods or plans until at least one warehouse is created. Please create a warehouse first.');
+      return;
+    }
+
+    if (!excelUploadWarehouse || excelUploadWarehouse.trim() === '' || excelUploadWarehouse === 'ALL') {
+      alert('Selecting a China Warehouse is strictly mandatory while uploading. Please select or create a warehouse first.');
+      return;
+    }
+
+    if (excelUploadType === 'plan' && !excelTargetContainer.trim()) {
+      alert('Internal Loading Plan (Internal Container Number) is strictly mandatory when uploading a loading plan.');
+      return;
+    }
+
     setIsUploadingExcel(true);
     setExcelUploadStatus(null);
     try {
@@ -430,6 +1066,10 @@ export default function LoaderHub() {
       formData.append('file', excelFile);
       formData.append('warehouse', excelUploadWarehouse);
       formData.append('mode', 'append');
+      formData.append('uploadType', excelUploadType);
+      if (excelUploadType === 'plan') {
+        formData.append('targetContainer', excelTargetContainer.trim().toUpperCase());
+      }
 
       const res = await fetch('/api/upload', {
         method: 'POST',
@@ -439,6 +1079,61 @@ export default function LoaderHub() {
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data.error || 'Failed to upload Excel file');
+      }
+
+      // Handle split warning confirmation for planning list upload
+      if (data.requiresConfirmation) {
+        const splitCount = data.splitWarnings?.length || 0;
+        const confirmMsg =
+          `WARNING: Loading Less Goods (Split Cargo)\n\n` +
+          `The uploaded planning list is loading less goods than received in warehouse for ${splitCount} receipt(s).\n` +
+          `These receipts will be SPLIT across containers, and remaining stock will stay in China warehouse inventory.\n\n` +
+          `Do you want to confirm splitting these goods? Click OK to proceed.`;
+        const ok = window.confirm(confirmMsg);
+        if (!ok) {
+          setIsUploadingExcel(false);
+          return;
+        }
+
+        // Re-submit with confirmSplit: true
+        const confirmedFormData = new FormData();
+        confirmedFormData.append('file', excelFile);
+        confirmedFormData.append('warehouse', excelUploadWarehouse);
+        confirmedFormData.append('mode', 'append');
+        confirmedFormData.append('confirmSplit', 'true');
+        confirmedFormData.append('uploadType', excelUploadType);
+        if (excelUploadType === 'plan') {
+          confirmedFormData.append('targetContainer', excelTargetContainer.trim().toUpperCase());
+        }
+
+        const confirmedRes = await fetch('/api/upload', {
+          method: 'POST',
+          body: confirmedFormData,
+        });
+
+        const confirmedData = await confirmedRes.json();
+        if (!confirmedRes.ok) {
+          throw new Error(confirmedData.error || 'Failed to upload Excel file');
+        }
+
+        setExcelUploadStatus({
+          type: 'success',
+          message: confirmedData.message || `Successfully processed and split loading plans!`,
+        });
+
+        dispatch(fetchWarehouseReceipts());
+        dispatch(fetchLoadingPlans());
+
+        setTimeout(() => {
+          setIsExcelUploadOpen(false);
+          setExcelFile(null);
+          setExcelPreviewRows([]);
+          setExcelTotalRows(0);
+          setExcelUploadType('stock');
+          setExcelTargetContainer('');
+          setExcelUploadStatus(null);
+        }, 1500);
+        return;
       }
 
       setExcelUploadStatus({
@@ -454,6 +1149,8 @@ export default function LoaderHub() {
         setExcelFile(null);
         setExcelPreviewRows([]);
         setExcelTotalRows(0);
+        setExcelUploadType('stock');
+        setExcelTargetContainer('');
         setExcelUploadStatus(null);
       }, 1500);
     } catch (err: any) {
@@ -463,9 +1160,9 @@ export default function LoaderHub() {
     }
   };
 
-  // Deallocate item
+  // Deallocate / Delete entry from container loading plan straightaway
   const handleDeallocateItem = async (shipmentId: string) => {
-    if (!confirm('Are you sure you want to remove this item from the container and return the quantity to warehouse stock?')) {
+    if (!confirm('Delete entry from loading plan? This cargo entry will be deleted from the container plan immediately and returned to available warehouse stock.')) {
       return;
     }
     const res = await dispatch(deallocateItem({ shipmentId }));
@@ -474,6 +1171,480 @@ export default function LoaderHub() {
       dispatch(fetchLoadingPlans());
     }
   };
+
+  // Selected Receipt Objects
+  const selectedReceiptObjects = useMemo(() => {
+    return warehouseReceipts.filter((r) => selectedReceiptIds.has(r._id || r.receipt));
+  }, [warehouseReceipts, selectedReceiptIds]);
+
+  const selectedWithLoadedCargo = useMemo(() => {
+    return selectedReceiptObjects.filter((r) => r.loadedQuantity && r.loadedQuantity > 0);
+  }, [selectedReceiptObjects]);
+
+  // Toggle selection
+  const handleToggleSelectAll = () => {
+    if (selectedReceiptIds.size === filteredReceipts.length && filteredReceipts.length > 0) {
+      setSelectedReceiptIds(new Set());
+    } else {
+      const allIds = new Set<string>();
+      filteredReceipts.forEach((r) => allIds.add(r._id || r.receipt));
+      setSelectedReceiptIds(allIds);
+    }
+  };
+
+  const handleToggleSelectRow = (id: string) => {
+    setSelectedReceiptIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  // Bulk Delete
+  const handleBulkDeleteSubmit = async () => {
+    const ids = Array.from(selectedReceiptIds);
+    if (ids.length === 0) return;
+
+    const res = await dispatch(
+      bulkDeleteWarehouseReceipts({
+        ids,
+        force: forceBulkDelete,
+      })
+    );
+
+    if (bulkDeleteWarehouseReceipts.fulfilled.match(res)) {
+      setSelectedReceiptIds(new Set());
+      setIsBulkDeleteOpen(false);
+      setForceBulkDelete(false);
+      dispatch(fetchWarehouseReceipts());
+      dispatch(fetchLoadingPlans());
+    }
+  };
+
+  // Bulk Edit
+  const handleBulkEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const ids = Array.from(selectedReceiptIds);
+    if (ids.length === 0) return;
+
+    const updates: Partial<WarehouseReceiptItem> = {};
+    if (bulkFieldsToUpdate.warehouse && bulkEditWarehouse) updates.warehouse = bulkEditWarehouse;
+    if (bulkFieldsToUpdate.party && bulkEditParty) updates.party = bulkEditParty;
+    if (bulkFieldsToUpdate.date && bulkEditDate) updates.date = bulkEditDate;
+    if (bulkFieldsToUpdate.packaging && bulkEditPackaging) updates.packaging = bulkEditPackaging;
+    if (bulkFieldsToUpdate.commodity && bulkEditCommodity) updates.commodity = bulkEditCommodity;
+    if (bulkFieldsToUpdate.marks) {
+      if (bulkEditMainMark !== undefined) updates.mainMarka = bulkEditMainMark;
+      if (bulkEditSubMark !== undefined) updates.subMarka = bulkEditSubMark;
+    }
+    if (bulkFieldsToUpdate.notes && bulkEditNotes) updates.notes = bulkEditNotes;
+
+    const selectedKeys = Object.entries(bulkFieldsToUpdate).filter(([_, v]) => v);
+    if (selectedKeys.length === 0) {
+      alert('Please check at least one field checkbox to apply bulk updates.');
+      return;
+    }
+
+    const res = await dispatch(
+      bulkEditWarehouseReceipts({
+        ids,
+        updates,
+      })
+    );
+
+    if (bulkEditWarehouseReceipts.fulfilled.match(res)) {
+      setSelectedReceiptIds(new Set());
+      setIsBulkEditOpen(false);
+      dispatch(fetchWarehouseReceipts());
+    }
+  };
+
+  // Single Edit
+  const handleOpenSingleEdit = (r: WarehouseReceiptItem) => {
+    setEditingReceiptItem(r);
+    setEditReceiptNumber(r.receipt);
+    setEditParty(r.party || '');
+    setSingleEditWarehouse(r.warehouse || '');
+    setEditDate(r.date || '');
+    setEditQuantity(r.quantity);
+    setEditCommodity(r.chinese || r.english || r.commodity || '');
+    setEditPackaging(r.packaging || 'Carton');
+    setEditMainMark(r.mainMarka || '');
+    setEditSubMark(r.subMarka || '');
+    setEditWeight(r.weight || '');
+    setEditVolume(r.volume || '');
+    setEditNotes(r.notes || '');
+    setIsSingleEditOpen(true);
+  };
+
+  const handleSingleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editReceiptNumber.trim()) {
+      alert('Receipt number is required');
+      return;
+    }
+
+    const targetId = editingReceiptItem?._id || (editingReceiptItem as any)?.id;
+    const cleanR = editReceiptNumber.trim().toLowerCase();
+    const cleanW = singleEditWarehouse.trim().toLowerCase();
+    const isDup = warehouseReceipts.some(
+      (r) =>
+        (r.receipt || '').trim().toLowerCase() === cleanR &&
+        (r.warehouse || '').trim().toLowerCase() === cleanW &&
+        String(r._id || (r as any).id || '') !== String(targetId)
+    );
+    if (isDup) {
+      alert(`Duplicate Receipt Error: Receipt #${editReceiptNumber.trim()} already exists in warehouse '${singleEditWarehouse.trim()}'.\n\nEvery warehouse must have strictly unique receipt numbers. Duplicate entries are rejected.`);
+      return;
+    }
+
+    const res = await dispatch(
+      editSingleWarehouseReceipt({
+        id: targetId,
+        _id: targetId,
+        receipt: editReceiptNumber.trim(),
+        party: editParty.trim(),
+        warehouse: singleEditWarehouse.trim(),
+        date: editDate.trim(),
+        quantity: typeof editQuantity === 'number' ? editQuantity : parseInt(String(editQuantity || 0), 10),
+        commodity: editCommodity.trim(),
+        packaging: editPackaging.trim(),
+        mainMarka: editMainMark.trim(),
+        subMarka: editSubMark.trim(),
+        weight: editWeight.trim(),
+        volume: editVolume.trim(),
+        notes: editNotes.trim(),
+      } as any)
+    );
+
+    if (editSingleWarehouseReceipt.fulfilled.match(res)) {
+      alert(`Receipt #${editReceiptNumber.trim()} updated successfully.`);
+      setIsSingleEditOpen(false);
+      setEditingReceiptItem(null);
+      dispatch(fetchWarehouseReceipts());
+    } else {
+      alert((res.payload as string) || 'Failed to update warehouse receipt');
+    }
+  };
+
+  const [receiptSorting, setReceiptSorting] = useState<SortingState>([]);
+
+  // TanStack Columns for China Warehouse Stock Receipts
+  const receiptColumns = useMemo<ColumnDef<WarehouseReceiptItem>[]>(() => {
+    return [
+      {
+        id: 'select',
+        header: () => (
+          <div className="text-center w-8">
+            <input
+              type="checkbox"
+              checked={filteredReceipts.length > 0 && selectedReceiptIds.size === filteredReceipts.length}
+              onChange={handleToggleSelectAll}
+              className="w-4 h-4 rounded text-red-600 cursor-pointer accent-red-600"
+              title="Select All"
+            />
+          </div>
+        ),
+        cell: ({ row }) => {
+          const r = row.original;
+          const isSelected = selectedReceiptIds.has(r._id || r.receipt);
+          return (
+            <div className="text-center w-8">
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={() => handleToggleSelectRow(r._id || r.receipt)}
+                className="w-4 h-4 rounded text-red-600 cursor-pointer accent-red-600"
+              />
+            </div>
+          );
+        },
+      },
+      {
+        accessorKey: 'receipt',
+        header: 'Receipt #',
+        cell: ({ row }) => (
+          <span className="font-bold text-slate-900 font-mono">
+            {row.original.receipt}
+          </span>
+        ),
+      },
+      {
+        accessorKey: 'party',
+        header: 'Party / Shipper',
+        cell: ({ row }) => (
+          <span className="font-semibold text-slate-800">
+            {row.original.party || 'General Party'}
+          </span>
+        ),
+      },
+      {
+        accessorKey: 'warehouse',
+        header: 'Warehouse',
+        cell: ({ row }) => (
+          <span className="inline-flex items-center space-x-1 text-slate-600">
+            <MapPin className="w-3 h-3 text-slate-400" />
+            <span>{row.original.warehouse || 'China Warehouse'}</span>
+          </span>
+        ),
+      },
+      {
+        accessorKey: 'date',
+        header: 'Received Date',
+        cell: ({ row }) => (
+          <span className="text-slate-500 whitespace-nowrap">
+            {formatGlobalDate(row.original.date) || row.original.date || 'N/A'}
+          </span>
+        ),
+      },
+      {
+        accessorKey: 'quantity',
+        header: () => <div className="text-center">Total Inward</div>,
+        cell: ({ row }) => (
+          <div className="text-center font-bold text-slate-800">
+            {row.original.quantity} CTN
+          </div>
+        ),
+      },
+      {
+        accessorKey: 'loadedQuantity',
+        header: () => <div className="text-center">Loaded</div>,
+        cell: ({ row }) => (
+          <div className="text-center font-semibold text-emerald-600">
+            {row.original.loadedQuantity || 0} CTN
+          </div>
+        ),
+      },
+      {
+        id: 'remainingQuantity',
+        header: () => <div className="text-center">Remaining Stock</div>,
+        cell: ({ row }) => {
+          const r = row.original;
+          const avail = r.remainingQuantity !== undefined ? r.remainingQuantity : r.quantity - (r.loadedQuantity || 0);
+          return (
+            <div className="text-center">
+              <span
+                className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-black ${
+                  avail > 0
+                    ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-300'
+                    : 'bg-slate-100 text-slate-400'
+                }`}
+              >
+                {avail} CTN
+              </span>
+            </div>
+          );
+        },
+      },
+      {
+        accessorKey: 'status',
+        header: 'Status',
+        cell: ({ row }) => {
+          const r = row.original;
+          return (
+            <span
+              className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+                r.status === 'Fully Loaded'
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : r.status === 'Partially Loaded'
+                  ? 'bg-blue-100 text-blue-800'
+                  : 'bg-amber-50 text-amber-800 border border-amber-200'
+              }`}
+            >
+              {r.status === 'Fully Loaded' && <CheckCircle2 className="w-2.5 h-2.5" />}
+              {r.status === 'Partially Loaded' && <Split className="w-2.5 h-2.5" />}
+              {r.status === 'Received' && <Clock className="w-2.5 h-2.5" />}
+              <span>{r.status}</span>
+            </span>
+          );
+        },
+      },
+      {
+        id: 'commodity',
+        header: 'Commodity / Chinese',
+        cell: ({ row }) => {
+          const r = row.original;
+          return (
+            <div className="text-slate-700 max-w-[200px] truncate" title={r.english || r.commodity || ''}>
+              <div className="truncate font-semibold">{r.english || r.commodity || 'General Goods'}</div>
+              {r.chinese && <div className="text-[10px] text-slate-400 truncate">{r.chinese}</div>}
+            </div>
+          );
+        },
+      },
+      {
+        id: 'marks',
+        header: 'Marks',
+        cell: ({ row }) => {
+          const r = row.original;
+          return (
+            <span className="text-slate-500 font-mono text-[11px]">
+              {[r.mainMarka ? `M:${r.mainMarka}` : '', r.subMarka ? `S:${r.subMarka}` : '']
+                .filter(Boolean)
+                .join(' ') || '-'}
+            </span>
+          );
+        },
+      },
+      {
+        id: 'actions',
+        header: () => <div className="text-right">Loader Action</div>,
+        cell: ({ row }) => {
+          const r = row.original;
+          const avail = r.remainingQuantity !== undefined ? r.remainingQuantity : r.quantity - (r.loadedQuantity || 0);
+          const isComplete = avail === 0;
+
+          return (
+            <div className="inline-flex items-center space-x-1.5 justify-end w-full">
+              <button
+                type="button"
+                onClick={() => handleOpenSingleEdit(r)}
+                title="Edit warehouse receipt details"
+                className="inline-flex items-center p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 transition"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                onClick={() => handleOpenSplit(r)}
+                disabled={isComplete}
+                title={isComplete ? 'Fully loaded into containers' : 'Split and allocate cargo into container plan'}
+                className={`inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-bold transition shadow-sm ${
+                  isComplete
+                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                    : 'bg-red-600 hover:bg-red-700 text-white'
+                }`}
+              >
+                <Split className="w-3.5 h-3.5" />
+                <span>Split</span>
+              </button>
+
+              <button
+                onClick={() => handleDeleteReceipt(r)}
+                title="Delete wrong receipt from warehouse stock"
+                className="inline-flex items-center p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 border border-slate-200 hover:border-red-200 transition"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          );
+        },
+      },
+    ];
+  }, [filteredReceipts, selectedReceiptIds]);
+
+  // TanStack Columns for Active Plan Manifest Items
+  const manifestColumns = useMemo<ColumnDef<any>[]>(() => {
+    return [
+      {
+        id: 'index',
+        header: '#',
+        cell: ({ row }) => <span className="text-slate-400">{row.index + 1}</span>,
+      },
+      {
+        accessorKey: 'receipt',
+        header: 'Receipt #',
+        cell: ({ row }) => (
+          <span className="font-bold font-mono text-slate-900">{row.original.receipt}</span>
+        ),
+      },
+      {
+        accessorKey: 'party',
+        header: 'Party / Shipper',
+        cell: ({ row }) => (
+          <span className="font-semibold text-slate-800">{row.original.party || 'General Party'}</span>
+        ),
+      },
+      {
+        accessorKey: 'quantity',
+        header: () => <div className="text-center">Loaded Qty</div>,
+        cell: ({ row }) => (
+          <span className="text-center font-bold text-emerald-600 block">{row.original.quantity} CTN</span>
+        ),
+      },
+      {
+        id: 'isSplit',
+        header: () => <div className="text-center">Split Status</div>,
+        cell: ({ row }) => {
+          const item = row.original;
+          return (
+            <div className="text-center">
+              {item.isSplit ? (
+                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800">
+                  <Split className="w-2.5 h-2.5" />
+                  <span>Split Part #{item.splitIndex || 1} (of {item.originalTotalQuantity} CTN)</span>
+                </span>
+              ) : (
+                <span className="text-[10px] text-slate-400">Full Load</span>
+              )}
+            </div>
+          );
+        },
+      },
+      {
+        id: 'commodity',
+        header: 'Commodity',
+        cell: ({ row }) => (
+          <span className="font-semibold text-slate-700">{row.original.english || row.original.commodity || 'Cargo'}</span>
+        ),
+      },
+      {
+        id: 'marks',
+        header: 'Marks',
+        cell: ({ row }) => (
+          <span className="text-slate-500 font-mono text-[11px]">
+            {[row.original.mainMarka ? `M:${row.original.mainMarka}` : '', row.original.subMarka ? `S:${row.original.subMarka}` : '']
+              .filter(Boolean)
+              .join(' ') || '-'}
+          </span>
+        ),
+      },
+      {
+        id: 'action',
+        header: () => <div className="text-right">Action</div>,
+        cell: ({ row }) => (
+          <div className="text-right">
+            <button
+              onClick={() => handleDeallocateItem(row.original._id)}
+              className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50 transition"
+              title="Remove item and return quantity to warehouse stock"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        ),
+      },
+    ];
+  }, []);
+
+  // TanStack Table Instances
+  const receiptsTable = useReactTable({
+    data: filteredReceipts,
+    columns: receiptColumns,
+    state: {
+      sorting: receiptSorting,
+    },
+    onSortingChange: setReceiptSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    initialState: {
+      pagination: {
+        pageSize: 25,
+      },
+    },
+  });
+
+  const manifestTable = useReactTable({
+    data: activePlan?.items || [],
+    columns: manifestColumns,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
 
   return (
     <div className="space-y-6">
@@ -593,7 +1764,19 @@ export default function LoaderHub() {
           </button>
 
           <button
-            onClick={() => setIsExcelUploadOpen(true)}
+            onClick={() => {
+              const userWhs = availableWarehouses.filter((w) => w !== 'ALL');
+              if (userWhs.length === 0) {
+                alert('No China warehouse found! You cannot upload goods or plans until at least one China warehouse is created. Please create a warehouse first.');
+                setWarehouseModalContext('excel');
+                setIsAddWarehouseModalOpen(true);
+                return;
+              }
+              if (!excelUploadWarehouse || excelUploadWarehouse === 'ALL') {
+                setExcelUploadWarehouse(userWhs[0]);
+              }
+              setIsExcelUploadOpen(true);
+            }}
             className="flex items-center space-x-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md transition"
           >
             <FileSpreadsheet className="w-4 h-4 text-indigo-200" />
@@ -601,7 +1784,19 @@ export default function LoaderHub() {
           </button>
 
           <button
-            onClick={() => setIsReceiveModalOpen(true)}
+            onClick={() => {
+              const userWhs = availableWarehouses.filter((w) => w !== 'ALL');
+              if (userWhs.length === 0) {
+                alert('No China warehouse found! You cannot enter received goods until at least one China warehouse is created. Please create a warehouse first.');
+                setWarehouseModalContext('receive');
+                setIsAddWarehouseModalOpen(true);
+                return;
+              }
+              if (!receiveWarehouse || receiveWarehouse === 'ALL') {
+                setReceiveWarehouse(userWhs[0]);
+              }
+              setIsReceiveModalOpen(true);
+            }}
             className="flex items-center space-x-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md transition"
           >
             <Plus className="w-4 h-4 text-emerald-200" />
@@ -609,12 +1804,35 @@ export default function LoaderHub() {
           </button>
 
           <button
-            onClick={() => setIsCreatePlanOpen(true)}
+            onClick={() => {
+              const userWhs = availableWarehouses.filter((w) => w !== 'ALL');
+              if (userWhs.length === 0) {
+                alert('No China warehouse found! You cannot create a loading plan until at least one China warehouse is created. Please create a warehouse first.');
+                setWarehouseModalContext('plan');
+                setIsAddWarehouseModalOpen(true);
+                return;
+              }
+              if (!newPlanWarehouse || newPlanWarehouse === 'ALL') {
+                setNewPlanWarehouse(userWhs[0]);
+              }
+              setIsCreatePlanOpen(true);
+            }}
             className="flex items-center space-x-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-md transition"
           >
             <Plus className="w-4 h-4 text-red-400" />
             <span>New Loading Plan</span>
           </button>
+
+          {loadingPlans.length > 0 && (
+            <button
+              onClick={() => handleOpenAllotModal()}
+              className="flex items-center space-x-1.5 px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md transition"
+              title="Allot actual ISO carrier container number into an internal container plan"
+            >
+              <Anchor className="w-4 h-4 text-white" />
+              <span>Allot Actual Container</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -638,6 +1856,45 @@ export default function LoaderHub() {
                     </option>
                   ))}
                 </select>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWarehouseModalContext('filter');
+                    setIsAddWarehouseModalOpen(true);
+                  }}
+                  className="px-2 py-1.5 text-xs font-bold rounded-xl border border-slate-200 bg-slate-50 hover:bg-red-50 hover:border-red-200 text-slate-700 hover:text-red-600 transition flex items-center space-x-1"
+                  title="Create new China warehouse if not found in list"
+                >
+                  <Plus className="w-3.5 h-3.5 text-red-500" />
+                  <span>+ Warehouse</span>
+                </button>
+
+                {selectedWarehouse !== 'ALL' && (
+                  <button
+                    type="button"
+                    onClick={handleOpenEditWarehouse}
+                    disabled={actionLoading}
+                    className="px-2 py-1.5 text-xs font-bold rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 transition flex items-center space-x-1"
+                    title={`Edit name of warehouse '${selectedWarehouse}'`}
+                  >
+                    <Pencil className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Edit WH</span>
+                  </button>
+                )}
+
+                {selectedWarehouse !== 'ALL' && (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteWarehouse()}
+                    disabled={actionLoading}
+                    className="px-2 py-1.5 text-xs font-bold rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 transition flex items-center space-x-1"
+                    title={`Delete warehouse '${selectedWarehouse}' (Only allowed if ZERO data is mapped)`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                    <span>Delete WH</span>
+                  </button>
+                )}
               </div>
 
               {/* Status Filter */}
@@ -671,110 +1928,98 @@ export default function LoaderHub() {
             </div>
           </div>
 
-          {/* Receipts Table */}
+          {/* Bulk Selection Action Bar */}
+          {selectedReceiptIds.size > 0 && (
+            <div className="bg-slate-900 text-white p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-lg border border-slate-800 animate-fadeIn">
+              <div className="flex items-center space-x-3">
+                <span className="bg-red-600 text-white font-mono font-black text-xs px-2.5 py-1 rounded-lg">
+                  {selectedReceiptIds.size} Selected
+                </span>
+                <span className="text-xs text-slate-300 font-medium">
+                  China warehouse stock receipts selected for batch actions
+                </span>
+                {selectedWithLoadedCargo.length > 0 && (
+                  <span className="text-[10px] font-bold text-amber-300 bg-amber-500/20 border border-amber-500/40 px-2 py-0.5 rounded-md">
+                    ⚠️ {selectedWithLoadedCargo.length} item(s) have container allocations
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setIsBulkEditOpen(true)}
+                  className="flex items-center space-x-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-sm"
+                >
+                  <Pencil className="w-3.5 h-3.5 text-blue-200" />
+                  <span>Bulk Edit ({selectedReceiptIds.size})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForceBulkDelete(false);
+                    setIsBulkDeleteOpen(true);
+                  }}
+                  className="flex items-center space-x-1.5 px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition shadow-sm"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-red-200" />
+                  <span>Bulk Delete ({selectedReceiptIds.size})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedReceiptIds(new Set())}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition border border-slate-700"
+                >
+                  Deselect All
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Receipts Table (Powered by @tanstack/react-table) */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
-                  <tr className="bg-slate-900 text-white text-[11px] font-bold uppercase tracking-wider border-b border-slate-800">
-                    <th className="py-3 px-4">Receipt #</th>
-                    <th className="py-3 px-3">Party / Shipper</th>
-                    <th className="py-3 px-3">Warehouse</th>
-                    <th className="py-3 px-3">Received Date</th>
-                    <th className="py-3 px-3 text-center">Total Inward</th>
-                    <th className="py-3 px-3 text-center">Loaded</th>
-                    <th className="py-3 px-3 text-center">Remaining Stock</th>
-                    <th className="py-3 px-3">Status</th>
-                    <th className="py-3 px-3">Commodity / Chinese</th>
-                    <th className="py-3 px-3">Marks</th>
-                    <th className="py-3 px-4 text-right">Loader Action</th>
-                  </tr>
+                  {receiptsTable.getHeaderGroups().map((headerGroup) => (
+                    <tr
+                      key={headerGroup.id}
+                      className="bg-slate-900 text-white text-[11px] font-bold uppercase tracking-wider border-b border-slate-800"
+                    >
+                      {headerGroup.headers.map((header) => (
+                        <th key={header.id} className="py-3 px-3">
+                          {header.isPlaceholder
+                            ? null
+                            : flexRender(header.column.columnDef.header, header.getContext())}
+                        </th>
+                      ))}
+                    </tr>
+                  ))}
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
-                  {filteredReceipts.length === 0 ? (
+                  {receiptsTable.getRowModel().rows.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="py-12 text-center text-slate-400 italic">
+                      <td colSpan={receiptColumns.length} className="py-12 text-center text-slate-400 italic">
                         No warehouse receipts matching the selected criteria.
                       </td>
                     </tr>
                   ) : (
-                    filteredReceipts.map((r) => {
-                      const avail = r.remainingQuantity !== undefined ? r.remainingQuantity : r.quantity - (r.loadedQuantity || 0);
-                      const isComplete = avail === 0;
-
+                    receiptsTable.getRowModel().rows.map((row) => {
+                      const isSelected = selectedReceiptIds.has(row.original._id || row.original.receipt);
                       return (
-                        <tr key={r._id} className="hover:bg-slate-50 transition">
-                          <td className="py-3 px-4 font-bold text-slate-900 font-mono">
-                            {r.receipt}
-                          </td>
-                          <td className="py-3 px-3 font-semibold text-slate-800">
-                            {r.party || 'General Party'}
-                          </td>
-                          <td className="py-3 px-3 text-slate-600">
-                            <span className="inline-flex items-center space-x-1">
-                              <MapPin className="w-3 h-3 text-slate-400" />
-                              <span>{r.warehouse || 'China Warehouse'}</span>
-                            </span>
-                          </td>
-                          <td className="py-3 px-3 text-slate-500 whitespace-nowrap">
-                            {formatGlobalDate(r.date) || r.date || 'N/A'}
-                          </td>
-                          <td className="py-3 px-3 text-center font-bold text-slate-800">
-                            {r.quantity} CTN
-                          </td>
-                          <td className="py-3 px-3 text-center font-semibold text-emerald-600">
-                            {r.loadedQuantity || 0} CTN
-                          </td>
-                          <td className="py-3 px-3 text-center">
-                            <span
-                              className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-black ${
-                                avail > 0
-                                  ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-300'
-                                  : 'bg-slate-100 text-slate-400'
-                              }`}
-                            >
-                              {avail} CTN
-                            </span>
-                          </td>
-                          <td className="py-3 px-3">
-                            <span
-                              className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${
-                                r.status === 'Fully Loaded'
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : r.status === 'Partially Loaded'
-                                  ? 'bg-blue-100 text-blue-800'
-                                  : 'bg-amber-50 text-amber-800 border border-amber-200'
-                              }`}
-                            >
-                              {r.status === 'Fully Loaded' && <CheckCircle2 className="w-2.5 h-2.5" />}
-                              {r.status === 'Partially Loaded' && <Split className="w-2.5 h-2.5" />}
-                              {r.status === 'Received' && <Clock className="w-2.5 h-2.5" />}
-                              <span>{r.status}</span>
-                            </span>
-                          </td>
-                          <td className="py-3 px-3 text-slate-700 max-w-[200px] truncate" title={r.english || r.commodity || ''}>
-                            <div className="truncate font-semibold">{r.english || r.commodity || 'General Goods'}</div>
-                            {r.chinese && <div className="text-[10px] text-slate-400 truncate">{r.chinese}</div>}
-                          </td>
-                          <td className="py-3 px-3 text-slate-500 font-mono text-[11px]">
-                            {[r.mainMarka ? `M:${r.mainMarka}` : '', r.subMarka ? `S:${r.subMarka}` : '']
-                              .filter(Boolean)
-                              .join(' ') || '-'}
-                          </td>
-                          <td className="py-3 px-4 text-right">
-                            <button
-                              onClick={() => handleOpenSplit(r)}
-                              disabled={isComplete}
-                              className={`inline-flex items-center space-x-1 px-3 py-1 rounded-lg text-xs font-bold transition shadow-sm ${
-                                isComplete
-                                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                                  : 'bg-red-600 hover:bg-red-700 text-white'
-                              }`}
-                            >
-                              <Split className="w-3.5 h-3.5" />
-                              <span>Split & Load</span>
-                            </button>
-                          </td>
+                        <tr
+                          key={row.id}
+                          className={`transition ${
+                            isSelected ? 'bg-red-50/60 hover:bg-red-50' : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          {row.getVisibleCells().map((cell) => (
+                            <td key={cell.id} className="py-3 px-3">
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </td>
+                          ))}
                         </tr>
                       );
                     })
@@ -782,6 +2027,48 @@ export default function LoaderHub() {
                 </tbody>
               </table>
             </div>
+
+            {/* TanStack Table Pagination */}
+            {receiptsTable.getPageCount() > 1 && (
+              <div className="p-4 border-t border-slate-200 bg-slate-50/50 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                <div className="text-slate-500 font-medium">
+                  Showing{' '}
+                  <strong className="text-slate-900">
+                    {receiptsTable.getState().pagination.pageIndex * receiptsTable.getState().pagination.pageSize + 1}
+                  </strong>{' '}
+                  to{' '}
+                  <strong className="text-slate-900">
+                    {Math.min(
+                      (receiptsTable.getState().pagination.pageIndex + 1) * receiptsTable.getState().pagination.pageSize,
+                      filteredReceipts.length
+                    )}
+                  </strong>{' '}
+                  of <strong className="text-slate-900">{filteredReceipts.length}</strong> receipts
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => receiptsTable.previousPage()}
+                    disabled={!receiptsTable.getCanPreviousPage()}
+                    className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition"
+                  >
+                    Previous
+                  </button>
+                  <span className="font-bold text-slate-700 px-2">
+                    Page {receiptsTable.getState().pagination.pageIndex + 1} of {receiptsTable.getPageCount()}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => receiptsTable.nextPage()}
+                    disabled={!receiptsTable.getCanNextPage()}
+                    className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -789,102 +2076,237 @@ export default function LoaderHub() {
       {/* SUB-TAB 2: LOADING PLANS & INTERNAL CONTAINERS */}
       {activeSubTab === 'plans' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {loadingPlans.map((plan) => {
-              const isSelected = activePlan?.container === plan.container;
-              return (
-                <div
-                  key={plan.container}
-                  onClick={() => dispatch(setActivePlan(plan))}
-                  className={`bg-white rounded-2xl border p-5 shadow-sm cursor-pointer transition-all hover:shadow-md ${
-                    isSelected ? 'border-red-500 ring-2 ring-red-100' : 'border-slate-200'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center space-x-2">
-                      <div className="w-8 h-8 rounded-lg bg-red-100 text-red-700 flex items-center justify-center font-black text-sm">
-                        {plan.container.slice(0, 3)}
+          {/* Plans Filter Tabs & Search Bar */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs">
+            <div className="flex items-center space-x-1.5 overflow-x-auto">
+              <button
+                type="button"
+                onClick={() => setPlanFilterStatus('all')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap ${
+                  planFilterStatus === 'all'
+                    ? 'bg-slate-900 text-white shadow-sm font-black'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                All Plans ({loadingPlans.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setPlanFilterStatus('active')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap ${
+                  planFilterStatus === 'active'
+                    ? 'bg-blue-600 text-white shadow-sm font-black'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                Active / In Transit (
+                {loadingPlans.filter((p) => !p.isDelivered && !(p.status && p.status.toLowerCase().includes('deliver'))).length}
+                )
+              </button>
+              <button
+                type="button"
+                onClick={() => setPlanFilterStatus('delivered')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap flex items-center space-x-1.5 ${
+                  planFilterStatus === 'delivered'
+                    ? 'bg-emerald-600 text-white shadow-sm font-black'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>
+                  Delivered / Reached Destination (
+                  {
+                    loadingPlans.filter(
+                      (p) =>
+                        p.isDelivered ||
+                        (p.status &&
+                          (p.status.toLowerCase().includes('deliver') ||
+                            p.status.toLowerCase().includes('destination') ||
+                            p.status.toLowerCase().includes('arrived') ||
+                            p.status.toLowerCase().includes('reached')))
+                    ).length
+                  }
+                  )
+                </span>
+              </button>
+            </div>
+
+            <div className="relative w-full sm:w-64">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+              <input
+                type="text"
+                value={planSearchQuery}
+                onChange={(e) => setPlanSearchQuery(e.target.value)}
+                placeholder="Search plan / carrier container..."
+                className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500"
+              />
+            </div>
+          </div>
+
+          {filteredLoadingPlans.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-400 text-xs">
+              No container plans found matching your filter criteria.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {filteredLoadingPlans.map((plan) => {
+                const isSelected = activePlan?.container === plan.container;
+                const isArrived = Boolean(
+                  plan.status &&
+                    (plan.status.toLowerCase().includes('destination') ||
+                      plan.status.toLowerCase().includes('arrived') ||
+                      plan.status.toLowerCase().includes('reached'))
+                );
+                return (
+                  <div
+                    key={plan.container}
+                    onClick={() => dispatch(setActivePlan(plan))}
+                    className={`bg-white rounded-2xl border p-5 shadow-sm cursor-pointer transition-all hover:shadow-md ${
+                      isSelected ? 'border-red-500 ring-2 ring-red-100' : 'border-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-8 h-8 rounded-lg bg-red-100 text-red-700 flex items-center justify-center font-black text-sm">
+                          {plan.container.slice(0, 3)}
+                        </div>
+                        <div>
+                          <h4 className="text-base font-black text-slate-900 font-mono">{plan.container}</h4>
+                          <span className="text-[11px] text-slate-400">{plan.warehouse || 'China Warehouse'}</span>
+                        </div>
                       </div>
-                      <div>
-                        <h4 className="text-base font-black text-slate-900 font-mono">{plan.container}</h4>
-                        <span className="text-[11px] text-slate-400">{plan.warehouse || 'China Warehouse'}</span>
-                      </div>
-                    </div>
-                    <span
-                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                        plan.isFinalized
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-amber-100 text-amber-800'
-                      }`}
-                    >
-                      {plan.isFinalized ? 'Finalized' : 'Planning'}
-                    </span>
-                  </div>
-
-                  <div className="space-y-2 text-xs border-t border-slate-100 pt-3 text-slate-600">
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Actual Carrier No:</span>
-                      <span className="font-mono font-bold text-slate-800">
-                        {plan.containerNumber ? (
-                          <span className="text-red-600">{plan.containerNumber} ({plan.shippingLine})</span>
-                        ) : (
-                          <span className="text-slate-400 italic">Not Allotted Yet</span>
-                        )}
+                      <span
+                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                          plan.isDelivered
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : isArrived
+                            ? 'bg-teal-100 text-teal-800'
+                            : plan.isFinalized
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
+                        {plan.isDelivered ? 'Delivered' : isArrived ? 'Arrived' : plan.isFinalized ? 'Finalized' : 'Planning'}
                       </span>
                     </div>
 
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Total Cartons:</span>
-                      <span className="font-bold text-slate-900">{plan.totalQuantity || 0} CTN</span>
-                    </div>
-
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Shipments Loaded:</span>
-                      <span className="font-bold text-slate-900">{plan.shipmentCount || 0} items</span>
-                    </div>
-
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Loading Date:</span>
-                      <span className="font-semibold text-slate-800">
-                        {formatGlobalDate(plan.loadingDate) || plan.loadingDate || 'Pending'}
-                      </span>
-                    </div>
-
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Destination:</span>
-                      <span className="font-semibold text-slate-800 truncate max-w-[160px]" title={plan.shippedTo || 'Nhava Sheva / Mundra, India'}>
-                        {plan.shippedTo || 'Nhava Sheva / Mundra, India'}
-                      </span>
-                    </div>
-
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Carrier ETA:</span>
-                      <span className="font-bold text-emerald-700">{formatGlobalDate(plan.eta) || plan.eta || 'Pending'}</span>
-                    </div>
-
-                    <div className="flex justify-between items-center pt-1 border-t border-slate-100">
-                      <span className="text-slate-400">Status:</span>
-                      {plan.isDelivered ? (
-                        <span className="text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full text-[10px] font-black">
-                          DELIVERED ({formatGlobalDate(plan.deliveryDate) || plan.deliveryDate || 'Done'}{plan.daysToDeliver !== null && plan.daysToDeliver !== undefined ? ` • ${plan.daysToDeliver}d` : ''})
+                    <div className="space-y-2 text-xs border-t border-slate-100 pt-3 text-slate-600">
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Actual Carrier No:</span>
+                        <span className="font-mono font-bold text-slate-800">
+                          {plan.containerNumber ? (
+                            <span className="text-red-600">{plan.containerNumber} ({plan.shippingLine})</span>
+                          ) : (
+                            <span className="text-slate-400 italic">Not Allotted Yet</span>
+                          )}
                         </span>
-                      ) : (
-                        <span className="text-slate-800 font-bold">{plan.status || 'Pending'}</span>
-                      )}
-                    </div>
-                  </div>
+                      </div>
 
-                  <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Total Cartons:</span>
+                        <span className="font-bold text-slate-900">{plan.totalQuantity || 0} CTN</span>
+                      </div>
+
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Shipments Loaded:</span>
+                        <span className="font-bold text-slate-900">{plan.shipmentCount || 0} items</span>
+                      </div>
+
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Loading Date:</span>
+                        <span className="font-semibold text-slate-800">
+                          {formatGlobalDate(plan.loadingDate) || plan.loadingDate || 'Pending'}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Destination:</span>
+                        <span className="font-semibold text-slate-800 truncate max-w-[160px]" title={plan.shippedTo || 'Nhava Sheva / Mundra, India'}>
+                          {plan.shippedTo || 'Nhava Sheva / Mundra, India'}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Actual Vessel ETA:</span>
+                        <span className="font-bold text-sky-700 font-mono text-xs">
+                          {plan.rawEta ? (formatGlobalDate(plan.rawEta) || plan.rawEta) : 'Pending API'}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Clearance ETA (+10d):</span>
+                        <span className="font-bold text-emerald-700 font-mono text-xs">
+                          {plan.eta ? (formatGlobalDate(plan.eta) || plan.eta) : 'Pending'}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between items-center pt-1 border-t border-slate-100">
+                        <span className="text-slate-400">Status:</span>
+                        {plan.isDelivered ? (
+                          <span className="text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full text-[10px] font-black">
+                            DELIVERED ({formatGlobalDate(plan.deliveryDate) || plan.deliveryDate || 'Done'}{plan.daysToDeliver !== null && plan.daysToDeliver !== undefined ? ` • ${plan.daysToDeliver}d` : ''})
+                          </span>
+                        ) : isArrived ? (
+                          <span className="text-teal-900 bg-teal-100 px-2 py-0.5 rounded-full text-[10px] font-black border border-teal-300">
+                            Container reached to the final destination
+                          </span>
+                        ) : (
+                          <span className="text-slate-800 font-bold">{plan.status || 'Pending'}</span>
+                        )}
+                      </div>
+                    </div>
+
+                  <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-1.5 flex-wrap">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         handleOpenAllotModal(plan);
                       }}
-                      className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1"
+                      className="px-2 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-[11px] font-bold transition flex items-center space-x-1"
                     >
                       <Anchor className="w-3 h-3 text-red-400" />
                       <span>{plan.containerNumber ? 'Edit Actual No' : 'Allot Actual No'}</span>
                     </button>
+
+                    {!plan.isDelivered && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenContainerWiseLoad(plan);
+                        }}
+                        className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold transition flex items-center space-x-1 shadow-sm"
+                        title={`Load received goods directly into ${plan.container} (Container-wise planning)`}
+                      >
+                        <Plus className="w-3 h-3 text-emerald-200" />
+                        <span>Load Goods</span>
+                      </button>
+                    )}
+
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenAlterModal(plan);
+                      }}
+                      className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-[11px] font-bold transition flex items-center space-x-1"
+                      title="Alter container alias, actual container number, carrier, or warehouse database-wide"
+                    >
+                      <Pencil className="w-3 h-3 text-blue-600" />
+                      <span>Alter</span>
+                    </button>
+
+                    {plan.containerNumber && !plan.isDelivered && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDemapActual(plan);
+                        }}
+                        className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg text-[11px] font-bold transition flex items-center space-x-1"
+                        title="De-map actual carrier container so plan returns to Planning"
+                      >
+                        <X className="w-3 h-3 text-amber-600" />
+                        <span>De-map</span>
+                      </button>
+                    )}
 
                     {plan.containerNumber && !plan.isDelivered && (
                       <button
@@ -892,12 +2314,24 @@ export default function LoaderHub() {
                           e.stopPropagation();
                           handleOpenDeliverModal(plan);
                         }}
-                        className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1"
+                        className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold transition flex items-center space-x-1"
                       >
                         <CheckCircle2 className="w-3 h-3 text-emerald-200" />
-                        <span>Mark Delivered</span>
+                        <span>Deliver</span>
                       </button>
                     )}
+
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeletePlan(plan);
+                      }}
+                      className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-[11px] font-bold transition flex items-center space-x-1"
+                      title="Delete plan (Strict rules: blocked if actual container allotted, API called, or goods loaded)"
+                    >
+                      <Trash2 className="w-3 h-3 text-red-600" />
+                      <span>Delete</span>
+                    </button>
 
                     <button
                       onClick={() => dispatch(setActivePlan(plan))}
@@ -911,6 +2345,7 @@ export default function LoaderHub() {
               );
             })}
           </div>
+        )}
 
           {/* Detailed Selected Plan Manifest */}
           {activePlan && (
@@ -936,25 +2371,75 @@ export default function LoaderHub() {
                   <p className="text-xs text-slate-500 mt-0.5">
                     Origin Warehouse: {activePlan.warehouse || 'China Warehouse'} | Loaded Cargo: {activePlan.totalQuantity || 0} CTN across {activePlan.shipmentCount || 0} items | Destination: {activePlan.shippedTo || 'Nhava Sheva / Mundra, India'}
                   </p>
+                  <div className="flex items-center space-x-3 mt-1.5 text-xs flex-wrap gap-y-1">
+                    <span className="text-slate-500">
+                      Actual Vessel ETA: <strong className="text-sky-700 font-mono font-bold">{activePlan.rawEta ? (formatGlobalDate(activePlan.rawEta) || activePlan.rawEta) : 'Pending API'}</strong>
+                    </span>
+                    <span className="text-slate-300 hidden sm:inline">•</span>
+                    <span className="text-slate-500">
+                      Clearance Delivery ETA (+10d): <strong className="text-emerald-700 font-mono font-bold">{activePlan.eta ? (formatGlobalDate(activePlan.eta) || activePlan.eta) : 'Pending'}</strong>
+                    </span>
+                  </div>
                 </div>
 
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-2 flex-wrap gap-y-2">
+                  {!activePlan.isDelivered && (
+                    <button
+                      onClick={() => handleOpenContainerWiseLoad(activePlan)}
+                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md transition flex items-center space-x-1.5"
+                      title={`Load received warehouse goods directly into ${activePlan.container} (Container-wise planning)`}
+                    >
+                      <Plus className="w-4 h-4 text-emerald-200" />
+                      <span>+ Load Goods into {activePlan.container}</span>
+                    </button>
+                  )}
+
                   <button
                     onClick={() => handleOpenAllotModal(activePlan)}
-                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md transition flex items-center space-x-1.5"
+                    className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-md transition flex items-center space-x-1.5"
                   >
-                    <Anchor className="w-4 h-4" />
-                    <span>{activePlan.containerNumber ? 'Update Actual Carrier No' : 'Finalize & Allot Actual Container'}</span>
+                    <Anchor className="w-4 h-4 text-red-400" />
+                    <span>{activePlan.containerNumber ? 'Edit Actual No' : 'Allot Actual No'}</span>
                   </button>
+
+                  <button
+                    onClick={() => handleOpenAlterModal(activePlan)}
+                    className="px-3.5 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold shadow-sm transition flex items-center space-x-1.5"
+                    title="Alter container alias, actual container number, carrier, or warehouse database-wide"
+                  >
+                    <Pencil className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Alter Container</span>
+                  </button>
+
+                  {activePlan.containerNumber && !activePlan.isDelivered && (
+                    <button
+                      onClick={() => handleDemapActual(activePlan)}
+                      className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-xl text-xs font-bold shadow-sm transition flex items-center space-x-1.5"
+                      title="De-map actual carrier container so plan returns to Planning"
+                    >
+                      <X className="w-3.5 h-3.5 text-amber-600" />
+                      <span>De-map Actual</span>
+                    </button>
+                  )}
+
                   {activePlan.containerNumber && !activePlan.isDelivered && (
                     <button
                       onClick={() => handleOpenDeliverModal(activePlan)}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md transition flex items-center space-x-1.5"
+                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md transition flex items-center space-x-1.5"
                     >
                       <CheckCircle2 className="w-4 h-4 text-emerald-200" />
                       <span>Mark Delivered</span>
                     </button>
                   )}
+
+                  <button
+                    onClick={() => handleDeletePlan(activePlan)}
+                    className="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-xl text-xs font-bold shadow-sm transition flex items-center space-x-1.5"
+                    title="Delete plan (Strict rules apply)"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                    <span>Delete Plan</span>
+                  </button>
                 </div>
               </div>
 
@@ -962,64 +2447,36 @@ export default function LoaderHub() {
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
-                    <tr className="bg-slate-50 text-slate-700 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200">
-                      <th className="py-2.5 px-3">#</th>
-                      <th className="py-2.5 px-3">Receipt #</th>
-                      <th className="py-2.5 px-3">Party / Shipper</th>
-                      <th className="py-2.5 px-3 text-center">Loaded Qty</th>
-                      <th className="py-2.5 px-3 text-center">Split Status</th>
-                      <th className="py-2.5 px-3">Commodity</th>
-                      <th className="py-2.5 px-3">Marks</th>
-                      <th className="py-2.5 px-3 text-right">Action</th>
-                    </tr>
+                    {manifestTable.getHeaderGroups().map((headerGroup) => (
+                      <tr
+                        key={headerGroup.id}
+                        className="bg-slate-50 text-slate-700 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200"
+                      >
+                        {headerGroup.headers.map((header) => (
+                          <th key={header.id} className="py-2.5 px-3">
+                            {header.isPlaceholder
+                              ? null
+                              : flexRender(header.column.columnDef.header, header.getContext())}
+                          </th>
+                        ))}
+                      </tr>
+                    ))}
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-medium">
-                    {!activePlan.items || activePlan.items.length === 0 ? (
+                    {manifestTable.getRowModel().rows.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="py-8 text-center text-slate-400 italic">
-                          No cargo allocated into this container yet. Go to the "China Warehouse Stock" tab to split & load items.
+                        <td colSpan={manifestColumns.length} className="py-8 text-center text-slate-400 italic">
+                          No cargo allocated into this container yet. Go to the &quot;China Warehouse Stock&quot; tab to split &amp; load items.
                         </td>
                       </tr>
                     ) : (
-                      activePlan.items.map((item, idx) => (
-                        <tr key={item._id} className="hover:bg-slate-50 transition">
-                          <td className="py-2.5 px-3 text-slate-400">{idx + 1}</td>
-                          <td className="py-2.5 px-3 font-bold font-mono text-slate-900">
-                            {item.receipt}
-                          </td>
-                          <td className="py-2.5 px-3 font-semibold text-slate-800">
-                            {item.party || 'General Party'}
-                          </td>
-                          <td className="py-2.5 px-3 text-center font-bold text-emerald-600">
-                            {item.quantity} CTN
-                          </td>
-                          <td className="py-2.5 px-3 text-center">
-                            {item.isSplit ? (
-                              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800">
-                                <Split className="w-2.5 h-2.5" />
-                                <span>Split Part #{item.splitIndex || 1} (of {item.originalTotalQuantity} CTN)</span>
-                              </span>
-                            ) : (
-                              <span className="text-[10px] text-slate-400">Full Load</span>
-                            )}
-                          </td>
-                          <td className="py-2.5 px-3 text-slate-700">
-                            <span className="font-semibold">{item.english || item.commodity || 'Cargo'}</span>
-                          </td>
-                          <td className="py-2.5 px-3 text-slate-500 font-mono text-[11px]">
-                            {[item.mainMarka ? `M:${item.mainMarka}` : '', item.subMarka ? `S:${item.subMarka}` : '']
-                              .filter(Boolean)
-                              .join(' ') || '-'}
-                          </td>
-                          <td className="py-2.5 px-3 text-right">
-                            <button
-                              onClick={() => handleDeallocateItem(item._id)}
-                              className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50 transition"
-                              title="Remove item and return quantity to warehouse stock"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </td>
+                      manifestTable.getRowModel().rows.map((row) => (
+                        <tr key={row.id} className="hover:bg-slate-50 transition">
+                          {row.getVisibleCells().map((cell) => (
+                            <td key={cell.id} className="py-2.5 px-3">
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </td>
+                          ))}
                         </tr>
                       ))
                     )}
@@ -1110,12 +2567,33 @@ export default function LoaderHub() {
                 <input
                   type="number"
                   min={1}
-                  max={activeReceiptForSplit.remainingQuantity !== undefined ? activeReceiptForSplit.remainingQuantity : activeReceiptForSplit.quantity}
                   value={splitQuantityInput}
                   onChange={(e) => setSplitQuantityInput(e.target.value === '' ? '' : Number(e.target.value))}
-                  className="w-full px-3 py-2 text-sm font-black rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-500"
+                  className={`w-full px-3 py-2 text-sm font-black rounded-xl border focus:outline-none focus:ring-2 ${
+                    Number(splitQuantityInput) > (activeReceiptForSplit.remainingQuantity !== undefined ? activeReceiptForSplit.remainingQuantity : activeReceiptForSplit.quantity)
+                      ? 'border-red-500 bg-red-50 text-red-900 focus:ring-red-500'
+                      : 'border-slate-300 focus:ring-red-500'
+                  }`}
                   placeholder="Enter cartons quantity to load"
                 />
+
+                {Number(splitQuantityInput) > (activeReceiptForSplit.remainingQuantity !== undefined ? activeReceiptForSplit.remainingQuantity : activeReceiptForSplit.quantity) && (
+                  <div className="mt-2 p-2.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 font-bold flex items-start space-x-1.5">
+                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                    <span>Error: Cannot load {Number(splitQuantityInput)} CTN! Only {activeReceiptForSplit.remainingQuantity !== undefined ? activeReceiptForSplit.remainingQuantity : activeReceiptForSplit.quantity} CTN remain in warehouse stock.</span>
+                  </div>
+                )}
+
+                {Number(splitQuantityInput) > 0 && Number(splitQuantityInput) < (activeReceiptForSplit.remainingQuantity !== undefined ? activeReceiptForSplit.remainingQuantity : activeReceiptForSplit.quantity) && (
+                  <div className="mt-2 p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 font-semibold flex items-start space-x-1.5">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold block text-amber-900">Notice: Splitting Cargo Quantity</span>
+                      Loading {Number(splitQuantityInput)} CTN will leave {(activeReceiptForSplit.remainingQuantity !== undefined ? activeReceiptForSplit.remainingQuantity : activeReceiptForSplit.quantity) - Number(splitQuantityInput)} CTN in warehouse stock. You will be prompted to confirm this split on submit.
+                    </div>
+                  </div>
+                )}
+
                 <p className="text-[11px] text-slate-400 mt-1">
                   You can split this receipt across as many containers as needed. The remaining balance stays in warehouse stock.
                 </p>
@@ -1158,7 +2636,13 @@ export default function LoaderHub() {
                 <button
                   type="button"
                   onClick={handleConfirmSplitAndLoad}
-                  disabled={actionLoading || !selectedPlanForAllocation}
+                  disabled={
+                    actionLoading ||
+                    !selectedPlanForAllocation ||
+                    !splitQuantityInput ||
+                    Number(splitQuantityInput) <= 0 ||
+                    Number(splitQuantityInput) > (activeReceiptForSplit.remainingQuantity !== undefined ? activeReceiptForSplit.remainingQuantity : activeReceiptForSplit.quantity)
+                  }
                   className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl shadow-md transition disabled:opacity-50 flex items-center space-x-1.5"
                 >
                   {actionLoading ? (
@@ -1196,20 +2680,60 @@ export default function LoaderHub() {
             </div>
 
             <div className="p-6 space-y-4">
-              <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-xs space-y-1.5">
-                <div className="flex justify-between">
-                  <span className="text-slate-400 font-bold uppercase">Loading Plan:</span>
-                  <span className="font-mono font-bold text-slate-900">{activePlanForAllot.container}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400 font-bold uppercase">Origin Warehouse:</span>
-                  <span className="font-bold text-slate-700">{activePlanForAllot.warehouse || 'China Warehouse'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400 font-bold uppercase">Cargo Count:</span>
-                  <span className="font-bold text-emerald-600">{activePlanForAllot.totalQuantity || 0} Cartons ({activePlanForAllot.shipmentCount || 0} lines)</span>
-                </div>
+              {/* Internal Container Selector (Mandatory) */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center justify-between">
+                  <span>Select Internal Container / Plan</span>
+                  <span className="text-red-600 font-bold text-[10px]">* Mandatory</span>
+                </label>
+                <select
+                  value={allotSelectedContainer || activePlanForAllot.container}
+                  onChange={(e) => {
+                    const cName = e.target.value;
+                    setAllotSelectedContainer(cName);
+                    const found = loadingPlans.find((p) => p.container === cName);
+                    if (found) {
+                      setActualContainerNoInput(found.containerNumber || '');
+                      setAllotCarrierInput(found.shippingLine || 'MSC');
+                      setLoadingDateInput(found.loadingDate || new Date().toISOString().split('T')[0]);
+                      setDestinationInput(found.shippedTo || 'Nhava Sheva / Mundra, India');
+                    }
+                  }}
+                  className="w-full px-3 py-2 text-xs font-bold font-mono rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500"
+                >
+                  {loadingPlans.map((p) => (
+                    <option key={p.container} value={p.container}>
+                      {p.container} {p.containerNumber ? `[${p.containerNumber}]` : ''} - {p.warehouse || 'China Warehouse'} ({p.totalQuantity || 0} CTN)
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Selecting the internal container is mandatory to allot the actual carrier container number.
+                </p>
               </div>
+
+              {/* Internal Container Summary */}
+              {(() => {
+                const curPlan = loadingPlans.find((p) => p.container === (allotSelectedContainer || activePlanForAllot.container)) || activePlanForAllot;
+                return (
+                  <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-xs space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500 font-semibold">Origin Warehouse:</span>
+                      <span className="font-bold text-slate-800">{curPlan.warehouse || 'China Warehouse'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500 font-semibold">Loaded Cargo:</span>
+                      <span className="font-bold text-emerald-600">{curPlan.totalQuantity || 0} Cartons ({curPlan.shipmentCount || 0} items)</span>
+                    </div>
+                    {curPlan.containerNumber && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-500 font-semibold">Current Carrier Container:</span>
+                        <span className="font-bold font-mono text-red-600">{curPlan.containerNumber} ({curPlan.shippingLine || 'MSC'})</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
@@ -1245,14 +2769,16 @@ export default function LoaderHub() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                  Container Loading Date
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center justify-between">
+                  <span>Container Loading Date</span>
+                  <span className="text-red-600 font-bold text-[10px]">* Mandatory</span>
                 </label>
                 <input
                   type="date"
+                  required
                   value={loadingDateInput}
                   onChange={(e) => setLoadingDateInput(e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500"
+                  className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-red-200 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500"
                 />
               </div>
 
@@ -1350,21 +2876,40 @@ export default function LoaderHub() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                  China Origin Loading Warehouse
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    China Origin Loading Warehouse
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWarehouseModalContext('plan');
+                      setIsAddWarehouseModalOpen(true);
+                    }}
+                    className="text-xs font-bold text-red-600 hover:text-red-700 flex items-center space-x-1"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ New Warehouse</span>
+                  </button>
+                </div>
                 <select
                   value={newPlanWarehouse}
                   onChange={(e) => setNewPlanWarehouse(e.target.value)}
                   className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500"
                 >
-                  {availableWarehouses
-                    .filter((w) => w !== 'ALL')
-                    .map((w) => (
-                      <option key={w} value={w}>
-                        {w}
-                      </option>
-                    ))}
+                  {availableWarehouses.filter((w) => w !== 'ALL').length === 0 ? (
+                    <option value="" disabled>
+                      No warehouses created yet — Click '+ New Warehouse' above
+                    </option>
+                  ) : (
+                    availableWarehouses
+                      .filter((w) => w !== 'ALL')
+                      .map((w) => (
+                        <option key={w} value={w}>
+                          {w}
+                        </option>
+                      ))
+                  )}
                 </select>
               </div>
 
@@ -1379,205 +2924,16 @@ export default function LoaderHub() {
 
                 <button
                   type="submit"
-                  disabled={actionLoading || !newPlanAlias.trim()}
+                  disabled={
+                    actionLoading ||
+                    !newPlanAlias.trim() ||
+                    availableWarehouses.filter((w) => w !== 'ALL').length === 0 ||
+                    !newPlanWarehouse ||
+                    newPlanWarehouse === 'ALL'
+                  }
                   className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-md transition disabled:opacity-50 flex items-center space-x-1.5"
                 >
                   {actionLoading ? <span>Creating...</span> : <span>Initialize Loading Plan</span>}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 4: RECEIVE GOODS FROM PARTY (CHINA WAREHOUSE INWARD) */}
-      {isReceiveModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
-            <div className="p-5 bg-slate-900 text-white flex items-center justify-between sticky top-0 z-10">
-              <div className="flex items-center space-x-2.5">
-                <Package className="w-5 h-5 text-emerald-400" />
-                <div>
-                  <h3 className="font-black text-sm uppercase tracking-wider">
-                    Receive Goods from Party
-                  </h3>
-                  <p className="text-[11px] text-slate-400">China Warehouse Inward Stock Entry</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setIsReceiveModalOpen(false)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleReceiveGoodsSubmit} className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                    Receipt # (Unique)*
-                  </label>
-                  <input
-                    type="text"
-                    value={receiveReceipt}
-                    onChange={(e) => setReceiveReceipt(e.target.value.toUpperCase())}
-                    placeholder="e.g. REC-8801"
-                    required
-                    className="w-full px-3 py-2 font-mono text-sm font-black rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 uppercase"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                    Party / Shipper Name*
-                  </label>
-                  <input
-                    type="text"
-                    value={receiveParty}
-                    onChange={(e) => setReceiveParty(e.target.value)}
-                    placeholder="e.g. Yiwu Star Trading / Alex"
-                    required
-                    className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                    China Warehouse
-                  </label>
-                  <select
-                    value={receiveWarehouse}
-                    onChange={(e) => setReceiveWarehouse(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  >
-                    {availableWarehouses
-                      .filter((w) => w !== 'ALL')
-                      .map((w) => (
-                        <option key={w} value={w}>
-                          {w}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                    Receipt Date
-                  </label>
-                  <input
-                    type="date"
-                    value={receiveDate}
-                    onChange={(e) => setReceiveDate(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                  Quantity / Cartons (CTN)*
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                  value={receiveQuantity}
-                  onChange={(e) => setReceiveQuantity(e.target.value === '' ? '' : Number(e.target.value))}
-                  placeholder="Total packages received e.g. 100"
-                  required
-                  className="w-full px-3 py-2 font-mono text-sm font-black rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              {/* Chinese Commodity with Live Translation */}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                  Commodity Name (Chinese or English)
-                </label>
-                <input
-                  type="text"
-                  value={receiveCommodity}
-                  onChange={(e) => setReceiveCommodity(e.target.value)}
-                  placeholder="e.g. 运动鞋 (Sports Shoes) or 箱包 (Bags)"
-                  className="w-full px-3 py-2 text-sm font-semibold rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-
-                {receiveCommodity.trim() && (
-                  <div className="mt-2 p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs flex items-center justify-between">
-                    <span className="text-emerald-800 font-medium">
-                      Auto English Translation: <strong>{liveTranslation.english}</strong>
-                    </span>
-                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 bg-emerald-200 text-emerald-900 rounded-full">
-                      Translated
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-500 mb-1">Weight (KG)</label>
-                  <input
-                    type="text"
-                    value={receiveWeight}
-                    onChange={(e) => setReceiveWeight(e.target.value)}
-                    placeholder="e.g. 1200"
-                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-500 mb-1">Volume (CBM)</label>
-                  <input
-                    type="text"
-                    value={receiveVolume}
-                    onChange={(e) => setReceiveVolume(e.target.value)}
-                    placeholder="e.g. 8.4"
-                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-500 mb-1">Main Mark (Marka)</label>
-                  <input
-                    type="text"
-                    value={receiveMainMark}
-                    onChange={(e) => setReceiveMainMark(e.target.value)}
-                    placeholder="e.g. USI / DEL"
-                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-500 mb-1">Sub Mark</label>
-                  <input
-                    type="text"
-                    value={receiveSubMark}
-                    onChange={(e) => setReceiveSubMark(e.target.value)}
-                    placeholder="e.g. 1-100"
-                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setIsReceiveModalOpen(false)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
-                >
-                  Cancel
-                </button>
-
-                <button
-                  type="submit"
-                  disabled={actionLoading || !receiveReceipt.trim()}
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition disabled:opacity-50 flex items-center space-x-1.5"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Save Inward Stock</span>
                 </button>
               </div>
             </form>
@@ -1628,15 +2984,106 @@ export default function LoaderHub() {
                 </div>
               </div>
 
+              {/* Receipt Items Checklist (Partial Delivery Exclusion) */}
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                  Actual Delivery Date
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Cargo Manifest / Receipts ({planToDeliver.items?.length || 0})
+                  </label>
+                  <div className="space-x-2 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => setExcludedReceiptsForDelivery(new Set())}
+                      className="font-bold text-emerald-600 hover:text-emerald-700 underline"
+                    >
+                      Select All
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const allRecs = (planToDeliver.items || []).map((i) => String(i.receipt).trim().toLowerCase());
+                        setExcludedReceiptsForDelivery(new Set(allRecs));
+                      }}
+                      className="font-bold text-slate-500 hover:text-slate-700 underline"
+                    >
+                      Exclude All
+                    </button>
+                  </div>
+                </div>
+
+                <div className="max-h-44 overflow-y-auto border border-slate-200 rounded-2xl p-2 space-y-1 bg-slate-50">
+                  {(!planToDeliver.items || planToDeliver.items.length === 0) ? (
+                    <p className="text-xs text-slate-400 p-2 italic text-center">No individual cargo items loaded.</p>
+                  ) : (
+                    planToDeliver.items.map((item, idx) => {
+                      const recKey = String(item.receipt || '').trim().toLowerCase();
+                      const isExcluded = excludedReceiptsForDelivery.has(recKey);
+                      return (
+                        <div
+                          key={item._id || `${item.receipt}-${idx}`}
+                          onClick={() => {
+                            setExcludedReceiptsForDelivery((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(recKey)) next.delete(recKey);
+                              else next.add(recKey);
+                              return next;
+                            });
+                          }}
+                          className={`flex items-center justify-between p-2 rounded-xl text-xs cursor-pointer transition border ${
+                            isExcluded
+                              ? 'bg-rose-50 border-rose-200 text-rose-800'
+                              : 'bg-white border-slate-200 text-slate-800 hover:border-emerald-300'
+                          }`}
+                        >
+                          <div className="flex items-center space-x-2.5">
+                            <input
+                              type="checkbox"
+                              checked={!isExcluded}
+                              onChange={() => {}}
+                              className="w-4 h-4 rounded text-emerald-600 accent-emerald-600 cursor-pointer"
+                            />
+                            <div>
+                              <span className="font-mono font-bold">{item.receipt}</span>
+                              {item.commodity && (
+                                <span className="ml-2 text-[11px] text-slate-500 truncate max-w-[120px] inline-block align-bottom">
+                                  ({item.commodity})
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <span className="font-bold text-slate-900">{item.quantity} CTN</span>
+                            {isExcluded ? (
+                              <span className="ml-2 text-[10px] font-bold uppercase bg-rose-200 text-rose-800 px-1.5 py-0.5 rounded">
+                                Excluded
+                              </span>
+                            ) : (
+                              <span className="ml-2 text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded">
+                                Delivering
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Uncheck any receipt if only part of the container was delivered. Excluded receipts will remain in transit.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5 flex items-center justify-between">
+                  <span>Actual Delivery Date</span>
+                  <span className="text-emerald-700 font-bold text-[10px]">* Mandatory</span>
                 </label>
                 <input
                   type="date"
+                  required
                   value={deliveryDateInput}
                   onChange={(e) => setDeliveryDateInput(e.target.value)}
-                  className="w-full px-3 py-2 text-sm font-bold rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full px-3 py-2 text-sm font-bold rounded-xl border border-emerald-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
                 <p className="text-[11px] text-slate-400 mt-1">
                   Marking as delivered will calculate transit turnaround days and update tracking status across public tracking and admin views.
@@ -1723,25 +3170,125 @@ export default function LoaderHub() {
                 </div>
               )}
 
-              {/* Target Warehouse Selector */}
+              {/* Upload Type Selector (Warehouse Stock vs Container Loading Plan) */}
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                  Target China Warehouse (Default if missing in sheet)
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                  Select Upload Purpose
                 </label>
+                <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setExcelUploadType('stock')}
+                    className={`py-2 px-3 text-xs font-bold rounded-lg transition text-center ${
+                      excelUploadType === 'stock'
+                        ? 'bg-white text-slate-900 shadow-sm border border-slate-200'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    📦 Receive Goods (Warehouse Stock)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setExcelUploadType('plan')}
+                    className={`py-2 px-3 text-xs font-bold rounded-lg transition text-center ${
+                      excelUploadType === 'plan'
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    🚢 Loading Plan (Container Cargo)
+                  </button>
+                </div>
+              </div>
+
+              {/* Internal Container / Loading Plan Number (Mandatory for Loading Plan) */}
+              {excelUploadType === 'plan' && (
+                <div className="p-3.5 bg-indigo-50 border border-indigo-200 rounded-2xl space-y-1.5 animate-fadeIn">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-indigo-950 flex items-center justify-between">
+                    <span>Internal Loading Plan / Container Number</span>
+                    <span className="text-red-600 font-bold text-[10px]">* Mandatory</span>
+                  </label>
+                  <input
+                    type="text"
+                    list="excel-plans-list"
+                    required
+                    placeholder="Select or enter internal container number (e.g. USI-01)"
+                    value={excelTargetContainer}
+                    onChange={(e) => setExcelTargetContainer(e.target.value.toUpperCase())}
+                    className="w-full px-3 py-2 text-xs font-mono font-bold uppercase rounded-xl border border-indigo-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <datalist id="excel-plans-list">
+                    {loadingPlans.map((p) => (
+                      <option key={p.container} value={p.container}>
+                        {p.container} {p.containerNumber ? `(${p.containerNumber})` : ''} - {p.warehouse || 'China Warehouse'}
+                      </option>
+                    ))}
+                  </datalist>
+                  <p className="text-[11px] text-indigo-800">
+                    Mandatory rule: When uploading a loading plan, the Internal Container Number must be selected or provided.
+                  </p>
+                </div>
+              )}
+
+              {/* Target Warehouse Selector (Mandatory) */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center space-x-1">
+                    <span>Target China Warehouse</span>
+                    <span className="text-red-600 font-bold text-[10px]">* Mandatory</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWarehouseModalContext('excel');
+                      setIsAddWarehouseModalOpen(true);
+                    }}
+                    className="text-[11px] font-bold text-indigo-600 hover:text-indigo-700 flex items-center space-x-0.5"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>+ New Warehouse</span>
+                  </button>
+                </div>
                 <select
                   value={excelUploadWarehouse}
                   onChange={(e) => setExcelUploadWarehouse(e.target.value)}
+                  required
                   className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-300 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 >
-                  {availableWarehouses
-                    .filter((w) => w !== 'ALL')
-                    .map((wh) => (
-                      <option key={wh} value={wh}>
-                        {wh}
-                      </option>
-                    ))}
+                  {availableWarehouses.filter((w) => w !== 'ALL').length === 0 ? (
+                    <option value="" disabled>
+                      No warehouses created yet — Click '+ New Warehouse' above
+                    </option>
+                  ) : (
+                    availableWarehouses
+                      .filter((w) => w !== 'ALL')
+                      .map((wh) => (
+                        <option key={wh} value={wh}>
+                          {wh}
+                        </option>
+                      ))
+                  )}
                 </select>
               </div>
+
+              {availableWarehouses.filter((w) => w !== 'ALL').length === 0 && (
+                <div className="p-3 bg-amber-50 border border-amber-300 rounded-2xl flex items-start space-x-2 text-amber-900 text-xs">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <span className="font-bold">No Warehouse Found:</span> You cannot upload goods or loading plans until at least one China warehouse is created.
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWarehouseModalContext('excel');
+                        setIsAddWarehouseModalOpen(true);
+                      }}
+                      className="block mt-1 font-bold text-indigo-700 underline"
+                    >
+                      Click here to create a China warehouse now
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* File Dropzone */}
               {!excelFile ? (
@@ -1844,7 +3391,11 @@ export default function LoaderHub() {
             {/* Modal Footer */}
             <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
               <span className="text-[11px] text-slate-500">
-                {excelTotalRows > 0 ? `${excelTotalRows} receipts will be added to China WH Stock` : 'Select a file to begin'}
+                {excelTotalRows > 0
+                  ? excelUploadType === 'plan'
+                    ? `${excelTotalRows} cargo entries will be loaded into Container '${excelTargetContainer || '...'}'`
+                    : `${excelTotalRows} receipts will be added to China WH Stock`
+                  : 'Select a file to begin'}
               </span>
               <div className="flex items-center space-x-2">
                 <button
@@ -1853,6 +3404,8 @@ export default function LoaderHub() {
                     setIsExcelUploadOpen(false);
                     setExcelFile(null);
                     setExcelPreviewRows([]);
+                    setExcelUploadType('stock');
+                    setExcelTargetContainer('');
                     setExcelUploadStatus(null);
                   }}
                   className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl transition"
@@ -1862,7 +3415,14 @@ export default function LoaderHub() {
                 <button
                   type="button"
                   onClick={handleConfirmExcelUpload}
-                  disabled={!excelFile || isUploadingExcel}
+                  disabled={
+                    !excelFile ||
+                    isUploadingExcel ||
+                    availableWarehouses.filter((w) => w !== 'ALL').length === 0 ||
+                    !excelUploadWarehouse ||
+                    excelUploadWarehouse === 'ALL' ||
+                    (excelUploadType === 'plan' && !excelTargetContainer.trim())
+                  }
                   className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition disabled:opacity-50 flex items-center space-x-1.5"
                 >
                   {isUploadingExcel ? (
@@ -1870,12 +3430,1664 @@ export default function LoaderHub() {
                   ) : (
                     <>
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>Translate & Save in DB</span>
+                      <span>{excelUploadType === 'plan' ? 'Process & Load into Container' : 'Translate & Save in DB'}</span>
                     </>
                   )}
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: BULK EDIT WAREHOUSE RECEIPTS ── */}
+      {isBulkEditOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-200">
+            {/* Modal Header */}
+            <div className="p-6 bg-slate-900 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 bg-blue-600 rounded-xl text-white">
+                  <Pencil className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black tracking-tight text-white">
+                    Bulk Edit Warehouse Receipts
+                  </h3>
+                  <span className="text-xs text-blue-300 font-medium">
+                    Updating {selectedReceiptIds.size} selected receipt(s) in China WH Stock
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsBulkEditOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <form onSubmit={handleBulkEditSubmit} className="flex-1 overflow-y-auto p-6 space-y-5">
+              <div className="bg-blue-50 border border-blue-200 p-3.5 rounded-2xl text-xs text-blue-900">
+                <p className="font-bold flex items-center space-x-1.5">
+                  <span>ℹ️ Check the checkbox for only the fields you wish to update in bulk:</span>
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                  {selectedReceiptObjects.map((r) => (
+                    <span
+                      key={r._id || r.receipt}
+                      className="bg-white text-slate-800 font-mono text-[10px] font-bold px-2 py-0.5 rounded border border-blue-200"
+                    >
+                      {r.receipt}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                {/* 1. Warehouse */}
+                <div className="p-3.5 rounded-2xl border border-slate-200 hover:border-slate-300 transition space-y-2 bg-slate-50/50">
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center space-x-2 text-xs font-bold text-slate-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={bulkFieldsToUpdate.warehouse}
+                        onChange={(e) =>
+                          setBulkFieldsToUpdate((prev) => ({ ...prev, warehouse: e.target.checked }))
+                        }
+                        className="w-4 h-4 rounded text-blue-600 accent-blue-600"
+                      />
+                      <span>Update Receiving China Warehouse</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWarehouseModalContext('bulkEdit');
+                        setIsAddWarehouseModalOpen(true);
+                      }}
+                      className="text-[11px] font-bold text-red-600 hover:text-red-700 flex items-center space-x-0.5"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>+ New</span>
+                    </button>
+                  </div>
+                  {bulkFieldsToUpdate.warehouse && (
+                    <select
+                      value={bulkEditWarehouse}
+                      onChange={(e) => setBulkEditWarehouse(e.target.value)}
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white font-semibold text-slate-900 focus:ring-2 focus:ring-blue-500"
+                    >
+                      {availableWarehouses.filter((w) => w !== 'ALL').length === 0 ? (
+                        <option value="" disabled>
+                          No warehouses created yet — Click '+ New' above
+                        </option>
+                      ) : (
+                        availableWarehouses
+                          .filter((w) => w !== 'ALL')
+                          .map((w) => (
+                            <option key={w} value={w}>
+                              {w}
+                            </option>
+                          ))
+                      )}
+                    </select>
+                  )}
+                </div>
+
+                {/* 2. Party / Shipper Name */}
+                <div className="p-3.5 rounded-2xl border border-slate-200 hover:border-slate-300 transition space-y-2 bg-slate-50/50">
+                  <label className="flex items-center space-x-2 text-xs font-bold text-slate-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={bulkFieldsToUpdate.party}
+                      onChange={(e) =>
+                        setBulkFieldsToUpdate((prev) => ({ ...prev, party: e.target.checked }))
+                      }
+                      className="w-4 h-4 rounded text-blue-600 accent-blue-600"
+                    />
+                    <span>Update Party / Shipper Name</span>
+                  </label>
+                  {bulkFieldsToUpdate.party && (
+                    <input
+                      type="text"
+                      placeholder="e.g. ABC Trading Co. / Client Name"
+                      value={bulkEditParty}
+                      onChange={(e) => setBulkEditParty(e.target.value)}
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white text-slate-900 focus:ring-2 focus:ring-blue-500"
+                    />
+                  )}
+                </div>
+
+                {/* 3. Received Date */}
+                <div className="p-3.5 rounded-2xl border border-slate-200 hover:border-slate-300 transition space-y-2 bg-slate-50/50">
+                  <label className="flex items-center space-x-2 text-xs font-bold text-slate-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={bulkFieldsToUpdate.date}
+                      onChange={(e) =>
+                        setBulkFieldsToUpdate((prev) => ({ ...prev, date: e.target.checked }))
+                      }
+                      className="w-4 h-4 rounded text-blue-600 accent-blue-600"
+                    />
+                    <span>Update Goods Received Date</span>
+                  </label>
+                  {bulkFieldsToUpdate.date && (
+                    <input
+                      type="date"
+                      value={bulkEditDate}
+                      onChange={(e) => setBulkEditDate(e.target.value)}
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white text-slate-900 focus:ring-2 focus:ring-blue-500"
+                    />
+                  )}
+                </div>
+
+                {/* 4. Packaging Type */}
+                <div className="p-3.5 rounded-2xl border border-slate-200 hover:border-slate-300 transition space-y-2 bg-slate-50/50">
+                  <label className="flex items-center space-x-2 text-xs font-bold text-slate-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={bulkFieldsToUpdate.packaging}
+                      onChange={(e) =>
+                        setBulkFieldsToUpdate((prev) => ({ ...prev, packaging: e.target.checked }))
+                      }
+                      className="w-4 h-4 rounded text-blue-600 accent-blue-600"
+                    />
+                    <span>Update Packaging Type</span>
+                  </label>
+                  {bulkFieldsToUpdate.packaging && (
+                    <input
+                      type="text"
+                      placeholder="e.g. Carton, Wooden Box, Pallet, Bag"
+                      value={bulkEditPackaging}
+                      onChange={(e) => setBulkEditPackaging(e.target.value)}
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white text-slate-900 focus:ring-2 focus:ring-blue-500"
+                    />
+                  )}
+                </div>
+
+                {/* 5. Commodity / Item Description */}
+                <div className="p-3.5 rounded-2xl border border-slate-200 hover:border-slate-300 transition space-y-2 bg-slate-50/50">
+                  <label className="flex items-center space-x-2 text-xs font-bold text-slate-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={bulkFieldsToUpdate.commodity}
+                      onChange={(e) =>
+                        setBulkFieldsToUpdate((prev) => ({ ...prev, commodity: e.target.checked }))
+                      }
+                      className="w-4 h-4 rounded text-blue-600 accent-blue-600"
+                    />
+                    <span>Update Commodity Description (Supports Chinese with Auto-Translation)</span>
+                  </label>
+                  {bulkFieldsToUpdate.commodity && (
+                    <input
+                      type="text"
+                      placeholder="e.g. 塑料玩具 / Plastic Toys / Hardware Fittings"
+                      value={bulkEditCommodity}
+                      onChange={(e) => setBulkEditCommodity(e.target.value)}
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white text-slate-900 focus:ring-2 focus:ring-blue-500"
+                    />
+                  )}
+                </div>
+
+                {/* 6. Cargo Marks */}
+                <div className="p-3.5 rounded-2xl border border-slate-200 hover:border-slate-300 transition space-y-2 bg-slate-50/50">
+                  <label className="flex items-center space-x-2 text-xs font-bold text-slate-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={bulkFieldsToUpdate.marks}
+                      onChange={(e) =>
+                        setBulkFieldsToUpdate((prev) => ({ ...prev, marks: e.target.checked }))
+                      }
+                      className="w-4 h-4 rounded text-blue-600 accent-blue-600"
+                    />
+                    <span>Update Cargo Marks (Main Mark & Sub Mark)</span>
+                  </label>
+                  {bulkFieldsToUpdate.marks && (
+                    <div className="grid grid-cols-2 gap-3 pt-1">
+                      <input
+                        type="text"
+                        placeholder="★ Main Mark (e.g. USI/MUM)"
+                        value={bulkEditMainMark}
+                        onChange={(e) => setBulkEditMainMark(e.target.value)}
+                        className="px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 font-mono"
+                      />
+                      <input
+                        type="text"
+                        placeholder="◆ Sub Mark (e.g. 01/50)"
+                        value={bulkEditSubMark}
+                        onChange={(e) => setBulkEditSubMark(e.target.value)}
+                        className="px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 font-mono"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* 7. Notes */}
+                <div className="p-3.5 rounded-2xl border border-slate-200 hover:border-slate-300 transition space-y-2 bg-slate-50/50">
+                  <label className="flex items-center space-x-2 text-xs font-bold text-slate-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={bulkFieldsToUpdate.notes}
+                      onChange={(e) =>
+                        setBulkFieldsToUpdate((prev) => ({ ...prev, notes: e.target.checked }))
+                      }
+                      className="w-4 h-4 rounded text-blue-600 accent-blue-600"
+                    />
+                    <span>Update Notes / Remarks</span>
+                  </label>
+                  {bulkFieldsToUpdate.notes && (
+                    <textarea
+                      rows={2}
+                      placeholder="Warehouse notes, party contact, or handling instructions..."
+                      value={bulkEditNotes}
+                      onChange={(e) => setBulkEditNotes(e.target.value)}
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 bg-white text-slate-900 focus:ring-2 focus:ring-blue-500"
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="pt-4 border-t border-slate-200 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setIsBulkEditOpen(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionLoading}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center space-x-1.5 disabled:opacity-50"
+                >
+                  {actionLoading ? (
+                    <span>Applying Updates...</span>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Save & Apply Bulk Updates</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: BULK DELETE CONFIRMATION ── */}
+      {isBulkDeleteOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200">
+            <div className="p-6 bg-red-600 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 bg-white/20 rounded-xl text-white">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black tracking-tight text-white">
+                    Bulk Delete Warehouse Receipts
+                  </h3>
+                  <span className="text-xs text-red-100 font-medium">
+                    Permanent deletion of {selectedReceiptIds.size} receipt(s)
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsBulkDeleteOpen(false)}
+                className="text-white/80 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <p className="text-xs text-slate-700 leading-relaxed">
+                Are you sure you want to permanently delete{' '}
+                <strong className="text-slate-950 font-bold font-mono">
+                  {selectedReceiptIds.size}
+                </strong>{' '}
+                warehouse receipt(s) from China warehouse inward stock?
+              </p>
+
+              <div className="max-h-32 overflow-y-auto p-3 bg-slate-50 rounded-xl border border-slate-200 flex flex-wrap gap-1.5">
+                {selectedReceiptObjects.map((r) => (
+                  <span
+                    key={r._id || r.receipt}
+                    className="bg-white text-slate-900 font-mono text-[10px] font-bold px-2 py-0.5 rounded border border-slate-200"
+                  >
+                    {r.receipt} ({r.quantity} CTN)
+                  </span>
+                ))}
+              </div>
+
+              {selectedWithLoadedCargo.length > 0 && (
+                <div className="bg-amber-50 border-2 border-amber-300 p-4 rounded-2xl space-y-2 text-xs text-amber-950">
+                  <div className="flex items-center space-x-2 font-bold text-amber-900">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Warning: Cargo Already Allocated to Containers</span>
+                  </div>
+                  <p className="text-[11px] text-amber-800 leading-relaxed">
+                    <strong>{selectedWithLoadedCargo.length}</strong> of the selected receipts have cargo cartons already loaded into internal container plans:
+                  </p>
+                  <ul className="list-disc list-inside text-[11px] font-mono text-amber-900 font-semibold space-y-0.5 max-h-20 overflow-y-auto">
+                    {selectedWithLoadedCargo.map((r) => (
+                      <li key={r._id || r.receipt}>
+                        Receipt {r.receipt} — {r.loadedQuantity} CTN loaded
+                      </li>
+                    ))}
+                  </ul>
+
+                  <label className="flex items-start space-x-2 pt-2 border-t border-amber-200 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={forceBulkDelete}
+                      onChange={(e) => setForceBulkDelete(e.target.checked)}
+                      className="w-4 h-4 mt-0.5 rounded text-red-600 accent-red-600"
+                    />
+                    <span className="font-bold text-red-800">
+                      I confirm force deletion: Roll back and remove these cartons from container loading plans.
+                    </span>
+                  </label>
+                </div>
+              )}
+
+              <div className="pt-4 border-t border-slate-200 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setIsBulkDeleteOpen(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBulkDeleteSubmit}
+                  disabled={actionLoading || (selectedWithLoadedCargo.length > 0 && !forceBulkDelete)}
+                  className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center space-x-1.5 disabled:opacity-50"
+                >
+                  {actionLoading ? (
+                    <span>Deleting...</span>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      <span>Confirm Bulk Delete ({selectedReceiptIds.size})</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: SINGLE RECEIPT EDIT ── */}
+      {isSingleEditOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-200">
+            {/* Header */}
+            <div className="p-6 bg-slate-900 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 bg-blue-600 rounded-xl text-white">
+                  <Pencil className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black tracking-tight text-white">
+                    Edit Warehouse Receipt
+                  </h3>
+                  <span className="text-xs text-blue-300 font-mono font-bold">
+                    Receipt: {editReceiptNumber}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSingleEditOpen(false);
+                  setEditingReceiptItem(null);
+                }}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <form onSubmit={handleSingleEditSubmit} className="flex-1 overflow-y-auto p-6 space-y-4 text-xs">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Receipt Number</label>
+                  <input
+                    type="text"
+                    value={editReceiptNumber}
+                    disabled
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-100 font-mono font-bold text-slate-700"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Party / Shipper</label>
+                  <input
+                    type="text"
+                    value={editParty}
+                    onChange={(e) => setEditParty(e.target.value)}
+                    placeholder="Party Name"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-bold text-slate-500 uppercase">China Warehouse</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWarehouseModalContext('singleEdit');
+                        setIsAddWarehouseModalOpen(true);
+                      }}
+                      className="text-[11px] font-bold text-red-600 hover:text-red-700 flex items-center space-x-0.5"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>+ New</span>
+                    </button>
+                  </div>
+                  <select
+                    value={singleEditWarehouse}
+                    onChange={(e) => setSingleEditWarehouse(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-slate-900 font-semibold focus:ring-2 focus:ring-blue-500"
+                  >
+                    {availableWarehouses.filter((w) => w !== 'ALL').length === 0 ? (
+                      <option value="" disabled>
+                        No warehouses created yet — Click '+ New' above
+                      </option>
+                    ) : (
+                      availableWarehouses
+                        .filter((w) => w !== 'ALL')
+                        .map((w) => (
+                          <option key={w} value={w}>
+                            {w}
+                          </option>
+                        ))
+                    )}
+                  </select>
+                  {singleEditReceiptDuplicate && (
+                    <div className="mt-1.5 p-2 bg-red-50 border border-red-200 rounded-xl flex items-start space-x-1.5 text-red-700 text-[11px]">
+                      <AlertCircle className="w-3.5 h-3.5 text-red-600 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-bold">Duplicate Receipt Error:</span> Receipt #{editReceiptNumber} already exists in {singleEditWarehouse}. Every warehouse must have strictly unique receipt numbers.
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Received Date</label>
+                  <input
+                    type="date"
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                    Total Inward Quantity (CTN)
+                  </label>
+                  <input
+                    type="number"
+                    value={editQuantity}
+                    onChange={(e) => setEditQuantity(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-slate-900 font-bold focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Packaging</label>
+                  <input
+                    type="text"
+                    value={editPackaging}
+                    onChange={(e) => setEditPackaging(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                    Commodity / Item Description (Supports Chinese)
+                  </label>
+                  <input
+                    type="text"
+                    value={editCommodity}
+                    onChange={(e) => setEditCommodity(e.target.value)}
+                    placeholder="Enter commodity description..."
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">★ Main Mark</label>
+                  <input
+                    type="text"
+                    value={editMainMark}
+                    onChange={(e) => setEditMainMark(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-slate-900 font-mono font-semibold focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">◆ Sub Mark</label>
+                  <input
+                    type="text"
+                    value={editSubMark}
+                    onChange={(e) => setEditSubMark(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-slate-900 font-mono font-semibold focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Gross Weight</label>
+                  <input
+                    type="text"
+                    value={editWeight}
+                    onChange={(e) => setEditWeight(e.target.value)}
+                    placeholder="e.g. 520 KG"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-slate-900 focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Volume (CBM)</label>
+                  <input
+                    type="text"
+                    value={editVolume}
+                    onChange={(e) => setEditVolume(e.target.value)}
+                    placeholder="e.g. 2.45"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-slate-900 focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Notes / Warehouse Remarks</label>
+                  <textarea
+                    rows={2}
+                    value={editNotes}
+                    onChange={(e) => setEditNotes(e.target.value)}
+                    placeholder="Optional remarks..."
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-slate-900 focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="pt-4 border-t border-slate-200 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSingleEditOpen(false);
+                    setEditingReceiptItem(null);
+                  }}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionLoading || !!singleEditReceiptDuplicate}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center space-x-1.5 disabled:opacity-50"
+                >
+                  {actionLoading ? (
+                    <span>Saving Changes...</span>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Save Changes</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Create New Warehouse Modal */}
+      {isAddWarehouseModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden animate-fadeIn">
+            <div className="p-5 bg-gradient-to-r from-slate-900 to-slate-800 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-red-600/30 border border-red-500/40 flex items-center justify-center">
+                  <Warehouse className="w-4 h-4 text-red-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black">Register New China Warehouse</h3>
+                  <p className="text-[11px] text-slate-400">Add an operational receiving facility on the fly</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddWarehouseModalOpen(false)}
+                className="text-slate-400 hover:text-white transition p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateWarehouse} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
+                  Warehouse Name*
+                </label>
+                <input
+                  type="text"
+                  value={newWarehouseName}
+                  onChange={(e) => setNewWarehouseName(e.target.value)}
+                  placeholder="e.g. Qingdao Warehouse or Shantou Logistics Hub"
+                  required
+                  className="w-full px-3 py-2 text-sm font-semibold rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-500"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Must be unique. Will automatically appear across all receiving and planning menus.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
+                    City / Province
+                  </label>
+                  <input
+                    type="text"
+                    value={newWarehouseCity}
+                    onChange={(e) => setNewWarehouseCity(e.target.value)}
+                    placeholder="e.g. Qingdao, Shandong"
+                    className="w-full px-3 py-2 text-xs font-medium rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
+                    Warehouse Code
+                  </label>
+                  <input
+                    type="text"
+                    value={newWarehouseCode}
+                    onChange={(e) => setNewWarehouseCode(e.target.value.toUpperCase())}
+                    placeholder="e.g. QD-01"
+                    className="w-full px-3 py-2 font-mono text-xs font-bold uppercase rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-500"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-slate-100 flex items-center justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setIsAddWarehouseModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isCreatingWarehouse || !newWarehouseName.trim()}
+                  className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center space-x-1.5 disabled:opacity-50"
+                >
+                  {isCreatingWarehouse ? (
+                    <span>Registering...</span>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4" />
+                      <span>Create Warehouse</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit China Warehouse Modal */}
+      {isEditWarehouseOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden animate-fadeIn">
+            <div className="p-5 bg-gradient-to-r from-blue-900 to-indigo-900 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-blue-600/30 border border-blue-500/40 flex items-center justify-center">
+                  <Pencil className="w-4 h-4 text-blue-300" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black">Edit China Warehouse</h3>
+                  <p className="text-[11px] text-blue-200">Rename warehouse and update facility details</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditWarehouseOpen(false)}
+                className="text-white/80 hover:text-white transition p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleEditWarehouseSubmit} className="p-6 space-y-4">
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 leading-relaxed">
+                ℹ️ <strong>Database Synchronization:</strong> Renaming this warehouse will automatically update all receipts, container plans, and shipments currently mapped to <span className="font-bold">{editWarehouseOldName}</span> database-wide.
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
+                  Warehouse Name *
+                </label>
+                <input
+                  type="text"
+                  value={editWarehouseNewName}
+                  onChange={(e) => setEditWarehouseNewName(e.target.value)}
+                  placeholder="e.g. Qingdao Logistics Hub"
+                  required
+                  className="w-full px-3 py-2 text-sm font-bold rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
+                    City / Province
+                  </label>
+                  <input
+                    type="text"
+                    value={editWarehouseCity}
+                    onChange={(e) => setEditWarehouseCity(e.target.value)}
+                    placeholder="e.g. Qingdao, Shandong"
+                    className="w-full px-3 py-2 text-xs font-medium rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
+                    Warehouse Code
+                  </label>
+                  <input
+                    type="text"
+                    value={editWarehouseCode}
+                    onChange={(e) => setEditWarehouseCode(e.target.value.toUpperCase())}
+                    placeholder="e.g. QD-01"
+                    className="w-full px-3 py-2 font-mono text-xs font-bold uppercase rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => handleDeleteWarehouse(editWarehouseOldName)}
+                  disabled={isSubmittingEditWarehouse}
+                  className="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold rounded-xl border border-red-200 transition flex items-center space-x-1.5"
+                  title={`Delete warehouse '${editWarehouseOldName}' (only if zero data is mapped)`}
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                  <span>Delete Warehouse</span>
+                </button>
+                <div className="flex items-center space-x-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsEditWarehouseOpen(false)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingEditWarehouse || !editWarehouseNewName.trim()}
+                    className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition disabled:opacity-50 flex items-center space-x-1.5"
+                  >
+                    {isSubmittingEditWarehouse ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Updating...</span>
+                      </>
+                    ) : (
+                      <span>Save Changes</span>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: MANUAL GOODS RECEIVED IN WAREHOUSE (DIRECT ENTRY, NO EXCEL) ── */}
+      {isReceiveModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full overflow-hidden border border-slate-200">
+            <div className="p-6 bg-gradient-to-r from-emerald-700 to-teal-800 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 bg-white/20 rounded-xl text-white">
+                  <Package className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black tracking-tight text-white">
+                    Manual Goods Received Entry
+                  </h3>
+                  <span className="text-xs text-emerald-100 font-medium">
+                    Direct warehouse stock entry (No Excel file upload required)
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsReceiveModalOpen(false)}
+                className="text-white/80 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleReceiveGoodsSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Receipt Number */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Receipt # / Inward Bill *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. RCP-2026-001 or YIWU-8821"
+                    value={receiveReceipt}
+                    onChange={(e) => setReceiveReceipt(e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-mono font-bold rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white text-slate-900"
+                  />
+                  {receiveReceiptDuplicate && (
+                    <div className="mt-1.5 p-2 bg-red-50 border border-red-200 rounded-xl flex items-start space-x-1.5 text-red-700 text-xs">
+                      <AlertCircle className="w-3.5 h-3.5 text-red-600 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-bold">Duplicate Receipt Error:</span> Receipt #{receiveReceipt.trim()} already exists in {receiveWarehouse}. Every warehouse must have strictly unique receipt numbers.
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Warehouse */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center space-x-1">
+                      <span>Origin China Warehouse</span>
+                      <span className="text-red-600 font-bold text-[10px]">* Mandatory</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWarehouseModalContext('receive');
+                        setIsAddWarehouseModalOpen(true);
+                      }}
+                      className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 flex items-center space-x-0.5"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>+ New Warehouse</span>
+                    </button>
+                  </div>
+                  <select
+                    value={receiveWarehouse}
+                    onChange={(e) => setReceiveWarehouse(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white text-slate-900"
+                  >
+                    {availableWarehouses.filter((w) => w !== 'ALL').length === 0 ? (
+                      <option value="" disabled>
+                        No warehouses created yet — Click '+ New Warehouse' above
+                      </option>
+                    ) : (
+                      <>
+                        <option value="" disabled>
+                          -- Select China Warehouse --
+                        </option>
+                        {availableWarehouses
+                          .filter((w) => w !== 'ALL')
+                          .map((w) => (
+                            <option key={w} value={w}>
+                              {w}
+                            </option>
+                          ))}
+                      </>
+                    )}
+                  </select>
+                </div>
+
+                {availableWarehouses.filter((w) => w !== 'ALL').length === 0 && (
+                  <div className="p-3 bg-amber-50 border border-amber-300 rounded-2xl flex items-start space-x-2 text-amber-900 text-xs md:col-span-2">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <span className="font-bold">No Warehouse Found:</span> You cannot enter received goods until at least one China warehouse is created.
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setWarehouseModalContext('receive');
+                          setIsAddWarehouseModalOpen(true);
+                        }}
+                        className="block mt-1 font-bold text-emerald-800 underline"
+                      >
+                        Click here to create a China warehouse now
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Shipper / Party */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Party / Shipper / Supplier
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Yiwu Trade Co. or General Shipper"
+                    value={receiveParty}
+                    onChange={(e) => setReceiveParty(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white text-slate-900"
+                  />
+                </div>
+
+                {/* Warehouse Entry Number */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Warehouse Entry Record #
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. ENT-0091"
+                    value={receiveWarehouseEntry}
+                    onChange={(e) => setReceiveWarehouseEntry(e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white text-slate-900"
+                  />
+                </div>
+
+                {/* Received Date */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Date Received *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={receiveDate}
+                    onChange={(e) => setReceiveDate(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white text-slate-900"
+                  />
+                </div>
+
+                {/* Total Quantity */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Total Quantity (Cartons / Packages) *
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    placeholder="e.g. 50"
+                    value={receiveQuantity}
+                    onChange={(e) => setReceiveQuantity(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                    className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white text-slate-900"
+                  />
+                </div>
+
+                {/* Packaging Type */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Packaging Type
+                  </label>
+                  <select
+                    value={receivePackaging}
+                    onChange={(e) => setReceivePackaging(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white text-slate-900"
+                  >
+                    <option value="Carton">Carton (箱)</option>
+                    <option value="Wooden Box">Wooden Box (木箱)</option>
+                    <option value="Pallet">Pallet (托盘)</option>
+                    <option value="Bag">Bag (袋)</option>
+                    <option value="Roll">Roll (卷)</option>
+                    <option value="Bundle">Bundle (捆)</option>
+                    <option value="Drum">Drum (桶)</option>
+                  </select>
+                </div>
+
+                {/* Gross Weight */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Gross Weight
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 450 KG"
+                    value={receiveWeight}
+                    onChange={(e) => setReceiveWeight(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white text-slate-900"
+                  />
+                </div>
+
+                {/* Volume (CBM) */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Total Volume (CBM)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 2.45 CBM"
+                    value={receiveVolume}
+                    onChange={(e) => setReceiveVolume(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white text-slate-900"
+                  />
+                </div>
+
+                {/* Commodity Description */}
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Commodity Description (Supports Chinese / Auto-Translate)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 塑料玩具 / Plastic Toys / Hardware"
+                    value={receiveCommodity}
+                    onChange={(e) => setReceiveCommodity(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white text-slate-900"
+                  />
+                  {liveTranslation.english && liveTranslation.english !== receiveCommodity && (
+                    <p className="text-[11px] text-emerald-700 font-semibold mt-1">
+                      Translation preview: {liveTranslation.english} {liveTranslation.chinese ? `(${liveTranslation.chinese})` : ''}
+                    </p>
+                  )}
+                </div>
+
+                {/* Main Marka */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    ★ Main Marka
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. USI/MUM"
+                    value={receiveMainMark}
+                    onChange={(e) => setReceiveMainMark(e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white text-slate-900"
+                  />
+                </div>
+
+                {/* Sub Marka */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    ◆ Sub Marka
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 01/50"
+                    value={receiveSubMark}
+                    onChange={(e) => setReceiveSubMark(e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white text-slate-900"
+                  />
+                </div>
+
+                {/* Notes / Remarks */}
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Warehouse Remarks / Notes
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="Optional handling notes, batch numbers, or supplier contacts..."
+                    value={receiveNotes}
+                    onChange={(e) => setReceiveNotes(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white text-slate-900"
+                  />
+                </div>
+
+                {/* Direct Container / Loading Plan Allocation */}
+                <div className="md:col-span-2 p-4 bg-emerald-50/60 border border-emerald-200 rounded-2xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center space-x-2.5 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={receiveAssignToPlan}
+                        onChange={(e) => setReceiveAssignToPlan(e.target.checked)}
+                        className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer accent-emerald-600"
+                      />
+                      <span className="text-xs font-bold text-slate-900">
+                        Directly Load into Container / Loading Plan
+                      </span>
+                    </label>
+                    {receiveAssignToPlan && (
+                      <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-emerald-600 text-white shadow-sm">
+                        Internal Container Mandatory
+                      </span>
+                    )}
+                  </div>
+
+                  {receiveAssignToPlan && (
+                    <div className="pt-2 border-t border-emerald-200/60 animate-fadeIn space-y-1.5">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-emerald-950 flex items-center justify-between">
+                        <span>Loading Plan Number (Internal Container Number)</span>
+                        <span className="text-red-600 font-bold text-[10px]">* Mandatory</span>
+                      </label>
+                      <input
+                        type="text"
+                        list="manual-plans-list"
+                        required={receiveAssignToPlan}
+                        placeholder="Select or type internal plan (e.g. USI-01, PLAN-01)"
+                        value={receiveLoadingPlan}
+                        onChange={(e) => setReceiveLoadingPlan(e.target.value.toUpperCase())}
+                        className="w-full px-3 py-2 text-xs font-mono font-bold uppercase rounded-xl border border-emerald-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                      <datalist id="manual-plans-list">
+                        {loadingPlans.map((p) => (
+                          <option key={p.container} value={p.container}>
+                            {p.container} {p.containerNumber ? `(${p.containerNumber})` : ''} - {p.warehouse || 'China Warehouse'}
+                          </option>
+                        ))}
+                      </datalist>
+                      <p className="text-[11px] text-emerald-800">
+                        Mandatory rule: Providing the Internal Container Number is mandatory when allocating directly to a loading plan.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-slate-200 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsReceiveModalOpen(false);
+                    setReceiveAssignToPlan(false);
+                    setReceiveLoadingPlan('');
+                  }}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    isReceivingGoods ||
+                    availableWarehouses.filter((w) => w !== 'ALL').length === 0 ||
+                    !receiveWarehouse.trim() ||
+                    receiveWarehouse === 'ALL' ||
+                    !!receiveReceiptDuplicate ||
+                    !receiveReceipt.trim() ||
+                    (receiveAssignToPlan && !receiveLoadingPlan.trim())
+                  }
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center space-x-1.5 disabled:opacity-50"
+                >
+                  {isReceivingGoods ? (
+                    <span>Saving Inward Goods...</span>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4" />
+                      <span>{receiveAssignToPlan ? 'Record & Load into Plan' : 'Record Inward Stock'}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: ALTER / RENAME CONTAINER DATABASE-WIDE ── */}
+      {isAlterContainerOpen && containerToAlter && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-xl w-full overflow-hidden border border-slate-200">
+            <div className="p-6 bg-gradient-to-r from-blue-700 to-indigo-800 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 bg-white/20 rounded-xl text-white">
+                  <Pencil className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black tracking-tight text-white">
+                    Alter / Rename Container Database-Wide
+                  </h3>
+                  <span className="text-xs text-blue-100 font-medium">
+                    Propagate alias, carrier, or actual container changes across all collections
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAlterContainerOpen(false)}
+                className="text-white/80 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAlterContainerSubmit} className="p-6 space-y-4">
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 leading-relaxed">
+                ℹ️ <strong>Database Synchronization Rule:</strong> If you rename the container identifier (e.g. from <span className="font-mono font-bold">{containerToAlter.container}</span> to another name) or update the actual carrier container number, the system will automatically update the Container fleet master and <strong>all matching shipment manifest items</strong> in the database.
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Internal Container Alias */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Internal Container Alias *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. USSI-01, USI-02"
+                    value={alterContainerAlias}
+                    onChange={(e) => setAlterContainerAlias(e.target.value.toUpperCase())}
+                    className="w-full px-3 py-2 text-xs font-mono font-bold rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 focus:bg-white text-slate-900 uppercase"
+                  />
+                  <span className="text-[10px] text-slate-400">Originally: {containerToAlter.container}</span>
+                </div>
+
+                {/* Actual Carrier Container Number */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Actual Carrier Container No
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. MSCU1234567"
+                    value={alterActualNumber}
+                    onChange={(e) => setAlterActualNumber(e.target.value.toUpperCase())}
+                    className="w-full px-3 py-2 text-xs font-mono font-bold rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 focus:bg-white text-slate-900 uppercase"
+                  />
+                  <span className="text-[10px] text-slate-400">Carrier tracking number</span>
+                </div>
+
+                {/* Carrier Line */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Shipping Carrier
+                  </label>
+                  <select
+                    value={alterShippingLine}
+                    onChange={(e) => setAlterShippingLine(e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 focus:bg-white text-slate-900"
+                  >
+                    {SHIPPING_CARRIERS.map((sc) => (
+                      <option key={sc} value={sc}>
+                        {sc}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Warehouse */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      Loading Warehouse
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWarehouseModalContext('alter');
+                        setIsAddWarehouseModalOpen(true);
+                      }}
+                      className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center space-x-0.5"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>+ New</span>
+                    </button>
+                  </div>
+                  <select
+                    value={alterWarehouse}
+                    onChange={(e) => setAlterWarehouse(e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 focus:bg-white text-slate-900"
+                  >
+                    {availableWarehouses.filter((w) => w !== 'ALL').length === 0 ? (
+                      <option value="" disabled>
+                        No warehouses created yet — Click '+ New' above
+                      </option>
+                    ) : (
+                      availableWarehouses
+                        .filter((w) => w !== 'ALL')
+                        .map((w) => (
+                          <option key={w} value={w}>
+                            {w}
+                          </option>
+                        ))
+                    )}
+                  </select>
+                </div>
+
+                {/* Loading Date */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Loading Date
+                  </label>
+                  <input
+                    type="date"
+                    value={alterLoadingDate}
+                    onChange={(e) => setAlterLoadingDate(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 focus:bg-white text-slate-900"
+                  />
+                </div>
+
+                {/* Destination */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Destination Port
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Nhava Sheva / Mundra, India"
+                    value={alterShippedTo}
+                    onChange={(e) => setAlterShippedTo(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 focus:bg-white text-slate-900"
+                  />
+                </div>
+              </div>
+
+              {/* Auto Sync Checkbox */}
+              {alterActualNumber.trim() && (
+                <div className="pt-2">
+                  <label className="flex items-center space-x-2 text-xs font-bold text-slate-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={alterAutoSync}
+                      onChange={(e) => setAlterAutoSync(e.target.checked)}
+                      className="w-4 h-4 rounded text-blue-600 accent-blue-600"
+                    />
+                    <span>Automatically call Carrier API to fetch live ETA & tracking</span>
+                  </label>
+                </div>
+              )}
+
+              <div className="pt-4 border-t border-slate-200 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setIsAlterContainerOpen(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingAlter}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center space-x-1.5 disabled:opacity-50"
+                >
+                  {isSubmittingAlter ? (
+                    <span>Updating Database...</span>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Update Container Across Database</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: CONTAINER-WISE CARGO LOADING (CONTAINER-WISE PLANNING ONLY) ── */}
+      {isContainerWiseLoadOpen && containerWisePlan && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-xl w-full overflow-hidden border border-slate-200">
+            <div className="p-6 bg-gradient-to-r from-emerald-800 to-teal-900 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 bg-white/20 rounded-xl text-white">
+                  <Boxes className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black tracking-tight text-white font-mono">
+                    Load Cargo into {containerWisePlan.container}
+                  </h3>
+                  <span className="text-xs text-emerald-100 font-medium">
+                    Container-Wise Planning: Direct allocation from received China warehouse stock
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsContainerWiseLoadOpen(false)}
+                className="text-white/80 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleContainerWiseLoadSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+              {/* Container Summary Banner */}
+              <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div>
+                  <span className="text-slate-500 font-medium">Target Container: </span>
+                  <strong className="text-emerald-950 font-black font-mono text-sm">{containerWisePlan.container}</strong>
+                  {containerWisePlan.containerNumber && (
+                    <span className="text-slate-600 ml-1.5 font-mono">({containerWisePlan.containerNumber})</span>
+                  )}
+                </div>
+                <div>
+                  <span className="text-slate-500 font-medium">Origin Warehouse: </span>
+                  <strong className="text-slate-800">{containerWisePlan.warehouse || 'China Warehouse'}</strong>
+                </div>
+                <div className="w-full pt-1 border-t border-emerald-200/60 flex justify-between text-[11px] text-emerald-900">
+                  <span>Currently Loaded: <strong>{containerWisePlan.totalQuantity || 0} CTN</strong> ({containerWisePlan.shipmentCount || 0} items)</span>
+                  <span>Destination: <strong>{containerWisePlan.shippedTo || 'Nhava Sheva / Mundra, India'}</strong></span>
+                </div>
+              </div>
+
+              {availableReceiptsWithStock.length === 0 ? (
+                <div className="p-5 bg-amber-50 border border-amber-200 rounded-2xl text-center space-y-2">
+                  <AlertCircle className="w-8 h-8 text-amber-600 mx-auto" />
+                  <h4 className="text-sm font-bold text-amber-900">No Received Stock Available</h4>
+                  <p className="text-xs text-amber-700 leading-relaxed">
+                    There are currently no warehouse receipts with remaining received stock in China warehouses.
+                    Under system integrity rules, you cannot load any container without first receiving goods.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsContainerWiseLoadOpen(false);
+                      const userWhs = availableWarehouses.filter((w) => w !== 'ALL');
+                      if (userWhs.length === 0) {
+                        alert('No China warehouse found! You cannot enter received goods until at least one China warehouse is created. Please create a warehouse first.');
+                        setWarehouseModalContext('receive');
+                        setIsAddWarehouseModalOpen(true);
+                        return;
+                      }
+                      if (!receiveWarehouse || receiveWarehouse === 'ALL') {
+                        setReceiveWarehouse(userWhs[0]);
+                      }
+                      setIsReceiveModalOpen(true);
+                    }}
+                    className="mt-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition shadow-sm"
+                  >
+                    + Record Received Goods First
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* Select Received Warehouse Stock */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      Select Received Goods from Warehouse Stock *
+                    </label>
+                    <select
+                      value={containerWiseReceiptId}
+                      onChange={(e) => {
+                        const rId = e.target.value;
+                        setContainerWiseReceiptId(rId);
+                        const r = availableReceiptsWithStock.find((x) => (x._id || x.receipt) === rId);
+                        if (r) {
+                          const rem = r.remainingQuantity !== undefined ? r.remainingQuantity : r.quantity - (r.loadedQuantity || 0);
+                          setContainerWiseQuantity(rem > 0 ? rem : '');
+                          setContainerWiseWeight(r.weight || '');
+                          setContainerWiseVolume(r.volume || '');
+                        }
+                      }}
+                      className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-emerald-500"
+                    >
+                      {availableReceiptsWithStock.map((r) => {
+                        const rem = r.remainingQuantity !== undefined ? r.remainingQuantity : r.quantity - (r.loadedQuantity || 0);
+                        return (
+                          <option key={r._id || r.receipt} value={r._id || r.receipt}>
+                            Receipt #{r.receipt} | {r.party || 'General'} | {r.english || r.commodity || 'Goods'} ({rem} CTN available in {r.warehouse})
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  {/* Selected Receipt Stock Card */}
+                  {selectedContainerWiseReceipt && (
+                    <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2 text-xs">
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-500 font-semibold">Receipt Number:</span>
+                        <span className="font-mono font-black text-slate-900 text-sm">#{selectedContainerWiseReceipt.receipt}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-500 font-semibold">Shipper / Party:</span>
+                        <span className="font-bold text-slate-800">{selectedContainerWiseReceipt.party || 'General Party'}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-500 font-semibold">Commodity Description:</span>
+                        <span className="font-bold text-slate-800 truncate max-w-[240px]">
+                          {selectedContainerWiseReceipt.english || selectedContainerWiseReceipt.commodity || 'Goods'}
+                        </span>
+                      </div>
+                      <div className="pt-2 border-t border-slate-200 grid grid-cols-3 gap-2 text-center">
+                        <div className="bg-white p-2 rounded-xl border border-slate-200">
+                          <span className="text-[10px] text-slate-400 font-bold uppercase block">Received</span>
+                          <strong className="text-slate-900 text-xs">{selectedContainerWiseReceipt.quantity} CTN</strong>
+                        </div>
+                        <div className="bg-white p-2 rounded-xl border border-slate-200">
+                          <span className="text-[10px] text-slate-400 font-bold uppercase block">Already Loaded</span>
+                          <strong className="text-slate-600 text-xs">{selectedContainerWiseReceipt.loadedQuantity || 0} CTN</strong>
+                        </div>
+                        <div className="bg-emerald-50 p-2 rounded-xl border border-emerald-200">
+                          <span className="text-[10px] text-emerald-700 font-bold uppercase block">Available Stock</span>
+                          <strong className="text-emerald-700 text-xs">
+                            {selectedContainerWiseReceipt.remainingQuantity !== undefined
+                              ? selectedContainerWiseReceipt.remainingQuantity
+                              : selectedContainerWiseReceipt.quantity - (selectedContainerWiseReceipt.loadedQuantity || 0)} CTN
+                          </strong>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Quantity to Load into this Container */}
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        Quantity to Load into {containerWisePlan.container} (CTN) *
+                      </label>
+                      {selectedContainerWiseReceipt && (
+                        <span className="text-[11px] text-slate-400 font-medium">
+                          Max available: {selectedContainerWiseReceipt.remainingQuantity !== undefined ? selectedContainerWiseReceipt.remainingQuantity : selectedContainerWiseReceipt.quantity} CTN
+                        </span>
+                      )}
+                    </div>
+                    <input
+                      type="number"
+                      min={1}
+                      max={
+                        selectedContainerWiseReceipt
+                          ? selectedContainerWiseReceipt.remainingQuantity !== undefined
+                            ? selectedContainerWiseReceipt.remainingQuantity
+                            : selectedContainerWiseReceipt.quantity
+                          : undefined
+                      }
+                      required
+                      placeholder="e.g. 25"
+                      value={containerWiseQuantity}
+                      onChange={(e) =>
+                        setContainerWiseQuantity(e.target.value === '' ? '' : parseInt(e.target.value, 10))
+                      }
+                      className={`w-full px-3 py-2 text-sm font-black rounded-xl border focus:outline-none focus:ring-2 ${
+                        selectedContainerWiseReceipt &&
+                        Number(containerWiseQuantity) >
+                          (selectedContainerWiseReceipt.remainingQuantity !== undefined
+                            ? selectedContainerWiseReceipt.remainingQuantity
+                            : selectedContainerWiseReceipt.quantity)
+                          ? 'border-red-500 bg-red-50 text-red-900 focus:ring-red-500'
+                          : 'border-slate-300 bg-white text-slate-900 focus:ring-emerald-500'
+                      }`}
+                    />
+                    {selectedContainerWiseReceipt &&
+                      Number(containerWiseQuantity) >
+                        (selectedContainerWiseReceipt.remainingQuantity !== undefined
+                          ? selectedContainerWiseReceipt.remainingQuantity
+                          : selectedContainerWiseReceipt.quantity) && (
+                        <p className="text-[11px] text-red-600 font-bold mt-1">
+                          ⚠️ Strict Rule: You cannot load more goods than received in China warehouse.
+                        </p>
+                      )}
+                  </div>
+
+                  {/* Weight and Volume */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                        Gross Weight (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 250 KG"
+                        value={containerWiseWeight}
+                        onChange={(e) => setContainerWiseWeight(e.target.value)}
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white text-slate-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                        Volume CBM (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 1.25 CBM"
+                        value={containerWiseVolume}
+                        onChange={(e) => setContainerWiseVolume(e.target.value)}
+                        className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white text-slate-900"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Modal Footer */}
+                  <div className="pt-4 border-t border-slate-200 flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setIsContainerWiseLoadOpen(false)}
+                      className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={
+                        isContainerWiseLoading ||
+                        !containerWiseQuantity ||
+                        (selectedContainerWiseReceipt &&
+                          Number(containerWiseQuantity) >
+                            (selectedContainerWiseReceipt.remainingQuantity !== undefined
+                              ? selectedContainerWiseReceipt.remainingQuantity
+                              : selectedContainerWiseReceipt.quantity))
+                      }
+                      className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center space-x-1.5 disabled:opacity-50"
+                    >
+                      {isContainerWiseLoading ? (
+                        <span>Allocating to Container...</span>
+                      ) : (
+                        <>
+                          <Boxes className="w-4 h-4" />
+                          <span>Load into {containerWisePlan.container}</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </>
+              )}
+            </form>
           </div>
         </div>
       )}

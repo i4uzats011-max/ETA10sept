@@ -14,6 +14,9 @@ export default function MarkDeliveredModal() {
 
   const [deliveryDate, setDeliveryDate] = useState('');
   const [turnaroundDays, setTurnaroundDays] = useState<number | null>(null);
+  const [containerShipments, setContainerShipments] = useState<any[]>([]);
+  const [excludedReceipts, setExcludedReceipts] = useState<Set<string>>(new Set());
+  const [loadingItems, setLoadingItems] = useState(false);
 
   useEffect(() => {
     if (activeContainerForDelivery) {
@@ -22,6 +25,27 @@ export default function MarkDeliveredModal() {
       } else {
         setDeliveryDate(new Date().toISOString().slice(0, 10));
       }
+
+      setLoadingItems(true);
+      setExcludedReceipts(new Set());
+      fetch('/api/loading-plan')
+        .then((res) => res.json())
+        .then((data) => {
+          if (data?.plans) {
+            const plan = data.plans.find(
+              (p: any) =>
+                p.container?.toLowerCase() === activeContainerForDelivery.container?.toLowerCase() ||
+                (p.containerNumber && p.containerNumber?.toLowerCase() === activeContainerForDelivery.containerNumber?.toLowerCase())
+            );
+            if (plan?.items) {
+              setContainerShipments(plan.items);
+            } else {
+              setContainerShipments([]);
+            }
+          }
+        })
+        .catch(() => setContainerShipments([]))
+        .finally(() => setLoadingItems(false));
     }
   }, [activeContainerForDelivery]);
 
@@ -46,13 +70,17 @@ export default function MarkDeliveredModal() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!deliveryDate) return;
+    if (!deliveryDate) {
+      alert('Delivery Date is strictly mandatory.');
+      return;
+    }
 
     dispatch(
       markContainerDelivered({
         container: activeContainerForDelivery.container,
         deliveryDate,
         isDelivered: true,
+        excludedReceipts: Array.from(excludedReceipts),
       })
     );
   };
@@ -126,17 +154,111 @@ export default function MarkDeliveredModal() {
             </div>
           </div>
 
+          {/* Cargo Manifest Checklist (Partial Delivery Exclusion) */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                Cargo Receipts in Container ({containerShipments.length})
+              </label>
+              <div className="space-x-2 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => setExcludedReceipts(new Set())}
+                  className="font-bold text-emerald-600 hover:text-emerald-700 underline"
+                >
+                  Select All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const allR = containerShipments.map((i) => String(i.receipt).trim().toLowerCase());
+                    setExcludedReceipts(new Set(allR));
+                  }}
+                  className="font-bold text-slate-500 hover:text-slate-700 underline"
+                >
+                  Exclude All
+                </button>
+              </div>
+            </div>
+
+            <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-2xl p-2 space-y-1 bg-slate-50">
+              {loadingItems ? (
+                <p className="text-xs text-slate-400 p-2 italic text-center">Loading container items...</p>
+              ) : containerShipments.length === 0 ? (
+                <p className="text-xs text-slate-400 p-2 italic text-center">No individual cargo items found in loading plan.</p>
+              ) : (
+                containerShipments.map((item, idx) => {
+                  const recKey = String(item.receipt || '').trim().toLowerCase();
+                  const isExcluded = excludedReceipts.has(recKey);
+                  return (
+                    <div
+                      key={item._id || `${item.receipt}-${idx}`}
+                      onClick={() => {
+                        setExcludedReceipts((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(recKey)) next.delete(recKey);
+                          else next.add(recKey);
+                          return next;
+                        });
+                      }}
+                      className={`flex items-center justify-between p-2 rounded-xl text-xs cursor-pointer transition border ${
+                        isExcluded
+                          ? 'bg-rose-50 border-rose-200 text-rose-800'
+                          : 'bg-white border-slate-200 text-slate-800 hover:border-emerald-300'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-2.5">
+                        <input
+                          type="checkbox"
+                          checked={!isExcluded}
+                          onChange={() => {}}
+                          className="w-4 h-4 rounded text-emerald-600 accent-emerald-600 cursor-pointer"
+                        />
+                        <div>
+                          <span className="font-mono font-bold">{item.receipt}</span>
+                          {item.commodity && (
+                            <span className="ml-2 text-[11px] text-slate-500 truncate max-w-[120px] inline-block align-bottom">
+                              ({item.commodity})
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-bold text-slate-900">{item.quantity} CTN</span>
+                        {isExcluded ? (
+                          <span className="ml-2 text-[10px] font-bold uppercase bg-rose-200 text-rose-800 px-1.5 py-0.5 rounded">
+                            Excluded
+                          </span>
+                        ) : (
+                          <span className="ml-2 text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded">
+                            Delivering
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+            <p className="text-[11px] text-slate-400">
+              Uncheck any receipt if only part of the container was delivered. Excluded receipts will remain in transit.
+            </p>
+          </div>
+
           {/* Date Picker Input */}
           <div className="space-y-1.5">
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center space-x-1.5">
-              <Calendar className="w-4 h-4 text-emerald-600" />
-              <span>Actual Container Delivery Date *</span>
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center justify-between">
+              <span className="flex items-center space-x-1.5">
+                <Calendar className="w-4 h-4 text-emerald-600" />
+                <span>Actual Container Delivery Date</span>
+              </span>
+              <span className="text-emerald-700 font-bold text-[10px]">* Mandatory</span>
             </label>
             <input
               type="date"
               value={deliveryDate}
               onChange={(e) => setDeliveryDate(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl border border-slate-300 font-mono font-bold text-slate-900 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+              className="w-full px-4 py-3 rounded-xl border border-emerald-300 font-mono font-bold text-slate-900 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
               required
             />
             <p className="text-[11px] text-slate-400">

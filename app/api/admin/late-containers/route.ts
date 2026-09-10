@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import Shipment from "@/models/Shipment";
 import { isStaffOrAdminAuthenticated } from "@/lib/auth";
-import { shouldSyncContainer } from "@/lib/jsoncargo";
+import { shouldSyncContainer, getRequiredSyncIntervalDays } from "@/lib/jsoncargo";
 import { calculateDaysToDeliver, parseReceiptDate } from "@/lib/dateUtils";
 
 export const dynamic = "force-dynamic";
@@ -63,6 +63,7 @@ export async function GET(req: NextRequest) {
           containerNumber: s.containerNumber,
           shippingLine: s.shippingLine,
           eta: s.eta,
+          rawEta: s.rawEta,
           status: s.status,
           lastApiSync: s.lastApiSync,
           receipts: [],
@@ -74,21 +75,19 @@ export async function GET(req: NextRequest) {
     const needsSyncContainers: any[] = [];
     Object.values(containerGroups).forEach((group: any) => {
       const lastSyncDate = group.lastApiSync ? new Date(group.lastApiSync) : null;
-      if (!shouldSyncContainer(lastSyncDate, group.eta, now)) return;
-      const etaDate = group.eta && group.eta !== "N/A" ? new Date(group.eta) : null;
+      if (!shouldSyncContainer(lastSyncDate, group.eta, now, group.status, group.rawEta)) return;
+
+      // Calculate days to ETA based on actual carrier ETA (rawEta preferred over buffered ETA)
+      const etaStringToUse = group.rawEta || group.eta;
+      const etaDate = etaStringToUse && etaStringToUse !== "N/A" ? new Date(etaStringToUse) : null;
       const daysUntilEta = etaDate && !isNaN(etaDate.getTime()) ? Math.ceil((etaDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)) : null;
-      let requiredIntervalDays = 10;
-      if (daysUntilEta !== null) {
-        if (daysUntilEta >= 1 && daysUntilEta <= 5) requiredIntervalDays = 1;
-        else if (daysUntilEta > 5 && daysUntilEta <= 11) requiredIntervalDays = 2;
-        else if (daysUntilEta > 11 && daysUntilEta <= 17) requiredIntervalDays = 5;
-        else if (daysUntilEta > 17 && daysUntilEta <= 25) requiredIntervalDays = 7;
-        else requiredIntervalDays = 10;
-      }
+      const requiredIntervalDays = getRequiredSyncIntervalDays(daysUntilEta);
+
       needsSyncContainers.push({
         containerNumber: group.containerNumber,
         shippingLine: group.shippingLine,
         eta: group.eta,
+        rawEta: group.rawEta,
         status: group.status,
         lastApiSync: group.lastApiSync,
         receipts: group.receipts,
@@ -111,11 +110,11 @@ export async function GET(req: NextRequest) {
       needsSyncContainers,
       needsSyncCount: needsSyncContainers.length,
       syncSchedule: [
-        { range: "1–5 days to ETA", intervalDays: 1, label: "Update Daily" },
-        { range: "5–11 days to ETA", intervalDays: 2, label: "Every 2 Days" },
-        { range: "11–17 days to ETA", intervalDays: 5, label: "Every 5 Days" },
-        { range: "17–25 days to ETA", intervalDays: 7, label: "Every 7 Days" },
-        { range: "25+ days to ETA", intervalDays: 10, label: "Every 10 Days" },
+        { range: "1–7 days to ETA", intervalDays: 1, label: "Update Daily" },
+        { range: "8–12 days to ETA", intervalDays: 2, label: "Every 2 Days" },
+        { range: "13–20 days to ETA", intervalDays: 5, label: "Every 5 Days" },
+        { range: "21–30 days to ETA", intervalDays: 7, label: "Every 7 Days" },
+        { range: "30+ days to ETA", intervalDays: 10, label: "Every 10 Days" },
       ],
     });
   } catch (err: any) {

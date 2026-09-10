@@ -3,6 +3,7 @@ import { connectToDatabase } from '@/lib/mongodb';
 import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
+import Warehouse from '@/models/Warehouse';
 import { isSuperAdminAuthenticated } from '@/lib/auth';
 import * as XLSX from 'xlsx';
 import { parse } from 'csv-parse/sync';
@@ -29,7 +30,10 @@ export async function POST(req: NextRequest) {
     const customSheetName = (formData.get('sheet') as string | null)?.trim();
     const mappingStr = formData.get('mapping') as string | null;
     const importMode = (formData.get('mode') as string | null) || 'append';
-    const defaultWarehouse = (formData.get('warehouse') as string | null)?.trim() || 'China Warehouse';
+    const defaultWarehouseParam = (formData.get('warehouse') as string | null)?.trim() || '';
+    const confirmSplit = (formData.get('confirmSplit') as string | null) === 'true';
+    const targetContainer = ((formData.get('targetContainer') as string | null) || '').trim().toUpperCase();
+    const uploadType = ((formData.get('uploadType') as string | null) || 'stock').trim().toLowerCase();
 
     let userMapping: Record<string, string> = {};
     if (mappingStr) {
@@ -187,10 +191,49 @@ export async function POST(req: NextRequest) {
 
     await connectToDatabase();
 
+    if (!defaultWarehouseParam || defaultWarehouseParam === 'ALL') {
+      return NextResponse.json(
+        { error: 'Selecting a valid China Warehouse is strictly mandatory while uploading. Please select or create a warehouse first.' },
+        { status: 400 }
+      );
+    }
+
+    const totalWarehouses = await Warehouse.countDocuments();
+    if (totalWarehouses === 0) {
+      return NextResponse.json(
+        { error: 'No warehouse found in system. You cannot upload received goods or loading plans until at least one China warehouse is created. Please create a warehouse first.' },
+        { status: 400 }
+      );
+    }
+
+    const defaultWarehouse = translateWarehouse(defaultWarehouseParam);
+
+    const whDoc = await Warehouse.findOne({
+      name: new RegExp(`^${defaultWarehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+    });
+    if (!whDoc) {
+      return NextResponse.json(
+        { error: `Warehouse '${defaultWarehouse}' does not exist in the system. Please create the warehouse first.` },
+        { status: 400 }
+      );
+    }
+
+    const isPlanUpload = uploadType === 'plan' || Boolean(targetContainer);
+
+    // If uploading a loading plan, internal container selection is mandatory
+    if (uploadType === 'plan' && !targetContainer && !containerHeader) {
+      return NextResponse.json(
+        {
+          error: 'Internal Loading Plan / Container Number is mandatory to upload a loading plan. Please select or enter an internal container number.',
+        },
+        { status: 400 }
+      );
+    }
+
     // -----------------------------------------------------------------------------------
-    // MODE A: CHINA WAREHOUSE INWARD STOCK UPLOAD (No Container Column in File)
+    // MODE A: CHINA WAREHOUSE INWARD STOCK UPLOAD (No Container Column and not uploading as a plan)
     // -----------------------------------------------------------------------------------
-    if (!containerHeader) {
+    if (!containerHeader && !isPlanUpload) {
       if (!receiptHeader && !commodityHeader && !mainMarkHeader && !quantityHeader) {
         return NextResponse.json(
           {
@@ -199,6 +242,65 @@ export async function POST(req: NextRequest) {
           },
           { status: 400 }
         );
+      }
+
+      // ── DUPLICATE RECEIPT VALIDATION ──
+      // 1. Check for duplicates within the uploaded file
+      const seenInFile = new Set<string>();
+      const duplicatesInFile: string[] = [];
+      for (let i = 0; i < records.length; i++) {
+        const row = records[i];
+        const rVal = receiptHeader && row[receiptHeader] !== undefined ? String(row[receiptHeader]).trim() : '';
+        const whVal = warehouseHeader && row[warehouseHeader] !== undefined ? String(row[warehouseHeader]).trim() : defaultWarehouse;
+        const fWh = translateWarehouse(whVal);
+        if (rVal) {
+          const key = `${rVal.toLowerCase()}___${fWh.toLowerCase()}`;
+          if (seenInFile.has(key)) {
+            duplicatesInFile.push(`Receipt #${rVal} in ${fWh} (Row ${i + 2})`);
+          } else {
+            seenInFile.add(key);
+          }
+        }
+      }
+      if (duplicatesInFile.length > 0) {
+        return NextResponse.json(
+          {
+            error: `Duplicate Receipt Error in File: Found ${duplicatesInFile.length} duplicate receipt(s) within the uploaded file:\n${duplicatesInFile.slice(0, 10).join('\n')}${duplicatesInFile.length > 10 ? `\n...and ${duplicatesInFile.length - 10} more` : ''}\n\nEvery warehouse must have strictly unique receipt numbers. Please fix the duplicate receipts in your file and re-upload.`,
+            isDuplicate: true,
+            duplicates: duplicatesInFile,
+          },
+          { status: 400 }
+        );
+      }
+
+      // 2. Check for collisions against existing records in Database for the same warehouse
+      const pairsToCheck: { receipt: RegExp; warehouse: RegExp }[] = [];
+      for (let i = 0; i < records.length; i++) {
+        const row = records[i];
+        const rVal = receiptHeader && row[receiptHeader] !== undefined ? String(row[receiptHeader]).trim() : '';
+        const whVal = warehouseHeader && row[warehouseHeader] !== undefined ? String(row[warehouseHeader]).trim() : defaultWarehouse;
+        const fWh = translateWarehouse(whVal);
+        if (rVal) {
+          pairsToCheck.push({
+            receipt: new RegExp(`^${rVal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+            warehouse: new RegExp(`^${fWh.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+          });
+        }
+      }
+
+      if (pairsToCheck.length > 0) {
+        const existingInDb = await WarehouseReceipt.find({ $or: pairsToCheck }).select('receipt warehouse').lean();
+        if (existingInDb.length > 0) {
+          const duplicateList = existingInDb.map((d: any) => `Receipt #${d.receipt} in ${d.warehouse}`);
+          return NextResponse.json(
+            {
+              error: `Duplicate Receipt Error: ${existingInDb.length} receipt(s) in this file already exist in China warehouse stock:\n${duplicateList.slice(0, 10).join('\n')}${duplicateList.length > 10 ? `\n...and ${duplicateList.length - 10} more` : ''}\n\nEvery warehouse must have strictly unique receipt numbers. Duplicate entries are rejected.`,
+              isDuplicate: true,
+              duplicates: duplicateList,
+            },
+            { status: 400 }
+          );
+        }
       }
 
       const whBulkOps = [];
@@ -251,11 +353,16 @@ export async function POST(req: NextRequest) {
           uploadedAt: new Date(),
         };
 
+        // Auto-register warehouse in Warehouse model if newly discovered
+        Warehouse.findOneAndUpdate(
+          { name: finalWarehouse },
+          { $setOnInsert: { name: finalWarehouse, createdAt: new Date() } },
+          { upsert: true }
+        ).catch(() => {});
+
         whBulkOps.push({
-          updateOne: {
-            filter: { receipt: receiptVal },
-            update: { $set: receiptDoc },
-            upsert: true,
+          insertOne: {
+            document: receiptDoc,
           },
         });
       }
@@ -311,11 +418,165 @@ export async function POST(req: NextRequest) {
       }
     });
 
+    // Ensure targetContainer exists in Container collection if specified
+    if (targetContainer) {
+      await Container.findOneAndUpdate(
+        { container: targetContainer },
+        {
+          $setOnInsert: {
+            container: targetContainer,
+            planNumber: targetContainer,
+            containerNumber: '',
+            shippingLine: 'MSC',
+            warehouse: defaultWarehouse,
+            planStatus: 'Planning',
+            isFinalized: false,
+            shippedFrom: `${defaultWarehouse}, China`,
+            shippedTo: 'Nhava Sheva / Mundra, India',
+            currentLocation: `Planned at ${defaultWarehouse}`,
+            status: 'Planning',
+            eta: 'Pending',
+            destinationDate: 'N/A',
+            totalQuantity: 0,
+            shipmentCount: 0,
+          },
+        },
+        { upsert: true }
+      );
+    }
+
+    // 1. Gather all requested receipts & sum quantities in uploaded file
+    const fileQtyByReceipt = new Map<string, number>();
+    const fileReceiptRows = new Map<string, number[]>();
+
+    for (let index = 0; index < records.length; index++) {
+      const row = records[index];
+      let containerVal = containerHeader && row[containerHeader] !== undefined ? String(row[containerHeader]).trim().toUpperCase() : '';
+      if (!containerVal && targetContainer) {
+        containerVal = targetContainer;
+      }
+      if (!containerVal) continue;
+
+      const rVal = receiptHeader && row[receiptHeader] !== undefined ? String(row[receiptHeader]).trim() : '';
+      if (!rVal) continue;
+
+      const cleanR = rVal.toLowerCase();
+      const rawQ = quantityHeader && row[quantityHeader] !== undefined ? String(row[quantityHeader]).trim() : '0';
+      const q = parseInt(rawQ, 10) || 0;
+
+      fileQtyByReceipt.set(cleanR, (fileQtyByReceipt.get(cleanR) || 0) + q);
+      if (!fileReceiptRows.has(cleanR)) fileReceiptRows.set(cleanR, []);
+      fileReceiptRows.get(cleanR)!.push(index + 1);
+    }
+
+    // 2. Fetch existing WarehouseReceipt stock for all receipts in the file
+    const uniqueReceiptNames = Array.from(fileQtyByReceipt.keys());
+    let existingWhReceipts: any[] = [];
+    if (uniqueReceiptNames.length > 0) {
+      existingWhReceipts = await WarehouseReceipt.find({
+        $or: uniqueReceiptNames.map((r) => ({
+          receipt: new RegExp(`^${r.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        })),
+      }).lean();
+    }
+
+    const whReceiptMap = new Map<string, any>();
+    existingWhReceipts.forEach((wh: any) => {
+      whReceiptMap.set(wh.receipt.toLowerCase().trim(), wh);
+    });
+
+    // 3. Strict Validation: Cannot load more than received goods in warehouse
+    const validationErrors: string[] = [];
+    const splitWarnings: any[] = [];
+
+    for (const [cleanR, requestedQty] of fileQtyByReceipt.entries()) {
+      let wh = whReceiptMap.get(cleanR);
+      const rows = fileReceiptRows.get(cleanR) || [];
+      const rowList = rows.length > 3 ? `${rows.slice(0, 3).join(', ')}... (total ${rows.length} rows)` : rows.join(', ');
+
+      if (!wh) {
+        // Auto-register goods into warehouse inventory if this was an upload of a plan
+        const firstRowIdx = rows[0] ? rows[0] - 1 : 0;
+        const sampleRow = records[firstRowIdx] || {};
+        const sampleParty = partyHeader && sampleRow[partyHeader] ? String(sampleRow[partyHeader]).trim() : 'General Party';
+        const sampleCommodity = commodityHeader && sampleRow[commodityHeader] ? String(sampleRow[commodityHeader]).trim() : '';
+        const sampleEnglish = englishHeader && sampleRow[englishHeader] ? String(sampleRow[englishHeader]).trim() : '';
+        const { english: tEng, chinese: tCh } = translateCommodity(sampleCommodity);
+        const fEng = sampleEnglish || tEng;
+        const fCh = tCh || sampleCommodity;
+        const fPkg = translatePackaging(packagingHeader && sampleRow[packagingHeader] ? String(sampleRow[packagingHeader]).trim() : '');
+        const fWh = translateWarehouse(warehouseHeader && sampleRow[warehouseHeader] ? String(sampleRow[warehouseHeader]).trim() : defaultWarehouse);
+        const fMainMark = translateMark(mainMarkHeader && sampleRow[mainMarkHeader] ? String(sampleRow[mainMarkHeader]).trim() : '');
+        const fSubMark = translateMark(subMarkHeader && sampleRow[subMarkHeader] ? String(sampleRow[subMarkHeader]).trim() : '');
+
+        const newWh = await WarehouseReceipt.create({
+          receipt: receiptHeader && sampleRow[receiptHeader] ? String(sampleRow[receiptHeader]).trim() : cleanR.toUpperCase(),
+          party: sampleParty,
+          warehouse: fWh,
+          date: dateHeader && sampleRow[dateHeader] ? formatReceiptDate(String(sampleRow[dateHeader]).trim()) : '',
+          quantity: requestedQty,
+          loadedQuantity: 0,
+          remainingQuantity: requestedQty,
+          commodity: fEng,
+          english: fEng,
+          chinese: fCh,
+          packaging: fPkg,
+          mainMarka: fMainMark,
+          subMarka: fSubMark,
+          status: 'Received',
+          stockstatus: 'In Stock',
+          uploadedAt: new Date(),
+        });
+        wh = newWh;
+        whReceiptMap.set(cleanR, newWh);
+      }
+
+      const available = wh.remainingQuantity !== undefined ? wh.remainingQuantity : (wh.quantity - (wh.loadedQuantity || 0));
+
+      if (requestedQty > available) {
+        validationErrors.push(
+          `Receipt '${wh.receipt}' (Row ${rowList}): Attempting to load ${requestedQty} units, but only ${available} units remain in warehouse (Total received: ${wh.quantity}, already loaded: ${wh.loadedQuantity || 0}).`
+        );
+      } else if (requestedQty < available) {
+        splitWarnings.push({
+          receipt: wh.receipt,
+          requestedQty,
+          availableQty: available,
+          remainingAfter: available - requestedQty,
+          warehouse: wh.warehouse || 'China Warehouse',
+          party: wh.party || 'General Party',
+        });
+      }
+    }
+
+    // If over-allocation errors exist, immediately reject the upload
+    if (validationErrors.length > 0) {
+      return NextResponse.json(
+        {
+          error: `Upload rejected: Quantity exceeds received warehouse stock for ${validationErrors.length} receipt(s). ` + validationErrors.slice(0, 3).join(' | ') + (validationErrors.length > 3 ? ` (+${validationErrors.length - 3} more errors)` : ''),
+          validationErrors,
+        },
+        { status: 400 }
+      );
+    }
+
+    // If user is loading less quantity than received stock (splitting cargo) and has not confirmed yet:
+    if (splitWarnings.length > 0 && !confirmSplit) {
+      return NextResponse.json({
+        requiresConfirmation: true,
+        message: `Notice: Loading less goods than received for ${splitWarnings.length} receipt(s). This will split the cargo across containers. Please confirm to proceed.`,
+        splitWarnings,
+      });
+    }
+
     const bulkOperations = [];
 
     for (let index = 0; index < records.length; index++) {
       const row = records[index];
-      const containerVal = row[containerHeader] !== undefined ? String(row[containerHeader]).trim() : '';
+      let containerVal = containerHeader && row[containerHeader] !== undefined ? String(row[containerHeader]).trim() : '';
+      if (!containerVal && targetContainer) {
+        containerVal = targetContainer;
+      }
       if (!containerVal) continue;
 
       const receiptVal = receiptHeader && row[receiptHeader] !== undefined && String(row[receiptHeader]).trim()
@@ -380,6 +641,13 @@ export async function POST(req: NextRequest) {
         shippedTo: destVal,
       };
 
+      const wh = whReceiptMap.get(receiptVal.toLowerCase());
+      const totalLoadQtyForReceipt = fileQtyByReceipt.get(receiptVal.toLowerCase()) || 0;
+      const isSplitItem = (wh && totalLoadQtyForReceipt < wh.quantity) || (wh && (wh.loadedQuantity || 0) > 0);
+      updatePayload.isSplit = Boolean(isSplitItem);
+      updatePayload.originalTotalQuantity = wh ? String(wh.quantity) : updatePayload.quantity;
+      if (wh?._id) updatePayload.receiptId = wh._id;
+
       if (fileEta && fileEta !== 'N/A') updatePayload.eta = fileEta;
       if (fileStatus) updatePayload.status = fileStatus;
 
@@ -428,9 +696,39 @@ export async function POST(req: NextRequest) {
     const countInserted = (bulkResult.insertedCount || 0) + (bulkResult.upsertedCount || 0);
     const countModified = bulkResult.modifiedCount || 0;
 
+    // 4. Synchronously update WarehouseReceipt loaded quantities and remaining stock balances
+    for (const [cleanR, loadedQty] of fileQtyByReceipt.entries()) {
+      const wh = whReceiptMap.get(cleanR);
+      if (wh) {
+        const newLoaded = (wh.loadedQuantity || 0) + loadedQty;
+        const newRemaining = Math.max(0, wh.quantity - newLoaded);
+        const newStatus = newRemaining === 0 ? 'Fully Loaded' : 'Partially Loaded';
+        const newStockStatus = newRemaining === 0 ? 'Dispatched' : 'Partially Dispatched';
+
+        await WarehouseReceipt.updateOne(
+          { _id: wh._id },
+          {
+            $set: {
+              loadedQuantity: newLoaded,
+              remainingQuantity: newRemaining,
+              status: newStatus,
+              stockstatus: newStockStatus,
+            },
+          }
+        );
+      }
+    }
+
     // Also ensure distinct uploaded containers exist in Container collection
     const distinctUploadContainers = Array.from(
-      new Set(records.map((r) => (r[containerHeader] ? String(r[containerHeader]).trim() : '')).filter(Boolean))
+      new Set(
+        records
+          .map((r) => {
+            const val = containerHeader && r[containerHeader] ? String(r[containerHeader]).trim() : '';
+            return val || targetContainer || '';
+          })
+          .filter(Boolean)
+      )
     );
     for (const cAlias of distinctUploadContainers) {
       await Container.findOneAndUpdate(
@@ -452,6 +750,17 @@ export async function POST(req: NextRequest) {
         },
         { upsert: true }
       );
+
+      const totalQty = await Shipment.aggregate([
+        { $match: { container: cAlias } },
+        { $group: { _id: null, total: { $sum: { $toDouble: { $ifNull: ['$quantity', '0'] } } }, count: { $sum: 1 } } },
+      ]);
+      if (totalQty.length > 0) {
+        await Container.updateOne(
+          { container: cAlias },
+          { $set: { totalQuantity: totalQty[0].total, shipmentCount: totalQty[0].count } }
+        );
+      }
     }
 
     // JSONCargo API is NOT called during upload to preserve API quota and prevent timeouts.

@@ -80,6 +80,7 @@ export async function POST(req: NextRequest) {
       {
         $set: {
           eta: tracking.eta,
+          rawEta: tracking.rawEta || '',
           status: tracking.status,
           shippedFrom: tracking.shippedFrom,
           shippedTo: tracking.shippedTo,
@@ -90,11 +91,13 @@ export async function POST(req: NextRequest) {
           voyageNumber: tracking.voyageNumber,
           jsonCargoData: tracking.dataDetails,
           lastApiSync: now,
+          apiCalled: true,
         },
+        $inc: { apiCallCount: 1 },
       }
     );
 
-    // Also persist into dedicated Container collection for fleet directory and fast lookup
+    // Also persist all information provided by the API into dedicated Container collection
     await Container.findOneAndUpdate(
       { container: publicAlias },
       {
@@ -103,6 +106,7 @@ export async function POST(req: NextRequest) {
           containerNumber: finalTrackingNumber,
           shippingLine: carrierCompany,
           eta: tracking.eta,
+          rawEta: tracking.rawEta || '',
           status: tracking.status,
           shippedFrom: tracking.shippedFrom,
           shippedTo: tracking.shippedTo,
@@ -114,6 +118,23 @@ export async function POST(req: NextRequest) {
           jsonCargoData: tracking.dataDetails,
           shipmentCount: updateResult.matchedCount,
           lastApiSync: now,
+          apiCalled: true,
+        },
+        $inc: { apiCallCount: 1 },
+        $push: {
+          apiCallHistory: {
+            timestamp: now,
+            source: 'manual_user',
+            eta: tracking.eta,
+            status: tracking.status,
+            rawSummary: {
+              shippedFrom: tracking.shippedFrom,
+              shippedTo: tracking.shippedTo,
+              location: tracking.currentLocation,
+              vessel: tracking.vesselName,
+              voyage: tracking.voyageNumber,
+            },
+          },
         },
       },
       { upsert: true, new: true }

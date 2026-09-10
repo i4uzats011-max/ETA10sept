@@ -29,6 +29,7 @@ export async function connectToDatabase() {
   if (!cached.promise) {
     const opts = {
       bufferCommands: false,
+      dbName: process.env.MONGO_DB || 'cargo_tracker_v2',
     };
 
     cached.promise = mongoose.connect(mongoUri, opts).then((mongooseInstance) => {

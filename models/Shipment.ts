@@ -43,7 +43,10 @@ export interface IShipment extends Document {
   receiptId?: any;              // Ref to WarehouseReceipt document
   originalTotalQuantity?: string; // Original total receipt quantity (e.g. '100')
   isSplit?: boolean;            // Whether this receipt was split into multiple containers
-  splitIndex?: number;          // Split allotment number (e.g., 1, 2, 3)
+  splitIndex?: number;          // Split order index (e.g. 1, 2)
+  apiCalled?: boolean;          // Whether API was invoked for this container/shipment
+  apiCallCount?: number;        // Count of API calls made
+  rawEta?: string;              // Carrier raw ETA
   uploadedAt: Date;             // Record creation timestamp
 }
 
@@ -75,6 +78,7 @@ const ShipmentSchema = new Schema<IShipment>({
   splitIndex: { type: Number, default: 1 },
 
   eta: { type: String, default: 'N/A' },
+  rawEta: { type: String, default: '' },
   status: { type: String, default: 'Pending' },
   deliveryDate: { type: String, default: '' },
   daysToDeliver: { type: Number, default: null },
@@ -88,10 +92,19 @@ const ShipmentSchema = new Schema<IShipment>({
   voyageNumber: { type: String, default: '' },
   jsonCargoData: { type: Schema.Types.Mixed, default: null },
   lastApiSync: { type: Date, default: null },
+  apiCalled: { type: Boolean, default: false, index: true },
+  apiCallCount: { type: Number, default: 0 },
   uploadedAt: { type: Date, default: Date.now }
 }, {
   timestamps: true,
   strict: false // Allows flexibility if extra legacy columns are present
 });
+
+// Fast compound search indexes for public, admin, and employee lookup
+ShipmentSchema.index({ receipt: 1, container: 1 });
+ShipmentSchema.index({ container: 1, containerNumber: 1 });
+ShipmentSchema.index({ containerNumber: 1, receipt: 1 });
+ShipmentSchema.index({ party: 1, receipt: 1 });
+ShipmentSchema.index({ warehouse: 1 });
 
 export default mongoose.models.Shipment || mongoose.model<IShipment>('Shipment', ShipmentSchema);

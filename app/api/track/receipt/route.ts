@@ -4,7 +4,7 @@ import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
 import { translateToEnglish } from '@/lib/translate';
-import { calculatePublicDeliveryDate } from '@/lib/dateUtils';
+import { calculatePublicDeliveryDate, formatGlobalDate } from '@/lib/dateUtils';
 
 export const dynamic = 'force-dynamic';
 
@@ -83,6 +83,7 @@ export async function GET(req: NextRequest) {
         cd.container.toLowerCase().replace(/[-\s]/g, '') === cClean.replace(/[-\s]/g, '')
       );
       const containerEta = directEta || fallbackDoc?.destinationDate || fallbackDoc?.eta || '';
+      const rawCarrierEta = shipment.rawEta || fallbackDoc?.rawEta;
 
       const resolvedEta = (shipment.eta && shipment.eta !== 'N/A' && shipment.eta !== 'Pending')
         ? shipment.eta
@@ -93,7 +94,12 @@ export async function GET(req: NextRequest) {
         Shipment.updateOne({ _id: shipment._id }, { $set: { eta: resolvedEta } }).exec().catch(() => {});
       }
 
-      const publicDeliveryDate = calculatePublicDeliveryDate(resolvedEta);
+      let publicDeliveryDate = 'Pending';
+      if (rawCarrierEta && rawCarrierEta !== 'N/A' && rawCarrierEta !== 'Pending') {
+        publicDeliveryDate = calculatePublicDeliveryDate(rawCarrierEta);
+      } else if (resolvedEta && resolvedEta !== 'N/A' && resolvedEta !== 'Pending') {
+        publicDeliveryDate = formatGlobalDate(resolvedEta);
+      }
 
       return {
         id: shipment._id,
@@ -129,6 +135,7 @@ export async function GET(req: NextRequest) {
       // Provide both array `shipments` and primary `data` object for backwards compatibility
       data: publicCargoDetails[0],
       shipments: publicCargoDetails,
+      warehouseReceipt: whItem,
     });
   } catch (error: any) {
     return NextResponse.json(

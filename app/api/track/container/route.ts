@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
-import { calculatePublicDeliveryDate } from '@/lib/dateUtils';
+import { calculatePublicDeliveryDate, formatGlobalDate } from '@/lib/dateUtils';
 
 export const dynamic = 'force-dynamic';
 
@@ -70,8 +70,15 @@ export async function GET(req: NextRequest) {
     }
 
     const target = foundContainer || foundShipment;
-    const rawEta = target.destinationDate || target.eta || '';
-    const dateOfDelivery = calculatePublicDeliveryDate(rawEta);
+    const actualCarrierEta = target.rawEta;
+    const clearanceEta = target.destinationDate || target.eta || '';
+    let dateOfDelivery = 'Pending';
+
+    if (actualCarrierEta && actualCarrierEta !== 'N/A' && actualCarrierEta !== 'Pending') {
+      dateOfDelivery = calculatePublicDeliveryDate(actualCarrierEta);
+    } else if (clearanceEta && clearanceEta !== 'N/A' && clearanceEta !== 'Pending') {
+      dateOfDelivery = formatGlobalDate(clearanceEta);
+    }
 
     // Public tracking security: Users cannot see actual container no., status, or destination.
     // They can ONLY see date of delivery (ETA + 10 days) and internal container alias.

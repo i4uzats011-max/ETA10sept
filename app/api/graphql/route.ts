@@ -7,6 +7,7 @@ import WarehouseReceipt from '@/models/WarehouseReceipt';
 import { isAdminAuthenticated } from '@/lib/auth';
 import { fetchContainerTracking, fetchApiKeyStats, addFilingBufferDays } from '@/lib/jsoncargo';
 import { translateToEnglish } from '@/lib/translate';
+import { calculatePublicDeliveryDate } from '@/lib/dateUtils';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,10 +20,12 @@ const schema = buildSchema(`
   type Shipment {
     id: ID!
     receipt: String!
+    party: String
     container: String!
     containerNumber: String
     shippingLine: String
     eta: String
+    dateOfDelivery: String
     status: String
     lastApiSync: String
     warehouseEntry: String
@@ -47,6 +50,7 @@ const schema = buildSchema(`
   type WarehouseReceipt {
     id: ID!
     receipt: String!
+    party: String
     warehouse: String!
     warehouseEntry: String
     date: String
@@ -198,6 +202,7 @@ function createRootResolver(req: NextRequest) {
         ? {
             id: String(whItem._id),
             receipt: whItem.receipt,
+            party: whItem.party || 'General Party',
             warehouse: whItem.warehouse,
             warehouseEntry: whItem.warehouseEntry || 'N/A',
             date: whItem.date || 'N/A',
@@ -278,13 +283,17 @@ function createRootResolver(req: NextRequest) {
           }
         }
 
+        const publicDeliveryDate = calculatePublicDeliveryDate(resolvedEta);
+
         return {
           id: String(s._id),
           receipt: s.receipt,
+          party: s.party || whItem?.party || 'General Party',
           container: s.container,
           containerNumber: null, // Strictly masked
           shippingLine: null,
-          eta: resolvedEta,
+          eta: publicDeliveryDate,
+          dateOfDelivery: publicDeliveryDate,
           status: s.status || 'In Transit',
           lastApiSync: s.lastApiSync ? new Date(s.lastApiSync).toISOString() : null,
           warehouseEntry: s.warehouseEntry || 'N/A',
@@ -894,16 +903,9 @@ function createRootResolver(req: NextRequest) {
       });
 
       if (!whReceipt) {
-        whReceipt = await WarehouseReceipt.create({
-          receipt: cleanReceipt,
-          warehouse: targetContainer.warehouse || 'China Warehouse',
-          quantity: qty,
-          loadedQuantity: 0,
-          remainingQuantity: qty,
-          status: 'Received',
-          stockstatus: 'In Stock',
-          uploadedAt: new Date(),
-        });
+        throw new Error(
+          `Receipt '${cleanReceipt}' has not been received in China warehouse stock yet. Goods must be received first.`
+        );
       }
 
       const available =
@@ -913,7 +915,7 @@ function createRootResolver(req: NextRequest) {
 
       if (qty > available) {
         throw new Error(
-          `Cannot load ${qty} units. Only ${available} units remaining in warehouse for receipt '${cleanReceipt}'`
+          `Cannot load ${qty} units. Only ${available} units remaining in warehouse for receipt '${cleanReceipt}' (Total received: ${whReceipt.quantity}, already loaded: ${whReceipt.loadedQuantity || 0})`
         );
       }
 

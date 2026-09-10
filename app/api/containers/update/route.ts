@@ -14,11 +14,55 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { container, actualContainerNo, shippingLine } = body;
+    const { container, actualContainerNo, shippingLine, loadingDate } = body;
+
+    if (body.action === 'demap') {
+      const targetAlias = (container || '').trim();
+      if (!targetAlias) {
+        return NextResponse.json({ error: 'Container alias is required to de-map actual container' }, { status: 400 });
+      }
+
+      await Shipment.updateMany(
+        { container: targetAlias },
+        {
+          $set: {
+            containerNumber: '',
+            status: 'Planning',
+          },
+        }
+      );
+
+      const updatedContainer = await Container.findOneAndUpdate(
+        { container: targetAlias },
+        {
+          $set: {
+            containerNumber: '',
+            allottedActualAt: null,
+            planStatus: 'Planning',
+            isFinalized: false,
+          },
+        },
+        { new: true }
+      );
+
+      return NextResponse.json({
+        success: true,
+        message: `Successfully de-mapped actual container from '${targetAlias}'. The container is now unallotted.`,
+        container: updatedContainer,
+      });
+    }
 
     if (!container || !actualContainerNo || !shippingLine) {
       return NextResponse.json(
         { error: 'Missing required parameters: container, actualContainerNo, and shippingLine are required' },
+        { status: 400 }
+      );
+    }
+
+    const cleanLoadingDate = (loadingDate || '').trim();
+    if (!cleanLoadingDate) {
+      return NextResponse.json(
+        { error: 'Loading Date is mandatory when allotting actual carrier container number.' },
         { status: 400 }
       );
     }
@@ -32,6 +76,8 @@ export async function POST(req: NextRequest) {
         $set: {
           containerNumber: actualContainerNo.trim(),
           shippingLine: shippingLine.trim(),
+          loadingDate: cleanLoadingDate,
+          startDate: cleanLoadingDate,
         },
       }
     );
@@ -57,17 +103,21 @@ export async function POST(req: NextRequest) {
       {
         $set: {
           eta: trackingInfo.eta,
+          rawEta: trackingInfo.rawEta || '',
           status: trackingInfo.status,
           shippedFrom: trackingInfo.shippedFrom,
           shippedTo: trackingInfo.shippedTo,
           currentLocation: trackingInfo.currentLocation,
-          startDate: trackingInfo.startDate,
+          startDate: cleanLoadingDate || trackingInfo.startDate,
+          loadingDate: cleanLoadingDate,
           destinationDate: trackingInfo.destinationDate,
           vesselName: trackingInfo.vesselName,
           voyageNumber: trackingInfo.voyageNumber,
           jsonCargoData: trackingInfo.dataDetails,
           lastApiSync: now,
+          apiCalled: true,
         },
+        $inc: { apiCallCount: 1 },
       }
     );
 
@@ -79,18 +129,32 @@ export async function POST(req: NextRequest) {
           container: container.trim(),
           containerNumber: actualContainerNo.trim(),
           shippingLine: shippingLine.trim(),
+          loadingDate: cleanLoadingDate,
+          startDate: cleanLoadingDate || trackingInfo.startDate,
           eta: trackingInfo.eta,
+          rawEta: trackingInfo.rawEta || '',
           status: trackingInfo.status,
           shippedFrom: trackingInfo.shippedFrom,
           shippedTo: trackingInfo.shippedTo,
           currentLocation: trackingInfo.currentLocation,
-          startDate: trackingInfo.startDate,
           destinationDate: trackingInfo.destinationDate,
           vesselName: trackingInfo.vesselName,
           voyageNumber: trackingInfo.voyageNumber,
           jsonCargoData: trackingInfo.dataDetails,
           shipmentCount: updateResult.matchedCount,
           lastApiSync: now,
+          apiCalled: true,
+          planStatus: 'Finalized',
+          isFinalized: true,
+        },
+        $inc: { apiCallCount: 1 },
+        $push: {
+          apiCallHistory: {
+            timestamp: now,
+            source: 'container_update',
+            eta: trackingInfo.eta,
+            status: trackingInfo.status,
+          },
         },
       },
       { upsert: true, new: true }

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import Shipment from '@/models/Shipment';
+import Container from '@/models/Container';
+import WarehouseReceipt from '@/models/WarehouseReceipt';
 import { isStaffOrAdminAuthenticated, isSuperAdminAuthenticated } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -112,13 +114,46 @@ export async function DELETE(req: NextRequest) {
     }
 
     await connectToDatabase();
-    const deleted = await Shipment.findByIdAndDelete(idToDelete);
 
-    if (!deleted) {
+    const existingShipment = await Shipment.findById(idToDelete);
+    if (!existingShipment) {
       return NextResponse.json({ error: 'Shipment record not found' }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, message: 'Shipment deleted successfully' });
+    const qtyToRestore = parseInt(String(existingShipment.quantity || 0), 10) || 0;
+    if (existingShipment.receipt) {
+      const whReceipt = await WarehouseReceipt.findOne({
+        receipt: new RegExp(`^${existingShipment.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+      });
+      if (whReceipt) {
+        whReceipt.loadedQuantity = Math.max(0, (whReceipt.loadedQuantity || 0) - qtyToRestore);
+        whReceipt.remainingQuantity = Math.max(0, whReceipt.quantity - whReceipt.loadedQuantity);
+        if (whReceipt.loadedQuantity <= 0) {
+          whReceipt.status = 'Received';
+          whReceipt.stockstatus = 'In Stock';
+        } else {
+          whReceipt.status = 'Partially Loaded';
+          whReceipt.stockstatus = 'Partially Dispatched';
+        }
+        await whReceipt.save();
+      }
+    }
+
+    if (existingShipment.container) {
+      await Container.findOneAndUpdate(
+        { container: existingShipment.container },
+        {
+          $inc: {
+            shipmentCount: -1,
+            totalQuantity: -qtyToRestore,
+          },
+        }
+      );
+    }
+
+    const deleted = await Shipment.findByIdAndDelete(idToDelete);
+
+    return NextResponse.json({ success: true, message: 'Shipment deleted successfully and warehouse stock restored.' });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Failed to delete shipment' }, { status: 500 });
   }
@@ -161,10 +196,46 @@ export async function POST(req: NextRequest) {
     await connectToDatabase();
 
     if (action === 'bulk-delete') {
+      const matchingShipments = await Shipment.find({ _id: { $in: ids } });
+
+      // Restore stock in warehouse receipts and update container counts for each deleted shipment
+      for (const s of matchingShipments) {
+        const qtyToRestore = parseInt(String(s.quantity || 0), 10) || 0;
+        if (s.receipt) {
+          const whReceipt = await WarehouseReceipt.findOne({
+            receipt: new RegExp(`^${s.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+          });
+          if (whReceipt) {
+            whReceipt.loadedQuantity = Math.max(0, (whReceipt.loadedQuantity || 0) - qtyToRestore);
+            whReceipt.remainingQuantity = Math.max(0, whReceipt.quantity - whReceipt.loadedQuantity);
+            if (whReceipt.loadedQuantity <= 0) {
+              whReceipt.status = 'Received';
+              whReceipt.stockstatus = 'In Stock';
+            } else {
+              whReceipt.status = 'Partially Loaded';
+              whReceipt.stockstatus = 'Partially Dispatched';
+            }
+            await whReceipt.save();
+          }
+        }
+
+        if (s.container) {
+          await Container.findOneAndUpdate(
+            { container: s.container },
+            {
+              $inc: {
+                shipmentCount: -1,
+                totalQuantity: -qtyToRestore,
+              },
+            }
+          );
+        }
+      }
+
       const result = await Shipment.deleteMany({ _id: { $in: ids } });
       return NextResponse.json({
         success: true,
-        message: `Successfully deleted ${result.deletedCount} record(s)`,
+        message: `Successfully deleted ${result.deletedCount} record(s) and restored warehouse inventory stock`,
         count: result.deletedCount,
       });
     } else if (action === 'bulk-edit') {

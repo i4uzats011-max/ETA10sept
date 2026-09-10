@@ -10,6 +10,7 @@ import {
   ColumnDef,
   flexRender,
   SortingState,
+  VisibilityState,
 } from '@tanstack/react-table';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import {
@@ -41,6 +42,13 @@ import {
   Copy,
   Check,
   Zap,
+  Eye,
+  EyeOff,
+  Lock,
+  Unlock,
+  Trash2,
+  Unlink,
+  RotateCcw,
 } from 'lucide-react';
 
 interface CargoMasterTableProps {
@@ -61,6 +69,28 @@ export default function CargoMasterTable({
   const [sorting, setSorting] = useState<SortingState>([]);
   const [showCharts, setShowCharts] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Show ALL information columns in table format by default per user requirement
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
+    container: true,
+    containerNumber: true,
+    shippingLine: true,
+    warehouse: true,
+    startDate: true,
+    rawEta: true,
+    eta: true,
+    deliveryDate: true,
+    daysToDeliver: true,
+    status: true,
+    shippedFrom: true,
+    shippedTo: true,
+    currentLocation: true,
+    vesselVoyage: true,
+    shipmentCount: true,
+    lastApiSync: true,
+    apiProtection: true,
+    actions: true,
+  });
 
   useEffect(() => {
     dispatch(fetchCargoFleet());
@@ -83,10 +113,18 @@ export default function CargoMasterTable({
 
   // Filtered dataset
   const filteredData = useMemo(() => {
-    return items.filter((c) => {
+    const list = items.filter((c) => {
       // 1. Status Tab filter
+      const isDestinationReached = Boolean(
+        c.status &&
+          (c.status.toLowerCase().includes('destination') ||
+            c.status.toLowerCase().includes('arrived') ||
+            c.status.toLowerCase().includes('reached'))
+      );
       const isDelivered = Boolean(
-        c.isDelivered || (c.status && c.status.toLowerCase().includes('deliver'))
+        c.isDelivered ||
+          (c.status && c.status.toLowerCase().includes('deliver')) ||
+          isDestinationReached
       );
       const isLate = Boolean(
         !isDelivered && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining < 0
@@ -113,7 +151,60 @@ export default function CargoMasterTable({
 
       return true;
     });
+
+    // Date-wise sorting for delivered / reached destination containers (newest first)
+    if (statusFilter === 'delivered') {
+      return [...list].sort((a, b) => {
+        const dateA = new Date(a.deliveryDate || a.destinationDate || a.eta || a.startDate || 0).getTime();
+        const dateB = new Date(b.deliveryDate || b.destinationDate || b.eta || b.startDate || 0).getTime();
+        return dateB - dateA;
+      });
+    }
+
+    return list;
   }, [items, statusFilter, carrierFilter, searchTerm]);
+
+  // Handle De-mapping Actual Carrier Container from internal container
+  const handleDemapActual = async (containerAlias: string) => {
+    if (!confirm(`Are you sure you want to de-map the actual carrier container from '${containerAlias}'? This will unassign the carrier container and reset the plan status to Planning.`)) {
+      return;
+    }
+    try {
+      const res = await fetch('/api/loading-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'demap-actual', container: containerAlias }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to de-map actual container');
+      alert(data.message || `Successfully de-mapped actual container from '${containerAlias}'.`);
+      dispatch(fetchCargoFleet());
+    } catch (err: any) {
+      alert(err.message || 'De-map error');
+    }
+  };
+
+  // Handle Deleting Container Plan (with strict rule enforcement)
+  const handleDeleteContainer = async (c: ContainerMasterItem) => {
+    if (c.shipmentCount && c.shipmentCount > 0) {
+      alert(`Cannot delete container '${c.container}': It currently contains ${c.shipmentCount} loaded cargo item(s). Under system integrity rules, you must first delete/de-allocate all loaded cargo items from this container.`);
+      return;
+    }
+    if (!confirm(`Are you sure you want to delete container plan '${c.container}'? This action cannot be undone.`)) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/loading-plan?container=${encodeURIComponent(c.container)}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete container');
+      alert(data.message || `Successfully deleted container '${c.container}'.`);
+      dispatch(fetchCargoFleet());
+    } catch (err: any) {
+      alert(err.message || 'Delete error');
+    }
+  };
 
   // Define Columns using TanStack React Table
   const columns = useMemo<ColumnDef<ContainerMasterItem>[]>(() => {
@@ -176,6 +267,15 @@ export default function CargoMasterTable({
         ),
       },
       {
+        accessorKey: 'warehouse',
+        header: 'Warehouse (Origin)',
+        cell: ({ row }) => (
+          <span className="font-semibold text-xs text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 whitespace-nowrap">
+            {row.original.warehouse || 'China Warehouse'}
+          </span>
+        ),
+      },
+      {
         accessorKey: 'startDate',
         header: 'Loading Date (China)',
         cell: ({ row }) => {
@@ -189,16 +289,43 @@ export default function CargoMasterTable({
         },
       },
       {
-        accessorKey: 'eta',
-        header: 'Destination ETA',
+        accessorKey: 'rawEta',
+        header: 'Actual Vessel ETA (Carrier)',
         cell: ({ row }) => {
-          const eta = row.original.eta;
-          if (!eta || eta === 'N/A') return <span className="text-slate-400 text-xs">Pending</span>;
+          const rawEta = row.original.rawEta;
+          if (!rawEta || rawEta === 'N/A' || rawEta === 'Pending') {
+            return (
+              <span className="text-slate-400 text-xs italic">
+                Pending API
+              </span>
+            );
+          }
           return (
             <div className="space-y-0.5">
-              <div className="font-bold font-mono text-xs text-slate-900">
+              <span className="font-bold font-mono text-xs text-sky-900 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded">
+                {formatGlobalDate(rawEta)}
+              </span>
+            </div>
+          );
+        },
+      },
+      {
+        accessorKey: 'eta',
+        header: 'Clearance ETA (+10d)',
+        cell: ({ row }) => {
+          const eta = row.original.eta;
+          if (!eta || eta === 'N/A' || eta === 'Pending') {
+            return (
+              <span className="text-amber-700 bg-amber-50 px-2 py-0.5 rounded text-xs font-medium border border-amber-200">
+                Pending Actual Mapping
+              </span>
+            );
+          }
+          return (
+            <div className="space-y-0.5">
+              <span className="font-bold font-mono text-xs text-slate-950 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">
                 {formatGlobalDate(eta)}
-              </div>
+              </span>
             </div>
           );
         },
@@ -284,6 +411,20 @@ export default function CargoMasterTable({
           const isDelivered = Boolean(
             row.original.isDelivered || status.toLowerCase().includes('deliver')
           );
+          const isDestinationReached = Boolean(
+            status.toLowerCase().includes('destination') ||
+              status.toLowerCase().includes('arrived') ||
+              status.toLowerCase().includes('reached')
+          );
+
+          if (isDestinationReached && !isDelivered) {
+            return (
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-teal-100 text-teal-900 border border-teal-300">
+                Container reached to the final destination
+              </span>
+            );
+          }
+
           return (
             <span
               className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
@@ -300,6 +441,15 @@ export default function CargoMasterTable({
         },
       },
       {
+        accessorKey: 'shippedFrom',
+        header: 'Source (Origin)',
+        cell: ({ row }) => (
+          <span className="font-semibold text-xs text-slate-700 truncate max-w-[150px]" title={row.original.shippedFrom || 'China'}>
+            {row.original.shippedFrom || 'China Port / WH'}
+          </span>
+        ),
+      },
+      {
         accessorKey: 'shippedTo',
         header: 'Destination',
         cell: ({ row }) => (
@@ -307,6 +457,30 @@ export default function CargoMasterTable({
             {row.original.shippedTo || 'Nhava Sheva / Mundra, India'}
           </span>
         ),
+      },
+      {
+        accessorKey: 'currentLocation',
+        header: 'Current Location',
+        cell: ({ row }) => (
+          <span className="text-xs text-slate-700 truncate max-w-[150px] inline-block font-medium" title={row.original.currentLocation || 'In Transit'}>
+            {row.original.currentLocation || 'In Transit'}
+          </span>
+        ),
+      },
+      {
+        id: 'vesselVoyage',
+        header: 'Vessel / Voyage',
+        cell: ({ row }) => {
+          const vessel = row.original.vesselName;
+          const voyage = row.original.voyageNumber;
+          if (!vessel && !voyage) return <span className="text-slate-400 text-xs italic">—</span>;
+          return (
+            <div className="text-xs space-y-0.5 whitespace-nowrap">
+              <div className="font-bold text-slate-800">{vessel || 'Vessel TBA'}</div>
+              {voyage && <div className="text-[10px] font-mono text-slate-500">Voy: {voyage}</div>}
+            </div>
+          );
+        },
       },
       {
         accessorKey: 'shipmentCount',
@@ -318,6 +492,39 @@ export default function CargoMasterTable({
         ),
       },
       {
+        accessorKey: 'lastApiSync',
+        header: 'Last API Call',
+        cell: ({ row }) => {
+          const syncTime = row.original.lastApiSync;
+          if (!syncTime) return <span className="text-slate-400 text-xs italic">Never</span>;
+          return (
+            <div className="text-[11px] whitespace-nowrap text-slate-600 font-mono">
+              {new Date(syncTime).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}
+            </div>
+          );
+        },
+      },
+      {
+        id: 'apiProtection',
+        header: 'Protection Status',
+        cell: ({ row }) => {
+          const isProtected = Boolean(row.original.apiCalled || row.original.lastApiSync);
+          if (isProtected) {
+            return (
+              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300" title="API ETA called: Protected from deletion permanently">
+                <Lock className="w-3 h-3 text-amber-700" />
+                <span>Protected</span>
+              </span>
+            );
+          }
+          return (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
+              Pending API
+            </span>
+          );
+        },
+      },
+      {
         id: 'actions',
         header: 'Quick Actions',
         cell: ({ row }) => {
@@ -325,9 +532,39 @@ export default function CargoMasterTable({
           const isDelivered = Boolean(
             c.isDelivered || (c.status && c.status.toLowerCase().includes('deliver'))
           );
+          const hasActualContainer = Boolean(c.containerNumber && c.containerNumber.trim().length > 0 && c.containerNumber.trim().toLowerCase() !== c.container.trim().toLowerCase());
+          const isApiProtected = Boolean(c.apiCalled || c.lastApiSync);
 
           return (
             <div className="inline-flex items-center space-x-1.5 whitespace-nowrap">
+              {/* Click to view full logistics details for this container */}
+              <button
+                type="button"
+                onClick={() => {
+                  alert(
+                    `Logistics Details for Container: ${c.container}\n\n` +
+                    `• Actual Carrier Container No: ${c.containerNumber || 'Unmapped'}\n` +
+                    `• Shipping Line: ${c.shippingLine || 'MSC'}\n` +
+                    `• Warehouse: ${c.warehouse || 'China Warehouse'}\n` +
+                    `• Source (Origin Port): ${c.shippedFrom || 'China Port'}\n` +
+                    `• Destination Port: ${c.shippedTo || 'Nhava Sheva / Mundra, India'}\n` +
+                    `• Current Status: ${c.status || 'In Transit'}\n` +
+                    `• Current Location: ${c.currentLocation || 'In Transit'}\n` +
+                    `• Vessel: ${c.vesselName || 'TBA'} | Voyage: ${c.voyageNumber || 'TBA'}\n` +
+                    `• Loading Date: ${c.startDate ? formatGlobalDate(c.startDate) : 'Pending'}\n` +
+                    `• Actual Vessel ETA (Carrier): ${c.rawEta ? formatGlobalDate(c.rawEta) : 'Pending API'}\n` +
+                    `• Clearance ETA (+10d): ${c.eta ? formatGlobalDate(c.eta) : 'Pending'}\n` +
+                    `• Final Delivery Date: ${c.deliveryDate ? formatGlobalDate(c.deliveryDate) : 'In Transit'}\n` +
+                    `• API Protection: ${isApiProtected ? 'Protected (Never Deleted)' : 'Normal'}`
+                  );
+                }}
+                className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold transition flex items-center space-x-1"
+                title="Click to view full logistics details"
+              >
+                <Eye className="w-3.5 h-3.5 text-slate-600" />
+                <span>Logistics</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => dispatch(openDeliveryModal(c))}
@@ -339,28 +576,50 @@ export default function CargoMasterTable({
                 title={isDelivered ? 'Edit Delivery Date' : 'Mark Container Delivered'}
               >
                 <Truck className="w-3.5 h-3.5" />
-                <span>{isDelivered ? 'Edit Delivery' : 'Mark Delivered'}</span>
+                <span>{isDelivered ? 'Edit' : 'Deliver'}</span>
               </button>
-
-              {onEditDates && (
-                <button
-                  type="button"
-                  onClick={() => onEditDates(c.container)}
-                  className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-xs font-semibold transition"
-                  title="Edit China Loading Date & ETA"
-                >
-                  <Calendar className="w-3.5 h-3.5" />
-                </button>
-              )}
 
               {onSyncApi && !isDelivered && (
                 <button
                   type="button"
                   onClick={() => onSyncApi(c.container)}
                   className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-300 rounded-lg text-xs font-semibold transition"
-                  title="Sync with JSONCargo API"
+                  title="Manual API Sync (Immediate 1-call bypass)"
                 >
                   <Zap className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              {/* De-map Actual Container Button (if allotted) */}
+              {hasActualContainer && !isDelivered && (
+                <button
+                  type="button"
+                  onClick={() => handleDemapActual(c.container)}
+                  className="px-2 py-1 bg-orange-50 hover:bg-orange-100 text-orange-800 border border-orange-300 rounded-lg text-xs font-semibold transition flex items-center space-x-1"
+                  title="De-map actual carrier container from this internal container"
+                >
+                  <Unlink className="w-3.5 h-3.5 text-orange-600" />
+                  <span>De-map</span>
+                </button>
+              )}
+
+              {/* Delete Container Plan */}
+              {!isStaffOnly && (
+                <button
+                  type="button"
+                  onClick={() => handleDeleteContainer(c)}
+                  className={`p-1 rounded-lg border text-xs transition ${
+                    c.shipmentCount && c.shipmentCount > 0
+                      ? 'bg-amber-50 text-amber-600 border-amber-300 hover:bg-amber-100'
+                      : 'bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100'
+                  }`}
+                  title={
+                    c.shipmentCount && c.shipmentCount > 0
+                      ? `Contains ${c.shipmentCount} loaded cargo item(s) - must delete/de-allocate items first`
+                      : 'Delete Container Plan'
+                  }
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
                 </button>
               )}
             </div>
@@ -368,7 +627,27 @@ export default function CargoMasterTable({
         },
       },
     ];
-  }, [copiedId, dispatch, onEditDates, onSyncApi]);
+  }, [copiedId, dispatch, onEditDates, onSyncApi, isStaffOnly]);
+
+  // Master Logistics Columns Reveal State
+  const isLogisticsRevealed = Boolean(
+    columnVisibility.containerNumber ||
+    columnVisibility.shippingLine ||
+    columnVisibility.shippedFrom ||
+    columnVisibility.shippedTo ||
+    columnVisibility.status
+  );
+
+  const handleToggleAllLogistics = () => {
+    const nextVal = !isLogisticsRevealed;
+    setColumnVisibility({
+      containerNumber: nextVal,
+      shippingLine: nextVal,
+      shippedFrom: nextVal,
+      shippedTo: nextVal,
+      status: nextVal,
+    });
+  };
 
   // TanStack React Table Instance
   const table = useReactTable({
@@ -376,8 +655,10 @@ export default function CargoMasterTable({
     columns,
     state: {
       sorting,
+      columnVisibility,
     },
     onSortingChange: setSorting,
+    onColumnVisibilityChange: setColumnVisibility,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -396,7 +677,8 @@ export default function CargoMasterTable({
       'Actual Container No': c.containerNumber || 'Unmapped',
       'Shipping Line': c.shippingLine || 'MSC',
       'Loading Date (China)': c.startDate ? formatGlobalDate(c.startDate) : '—',
-      'Destination ETA': c.eta ? formatGlobalDate(c.eta) : 'Pending',
+      'Actual Vessel ETA (Carrier)': c.rawEta ? formatGlobalDate(c.rawEta) : 'Pending',
+      'Clearance ETA (+10d)': c.eta ? formatGlobalDate(c.eta) : 'Pending',
       'Delivery Date': c.deliveryDate ? formatGlobalDate(c.deliveryDate) : 'In Transit',
       'Days to Deliver (Turnaround)': c.daysToDeliver !== null && c.daysToDeliver !== undefined ? `${c.daysToDeliver} days` : '—',
       'Status': c.status || 'In Transit',
@@ -475,6 +757,30 @@ export default function CargoMasterTable({
             </div>
 
             <div className="flex items-center space-x-2 self-end sm:self-center">
+              {/* Master Logistics Toggle (Carrier No, Line, Source, Dest, Status) */}
+              <button
+                type="button"
+                onClick={handleToggleAllLogistics}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-sm border ${
+                  isLogisticsRevealed
+                    ? 'bg-amber-100 text-amber-950 border-amber-300 hover:bg-amber-200'
+                    : 'bg-slate-900 hover:bg-slate-800 text-white border-slate-950'
+                }`}
+                title="Carrier container number, shipping line, source, destination, and current status are hidden by default. Click to toggle."
+              >
+                {isLogisticsRevealed ? (
+                  <>
+                    <EyeOff className="w-4 h-4 text-amber-700" />
+                    <span>Hide Logistics (5 Columns)</span>
+                  </>
+                ) : (
+                  <>
+                    <Eye className="w-4 h-4 text-amber-400" />
+                    <span>Click to Reveal Logistics (Carrier, Line, Source, Dest, Status)</span>
+                  </>
+                )}
+              </button>
+
               <button
                 type="button"
                 onClick={exportToExcel}
@@ -503,7 +809,7 @@ export default function CargoMasterTable({
               {[
                 { id: 'all', label: 'All Fleet' },
                 { id: 'in-transit', label: 'In Transit' },
-                { id: 'delivered', label: 'Delivered' },
+                { id: 'delivered', label: 'Delivered / Reached Destination' },
                 { id: 'late', label: 'Delayed (>35d)' },
               ].map((tab) => (
                 <button
@@ -547,6 +853,74 @@ export default function CargoMasterTable({
                 />
               </div>
             </div>
+          </div>
+
+          {/* Sensitive Columns Toggle Bar (Hidden by Default) */}
+          <div className="flex flex-wrap items-center gap-2.5 pt-3 border-t border-slate-200 text-xs">
+            <div className="flex items-center space-x-1 text-slate-500 font-bold uppercase text-[10px] tracking-wider shrink-0">
+              <Lock className="w-3 h-3 text-amber-600" />
+              <span>Hidden by default:</span>
+            </div>
+
+            <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-[11px]">
+              <input
+                type="checkbox"
+                checked={Boolean(columnVisibility.containerNumber)}
+                onChange={(e) =>
+                  setColumnVisibility((prev) => ({ ...prev, containerNumber: e.target.checked }))
+                }
+                className="w-3.5 h-3.5 rounded text-blue-600 accent-blue-600"
+              />
+              <span className="font-semibold text-slate-700">Carrier Container</span>
+            </label>
+
+            <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-[11px]">
+              <input
+                type="checkbox"
+                checked={Boolean(columnVisibility.shippingLine)}
+                onChange={(e) =>
+                  setColumnVisibility((prev) => ({ ...prev, shippingLine: e.target.checked }))
+                }
+                className="w-3.5 h-3.5 rounded text-blue-600 accent-blue-600"
+              />
+              <span className="font-semibold text-slate-700">Shipping Line</span>
+            </label>
+
+            <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-[11px]">
+              <input
+                type="checkbox"
+                checked={Boolean(columnVisibility.shippedFrom)}
+                onChange={(e) =>
+                  setColumnVisibility((prev) => ({ ...prev, shippedFrom: e.target.checked }))
+                }
+                className="w-3.5 h-3.5 rounded text-blue-600 accent-blue-600"
+              />
+              <span className="font-semibold text-slate-700">Source (Origin)</span>
+            </label>
+
+            <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-[11px]">
+              <input
+                type="checkbox"
+                checked={Boolean(columnVisibility.shippedTo)}
+                onChange={(e) =>
+                  setColumnVisibility((prev) => ({ ...prev, shippedTo: e.target.checked }))
+                }
+                className="w-3.5 h-3.5 rounded text-blue-600 accent-blue-600"
+              />
+              <span className="font-semibold text-slate-700">Destination</span>
+            </label>
+
+            <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-[11px]">
+              <input
+                type="checkbox"
+                checked={Boolean(columnVisibility.status)}
+                onChange={(e) =>
+                  setColumnVisibility((prev) => ({ ...prev, status: e.target.checked }))
+                }
+                className="w-3.5 h-3.5 rounded text-blue-600 accent-blue-600"
+              />
+              <span className="font-semibold text-slate-700">Current Status</span>
+            </label>
           </div>
         </div>
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import jsPDF from 'jspdf';
@@ -39,6 +39,8 @@ import {
   Compass,
   Printer,
   Download,
+  Warehouse,
+  Boxes,
 } from 'lucide-react';
 
 function formatCBM(volume: any): string {
@@ -122,10 +124,10 @@ export default function PublicTrackerPage() {
       doc.text(String(formatGlobalDate(primary.date)), 50, 69);
 
       doc.setFont('helvetica', 'bold');
-      doc.text('Expected Delivery (ETA):', 110, 69);
+      doc.text('ETA:', 110, 69);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(220, 38, 38); // Highlight ETA in Red
-      doc.text(String(formatGlobalDate(primary.eta) || 'Pending'), 155, 69);
+      doc.text(String(primary.dateOfDelivery || formatGlobalDate(primary.eta) || 'Pending'), 145, 69);
       doc.setTextColor(15, 23, 42);
 
       doc.setFont('helvetica', 'bold');
@@ -134,9 +136,9 @@ export default function PublicTrackerPage() {
       doc.text(String(primary.warehouse || 'China Warehouse'), 50, 77);
 
       doc.setFont('helvetica', 'bold');
-      doc.text('Delivery Warehouse:', 110, 77);
+      doc.text('Delivery Schedule:', 110, 77);
       doc.setFont('helvetica', 'normal');
-      doc.text(String(primary.warehouseEntry || 'India Delivery Warehouse'), 145, 77);
+      doc.text('Confirmed Route', 145, 77);
 
       doc.setFont('helvetica', 'bold');
       doc.text('Cargo Marks:', 18, 85);
@@ -145,7 +147,7 @@ export default function PublicTrackerPage() {
       doc.text(marksStr, 50, 85);
 
       // Manifest Table
-      const headers = ['#', 'Item / Commodity Name', 'Cargo Marks', 'Cartons (Qty)', 'Weight (KG)', 'Volume (CBM)', 'Loading Warehouse', 'Expected ETA'];
+      const headers = ['#', 'Item / Commodity Name', 'Cargo Marks', 'Cartons (Qty)', 'Weight (KG)', 'Volume (CBM)', 'Container Alias', 'ETA'];
       const body = shipments.map((s, idx) => [
         idx + 1,
         s.english || s.commodity || 'General Cargo',
@@ -153,8 +155,8 @@ export default function PublicTrackerPage() {
         `${s.quantity || s.cartons || '0'} CTN`,
         s.weight ? `${s.weight} KG` : 'N/A',
         formatCBM(s.volume),
-        s.warehouse || 'China WH',
-        formatGlobalDate(s.eta) || 'Pending',
+        s.container || 'Pending',
+        s.dateOfDelivery || formatGlobalDate(s.eta) || 'Pending',
       ]);
 
       autoTable(doc, {
@@ -195,22 +197,82 @@ export default function PublicTrackerPage() {
   const [receiptResult, setReceiptResult] = useState<any | null>(null);
   const [containerResult, setContainerResult] = useState<any | null>(null);
 
+  // Typesense Autocomplete & Instant Suggestions
+  const [typesenseSuggestions, setTypesenseSuggestions] = useState<Array<{
+    type: 'receipt' | 'container';
+    id: string;
+    title: string;
+    subtitle: string;
+    value: string;
+  }>>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [isTypesenseActive, setIsTypesenseActive] = useState(false);
+  const suggestionsBoxRef = useRef<HTMLDivElement>(null);
+
   // FAQ Accordion state
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!searchQuery.trim()) return;
+  // Debounced Typesense Autocomplete Suggestions (Containers only; Receipts are strictly confidential documents)
+  useEffect(() => {
+    // Strictly disable autocomplete for Receipt numbers to preserve confidentiality
+    if (activeTab === 'receipt') {
+      setTypesenseSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
 
+    const q = searchQuery.trim();
+    if (!q || q.length < 2) {
+      setTypesenseSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&type=container&limit=6`);
+        if (res.ok) {
+          const data = await res.json();
+          const items = (data.results || []).map((c: any) => ({
+            type: 'container' as const,
+            id: c.id || c.container,
+            title: `Container ${c.container}`,
+            subtitle: `Status: ${c.status || 'In Transit'}`,
+            value: c.container,
+          }));
+          setTypesenseSuggestions(items);
+          setIsTypesenseActive(Boolean(data.typesenseActive));
+          setShowSuggestions(items.length > 0);
+        }
+      } catch {
+        // ignore
+      }
+    }, 200);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery, activeTab]);
+
+  // Click outside to dismiss suggestions
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (suggestionsBoxRef.current && !suggestionsBoxRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const performDirectSearch = async (queryInput: string, targetTab: 'receipt' | 'container') => {
+    if (!queryInput) return;
     setIsLoading(true);
     setError(null);
     setReceiptResult(null);
     setContainerResult(null);
-
-    const queryInput = searchQuery.trim();
+    setShowSuggestions(false);
 
     try {
-      if (activeTab === 'receipt') {
+      if (targetTab === 'receipt') {
         const gqlQuery = `
           query TrackReceipt($receipt: String!) {
             trackByReceipt(receipt: $receipt) {
@@ -221,6 +283,7 @@ export default function PublicTrackerPage() {
               warehouseReceipt {
                 id
                 receipt
+                party
                 warehouse
                 warehouseEntry
                 date
@@ -230,11 +293,17 @@ export default function PublicTrackerPage() {
                 commodity
                 chinese
                 english
+                packaging
+                mainMarka
+                subMarka
+                weight
+                volume
                 status
               }
               shipments {
                 id
                 receipt
+                party
                 container
                 english
                 chinese
@@ -251,6 +320,7 @@ export default function PublicTrackerPage() {
                 mainMarka
                 status
                 eta
+                dateOfDelivery
                 isSplit
                 splitIndex
                 originalTotalQuantity
@@ -344,8 +414,83 @@ export default function PublicTrackerPage() {
     }
   };
 
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) return;
+    performDirectSearch(searchQuery.trim(), activeTab);
+  };
+
+  const handleSelectSuggestion = (suggestion: { type: 'receipt' | 'container'; value: string }) => {
+    setSearchQuery(suggestion.value);
+    setActiveTab(suggestion.type);
+    setShowSuggestions(false);
+    performDirectSearch(suggestion.value, suggestion.type);
+  };
+
   const receiptShipmentsList = receiptResult?.shipments || [];
-  const distinctContainers = Array.from(new Set(receiptShipmentsList.map((s: any) => s.container).filter(Boolean)));
+  const whReceipt = receiptResult?.warehouseReceipt;
+
+  // Aggregate loading allocation per container
+  const containerMap = new Map<string, {
+    container: string;
+    quantity: number;
+    dateOfDelivery: string;
+    items: any[];
+    weight: number;
+    volume: number;
+    isDelivered: boolean;
+    deliveryDate?: string;
+  }>();
+
+  for (const s of receiptShipmentsList) {
+    const c = (s.container || 'Unassigned').trim();
+    if (!containerMap.has(c)) {
+      containerMap.set(c, {
+        container: c,
+        quantity: 0,
+        dateOfDelivery: s.dateOfDelivery || formatGlobalDate(s.eta) || 'Pending',
+        items: [],
+        weight: 0,
+        volume: 0,
+        isDelivered: Boolean(s.status === 'Delivered' || s.isDelivered),
+        deliveryDate: s.deliveryDate,
+      });
+    }
+    const entry = containerMap.get(c)!;
+    const q = parseInt(String(s.quantity || s.cartons || 0), 10) || 0;
+    const w = parseFloat(String(s.weight || 0)) || 0;
+    const v = parseFloat(String(s.volume || 0).replace(/cbm|m3/gi, '')) || 0;
+    entry.quantity += q;
+    entry.weight += w;
+    entry.volume += v;
+    entry.items.push(s);
+    if (s.dateOfDelivery && entry.dateOfDelivery === 'Pending') {
+      entry.dateOfDelivery = s.dateOfDelivery;
+    }
+  }
+
+  const containerBreakdown = Array.from(containerMap.values());
+  const distinctContainers = containerBreakdown.map((c) => c.container);
+  const totalLoadedCartons = containerBreakdown.reduce((sum, c) => sum + c.quantity, 0);
+  const totalInwardCartons = whReceipt?.quantity !== undefined
+    ? whReceipt.quantity
+    : (receiptShipmentsList[0]?.originalTotalQuantity ? parseInt(String(receiptShipmentsList[0].originalTotalQuantity), 10) : totalLoadedCartons);
+  const remainingWarehouseCartons = whReceipt?.remainingQuantity !== undefined
+    ? whReceipt.remainingQuantity
+    : Math.max(0, totalInwardCartons - totalLoadedCartons);
+  const distinctContainersCount = containerBreakdown.length;
+
+  const primaryGoods = whReceipt || receiptShipmentsList[0] || {};
+  const partyName = whReceipt?.party || receiptShipmentsList[0]?.party || 'General Party';
+  const commodityName = primaryGoods.english || primaryGoods.commodity || 'General Cargo';
+  const chineseCommodity = primaryGoods.chinese && primaryGoods.chinese !== commodityName ? primaryGoods.chinese : '';
+  const packagingType = primaryGoods.packaging || 'Carton';
+  const warehouseLocation = whReceipt?.warehouse || receiptShipmentsList[0]?.warehouse || 'China Warehouse';
+  const receiptDateFormatted = formatGlobalDate(primaryGoods.date) || primaryGoods.date || 'Recent';
+  const marksSummary = [
+    primaryGoods.mainMarka ? `Main: ${primaryGoods.mainMarka}` : '',
+    primaryGoods.subMarka && primaryGoods.subMarka !== '??' ? `Sub: ${primaryGoods.subMarka}` : ''
+  ].filter(Boolean).join(' | ') || 'N/A';
 
 
   const faqs = [
@@ -509,36 +654,88 @@ export default function PublicTrackerPage() {
                         ? 'Enter Receipt Number (e.g., REC-1002)'
                         : 'Enter Container ID (e.g., USI-01)'}
                     </label>
-                    <div className="relative flex items-center">
-                      <input
-                        type="text"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder={
-                          activeTab === 'receipt'
-                            ? 'Enter Receipt Number (e.g., REC-1002)...'
-                            : 'Enter Container ID (e.g., USI-01)...'
-                        }
-                        className="w-full pl-12 pr-36 py-4 rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-600 focus:border-transparent text-base font-semibold text-slate-900 placeholder-slate-400 bg-slate-50"
-                        required
-                      />
-                      <div className="absolute left-4 text-slate-400 pointer-events-none">
-                        <Search className="w-5 h-5 text-red-600" />
+                    <div className="relative" ref={suggestionsBoxRef}>
+                      <div className="relative flex items-center">
+                        <input
+                          type="text"
+                          autoComplete="off"
+                          autoCorrect="off"
+                          spellCheck={false}
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          onFocus={() => {
+                            if (activeTab === 'container' && typesenseSuggestions.length > 0) {
+                              setShowSuggestions(true);
+                            }
+                          }}
+                          placeholder={
+                            activeTab === 'receipt'
+                              ? 'Enter exact Receipt Number (e.g., REC-1002)...'
+                              : 'Enter Container ID (e.g., USI-01)...'
+                          }
+                          className="w-full pl-12 pr-36 py-4 rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-600 focus:border-transparent text-base font-semibold text-slate-900 placeholder-slate-400 bg-slate-50"
+                          required
+                        />
+                        <div className="absolute left-4 text-slate-400 pointer-events-none">
+                          <Search className="w-5 h-5 text-red-600" />
+                        </div>
+                        <button
+                          type="submit"
+                          disabled={isLoading}
+                          className="absolute right-2 px-6 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-sm transition shadow-md shadow-red-600/20 disabled:opacity-50 flex items-center space-x-2"
+                        >
+                          {isLoading ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                              <span>Searching...</span>
+                            </>
+                          ) : (
+                            <span>Track Status</span>
+                          )}
+                        </button>
                       </div>
-                      <button
-                        type="submit"
-                        disabled={isLoading}
-                        className="absolute right-2 px-6 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-sm transition shadow-md shadow-red-600/20 disabled:opacity-50 flex items-center space-x-2"
-                      >
-                        {isLoading ? (
-                          <>
-                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                            <span>Searching...</span>
-                          </>
-                        ) : (
-                          <span>Track Status</span>
-                        )}
-                      </button>
+
+                      {/* Confidential Document Notice for Receipts */}
+                      {activeTab === 'receipt' && (
+                        <div className="flex items-center space-x-2 text-xs text-slate-500 mt-2.5 font-medium bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                          <ShieldCheck className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                          <span>
+                            <strong className="text-slate-700">Confidential Document:</strong> To protect customer privacy, Receipt Numbers do not autocomplete. Enter your exact receipt number to track.
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Container Typesense Suggestions Dropdown (Only on Container Tab) */}
+                      {activeTab === 'container' && showSuggestions && typesenseSuggestions.length > 0 && (
+                        <div className="absolute left-0 right-0 top-full mt-2 bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden z-30 animate-fadeIn">
+                          <div className="p-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                            <span>Instant Suggestions</span>
+                            <span className="inline-flex items-center space-x-1 text-red-600 font-bold">
+                              <span>⚡ Typesense Search</span>
+                            </span>
+                          </div>
+                          <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto">
+                            {typesenseSuggestions.map((s) => (
+                              <button
+                                key={s.id}
+                                type="button"
+                                onClick={() => handleSelectSuggestion(s)}
+                                className="w-full px-4 py-3 text-left hover:bg-red-50/60 transition flex items-center justify-between group"
+                              >
+                                <div>
+                                  <div className="font-mono font-bold text-sm text-slate-900 group-hover:text-red-700">
+                                    {s.title}
+                                  </div>
+                                  <div className="text-xs text-slate-500">{s.subtitle}</div>
+                                </div>
+                                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 group-hover:bg-red-100 group-hover:text-red-800">
+                                  {s.type}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -665,12 +862,26 @@ export default function PublicTrackerPage() {
           )}
 
           {activeTab === 'receipt' && receiptShipmentsList.length > 0 && (
-            <section className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+            <section className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6 animate-fadeIn">
+              {/* Top Banner with Receipt Info & PDF Download */}
               <div className="bg-red-50 border border-red-200 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs font-bold text-red-950 shadow-sm">
-                <span className="flex items-center space-x-2">
+                <div className="flex items-center space-x-2">
                   <FileText className="w-4 h-4 text-red-600" />
-                  <span>Receipt Number: <strong className="font-mono text-sm text-slate-950">{receiptResult.receipt}</strong></span>
-                </span>
+                  <span>
+                    Receipt Number: <strong className="font-mono text-sm text-slate-950">{receiptResult.receipt}</strong>
+                  </span>
+                  <span
+                    className={`ml-2 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                      remainingWarehouseCartons === 0
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        : 'bg-amber-100 text-amber-900 border border-amber-300'
+                    }`}
+                  >
+                    {remainingWarehouseCartons === 0
+                      ? `Fully Loaded (${distinctContainersCount} Containers)`
+                      : `Partially Loaded (${distinctContainersCount} Containers • ${remainingWarehouseCartons} CTN In WH)`}
+                  </span>
+                </div>
 
                 <div className="flex items-center space-x-3">
                   <button
@@ -686,257 +897,381 @@ export default function PublicTrackerPage() {
                 </div>
               </div>
 
-              {/* Split Cargo Shipment Notice (When Receipt spans 2 or more containers) */}
-              {distinctContainers.length > 1 && (
-                <div className="bg-gradient-to-r from-amber-50 via-amber-100/70 to-orange-50 border-2 border-amber-300 p-5 rounded-3xl shadow-md space-y-3 animate-fadeIn">
-                  <div className="flex items-center space-x-2.5">
-                    <div className="p-2 bg-amber-500 text-white rounded-xl shadow-sm">
-                      <Layers className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h4 className="text-base font-black text-amber-950 tracking-tight">
-                        Split Cargo Shipment: Found Across {distinctContainers.length} Containers
-                      </h4>
-                      <p className="text-xs text-amber-800">
-                        Goods under receipt <strong className="font-mono">{receiptResult.receipt}</strong> are loaded across multiple containers. Each container delivery date is detailed below:
-                      </p>
-                    </div>
+              {/* 4 Summary Metric Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                  <div className="flex items-center justify-between text-slate-400 mb-1 text-[11px] font-bold uppercase tracking-wider">
+                    <span>Total Inward</span>
+                    <Package className="w-4 h-4 text-blue-500" />
                   </div>
+                  <div className="text-2xl font-black text-slate-900 font-mono">
+                    {totalInwardCartons} <span className="text-xs font-semibold text-slate-400 font-sans">CTN</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-1">Received at China WH</div>
+                </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-1">
-                    {distinctContainers.map((containerName: any) => {
-                      const containerItems = receiptShipmentsList.filter((s: any) => s.container === containerName);
-                      const primary = containerItems[0];
-                      return (
-                        <div
-                          key={containerName}
-                          className="bg-white/90 backdrop-blur-sm p-3.5 rounded-2xl border border-amber-200 shadow-sm flex flex-col justify-between space-y-2"
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="font-mono font-black text-sm text-slate-900 bg-slate-100 px-2.5 py-0.5 rounded-lg border border-slate-200">
-                              {containerName}
-                            </span>
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 uppercase">
-                              Scheduled Delivery
-                            </span>
-                          </div>
-                          <div className="text-xs space-y-1 text-slate-600">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[11px] text-slate-500 font-medium">Expected Delivery:</span>
-                              <strong className="text-red-700 font-mono text-xs">{formatGlobalDate(primary?.eta) || 'Pending'}</strong>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="text-[11px] text-slate-500 font-medium">Cargo Items:</span>
-                              <span className="font-bold text-slate-800">{containerItems.length} package(s)</span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                  <div className="flex items-center justify-between text-slate-400 mb-1 text-[11px] font-bold uppercase tracking-wider">
+                    <span>Loaded Quantity</span>
+                    <Truck className="w-4 h-4 text-emerald-500" />
+                  </div>
+                  <div className="text-2xl font-black text-emerald-600 font-mono">
+                    {totalLoadedCartons} <span className="text-xs font-semibold text-slate-400 font-sans">CTN</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-1">
+                    {totalInwardCartons > 0 ? `${Math.round((totalLoadedCartons / totalInwardCartons) * 100)}% of shipment` : 'Allocated to containers'}
                   </div>
                 </div>
-              )}
 
-              {receiptShipmentsList.map((item: any, idx: number) => {
-                const isItemDelivered = item.status === 'Delivered';
-                return (
-                <div key={item.id || idx} className="bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden space-y-6 animate-fadeIn">
-                  {/* Header Banner */}
-                  <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 p-6 text-white flex flex-wrap items-center justify-between gap-4 border-b border-slate-800">
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                  <div className="flex items-center justify-between text-slate-400 mb-1 text-[11px] font-bold uppercase tracking-wider">
+                    <span>Warehouse Balance</span>
+                    <Box className="w-4 h-4 text-amber-500" />
+                  </div>
+                  <div className="text-2xl font-black text-amber-600 font-mono">
+                    {remainingWarehouseCartons} <span className="text-xs font-semibold text-slate-400 font-sans">CTN</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-1">
+                    {remainingWarehouseCartons > 0 ? 'Remaining in China WH' : 'All Goods Dispatched'}
+                  </div>
+                </div>
+
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                  <div className="flex items-center justify-between text-slate-400 mb-1 text-[11px] font-bold uppercase tracking-wider">
+                    <span>Containers</span>
+                    <Layers className="w-4 h-4 text-purple-500" />
+                  </div>
+                  <div className="text-2xl font-black text-purple-900 font-mono">
+                    {distinctContainersCount} <span className="text-xs font-semibold text-slate-400 font-sans">{distinctContainersCount === 1 ? 'Container' : 'Containers'}</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-1">Carrying your goods</div>
+                </div>
+              </div>
+
+              {/* CARD 1: FULL DETAILS OF RECEIVED GOODS */}
+              <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="bg-slate-900 px-6 py-4 text-white flex items-center justify-between">
+                  <div className="flex items-center space-x-2.5">
+                    <Package className="w-5 h-5 text-red-500" />
                     <div>
-                      <span className="text-xs uppercase font-bold text-red-400 tracking-wider">Cargo Item #{idx + 1} • Receipt {item.receipt}</span>
-                      <h3 className="text-2xl font-black font-mono tracking-tight mt-0.5 text-white">{item.receipt}</h3>
-                      <p className="text-xs text-slate-300 mt-1 flex flex-wrap items-center gap-2">
-                        <span className="flex items-center space-x-1.5">
-                          <Box className="w-4 h-4 text-amber-400" />
-                          <span>Container:</span>
-                        </span>
-                        <strong className="text-amber-300 font-mono bg-slate-800 px-2.5 py-0.5 rounded text-xs border border-amber-500/40">
-                          {item.container}
-                        </strong>
-                        {distinctContainers.length > 1 && (
-                          <span className="bg-amber-500/20 text-amber-300 border border-amber-400/30 text-[10px] px-2 py-0.5 rounded-full font-bold uppercase">
-                            Container {distinctContainers.indexOf(item.container) + 1} of {distinctContainers.length}
-                          </span>
-                        )}
-                      </p>
+                      <h4 className="text-sm font-black uppercase tracking-wider">Full Details of Received Goods</h4>
+                      <p className="text-[11px] text-slate-400">Verified Inward Cargo Profile from China Warehouse</p>
                     </div>
+                  </div>
+                  <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase bg-slate-800 text-slate-300 border border-slate-700">
+                    Party: {partyName}
+                  </span>
+                </div>
 
-                    <div className="flex items-center space-x-3">
-                      {/* Prominent Header Delivery Date Badge (ETA + 10 Days) */}
-                      <div className="flex items-center space-x-2 text-white px-4 py-2 rounded-xl border shadow-sm bg-gradient-to-r from-red-600 to-rose-600 border-red-400/40">
-                        <Clock className="w-4 h-4 text-amber-300" />
-                        <div>
-                          <span className="text-[9px] uppercase font-bold text-rose-200 block">
-                            Date of Delivery (ETA + 10 Days)
-                          </span>
-                          <span className="text-sm font-black font-mono text-white">
-                            {item.dateOfDelivery || formatGlobalDate(item.eta) || 'Pending'}
-                          </span>
-                        </div>
-                      </div>
+                <div className="p-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Commodity / Item Name</span>
+                    <div className="font-bold text-slate-900 text-sm leading-tight">
+                      {commodityName}
+                    </div>
+                    {chineseCommodity && (
+                      <div className="text-[11px] text-slate-400 mt-0.5">{chineseCommodity}</div>
+                    )}
+                  </div>
 
-                      <button
-                        onClick={() => downloadReceiptPDF(item.receipt, [item])}
-                        className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-red-600 text-white text-xs font-bold transition flex items-center space-x-1.5 border border-slate-700 shadow-sm"
-                      >
-                        <Printer className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Print PDF Slip</span>
-                      </button>
+                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Packaging & Units</span>
+                    <div className="font-black text-slate-900 text-sm">
+                      {totalInwardCartons} CTN / {packagingType}
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">Package Type: {packagingType}</div>
+                  </div>
+
+                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">China Receiving Warehouse</span>
+                    <div className="font-bold text-slate-900 text-sm flex items-center space-x-1">
+                      <MapPin className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                      <span>{warehouseLocation}</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">Received Date: {receiptDateFormatted}</div>
+                  </div>
+
+                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Cargo Marks & Measurements</span>
+                    <div className="font-mono text-xs font-bold text-slate-900 truncate" title={marksSummary}>
+                      {marksSummary}
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">
+                      {primaryGoods.weight ? `${primaryGoods.weight} KG` : 'N/A'} • {formatCBM(primaryGoods.volume)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* CARD 2: HOW MUCH LOAD IN WHICH CONTAINER (CONTAINER BREAKDOWN) */}
+              <div className="bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 text-white rounded-3xl p-6 shadow-xl border border-slate-800 space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 rounded-2xl bg-red-600 text-white flex items-center justify-center shadow-md">
+                      <Truck className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-base font-black uppercase tracking-wider text-white">
+                        Container Allocation & Delivery Schedule
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        Showing how much goods are loaded in each container across {distinctContainersCount} container{distinctContainersCount === 1 ? '' : 's'}:
+                      </p>
                     </div>
                   </div>
 
-                  {/* Content Details Grid - ALL Details for this Receipt */}
-                  <div className="p-6 sm:p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {/* 1. Large High-Visibility Delivery Date Banner (ETA + 10 Days) */}
-                    <div className="text-white p-5 rounded-2xl shadow-md col-span-1 md:col-span-2 lg:col-span-3 flex flex-wrap items-center justify-between gap-4 border-2 bg-gradient-to-r from-red-600 via-rose-600 to-red-700 border-red-400/40 animate-fadeIn">
-                      <div className="flex items-center space-x-3.5">
-                        <div className="p-3 bg-white/20 backdrop-blur-sm rounded-xl">
-                          <Clock className="w-7 h-7 text-amber-300" />
-                        </div>
-                        <div>
-                          <span className="text-xs font-bold uppercase tracking-wider text-rose-200 block">
-                            Expected Date of Delivery (ETA + 10 Days)
-                          </span>
-                          <h4 className="text-2xl sm:text-3xl font-black font-mono text-white tracking-tight">
-                            {item.dateOfDelivery || (item.eta && item.eta !== 'N/A' && item.eta !== 'Pending' ? formatGlobalDate(item.eta) : 'Pending Confirmation')}
-                          </h4>
-                        </div>
-                      </div>
-                      <div className="bg-white/10 px-4 py-2 rounded-xl border border-white/20 text-xs font-bold flex items-center space-x-2">
-                        <span className="text-rose-200">Container Alias:</span>
-                        <span className="font-mono text-amber-300 font-black">{item.container}</span>
-                      </div>
-                    </div>
-
-                    {/* 2. Item Description & English Commodity Name */}
-                    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 col-span-1 md:col-span-2 lg:col-span-3 space-y-1.5">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-xs font-black uppercase text-slate-500 tracking-wider">Item Name / Commodity</span>
-                        <span className="px-3 py-1 rounded-lg bg-slate-900 text-white font-black text-xs tracking-wide shadow-sm flex items-center space-x-1 border border-slate-800">
-                          <span className="text-red-400 font-bold uppercase">English Name:</span>
-                          <span className="font-mono text-amber-300 font-bold text-xs">{item.commodity || item.english || 'General Cargo'}</span>
-                        </span>
-                      </div>
-                      <p className="text-xl font-black text-slate-900 leading-snug">
-                        {item.english || item.commodity || 'General Cargo'}
-                      </p>
-                    </div>
-
-                    {/* 3. Cargo Marks: Main Mark & Sub Mark Badges */}
-                    <div className="bg-amber-50/70 p-4.5 rounded-2xl border-2 border-amber-200 col-span-1 md:col-span-2 lg:col-span-3 flex flex-wrap items-center gap-3 sm:gap-6">
-                      <span className="text-xs font-black uppercase text-amber-900 tracking-wider flex items-center space-x-1.5">
-                        <Star className="w-4 h-4 text-amber-600 fill-amber-500" />
-                        <span>Cargo Marks:</span>
+                  <div className="flex items-center space-x-2">
+                    <span className="px-3 py-1 rounded-full text-xs font-black bg-slate-800 text-red-400 border border-slate-700">
+                      Total Loaded: {totalLoadedCartons} CTN
+                    </span>
+                    {remainingWarehouseCartons > 0 && (
+                      <span className="px-3 py-1 rounded-full text-xs font-black bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        {remainingWarehouseCartons} CTN Remaining in WH
                       </span>
-                      <div className="flex items-center space-x-2 bg-amber-100/90 text-amber-950 px-3.5 py-1.5 rounded-xl border border-amber-300 text-xs font-bold">
-                        <span className="text-amber-700 font-semibold">Main Mark:</span>
-                        <strong className="font-mono text-slate-900">{item.mainMarka || 'N/A'}</strong>
-                      </div>
-                      <div className="flex items-center space-x-2 bg-blue-100/90 text-blue-950 px-3.5 py-1.5 rounded-xl border border-blue-300 text-xs font-bold">
-                        <span className="text-blue-700 font-semibold">Sub Mark:</span>
-                        <strong className="font-mono text-slate-900">{item.subMarka && item.subMarka !== '??' ? item.subMarka : 'N/A'}</strong>
-                      </div>
-                    </div>
-
-                    {/* 4. Receipt Date (Booking / Entry Date) */}
-                    <div className="bg-slate-50 p-4.5 rounded-2xl border border-slate-200 flex items-center space-x-3">
-                      <div className="p-3 bg-blue-100 text-blue-600 rounded-xl">
-                        <Calendar className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <span className="text-xs font-bold text-slate-500 uppercase">Receipt Date</span>
-                        <p className="text-lg font-black text-slate-950 font-mono">{formatGlobalDate(item.date)}</p>
-                        <span className="text-xs text-slate-400 font-medium">Receipt booking date</span>
-                      </div>
-                    </div>
-
-                    {/* 5. Volume in CBM (Show decimal point e.g., 1.45 CBM) */}
-                    <div className="bg-slate-50 p-4.5 rounded-2xl border border-slate-200 flex items-center space-x-3">
-                      <div className="p-3 bg-indigo-100 text-indigo-600 rounded-xl">
-                        <Layers className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <span className="text-xs font-bold text-slate-500 uppercase">Volume (CBM)</span>
-                        <p className="text-xl font-black text-slate-950 font-mono">
-                          {formatCBM(item.volume)}
-                        </p>
-                        <span className="text-xs text-slate-400 font-medium">Cubic meters (decimal)</span>
-                      </div>
-                    </div>
-
-                    {/* 6. Quantity - Kitne Carton Hain / Packets */}
-                    <div className="bg-slate-50 p-4.5 rounded-2xl border border-slate-200 flex items-center space-x-3">
-                      <div className="p-3 bg-red-100 text-red-600 rounded-xl">
-                        <Package className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <span className="text-xs font-bold text-slate-500 uppercase">Cartons / Packets (Qty)</span>
-                        <p className="text-xl font-black text-slate-950">
-                          {item.quantity || item.cartons || '0'} Cartons
-                        </p>
-                        <span className="text-xs text-slate-500 font-semibold">
-                          ({item.packaging || 'Cartons / Packets'})
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* 7. Gross Weight in KG */}
-                    <div className="bg-slate-50 p-4.5 rounded-2xl border border-slate-200 flex items-center space-x-3">
-                      <div className="p-3 bg-amber-100 text-amber-600 rounded-xl">
-                        <Weight className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <span className="text-xs font-bold text-slate-500 uppercase">Gross Weight</span>
-                        <p className="text-xl font-black text-slate-950">
-                          {item.weight || 'N/A'} {item.weight && !String(item.weight).toLowerCase().includes('kg') ? 'KG' : ''}
-                        </p>
-                        <span className="text-xs text-slate-400 font-medium">Gross weight</span>
-                      </div>
-                    </div>
-
-                    {/* 8. Loading Warehouse (Kis warehouse se chala hai) */}
-                    <div className="bg-slate-50 p-4.5 rounded-2xl border border-slate-200 flex items-center space-x-3">
-                      <div className="p-3 bg-emerald-100 text-emerald-600 rounded-xl">
-                        <MapPin className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <span className="text-xs font-bold text-slate-500 uppercase">Loading Warehouse</span>
-                        <p className="text-base font-black text-slate-900">{item.warehouse || 'China Warehouse'}</p>
-                        <span className="text-xs text-slate-500 font-medium">Dispatched from origin</span>
-                      </div>
-                    </div>
-
-                    {/* 9. Receiving Warehouse / Warehouse Entry (Kis warehouse mein hai) */}
-                    <div className="bg-slate-50 p-4.5 rounded-2xl border border-slate-200 flex items-center space-x-3">
-                      <div className="p-3 bg-teal-100 text-teal-600 rounded-xl">
-                        <Truck className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <span className="text-xs font-bold text-slate-500 uppercase">Warehouse Entry / Destination</span>
-                        <p className="text-base font-black text-slate-900">{item.warehouseEntry || 'India Delivery Warehouse'}</p>
-                        <span className="text-xs text-slate-500 font-medium">CFS / Entry destination</span>
-                      </div>
-                    </div>
-
-                    {/* Stock Status */}
-                    {item.stockstatus && (
-                      <div className="bg-slate-50 p-4.5 rounded-2xl border border-slate-200 flex items-center space-x-3">
-                        <div className="p-3 bg-violet-100 text-violet-600 rounded-xl">
-                          <CheckCircle2 className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <span className="text-xs font-bold text-slate-500 uppercase">Stock Status</span>
-                          <p className="text-base font-bold text-slate-900">{item.stockstatus}</p>
-                        </div>
-                      </div>
                     )}
                   </div>
                 </div>
-              );
-              })}
+
+                {/* Per-Container Breakdown Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {containerBreakdown.map((item, cIdx) => {
+                    const percent = totalInwardCartons > 0 ? Math.round((item.quantity / totalInwardCartons) * 100) : 100;
+                    return (
+                      <div
+                        key={item.container}
+                        className="bg-slate-800/80 backdrop-blur-md rounded-2xl p-5 border border-slate-700 shadow-lg flex flex-col justify-between space-y-4 hover:border-red-500 transition group"
+                      >
+                        {/* Container Alias & Container Number Badge */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <span className="w-7 h-7 rounded-xl bg-red-600/30 border border-red-500/40 text-red-400 font-mono font-black text-xs flex items-center justify-center">
+                              #{cIdx + 1}
+                            </span>
+                            <div>
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Internal Container</span>
+                              <span className="font-mono font-black text-base text-white tracking-wide">{item.container}</span>
+                            </div>
+                          </div>
+
+                          <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-800 text-amber-300 border border-slate-700">
+                            Loaded in Container
+                          </span>
+                        </div>
+
+                        {/* Quantity Loaded in this Container */}
+                        <div className="bg-slate-900/90 p-3.5 rounded-xl border border-slate-800 space-y-2">
+                          <div className="flex justify-between items-center text-xs">
+                            <span className="text-slate-400 font-semibold">Quantity Loaded:</span>
+                            <span className="font-mono font-black text-sm text-amber-300">
+                              {item.quantity} CTN <span className="text-[11px] text-slate-400 font-normal">({percent}%)</span>
+                            </span>
+                          </div>
+
+                          {/* Progress bar visual */}
+                          <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                            <div
+                              className="bg-gradient-to-r from-red-600 to-amber-500 h-2 rounded-full transition-all duration-500"
+                              style={{ width: `${Math.min(percent, 100)}%` }}
+                            ></div>
+                          </div>
+
+                          <div className="flex justify-between items-center text-[10px] text-slate-400 pt-1">
+                            <span>Share of Total Cargo</span>
+                            <span className="font-bold text-slate-300">{item.quantity} of {totalInwardCartons} Cartons</span>
+                          </div>
+                        </div>
+
+                        {/* ETA Date (Calculated with 10 days added) */}
+                        <div className="p-3 bg-red-950/40 rounded-xl border border-red-900/50 flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <Clock className="w-4 h-4 text-amber-400 shrink-0" />
+                            <div>
+                              <span className="text-[10px] uppercase font-bold text-red-300 block">
+                                ETA
+                              </span>
+                              <span className="text-sm font-black font-mono text-white">
+                                {item.dateOfDelivery}
+                              </span>
+                            </div>
+                          </div>
+                          {item.items.length > 1 && (
+                            <span className="text-[10px] font-bold text-slate-400 bg-slate-800 px-2 py-0.5 rounded">
+                              {item.items.length} items
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* Warehouse Stock Remaining Card (If Split and not fully loaded) */}
+                  {remainingWarehouseCartons > 0 && (
+                    <div className="bg-amber-950/30 rounded-2xl p-5 border-2 border-dashed border-amber-600/50 shadow-lg flex flex-col justify-between space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <div className="w-7 h-7 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center">
+                            <Warehouse className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">Remaining Balance</span>
+                            <span className="font-bold text-sm text-white">{warehouseLocation}</span>
+                          </div>
+                        </div>
+
+                        <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                          Awaiting Next Plan
+                        </span>
+                      </div>
+
+                      <div className="bg-slate-900/90 p-3.5 rounded-xl border border-slate-800 space-y-2">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-slate-400 font-semibold">Remaining Stock:</span>
+                          <span className="font-mono font-black text-sm text-amber-400">
+                            {remainingWarehouseCartons} CTN <span className="text-[11px] text-slate-400 font-normal">({totalInwardCartons > 0 ? Math.round((remainingWarehouseCartons / totalInwardCartons) * 100) : 0}%)</span>
+                          </span>
+                        </div>
+                        <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                          <div
+                            className="bg-amber-500 h-2 rounded-full"
+                            style={{ width: `${totalInwardCartons > 0 ? Math.min(Math.round((remainingWarehouseCartons / totalInwardCartons) * 100), 100) : 0}%` }}
+                          ></div>
+                        </div>
+                      </div>
+
+                      <p className="text-[11px] text-amber-200/80 italic leading-relaxed">
+                        ℹ️ This receipt was split. {remainingWarehouseCartons} cartons are safely in warehouse inventory and will be loaded into the next available container.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* CARD 3: INDIVIDUAL CARGO ITEMS & MANIFEST DETAILS */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-black uppercase tracking-wider text-slate-800 flex items-center space-x-2">
+                    <Boxes className="w-4 h-4 text-red-600" />
+                    <span>Manifest Items Detailed View ({receiptShipmentsList.length} Records)</span>
+                  </h4>
+                  <span className="text-xs text-slate-500">
+                    All containers and cargo item packages
+                  </span>
+                </div>
+
+                {receiptShipmentsList.map((item: any, idx: number) => {
+                  return (
+                    <div
+                      key={item.id || idx}
+                      className="bg-white rounded-3xl shadow-md border border-slate-200 overflow-hidden space-y-5 animate-fadeIn"
+                    >
+                      {/* Header Banner */}
+                      <div className="bg-slate-900 p-5 text-white flex flex-wrap items-center justify-between gap-4 border-b border-slate-800">
+                        <div>
+                          <span className="text-xs uppercase font-bold text-red-400 tracking-wider">
+                            Cargo Item #{idx + 1} • Receipt {item.receipt}
+                          </span>
+                          <h3 className="text-xl font-black font-mono tracking-tight mt-0.5 text-white">{item.receipt}</h3>
+                          <p className="text-xs text-slate-300 mt-1 flex flex-wrap items-center gap-2">
+                            <span className="flex items-center space-x-1.5">
+                              <Box className="w-4 h-4 text-amber-400" />
+                              <span>Loaded in Container:</span>
+                            </span>
+                            <strong className="text-amber-300 font-mono bg-slate-800 px-2.5 py-0.5 rounded text-xs border border-amber-500/40">
+                              {item.container}
+                            </strong>
+                            {distinctContainersCount > 1 && (
+                              <span className="bg-amber-500/20 text-amber-300 border border-amber-400/30 text-[10px] px-2 py-0.5 rounded-full font-bold uppercase">
+                                Container {distinctContainers.indexOf(item.container) + 1} of {distinctContainersCount}
+                              </span>
+                            )}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center space-x-3">
+                          <div className="flex items-center space-x-2 text-white px-4 py-2 rounded-xl border shadow-sm bg-gradient-to-r from-red-600 to-rose-600 border-red-400/40">
+                            <Clock className="w-4 h-4 text-amber-300" />
+                            <div>
+                              <span className="text-[9px] uppercase font-bold text-rose-200 block">
+                                ETA
+                              </span>
+                              <span className="text-sm font-black font-mono text-white">
+                                {item.dateOfDelivery || formatGlobalDate(item.eta) || 'Pending'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => downloadReceiptPDF(item.receipt, [item])}
+                            className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl transition border border-slate-700"
+                            title="Download PDF slip for this item"
+                          >
+                            <Printer className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Cargo Item Key Metrics */}
+                      <div className="px-6 grid grid-cols-2 sm:grid-cols-4 gap-4">
+                        <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
+                          <span className="text-[11px] font-bold text-slate-400 uppercase">Loaded Quantity</span>
+                          <p className="font-mono font-black text-lg text-slate-900 mt-0.5">
+                            {item.quantity || item.cartons || '0'}{' '}
+                            <span className="text-xs font-medium text-slate-500">CTN</span>
+                          </p>
+                        </div>
+
+                        <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
+                          <span className="text-[11px] font-bold text-slate-400 uppercase">Gross Weight</span>
+                          <p className="font-mono font-black text-lg text-slate-900 mt-0.5">
+                            {item.weight && item.weight !== 'N/A' ? `${item.weight} KG` : 'N/A'}
+                          </p>
+                        </div>
+
+                        <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
+                          <span className="text-[11px] font-bold text-slate-400 uppercase">Volume (CBM)</span>
+                          <p className="font-mono font-black text-lg text-slate-900 mt-0.5">
+                            {formatCBM(item.volume)}
+                          </p>
+                        </div>
+
+                        <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
+                          <span className="text-[11px] font-bold text-slate-400 uppercase">Packaging</span>
+                          <p className="font-bold text-xs text-slate-800 mt-1 uppercase truncate">
+                            {item.packaging || 'Cartons / CTN'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Line Item Detailed Specs */}
+                      <div className="px-6 pb-6">
+                        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 text-xs space-y-2">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div>
+                              <span className="text-slate-400 font-semibold block">Commodity Description:</span>
+                              <strong className="text-slate-800 text-sm">{item.english || item.commodity || 'General Cargo'}</strong>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 font-semibold block">Shipping Marks:</span>
+                              <span className="font-mono text-slate-800 font-bold">
+                                {[item.mainMarka ? `M:${item.mainMarka}` : '', item.subMarka && item.subMarka !== '??' ? `S:${item.subMarka}` : '']
+                                  .filter(Boolean)
+                                  .join(' | ') || 'N/A'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 font-semibold block">Origin Warehouse:</span>
+                              <span className="text-slate-800 font-medium">{item.warehouse || 'China Warehouse'}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </section>
           )}
+
 
           {/* 6. Container Search Results (CONTAINER ALIAS AND DATE OF DELIVERY (ETA + 10 DAYS) ONLY) */}
           {activeTab === 'container' && containerResult && (
@@ -951,13 +1286,13 @@ export default function PublicTrackerPage() {
 
                 <div className="p-6 rounded-2xl bg-slate-900 text-white space-y-2 border border-slate-800">
                   <span className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                    Date of Delivery (ETA + 10 Days)
+                    ETA
                   </span>
                   <div className="text-3xl sm:text-4xl font-black font-mono text-amber-300">
                     {containerResult.dateOfDelivery || formatGlobalDate(containerResult.eta) || 'Pending'}
                   </div>
                   <p className="text-[11px] text-slate-400">
-                    Estimated final arrival date including 10 days port terminal clearance buffer.
+                    Estimated arrival date for container {containerResult.container}.
                   </p>
                 </div>
               </div>

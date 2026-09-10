@@ -12,7 +12,7 @@ import {
   AlertTriangle, FileSpreadsheet, Image as ImageIcon, FileText,
   X, SlidersHorizontal, FileType, Star, Bookmark, ChevronDown,
   LayoutGrid, Filter, Check, CheckCircle2, Clock, TrendingUp, ArrowUpDown,
-  CheckSquare, Square
+  CheckSquare, Square, Eye, EyeOff, Lock
 } from 'lucide-react';
 import {
   calculateDaysToDeliver,
@@ -271,9 +271,13 @@ export default function InternalEmployeeViewPage() {
   const [error, setError] = useState<string | null>(null);
   const [isExportingJpg, setIsExportingJpg] = useState(false);
 
-  // Column Visibility
-  const [showActualContainer, setShowActualContainer] = useState(true);
-  const [showShippingLine, setShowShippingLine] = useState(true);
+  // Column Visibility - Hidden by Default per user requirements:
+  // Carrier Container actual container no., Shipping Line, Destination, Source, and Current Status!
+  const [showActualContainer, setShowActualContainer] = useState(false);
+  const [showShippingLine, setShowShippingLine] = useState(false);
+  const [showDestination, setShowDestination] = useState(false);
+  const [showSource, setShowSource] = useState(false);
+  const [showStatus, setShowStatus] = useState(false);
 
   // Row Marking: 'bold' = primary mark (gold star), 'sub' = sub-mark (blue bookmark)
   const [rowMarks, setRowMarks] = useState<Record<string, MarkType>>({});
@@ -788,8 +792,9 @@ export default function InternalEmployeeViewPage() {
       row['Receipt Date'] = s.date || 'N/A';
       row['ETA Date'] = s.eta || '';
       row['Days to Deliver'] = turnaround.label;
-      row['Status'] = s.status || '';
-      row['Warehouse Entry'] = s.warehouseEntry || '';
+      if (showStatus) row['Status'] = s.status || '';
+      if (showDestination) row['Destination'] = s.shippedTo || 'Nhava Sheva / Mundra, India';
+      if (showSource) row['Warehouse Entry (Source)'] = s.warehouseEntry || '';
       return row;
     });
 
@@ -799,14 +804,24 @@ export default function InternalEmployeeViewPage() {
     const headers = Object.keys(rows[0]);
     const csvContent =
       '\uFEFF' +
-      [headers.join(','), ...rows.map((r) => headers.map((h) => `"${r[h] ?? ''}"`).join(','))].join('\n');
+      [
+        headers.join(','),
+        ...rows.map((row) =>
+          headers
+            .map((field) => {
+              const val = row[field] ?? '';
+              const escaped = String(val).replace(/"/g, '""');
+              return `"${escaped}"`;
+            })
+            .join(',')
+        ),
+      ].join('\r\n');
+
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = url;
-    link.download = `USI_Cargo_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.href = URL.createObjectURL(blob);
+    link.download = `USI_Cargo_Master_${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
-    URL.revokeObjectURL(url);
   };
 
   const exportToExcel = () => {
@@ -839,15 +854,11 @@ export default function InternalEmployeeViewPage() {
   const exportToPDF = () => {
     if (!filteredShipments.length) return;
     try {
-      const doc = new jsPDF({ orientation: 'landscape' });
-      doc.setFillColor(11, 25, 44);
-      doc.rect(0, 0, 297, 22, 'F');
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(13);
-      doc.setFont('helvetica', 'bold');
-      doc.text('US INTERNATIONAL LOGISTICS — CARGO REPORT', 14, 14);
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      doc.setFontSize(14);
+      doc.text('US INTERNATIONAL LOGISTICS - Cargo Master Table', 14, 15);
       doc.setFontSize(8);
-      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100);
       doc.text(
         `Date: ${new Date().toLocaleDateString()}   |   Records: ${filteredShipments.length}   |   Late: ${totalLateCount}`,
         190,
@@ -857,7 +868,10 @@ export default function InternalEmployeeViewPage() {
       const headers = ['Mark', 'Main Mark', 'Sub Mark', 'Receipt No', 'Container'];
       if (showActualContainer) headers.push('Actual Container');
       if (showShippingLine) headers.push('Line');
-      headers.push('Commodity', 'Receipt Date', 'ETA Date', 'Turnaround', 'Status');
+      headers.push('Commodity', 'Receipt Date', 'ETA Date', 'Turnaround');
+      if (showStatus) headers.push('Status');
+      if (showDestination) headers.push('Destination');
+      if (showSource) headers.push('Source');
 
       const body = filteredShipments.map((s) => {
         const mark = rowMarks[s._id] === 'bold' ? '★' : rowMarks[s._id] === 'sub' ? '◆' : '';
@@ -869,9 +883,11 @@ export default function InternalEmployeeViewPage() {
           s.english || s.commodity || '',
           s.date || '-',
           s.eta || 'Pending',
-          turnaround.label,
-          s.status || 'In Transit'
+          turnaround.label
         );
+        if (showStatus) row.push(s.status || 'In Transit');
+        if (showDestination) row.push(s.shippedTo || 'India');
+        if (showSource) row.push(s.warehouseEntry || '-');
         return row;
       });
 
@@ -1451,27 +1467,97 @@ export default function InternalEmployeeViewPage() {
 
               {/* Column Visibility & Row Mark Toggles */}
               <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-slate-200 text-xs">
-                <div className="flex items-center space-x-4">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
-                    Columns:
-                  </span>
-                  <label className="inline-flex items-center space-x-1.5 cursor-pointer">
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* Master Logistics Toggle Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const isAnyRevealed =
+                        showActualContainer ||
+                        showShippingLine ||
+                        showDestination ||
+                        showSource ||
+                        showStatus;
+                      const next = !isAnyRevealed;
+                      setShowActualContainer(next);
+                      setShowShippingLine(next);
+                      setShowDestination(next);
+                      setShowSource(next);
+                      setShowStatus(next);
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 border shadow-xs ${
+                      showActualContainer || showShippingLine || showDestination || showSource || showStatus
+                        ? 'bg-amber-100 text-amber-950 border-amber-300'
+                        : 'bg-slate-900 hover:bg-slate-800 text-white border-slate-950'
+                    }`}
+                    title="Carrier container, shipping line, destination, source, and current status are hidden by default. Click to reveal/hide."
+                  >
+                    {showActualContainer || showShippingLine || showDestination || showSource || showStatus ? (
+                      <>
+                        <EyeOff className="w-3.5 h-3.5 text-amber-700" />
+                        <span>Hide Logistics Details (5 Columns)</span>
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Click to Reveal Logistics (Carrier, Line, Dest, Source, Status)</span>
+                      </>
+                    )}
+                  </button>
+
+                  <div className="flex items-center space-x-1 text-slate-400 text-[10px] uppercase font-bold tracking-wider">
+                    <Lock className="w-3 h-3 text-amber-600" />
+                    <span>Hidden by default:</span>
+                  </div>
+
+                  <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2 py-1 rounded-lg border border-slate-200 hover:bg-slate-50">
                     <input
                       type="checkbox"
                       checked={showActualContainer}
                       onChange={(e) => setShowActualContainer(e.target.checked)}
-                      className="w-3.5 h-3.5 rounded text-red-600"
+                      className="w-3.5 h-3.5 rounded text-red-600 accent-red-600"
                     />
                     <span className="font-semibold text-slate-700">Carrier Container</span>
                   </label>
-                  <label className="inline-flex items-center space-x-1.5 cursor-pointer">
+
+                  <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2 py-1 rounded-lg border border-slate-200 hover:bg-slate-50">
                     <input
                       type="checkbox"
                       checked={showShippingLine}
                       onChange={(e) => setShowShippingLine(e.target.checked)}
-                      className="w-3.5 h-3.5 rounded text-red-600"
+                      className="w-3.5 h-3.5 rounded text-red-600 accent-red-600"
                     />
                     <span className="font-semibold text-slate-700">Shipping Line</span>
+                  </label>
+
+                  <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2 py-1 rounded-lg border border-slate-200 hover:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      checked={showSource}
+                      onChange={(e) => setShowSource(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded text-red-600 accent-red-600"
+                    />
+                    <span className="font-semibold text-slate-700">Source (Warehouse)</span>
+                  </label>
+
+                  <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2 py-1 rounded-lg border border-slate-200 hover:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      checked={showDestination}
+                      onChange={(e) => setShowDestination(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded text-red-600 accent-red-600"
+                    />
+                    <span className="font-semibold text-slate-700">Destination</span>
+                  </label>
+
+                  <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2 py-1 rounded-lg border border-slate-200 hover:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      checked={showStatus}
+                      onChange={(e) => setShowStatus(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded text-red-600 accent-red-600"
+                    />
+                    <span className="font-semibold text-slate-700">Current Status</span>
                   </label>
                 </div>
 
@@ -1691,40 +1777,46 @@ export default function InternalEmployeeViewPage() {
                     </th>
 
                     {/* 13. Status */}
-                    <th className="py-3 px-4 text-left">
-                      <div className="flex items-center">
-                        <span>Status</span>
-                        <MultiSelectDropdown
-                          label="Status"
-                          options={uniqueStatuses}
-                          selected={selectedStatuses}
-                          onChange={setSelectedStatuses}
-                          counts={statusCounts}
-                          compact
-                        />
-                      </div>
-                    </th>
+                    {showStatus && (
+                      <th className="py-3 px-4 text-left">
+                        <div className="flex items-center">
+                          <span>Status</span>
+                          <MultiSelectDropdown
+                            label="Status"
+                            options={uniqueStatuses}
+                            selected={selectedStatuses}
+                            onChange={setSelectedStatuses}
+                            counts={statusCounts}
+                            compact
+                          />
+                        </div>
+                      </th>
+                    )}
 
                     {/* 14. Destination */}
-                    <th className="py-3 px-4 text-left">
-                      <div className="flex items-center">
-                        <span>Destination</span>
-                      </div>
-                    </th>
+                    {showDestination && (
+                      <th className="py-3 px-4 text-left">
+                        <div className="flex items-center">
+                          <span>Destination</span>
+                        </div>
+                      </th>
+                    )}
 
                     {/* 15. Warehouse Entry */}
-                    <th className="py-3 px-4 text-left">
-                      <div className="flex items-center">
-                        <span>Warehouse Entry</span>
-                        <MultiSelectDropdown
-                          label="Warehouse"
-                          options={uniqueWarehouseEntries}
-                          selected={selectedWarehouseEntries}
-                          onChange={setSelectedWarehouseEntries}
-                          compact
-                        />
-                      </div>
-                    </th>
+                    {showSource && (
+                      <th className="py-3 px-4 text-left">
+                        <div className="flex items-center">
+                          <span>Warehouse Entry</span>
+                          <MultiSelectDropdown
+                            label="Warehouse"
+                            options={uniqueWarehouseEntries}
+                            selected={selectedWarehouseEntries}
+                            onChange={setSelectedWarehouseEntries}
+                            compact
+                          />
+                        </div>
+                      </th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -1896,27 +1988,33 @@ export default function InternalEmployeeViewPage() {
                         </td>
 
                         {/* 13. Status */}
-                        <td className="py-2.5 px-4 whitespace-nowrap">
-                          <span
-                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                              isArrived
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                : 'bg-amber-50 text-amber-700 border-amber-200'
-                            }`}
-                          >
-                            {item.status || 'In Transit'}
-                          </span>
-                        </td>
+                        {showStatus && (
+                          <td className="py-2.5 px-4 whitespace-nowrap">
+                            <span
+                              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                isArrived
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : 'bg-amber-50 text-amber-700 border-amber-200'
+                              }`}
+                            >
+                              {item.status || 'In Transit'}
+                            </span>
+                          </td>
+                        )}
 
                         {/* 14. Destination */}
-                        <td className="py-2.5 px-4 whitespace-nowrap font-medium text-slate-700 text-[11px]">
-                          {item.shippedTo || 'Nhava Sheva / Mundra, India'}
-                        </td>
+                        {showDestination && (
+                          <td className="py-2.5 px-4 whitespace-nowrap font-medium text-slate-700 text-[11px]">
+                            {item.shippedTo || 'Nhava Sheva / Mundra, India'}
+                          </td>
+                        )}
 
                         {/* 15. Warehouse Entry */}
-                        <td className="py-2.5 px-4 whitespace-nowrap text-[11px] text-slate-600">
-                          {item.warehouseEntry || '—'}
-                        </td>
+                        {showSource && (
+                          <td className="py-2.5 px-4 whitespace-nowrap text-[11px] text-slate-600">
+                            {item.warehouseEntry || '—'}
+                          </td>
+                        )}
                       </tr>
                     );
                   })}

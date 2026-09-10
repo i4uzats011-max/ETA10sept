@@ -80,6 +80,25 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
       return Math.round((sum / arr.length) * 10) / 10;
     });
 
+    // Carrier distribution map: carrier -> count
+    const carrierCountMap: Record<string, number> = {};
+    // Warehouse distribution map: warehouse -> count
+    const warehouseCountMap: Record<string, number> = {};
+
+    containers.forEach((c) => {
+      const carrier = (c.shippingLine || 'MSC').toUpperCase();
+      carrierCountMap[carrier] = (carrierCountMap[carrier] || 0) + 1;
+
+      const wh = (c.warehouse || 'China Warehouse').replace(' Warehouse', '');
+      warehouseCountMap[wh] = (warehouseCountMap[wh] || 0) + 1;
+    });
+
+    const fleetCarrierLabels = Object.keys(carrierCountMap).sort();
+    const fleetCarrierCounts = fleetCarrierLabels.map((l) => carrierCountMap[l]);
+
+    const warehouseLabels = Object.keys(warehouseCountMap).sort();
+    const warehouseCounts = warehouseLabels.map((w) => warehouseCountMap[w]);
+
     return {
       total: containers.length,
       deliveredCount,
@@ -88,6 +107,10 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
       avgTurnaround,
       carrierLabels,
       carrierAvgDays,
+      fleetCarrierLabels,
+      fleetCarrierCounts,
+      warehouseLabels,
+      warehouseCounts,
     };
   }, [containers]);
 
@@ -130,7 +153,7 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
         data: stats.carrierAvgDays.length > 0 ? stats.carrierAvgDays : [28, 31, 33],
         backgroundColor: '#4F46E5',
         borderRadius: 8,
-        barThickness: 28,
+        barThickness: 24,
       },
     ],
   };
@@ -139,9 +162,7 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
-      legend: {
-        display: false,
-      },
+      legend: { display: false },
       tooltip: {
         callbacks: {
           label: (context: any) => `${context.parsed.y} Days from Loading to Delivery`,
@@ -156,7 +177,73 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
       },
       x: {
         grid: { display: false },
-        ticks: { font: { size: 11, weight: 'bold' as const } },
+        ticks: { font: { size: 10, weight: 'bold' as const } },
+      },
+    },
+  };
+
+  // Bar Chart 2: Fleet Share by Carrier
+  const carrierFleetData = {
+    labels: stats.fleetCarrierLabels.length > 0 ? stats.fleetCarrierLabels : ['MSC', 'MAERSK'],
+    datasets: [
+      {
+        label: 'Containers',
+        data: stats.fleetCarrierCounts.length > 0 ? stats.fleetCarrierCounts : [1, 1],
+        backgroundColor: '#0EA5E9',
+        borderRadius: 8,
+        barThickness: 24,
+      },
+    ],
+  };
+
+  const carrierFleetOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        ticks: { stepSize: 1, font: { size: 10, weight: 'bold' as const } },
+        grid: { color: '#F1F5F9' },
+      },
+      x: {
+        grid: { display: false },
+        ticks: { font: { size: 10, weight: 'bold' as const } },
+      },
+    },
+  };
+
+  // Bar Chart 3: Containers by Origin Warehouse
+  const warehouseData = {
+    labels: stats.warehouseLabels.length > 0 ? stats.warehouseLabels : ['Guangzhou', 'Yiwu', 'Ningbo'],
+    datasets: [
+      {
+        label: 'Containers Planned',
+        data: stats.warehouseCounts.length > 0 ? stats.warehouseCounts : [1, 1, 1],
+        backgroundColor: '#8B5CF6',
+        borderRadius: 8,
+        barThickness: 24,
+      },
+    ],
+  };
+
+  const warehouseOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        ticks: { stepSize: 1, font: { size: 10, weight: 'bold' as const } },
+        grid: { color: '#F1F5F9' },
+      },
+      x: {
+        grid: { display: false },
+        ticks: { font: { size: 10, weight: 'bold' as const } },
       },
     },
   };
@@ -206,41 +293,77 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
         </div>
       </div>
 
-      {/* Charts Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Fleet Status Donut Chart */}
+      {/* 4 Static Charts Grid (2x2) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Chart 1: Fleet Status Donut Chart */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
           <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
             <div className="flex items-center space-x-2">
               <PieChart className="w-4 h-4 text-blue-600" />
               <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider">
-                Fleet Delivery Status Distribution
+                1. Delivery Status Distribution
               </h4>
             </div>
-            <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
-              JS Doughnut
+            <span className="text-[10px] font-bold bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
+              Static Donut
             </span>
           </div>
-          <div className="h-48 w-full relative">
+          <div className="h-44 w-full relative">
             <Doughnut data={doughnutData} options={doughnutOptions} />
           </div>
         </div>
 
-        {/* Turnaround Performance Bar Chart */}
+        {/* Chart 2: Turnaround Performance Bar Chart */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
           <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
             <div className="flex items-center space-x-2">
               <BarChart3 className="w-4 h-4 text-indigo-600" />
               <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider">
-                Turnaround Performance by Shipping Line
+                2. Carrier Avg Turnaround Days
               </h4>
             </div>
             <span className="text-[10px] font-bold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded">
-              Avg Days to Deliver
+              Days to Deliver
             </span>
           </div>
-          <div className="h-48 w-full relative">
+          <div className="h-44 w-full relative">
             <Bar data={barData} options={barOptions} />
+          </div>
+        </div>
+
+        {/* Chart 3: Fleet Distribution by Shipping Line */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+            <div className="flex items-center space-x-2">
+              <BarChart3 className="w-4 h-4 text-sky-600" />
+              <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider">
+                3. Containers by Shipping Carrier
+              </h4>
+            </div>
+            <span className="text-[10px] font-bold bg-sky-50 text-sky-700 px-2 py-0.5 rounded">
+              Carrier Fleet
+            </span>
+          </div>
+          <div className="h-44 w-full relative">
+            <Bar data={carrierFleetData} options={carrierFleetOptions} />
+          </div>
+        </div>
+
+        {/* Chart 4: Containers by China Origin Warehouse */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+            <div className="flex items-center space-x-2">
+              <BarChart3 className="w-4 h-4 text-purple-600" />
+              <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider">
+                4. Containers by Origin Warehouse
+              </h4>
+            </div>
+            <span className="text-[10px] font-bold bg-purple-50 text-purple-700 px-2 py-0.5 rounded">
+              China Origins
+            </span>
+          </div>
+          <div className="h-44 w-full relative">
+            <Bar data={warehouseData} options={warehouseOptions} />
           </div>
         </div>
       </div>

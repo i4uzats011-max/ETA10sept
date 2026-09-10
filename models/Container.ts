@@ -30,6 +30,10 @@ export interface IContainer extends Document {
   totalQuantity?: number;       // Total packages / cartons planned inside
   totalWeight?: string;         // Aggregated weight
   totalVolume?: string;         // Aggregated volume (CBM)
+  apiCalled?: boolean;          // Flag indicating whether ETA API was called for this container
+  apiCallCount?: number;        // Number of times API was called
+  apiCallHistory?: Array<{ timestamp: Date; source?: string; eta?: string; status?: string; rawSummary?: any }>; // Full API call audit log
+  rawEta?: string;              // Carrier raw ETA before filing buffer
   createdAt: Date;
   updatedAt: Date;
 }
@@ -45,6 +49,7 @@ const ContainerSchema = new Schema<IContainer>(
     startDate: { type: String, default: '' },
     destinationDate: { type: String, default: 'N/A' },
     eta: { type: String, default: 'N/A' },
+    rawEta: { type: String, default: '' },
     status: { type: String, default: 'Pending' },
     deliveryDate: { type: String, default: '' },
     daysToDeliver: { type: Number, default: null },
@@ -53,6 +58,9 @@ const ContainerSchema = new Schema<IContainer>(
     voyageNumber: { type: String, default: '' },
     lastApiSync: { type: Date, default: null },
     jsonCargoData: { type: Schema.Types.Mixed, default: null },
+    apiCalled: { type: Boolean, default: false, index: true },
+    apiCallCount: { type: Number, default: 0 },
+    apiCallHistory: { type: [Schema.Types.Mixed], default: [] },
     shipmentCount: { type: Number, default: 0 },
     planNumber: { type: String, default: '' },
     warehouse: { type: String, default: 'China Warehouse' },
@@ -75,5 +83,10 @@ const ContainerSchema = new Schema<IContainer>(
     strict: false,
   }
 );
+
+// Fast search indexes for public tracking, admin, and employee lookup
+ContainerSchema.index({ containerNumber: 1, container: 1 });
+ContainerSchema.index({ warehouse: 1, planStatus: 1 });
+ContainerSchema.index({ status: 1, lastApiSync: 1 });
 
 export default mongoose.models.Container || mongoose.model<IContainer>('Container', ContainerSchema);
