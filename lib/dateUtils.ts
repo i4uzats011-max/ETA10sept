@@ -182,10 +182,13 @@ export function getDeliveryTurnaroundStatus(
 }
 
 /**
- * Calculates public estimated delivery date: ETA + 10 days
- * Used for public tracking where users can only see the date of delivery (ETA + 10 days).
+ * Calculates public estimated delivery date: ETA + days (default +10 days).
+ * Used for public tracking where users can only see the date of delivery (ETA + 10 days by default, or admin altered).
  */
-export function calculatePublicDeliveryDate(etaInput?: string | number | Date | null): string {
+export function calculatePublicDeliveryDate(
+  etaInput?: string | number | Date | null,
+  daysToAdd: number = 10
+): string {
   if (!etaInput) return 'Pending';
   const str = String(etaInput).trim();
   if (!str || str === 'N/A' || str === 'Pending' || str === '—') return 'Pending';
@@ -194,7 +197,8 @@ export function calculatePublicDeliveryDate(etaInput?: string | number | Date | 
   if (!d || isNaN(d.getTime())) return 'Pending';
 
   const deliveryDate = new Date(d.getTime());
-  deliveryDate.setUTCDate(deliveryDate.getUTCDate() + 10);
+  const offset = typeof daysToAdd === 'number' && !isNaN(daysToAdd) ? daysToAdd : 10;
+  deliveryDate.setUTCDate(deliveryDate.getUTCDate() + offset);
   return formatGlobalDate(deliveryDate);
 }
 

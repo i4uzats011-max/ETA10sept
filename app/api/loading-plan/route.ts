@@ -4,7 +4,7 @@ import Container from '@/models/Container';
 import Shipment from '@/models/Shipment';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
 import { isStaffOrAdminAuthenticated } from '@/lib/auth';
-import { fetchContainerTracking } from '@/lib/jsoncargo';
+import { fetchContainerTracking, addFilingBufferDays } from '@/lib/jsoncargo';
 
 export const dynamic = 'force-dynamic';
 
@@ -63,6 +63,7 @@ export async function GET(req: NextRequest) {
         eta: c.destinationDate || c.eta || 'Pending',
         rawEta: c.rawEta || '',
         destinationDate: c.destinationDate || c.eta || 'N/A',
+        etaBufferDays: c.etaBufferDays !== undefined ? c.etaBufferDays : 10,
         status: c.status || 'Pending',
         shipmentCount: items.length,
         totalQuantity: totalQty || c.totalQuantity || 0,
@@ -95,6 +96,8 @@ export async function GET(req: NextRequest) {
           isDelivered: Boolean(i.isDelivered),
           rawEta: i.rawEta || c.rawEta || '',
           eta: i.eta,
+          destinationDate: i.destinationDate || c.destinationDate || '',
+          etaBufferDays: i.etaBufferDays !== undefined ? i.etaBufferDays : (c.etaBufferDays !== undefined ? c.etaBufferDays : 10),
           status: i.status,
         })),
       };
@@ -357,26 +360,67 @@ export async function POST(req: NextRequest) {
     }
 
     // ----------------------------------------------------
+    // Action 3b: Unload All Cargo Goods from Container back to Warehouse Stock
+    // ----------------------------------------------------
+    if (action === 'unload-container') {
+      const { container } = body;
+      const cleanAlias = (container || '').trim();
+      if (!cleanAlias) {
+        return NextResponse.json({ error: 'Container identifier is required' }, { status: 400 });
+      }
+
+      const shipments = await Shipment.find({
+        container: new RegExp(`^${cleanAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+      });
+
+      let totalRestored = 0;
+      for (const s of shipments) {
+        const qty = parseInt(String(s.quantity || 0), 10) || 0;
+        totalRestored += qty;
+        const whReceipt = await WarehouseReceipt.findOne({
+          receipt: new RegExp(`^${(s.receipt || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        });
+        if (whReceipt) {
+          whReceipt.loadedQuantity = Math.max(0, (whReceipt.loadedQuantity || 0) - qty);
+          whReceipt.remainingQuantity = Math.max(0, whReceipt.quantity - whReceipt.loadedQuantity);
+          whReceipt.status = whReceipt.loadedQuantity <= 0 ? 'Received' : 'Partially Loaded';
+          whReceipt.stockstatus = whReceipt.loadedQuantity <= 0 ? 'In Stock' : 'Partially Dispatched';
+          await whReceipt.save();
+        }
+        await Shipment.findByIdAndDelete(s._id);
+      }
+
+      await Container.findOneAndUpdate(
+        { container: new RegExp(`^${cleanAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+        {
+          $set: {
+            shipmentCount: 0,
+            totalQuantity: 0,
+          },
+        }
+      );
+
+      return NextResponse.json({
+        success: true,
+        message: `Successfully unloaded all ${shipments.length} cargo item(s) (${totalRestored} CTN) from ${cleanAlias}. Restored to available warehouse stock.`,
+        unloadedCount: shipments.length,
+        restoredCartons: totalRestored,
+      });
+    }
+
+    // ----------------------------------------------------
     // Action 4: Finalize Plan & Allot Actual Container
     // ----------------------------------------------------
     if (action === 'finalize-and-allot') {
-      const { container, containerNumber, shippingLine, loadingDate, shippedTo, autoSync } = body;
+      const { container, containerNumber, shippingLine, loadingDate, shippedTo, autoSync, etaBufferDays } = body;
       const cleanAlias = (container || '').trim();
       const cleanNum = (containerNumber || '').trim();
       const cleanCarrier = (shippingLine || 'MSC').trim();
-      const cleanLoadingDate = (loadingDate || '').trim();
+      let cleanLoadingDate = (loadingDate || '').trim();
       const cleanShippedTo = (shippedTo || '').trim();
 
       if (!cleanAlias) {
         return NextResponse.json({ error: 'Internal Container alias is required' }, { status: 400 });
-      }
-
-      // Strict Rule: Loading Date is mandatory when allotting actual carrier container
-      if (!cleanLoadingDate) {
-        return NextResponse.json(
-          { error: 'Loading Date is mandatory when allotting actual carrier container number.' },
-          { status: 400 }
-        );
       }
 
       const targetContainer = await Container.findOne({
@@ -406,10 +450,14 @@ export async function POST(req: NextRequest) {
       let trackingStatus = 'In Transit';
       let trackingDetails: any = null;
 
-      // If autoSync requested and container number provided, fetch live carrier ETA
-      if (autoSync && cleanNum) {
+      // If container number provided, fetch live carrier ETA & loading date via API
+      if (cleanNum) {
         try {
           const tracking = await fetchContainerTracking(cleanNum, cleanCarrier);
+          // If API returns loading date, prioritize the API loading date
+          if (tracking.loadingDate) {
+            cleanLoadingDate = tracking.loadingDate;
+          }
           if (tracking.eta && tracking.eta !== 'N/A') {
             trackingEta = tracking.eta;
           }
@@ -425,7 +473,18 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // If API could not find container / no loading date and user did not enter manually
+      if (!cleanLoadingDate) {
+        return NextResponse.json(
+          { error: 'Carrier API could not find loading date for this container. Please enter the Loading Date manually.' },
+          { status: 400 }
+        );
+      }
+
       const now = new Date();
+      let cleanBufferDays = etaBufferDays !== undefined ? parseInt(String(etaBufferDays), 10) : (targetContainer.etaBufferDays !== undefined ? targetContainer.etaBufferDays : 10);
+      if (isNaN(cleanBufferDays) || cleanBufferDays < 0) cleanBufferDays = 10;
+      targetContainer.etaBufferDays = cleanBufferDays;
 
       targetContainer.containerNumber = cleanNum;
       targetContainer.shippingLine = cleanCarrier;
@@ -441,7 +500,9 @@ export async function POST(req: NextRequest) {
       targetContainer.status = trackingStatus;
       if (trackingEta && trackingEta !== 'Pending') {
         targetContainer.eta = trackingEta;
-        targetContainer.destinationDate = trackingEta;
+        targetContainer.destinationDate = trackingRawEta
+          ? addFilingBufferDays(trackingRawEta, cleanBufferDays)
+          : trackingEta;
       }
       if (trackingRawEta) {
         targetContainer.rawEta = trackingRawEta;
@@ -459,13 +520,14 @@ export async function POST(req: NextRequest) {
         status: trackingStatus,
         loadingDate: cleanLoadingDate,
         startDate: cleanLoadingDate,
+        etaBufferDays: cleanBufferDays,
       };
       if (cleanShippedTo) {
         updateShipmentPayload.shippedTo = cleanShippedTo;
       }
       if (trackingEta && trackingEta !== 'Pending') {
         updateShipmentPayload.eta = trackingEta;
-        updateShipmentPayload.destinationDate = trackingEta;
+        updateShipmentPayload.destinationDate = targetContainer.destinationDate || trackingEta;
       }
       if (trackingRawEta) {
         updateShipmentPayload.rawEta = trackingRawEta;
@@ -703,6 +765,8 @@ export async function POST(req: NextRequest) {
         loadingDate,
         shippedTo,
         autoSync,
+        etaBufferDays,
+        destinationDate,
       } = body;
 
       const cleanOldAlias = (oldContainer || '').trim();
@@ -717,6 +781,10 @@ export async function POST(req: NextRequest) {
       if (!targetContainer) {
         return NextResponse.json({ error: `Container '${cleanOldAlias}' not found` }, { status: 404 });
       }
+
+      let cleanBufferDays = etaBufferDays !== undefined ? parseInt(String(etaBufferDays), 10) : (targetContainer.etaBufferDays !== undefined ? targetContainer.etaBufferDays : 10);
+      if (isNaN(cleanBufferDays) || cleanBufferDays < 0) cleanBufferDays = 10;
+      targetContainer.etaBufferDays = cleanBufferDays;
 
       const cleanNewAlias = (newContainer || '').trim().toUpperCase();
       const isRenamingAlias = cleanNewAlias && cleanNewAlias !== targetContainer.container.toUpperCase();
@@ -737,37 +805,22 @@ export async function POST(req: NextRequest) {
       const cleanCarrierNum = containerNumber !== undefined ? String(containerNumber).trim() : targetContainer.containerNumber;
       const cleanShippingLine = shippingLine !== undefined ? String(shippingLine).trim() : targetContainer.shippingLine;
       const cleanWarehouse = warehouse !== undefined ? String(warehouse).trim() : targetContainer.warehouse;
-      const cleanLoadingDate = loadingDate !== undefined ? String(loadingDate).trim() : targetContainer.loadingDate;
+      let cleanLoadingDate = loadingDate !== undefined ? String(loadingDate).trim() : targetContainer.loadingDate;
       const cleanShippedTo = shippedTo !== undefined ? String(shippedTo).trim() : targetContainer.shippedTo;
 
-      // Strict Rule: Loading Date is mandatory when assigning an actual carrier container number
-      if (cleanCarrierNum && !cleanLoadingDate) {
-        return NextResponse.json(
-          { error: 'Loading Date is mandatory when assigning an actual carrier container number.' },
-          { status: 400 }
-        );
-      }
-
-      // Update Container document
-      targetContainer.container = finalAlias;
-      targetContainer.planNumber = finalAlias;
-      targetContainer.containerNumber = cleanCarrierNum;
-      targetContainer.shippingLine = cleanShippingLine || 'MSC';
-      if (cleanWarehouse) {
-        targetContainer.warehouse = cleanWarehouse;
-        targetContainer.shippedFrom = `${cleanWarehouse}, China`;
-      }
-      if (cleanLoadingDate) targetContainer.loadingDate = cleanLoadingDate;
-      if (cleanShippedTo) targetContainer.shippedTo = cleanShippedTo;
-
-      // If carrier container changed/set and autoSync requested
-      if (autoSync && cleanCarrierNum) {
+      // If carrier container provided or changed, query API for live loadingDate & ETA
+      if (cleanCarrierNum && (autoSync || !cleanLoadingDate)) {
         try {
           const tracking = await fetchContainerTracking(cleanCarrierNum, cleanShippingLine || 'MSC');
+          if (tracking.loadingDate) {
+            cleanLoadingDate = tracking.loadingDate;
+          }
           if (tracking.eta && tracking.eta !== 'N/A') {
             targetContainer.eta = tracking.eta;
-            targetContainer.destinationDate = tracking.destinationDate;
             targetContainer.rawEta = tracking.rawEta || '';
+            targetContainer.destinationDate = tracking.rawEta
+              ? addFilingBufferDays(tracking.rawEta, cleanBufferDays)
+              : (tracking.destinationDate || tracking.eta);
             targetContainer.status = tracking.status;
             targetContainer.currentLocation = tracking.currentLocation;
             targetContainer.vesselName = tracking.vesselName;
@@ -782,12 +835,43 @@ export async function POST(req: NextRequest) {
               source: 'alter_container_sync',
               eta: tracking.eta,
               status: tracking.status,
+              loadingDate: tracking.loadingDate || null,
             });
           }
         } catch (e: any) {
-          console.warn('Auto sync on alter container failed:', e?.message);
+          console.warn('API sync on alter container warning:', e?.message);
         }
       }
+
+      // If carrier container assigned, but API could not find it and user did not enter manually
+      if (cleanCarrierNum && !cleanLoadingDate) {
+        return NextResponse.json(
+          { error: 'Carrier API could not find loading date for this container. Please enter the Loading Date manually.' },
+          { status: 400 }
+        );
+      }
+
+      // If custom destination / public ETA date explicitly provided or offset recalculation needed
+      if (destinationDate !== undefined && String(destinationDate).trim()) {
+        targetContainer.destinationDate = String(destinationDate).trim();
+      } else if (targetContainer.rawEta) {
+        targetContainer.destinationDate = addFilingBufferDays(targetContainer.rawEta, cleanBufferDays);
+      }
+
+      // Update Container document
+      targetContainer.container = finalAlias;
+      targetContainer.planNumber = finalAlias;
+      targetContainer.containerNumber = cleanCarrierNum;
+      targetContainer.shippingLine = cleanShippingLine || 'MSC';
+      if (cleanWarehouse) {
+        targetContainer.warehouse = cleanWarehouse;
+        targetContainer.shippedFrom = `${cleanWarehouse}, China`;
+      }
+      if (cleanLoadingDate) {
+        targetContainer.loadingDate = cleanLoadingDate;
+        targetContainer.startDate = cleanLoadingDate;
+      }
+      if (cleanShippedTo) targetContainer.shippedTo = cleanShippedTo;
 
       if (cleanCarrierNum) {
         targetContainer.isFinalized = true;
@@ -803,11 +887,19 @@ export async function POST(req: NextRequest) {
         shippingLine: cleanShippingLine || 'MSC',
       };
       if (cleanWarehouse) shipmentUpdatePayload.warehouse = cleanWarehouse;
-      if (cleanLoadingDate) shipmentUpdatePayload.loadingDate = cleanLoadingDate;
+      if (cleanLoadingDate) {
+        shipmentUpdatePayload.loadingDate = cleanLoadingDate;
+        shipmentUpdatePayload.startDate = cleanLoadingDate;
+      }
       if (cleanShippedTo) shipmentUpdatePayload.shippedTo = cleanShippedTo;
       if (targetContainer.eta && targetContainer.eta !== 'Pending') {
         shipmentUpdatePayload.eta = targetContainer.eta;
-        shipmentUpdatePayload.destinationDate = targetContainer.destinationDate || targetContainer.eta;
+      }
+      if (targetContainer.destinationDate) {
+        shipmentUpdatePayload.destinationDate = targetContainer.destinationDate;
+      }
+      if (targetContainer.etaBufferDays !== undefined) {
+        shipmentUpdatePayload.etaBufferDays = targetContainer.etaBufferDays;
       }
       if (targetContainer.rawEta) shipmentUpdatePayload.rawEta = targetContainer.rawEta;
       if (targetContainer.status && targetContainer.status !== 'Planning') {
@@ -838,10 +930,11 @@ export async function POST(req: NextRequest) {
     }
 
     // ----------------------------------------------------
-    // Action 7: Delete Loading Plan / Container (With Strict Integrity Rules)
+    // ----------------------------------------------------
+    // Action 7: Delete Loading Plan / Container (With Process Integrity Rules)
     // ----------------------------------------------------
     if (action === 'delete-plan') {
-      const { container } = body;
+      const { container, unloadFirst } = body;
       const cleanAlias = (container || '').trim();
 
       if (!cleanAlias) {
@@ -856,23 +949,48 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: `Container plan '${cleanAlias}' not found` }, { status: 404 });
       }
 
-      // Rule: If container has any loaded cargo items, all mapped loaded items must be deleted/de-allocated first
-      const shipmentsCount = await Shipment.countDocuments({
+      const shipments = await Shipment.find({
         container: targetContainer.container,
       });
+      const shipmentsCount = shipments.length;
 
-      if (shipmentsCount > 0) {
+      let totalRestored = 0;
+      if (shipmentsCount > 0 && unloadFirst) {
+        // Process Rule: Unload all cargo items back to China Warehouse stock
+        for (const s of shipments) {
+          const qty = parseInt(String(s.quantity || 0), 10) || 0;
+          totalRestored += qty;
+          const whReceipt = await WarehouseReceipt.findOne({
+            receipt: new RegExp(`^${(s.receipt || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+          });
+          if (whReceipt) {
+            whReceipt.loadedQuantity = Math.max(0, (whReceipt.loadedQuantity || 0) - qty);
+            whReceipt.remainingQuantity = Math.max(0, whReceipt.quantity - whReceipt.loadedQuantity);
+            if (whReceipt.loadedQuantity <= 0) {
+              whReceipt.status = 'Received';
+              whReceipt.stockstatus = 'In Stock';
+            } else {
+              whReceipt.status = 'Partially Loaded';
+              whReceipt.stockstatus = 'Partially Dispatched';
+            }
+            await whReceipt.save();
+          }
+          await Shipment.findByIdAndDelete(s._id);
+        }
+      } else if (shipmentsCount > 0) {
+        const totalQty = shipments.reduce((sum, s) => sum + (parseInt(String(s.quantity || 0), 10) || 0), 0);
         return NextResponse.json(
           {
-            error: `Cannot delete container '${cleanAlias}': It still contains ${shipmentsCount} loaded cargo item(s) mapped to it. Under system integrity rules, all loaded/planned cargo items in this container must be deleted/de-allocated first before deleting this container.`,
+            error: `Cannot delete container '${cleanAlias}': It still contains ${shipmentsCount} loaded cargo item(s) (${totalQty} CTN). Under process rules, you must unload the container first before deleting it.`,
             hasShipments: true,
             shipmentsCount,
+            totalQuantity: totalQty,
           },
           { status: 400 }
         );
       }
 
-      // All loaded items cleared -> delete container cleanly
+      // Delete container cleanly
       await Container.findByIdAndDelete(targetContainer._id);
 
       // Clean up SyncError collection if any records exist
@@ -885,8 +1003,12 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: `Container '${cleanAlias}' has been successfully deleted.`,
+        message: shipmentsCount > 0 && unloadFirst
+          ? `Unloaded ${shipmentsCount} cargo item(s) (${totalRestored} CTN restored to China warehouse stock) and deleted container '${cleanAlias}'.`
+          : `Container '${cleanAlias}' has been successfully deleted.`,
         deletedContainer: cleanAlias,
+        unloadedCount: shipmentsCount,
+        restoredCartons: totalRestored,
       });
     }
 
@@ -896,7 +1018,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// DELETE: HTTP DELETE endpoint supporting query params ?container=...
+// DELETE: HTTP DELETE endpoint supporting query params ?container=...&unloadFirst=true
 export async function DELETE(req: NextRequest) {
   if (!isStaffOrAdminAuthenticated(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -905,11 +1027,13 @@ export async function DELETE(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     let container = searchParams.get('container')?.trim();
+    let unloadFirst = searchParams.get('unloadFirst') === 'true';
 
     if (!container) {
       try {
         const body = await req.json();
         container = body.container?.trim();
+        if (body.unloadFirst !== undefined) unloadFirst = Boolean(body.unloadFirst);
       } catch {}
     }
 
@@ -927,23 +1051,48 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: `Container plan '${container}' not found` }, { status: 404 });
     }
 
-    // Rule: If container has any loaded cargo items, all mapped loaded items must be deleted/de-allocated first
-    const shipmentsCount = await Shipment.countDocuments({
+    const shipments = await Shipment.find({
       container: targetContainer.container,
     });
+    const shipmentsCount = shipments.length;
 
-    if (shipmentsCount > 0) {
+    let totalRestored = 0;
+    if (shipmentsCount > 0 && unloadFirst) {
+      // Process Rule: Unload all cargo items back to China Warehouse stock
+      for (const s of shipments) {
+        const qty = parseInt(String(s.quantity || 0), 10) || 0;
+        totalRestored += qty;
+        const whReceipt = await WarehouseReceipt.findOne({
+          receipt: new RegExp(`^${(s.receipt || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        });
+        if (whReceipt) {
+          whReceipt.loadedQuantity = Math.max(0, (whReceipt.loadedQuantity || 0) - qty);
+          whReceipt.remainingQuantity = Math.max(0, whReceipt.quantity - whReceipt.loadedQuantity);
+          if (whReceipt.loadedQuantity <= 0) {
+            whReceipt.status = 'Received';
+            whReceipt.stockstatus = 'In Stock';
+          } else {
+            whReceipt.status = 'Partially Loaded';
+            whReceipt.stockstatus = 'Partially Dispatched';
+          }
+          await whReceipt.save();
+        }
+        await Shipment.findByIdAndDelete(s._id);
+      }
+    } else if (shipmentsCount > 0) {
+      const totalQty = shipments.reduce((sum, s) => sum + (parseInt(String(s.quantity || 0), 10) || 0), 0);
       return NextResponse.json(
         {
-          error: `Cannot delete container '${container}': It still contains ${shipmentsCount} loaded cargo item(s) mapped to it. Under system integrity rules, all loaded/planned cargo items in this container must be deleted/de-allocated first before deleting this container.`,
+          error: `Cannot delete container '${container}': It still contains ${shipmentsCount} loaded cargo item(s) (${totalQty} CTN). Under process rules, you must unload the container first before deleting it.`,
           hasShipments: true,
           shipmentsCount,
+          totalQuantity: totalQty,
         },
         { status: 400 }
       );
     }
 
-    // All loaded items cleared -> delete container cleanly
+    // Delete container cleanly
     await Container.findByIdAndDelete(targetContainer._id);
 
     // Clean up SyncError collection if any records exist
@@ -956,8 +1105,12 @@ export async function DELETE(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `Container '${container}' has been successfully deleted.`,
+      message: shipmentsCount > 0 && unloadFirst
+        ? `Unloaded ${shipmentsCount} cargo item(s) (${totalRestored} CTN restored to China warehouse stock) and deleted container '${container}'.`
+        : `Container '${container}' has been successfully deleted.`,
       deletedContainer: container,
+      unloadedCount: shipmentsCount,
+      restoredCartons: totalRestored,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Failed to delete container' }, { status: 500 });

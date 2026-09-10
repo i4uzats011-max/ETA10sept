@@ -738,7 +738,7 @@ export default function AdminDashboardPage() {
 
       setManualSyncStatus({
         type: 'success',
-        message: `Selected '${data.publicAlias}' → Found Actual Container '${data.containerNumber}' (${data.shippingLine}) in Database → Called JSONCargo API → Updated ETA to '${data.eta}' in Database!`,
+        message: `Selected '${data.publicAlias}' → Found Actual Container '${data.containerNumber}' (${data.shippingLine}) in Database → Called JSONCargo API → Updated ETA to '${data.eta}'${data.loadingDate ? ` & Loading Date to '${data.loadingDate}'` : ''} in Database!`,
       });
 
       setLiveJsonCargoDetails(data.dataDetails);
@@ -823,10 +823,21 @@ export default function AdminDashboardPage() {
 
       setShipments(
         shipments.map((s) =>
-          s._id === shipment._id ? { ...s, eta: data.eta, status: data.status, lastApiSync: data.lastApiSync } : s
+          s._id === shipment._id
+            ? {
+                ...s,
+                eta: data.eta,
+                status: data.status,
+                lastApiSync: data.lastApiSync,
+                ...(data.loadingDate ? { loadingDate: data.loadingDate, startDate: data.loadingDate } : {}),
+              }
+            : s
         )
       );
-      setTableStatus({ type: 'success', message: `Synced ETA for ${shipment.receipt}: ${data.eta}` });
+      setTableStatus({
+        type: 'success',
+        message: `Synced ETA for ${shipment.receipt}: ${data.eta}${data.loadingDate ? ` | Loading Date: ${data.loadingDate}` : ''}`,
+      });
       if (data.dataDetails) {
         setLiveJsonCargoDetails(data.dataDetails);
       }

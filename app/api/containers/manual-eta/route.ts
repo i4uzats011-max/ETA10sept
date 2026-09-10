@@ -62,6 +62,7 @@ export async function POST(req: NextRequest) {
     };
 
     if (inputLoading) {
+      updateFields.loadingDate = inputLoading;
       updateFields.startDate = inputLoading;
     }
 

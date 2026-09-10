@@ -65,9 +65,51 @@ export async function POST(req: NextRequest) {
 
     finalTrackingNumber = actualContainerNumber || queryInput;
 
+    // Fast Lookup Preview Mode (Used by UI to check API loading date & ETA without writing to DB)
+    if (body.lookupOnly) {
+      try {
+        const tracking = await fetchContainerTracking(finalTrackingNumber, carrierCompany);
+        return NextResponse.json({
+          success: true,
+          lookupOnly: true,
+          containerNumber: finalTrackingNumber,
+          shippingLine: carrierCompany,
+          loadingDate: tracking.loadingDate || tracking.startDate || '',
+          startDate: tracking.startDate || tracking.loadingDate || '',
+          eta: tracking.eta,
+          rawEta: tracking.rawEta || '',
+          status: tracking.status,
+          shippedFrom: tracking.shippedFrom,
+          shippedTo: tracking.shippedTo,
+          vesselName: tracking.vesselName,
+          voyageNumber: tracking.voyageNumber,
+          dataDetails: tracking.dataDetails,
+          message: tracking.loadingDate
+            ? `Found in Carrier API: Loading Date is ${tracking.loadingDate}`
+            : `Found in Carrier API (Status: ${tracking.status}), but departure/loading date is pending. Please enter loading date manually if known.`,
+        });
+      } catch (err: any) {
+        return NextResponse.json({
+          success: false,
+          notFound: true,
+          containerNumber: finalTrackingNumber,
+          shippingLine: carrierCompany,
+          message: err?.message || 'Carrier API could not find or search this container. Please enter loading date manually.',
+        });
+      }
+    }
+
     // Call JSONCargo API using server process.env.JSON_CARGO_API_KEY
     const tracking = await fetchContainerTracking(finalTrackingNumber, carrierCompany);
     const now = new Date();
+
+    const dateUpdateFields: Record<string, any> = {};
+    if (tracking.loadingDate) {
+      dateUpdateFields.loadingDate = tracking.loadingDate;
+      dateUpdateFields.startDate = tracking.loadingDate;
+    } else if (tracking.startDate) {
+      dateUpdateFields.startDate = tracking.startDate;
+    }
 
     // Update all database shipments matching public alias or actual container number
     const updateResult = await Shipment.updateMany(
@@ -85,7 +127,7 @@ export async function POST(req: NextRequest) {
           shippedFrom: tracking.shippedFrom,
           shippedTo: tracking.shippedTo,
           currentLocation: tracking.currentLocation,
-          startDate: tracking.startDate,
+          ...dateUpdateFields,
           destinationDate: tracking.destinationDate,
           vesselName: tracking.vesselName,
           voyageNumber: tracking.voyageNumber,
@@ -111,7 +153,7 @@ export async function POST(req: NextRequest) {
           shippedFrom: tracking.shippedFrom,
           shippedTo: tracking.shippedTo,
           currentLocation: tracking.currentLocation,
-          startDate: tracking.startDate,
+          ...dateUpdateFields,
           destinationDate: tracking.destinationDate,
           vesselName: tracking.vesselName,
           voyageNumber: tracking.voyageNumber,
@@ -133,6 +175,7 @@ export async function POST(req: NextRequest) {
               location: tracking.currentLocation,
               vessel: tracking.vesselName,
               voyage: tracking.voyageNumber,
+              loadingDate: tracking.loadingDate || null,
             },
           },
         },
@@ -142,11 +185,12 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `Successfully fetched live ETA via JSONCargo API for '${publicAlias}' (Actual: ${finalTrackingNumber}, Company: ${carrierCompany})`,
+      message: `Successfully fetched live ETA & tracking via JSONCargo API for '${publicAlias}' (Actual: ${finalTrackingNumber}, Company: ${carrierCompany})`,
       publicAlias,
       containerNumber: finalTrackingNumber,
       shippingLine: carrierCompany,
       eta: tracking.eta,
+      loadingDate: tracking.loadingDate || tracking.startDate || '',
       status: tracking.status,
       shippedFrom: tracking.shippedFrom,
       shippedTo: tracking.shippedTo,

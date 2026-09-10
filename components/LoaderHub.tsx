@@ -28,8 +28,12 @@ import {
   deleteLoadingPlan,
   deleteWarehouse,
   updateWarehouse,
+  unloadContainer,
+  fetchUploadHistory,
+  deleteUploadBatch,
   WarehouseReceiptItem,
   LoadingPlanItem,
+  UploadHistoryItem,
 } from '@/store/loadingPlanSlice';
 import {
   Warehouse,
@@ -45,6 +49,7 @@ import {
   X,
   Package,
   ArrowRight,
+  ArrowDownLeft,
   ShieldCheck,
   ChevronRight,
   Trash2,
@@ -59,6 +64,8 @@ import {
   Square,
   Check,
   SlidersHorizontal,
+  History,
+  FileText,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import {
@@ -108,9 +115,11 @@ export default function LoaderHub() {
     activePlanForAllot,
     actionLoading,
     actionMessage,
+    uploadHistory,
+    uploadHistoryLoading,
   } = useAppSelector((state) => state.loadingPlan);
 
-  const [activeSubTab, setActiveSubTab] = useState<'stock' | 'plans'>('stock');
+  const [activeSubTab, setActiveSubTab] = useState<'stock' | 'plans' | 'uploads'>('stock');
 
   // Local state for Create Plan modal
   const [isCreatePlanOpen, setIsCreatePlanOpen] = useState(false);
@@ -160,6 +169,7 @@ export default function LoaderHub() {
   const [alterLoadingDate, setAlterLoadingDate] = useState('');
   const [alterShippedTo, setAlterShippedTo] = useState('Nhava Sheva / Mundra, India');
   const [alterAutoSync, setAlterAutoSync] = useState(true);
+  const [alterEtaBufferDays, setAlterEtaBufferDays] = useState<number>(10);
   const [isSubmittingAlter, setIsSubmittingAlter] = useState(false);
 
   // Local state for Container-Wise Cargo Loading (Container-wise planning only)
@@ -191,6 +201,51 @@ export default function LoaderHub() {
   const [excelTotalRows, setExcelTotalRows] = useState(0);
   const [isUploadingExcel, setIsUploadingExcel] = useState(false);
   const [excelUploadStatus, setExcelUploadStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [excelUploadResult, setExcelUploadResult] = useState<{
+    savedCount: number;
+    duplicateCount: number;
+    duplicates: Array<{ receipt: string; warehouse?: string; row?: number; reason: string }>;
+    missingCount: number;
+    missingDetails: Array<{ row: number; reason: string }>;
+    uploadId?: string;
+    message: string;
+  } | null>(null);
+
+  // Upload Tracking & Deletion History State
+  const [uploadSearchTerm, setUploadSearchTerm] = useState('');
+  const [uploadTypeFilter, setUploadTypeFilter] = useState<'all' | 'stock' | 'plan'>('all');
+  const [selectedDuplicatesModal, setSelectedDuplicatesModal] = useState<UploadHistoryItem | null>(null);
+
+  // Live Carrier API Lookup State for Loading Date & ETA
+  const [isLookingUpApi, setIsLookingUpApi] = useState(false);
+  const [apiLookupStatus, setApiLookupStatus] = useState<{
+    type: 'success' | 'warning' | 'error';
+    message: string;
+    loadingDate?: string;
+  } | null>(null);
+  const [isLookingUpAlterApi, setIsLookingUpAlterApi] = useState(false);
+  const [alterApiLookupStatus, setAlterApiLookupStatus] = useState<{
+    type: 'success' | 'warning' | 'error';
+    message: string;
+    loadingDate?: string;
+  } | null>(null);
+
+  // Process-Wise Deletion & Unload States
+  const [receiptToUnmarkAndDelete, setReceiptToUnmarkAndDelete] = useState<{
+    receipt: WarehouseReceiptItem;
+    containers: Array<{ container: string; containerNumber?: string; quantity: number; shippingLine?: string }>;
+  } | null>(null);
+  const [containerToUnloadAndDelete, setContainerToUnloadAndDelete] = useState<LoadingPlanItem | null>(null);
+  const [containerToUnloadGoods, setContainerToUnloadGoods] = useState<LoadingPlanItem | null>(null);
+  const [warehouseToDeleteWithReceipts, setWarehouseToDeleteWithReceipts] = useState<{
+    warehouse: string;
+    count: number;
+  } | null>(null);
+  const [isDeletingProcess, setIsDeletingProcess] = useState(false);
+
+  // Edit Warehouse Mode (rename vs merge into existing warehouse)
+  const [editWarehouseMode, setEditWarehouseMode] = useState<'rename' | 'merge'>('rename');
+  const [editWarehouseTargetMerge, setEditWarehouseTargetMerge] = useState('');
 
   // Multi-Selection State for China Warehouse Stock
   const [selectedReceiptIds, setSelectedReceiptIds] = useState<Set<string>>(new Set());
@@ -283,7 +338,8 @@ export default function LoaderHub() {
 
   useEffect(() => {
     fetchWarehouses();
-  }, []);
+    dispatch(fetchUploadHistory());
+  }, [dispatch]);
 
   const handleCreateWarehouse = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -336,16 +392,23 @@ export default function LoaderHub() {
     }
   };
 
-  // Delete Warehouse with Strict Zero-Data Check
+  // Delete Warehouse with Process-Wise Validation
   const handleDeleteWarehouse = async (targetWh?: string | React.MouseEvent) => {
     const whToDelete = typeof targetWh === 'string' && targetWh ? targetWh : selectedWarehouse;
     if (!whToDelete || whToDelete === 'ALL') {
       alert('Please select a specific warehouse to delete.');
       return;
     }
+
+    const inWh = warehouseReceipts.filter((r) => (r.warehouse || '').toLowerCase() === whToDelete.toLowerCase());
+    if (inWh.length > 0) {
+      setWarehouseToDeleteWithReceipts({ warehouse: whToDelete, count: inWh.length });
+      return;
+    }
+
     if (
       !confirm(
-        `Are you sure you want to delete warehouse '${whToDelete}'?\n\nStrict Rule: If any data (receipts, container plans, shipments) is mapped to this warehouse, deletion will be rejected.`
+        `Are you sure you want to delete warehouse '${whToDelete}'?\n\nThis warehouse currently has 0 receipts mapped to it.`
       )
     ) {
       return;
@@ -362,7 +425,29 @@ export default function LoaderHub() {
     }
   };
 
-  // Edit / Rename Warehouse Handlers
+  const handleConfirmDeleteWarehouseWithReceipts = async () => {
+    if (!warehouseToDeleteWithReceipts) return;
+    setIsDeletingProcess(true);
+    try {
+      const res = await dispatch(
+        deleteWarehouse({ name: warehouseToDeleteWithReceipts.warehouse, deleteAllReceiptsFirst: true })
+      );
+      if (deleteWarehouse.fulfilled.match(res)) {
+        alert(res.payload?.message || `Warehouse '${warehouseToDeleteWithReceipts.warehouse}' and its receipts deleted successfully.`);
+        setWarehouseToDeleteWithReceipts(null);
+        fetchWarehouses();
+        dispatch(fetchWarehouseReceipts());
+        dispatch(fetchLoadingPlans());
+        if (isEditWarehouseOpen) setIsEditWarehouseOpen(false);
+      } else {
+        alert((res.payload as string) || 'Failed to delete warehouse.');
+      }
+    } finally {
+      setIsDeletingProcess(false);
+    }
+  };
+
+  // Edit / Rename / Merge Warehouse Handlers
   const [isEditWarehouseOpen, setIsEditWarehouseOpen] = useState(false);
   const [editWarehouseOldName, setEditWarehouseOldName] = useState('');
   const [editWarehouseNewName, setEditWarehouseNewName] = useState('');
@@ -379,11 +464,55 @@ export default function LoaderHub() {
     setEditWarehouseNewName(selectedWarehouse);
     setEditWarehouseCity('');
     setEditWarehouseCode('');
+    setEditWarehouseMode('rename');
+    setEditWarehouseTargetMerge('');
     setIsEditWarehouseOpen(true);
   };
 
   const handleEditWarehouseSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (editWarehouseMode === 'merge') {
+      if (!editWarehouseTargetMerge.trim()) {
+        alert('Please select an existing warehouse to merge into.');
+        return;
+      }
+      if (editWarehouseTargetMerge.trim().toLowerCase() === editWarehouseOldName.trim().toLowerCase()) {
+        alert('Cannot merge warehouse into itself. Please select a different existing warehouse.');
+        return;
+      }
+      if (
+        !confirm(
+          `Are you sure you want to merge '${editWarehouseOldName}' into '${editWarehouseTargetMerge}'?\n\nAll receipts, containers, and shipments mapped to '${editWarehouseOldName}' will be moved to '${editWarehouseTargetMerge}', and '${editWarehouseOldName}' will be removed.`
+        )
+      ) {
+        return;
+      }
+      setIsSubmittingEditWarehouse(true);
+      try {
+        const res = await dispatch(
+          updateWarehouse({
+            oldName: editWarehouseOldName,
+            newName: editWarehouseTargetMerge.trim(),
+            mergeWithExisting: true,
+          })
+        );
+        if (updateWarehouse.fulfilled.match(res)) {
+          alert(res.payload?.message || `Warehouse merged into '${editWarehouseTargetMerge.trim()}' successfully.`);
+          setIsEditWarehouseOpen(false);
+          fetchWarehouses();
+          dispatch(fetchWarehouseReceipts());
+          dispatch(fetchLoadingPlans());
+        } else {
+          alert((res.payload as string) || 'Failed to merge warehouse');
+        }
+      } finally {
+        setIsSubmittingEditWarehouse(false);
+      }
+      return;
+    }
+
+    // Rename mode
     if (!editWarehouseNewName.trim()) {
       alert('New warehouse name is required.');
       return;
@@ -423,7 +552,11 @@ export default function LoaderHub() {
       return;
     }
     if (!receiveReceipt.trim()) {
-      alert('Receipt number is required');
+      alert('Receipt number is strictly mandatory. Goods cannot be received without a receipt number (रिसीट नंबर अनिवार्य है).');
+      return;
+    }
+    if (!receiveDate.trim()) {
+      alert('Receipt date is strictly mandatory. Goods cannot be received without a receipt date (रिसीट डेट अनिवार्य है).');
       return;
     }
     if (!receiveWarehouse.trim() || receiveWarehouse === 'ALL') {
@@ -509,7 +642,10 @@ export default function LoaderHub() {
     setAlterWarehouse(plan.warehouse || '');
     setAlterLoadingDate(plan.loadingDate || '');
     setAlterShippedTo(plan.shippedTo || 'Nhava Sheva / Mundra, India');
+    setAlterEtaBufferDays(plan.etaBufferDays !== undefined ? plan.etaBufferDays : 10);
     setAlterAutoSync(true);
+    setAlterApiLookupStatus(null);
+    setIsLookingUpAlterApi(false);
     setIsAlterContainerOpen(true);
   };
 
@@ -536,6 +672,7 @@ export default function LoaderHub() {
           loadingDate: alterLoadingDate.trim(),
           shippedTo: alterShippedTo.trim(),
           autoSync: alterAutoSync,
+          etaBufferDays: alterEtaBufferDays,
         })
       );
       if (alterContainer.fulfilled.match(res)) {
@@ -562,12 +699,10 @@ export default function LoaderHub() {
     dispatch(fetchLoadingPlans());
   };
 
-  // Delete Loading Plan / Container Handler
+  // Delete Loading Plan / Container Handler with Process Rule
   const handleDeletePlan = async (plan: LoadingPlanItem) => {
-    if (plan.shipmentCount && plan.shipmentCount > 0) {
-      alert(
-        `Cannot delete container '${plan.container}': It still contains ${plan.shipmentCount} loaded cargo item(s) mapped to it.\n\nRule: You must delete/de-allocate all loaded cargo items from this container first before deleting the container.`
-      );
+    if ((plan.shipmentCount && plan.shipmentCount > 0) || (plan.totalQuantity && plan.totalQuantity > 0)) {
+      setContainerToUnloadAndDelete(plan);
       return;
     }
     if (
@@ -583,6 +718,46 @@ export default function LoaderHub() {
       dispatch(fetchLoadingPlans());
     } else {
       alert((res.payload as string) || `Failed to delete container '${plan.container}'.`);
+    }
+  };
+
+  const handleConfirmUnloadAndDeleteContainer = async () => {
+    if (!containerToUnloadAndDelete) return;
+    setIsDeletingProcess(true);
+    try {
+      const res = await dispatch(
+        deleteLoadingPlan({ container: containerToUnloadAndDelete.container, unloadFirst: true })
+      );
+      if (deleteLoadingPlan.fulfilled.match(res)) {
+        alert(res.payload?.message || `Container '${containerToUnloadAndDelete.container}' unloaded and deleted.`);
+        setContainerToUnloadAndDelete(null);
+        dispatch(fetchLoadingPlans());
+        dispatch(fetchWarehouseReceipts());
+      } else {
+        alert((res.payload as string) || 'Failed to delete container.');
+      }
+    } finally {
+      setIsDeletingProcess(false);
+    }
+  };
+
+  // Unload All Cargo items from container back to China Warehouse stock
+  const handleUnloadAllCargo = async (plan: LoadingPlanItem) => {
+    if (
+      !confirm(
+        `Are you sure you want to unload ALL cargo items from container '${plan.container}'?\n\nAll ${plan.totalQuantity || 0} cartons will be restored back to available China Warehouse stock. The container itself will remain active.`
+      )
+    ) {
+      return;
+    }
+    const res = await dispatch(unloadContainer({ container: plan.container }));
+    if (unloadContainer.fulfilled.match(res)) {
+      alert(res.payload?.message || `All cargo unloaded from container '${plan.container}'.`);
+      setContainerToUnloadGoods(null);
+      dispatch(fetchLoadingPlans());
+      dispatch(fetchWarehouseReceipts());
+    } else {
+      alert((res.payload as string) || 'Failed to unload cargo from container.');
     }
   };
 
@@ -811,12 +986,22 @@ export default function LoaderHub() {
     }
   };
 
-  // Delete Wrong Warehouse Receipt
+  // Delete Warehouse Receipt with Process Rule
   const handleDeleteReceipt = async (receiptItem: WarehouseReceiptItem) => {
     if (receiptItem.loadedQuantity && receiptItem.loadedQuantity > 0) {
-      alert(
-        `Cannot delete received goods record '${receiptItem.receipt}': ${receiptItem.loadedQuantity} carton(s) are currently loaded and mapped in container plan(s).\n\nRule: First delete/remove this cargo entry from the container loading plan (do NOT delete the container, only remove this loaded entry). After removing it from the container, you can delete this received goods record.`
-      );
+      const loadedContainers: Array<{ container: string; containerNumber?: string; quantity: number; shippingLine?: string }> = [];
+      for (const plan of loadingPlans) {
+        const matching = plan.items?.filter((i) => i.receipt?.toLowerCase() === receiptItem.receipt.toLowerCase()) || [];
+        for (const m of matching) {
+          loadedContainers.push({
+            container: plan.container,
+            containerNumber: plan.containerNumber,
+            quantity: Number(m.quantity) || 0,
+            shippingLine: plan.shippingLine,
+          });
+        }
+      }
+      setReceiptToUnmarkAndDelete({ receipt: receiptItem, containers: loadedContainers });
       return;
     }
 
@@ -831,6 +1016,26 @@ export default function LoaderHub() {
       dispatch(fetchWarehouseReceipts());
     } else {
       alert((res.payload as string) || `Failed to delete receipt '${receiptItem.receipt}'.`);
+    }
+  };
+
+  const handleConfirmUnmarkAndDeleteReceipt = async () => {
+    if (!receiptToUnmarkAndDelete) return;
+    setIsDeletingProcess(true);
+    try {
+      const res = await dispatch(
+        deleteWarehouseReceipt({ id: receiptToUnmarkAndDelete.receipt._id, unloadFirst: true })
+      );
+      if (deleteWarehouseReceipt.fulfilled.match(res)) {
+        alert(res.payload?.message || `Receipt #${receiptToUnmarkAndDelete.receipt.receipt} unmarked from container(s) and deleted successfully.`);
+        setReceiptToUnmarkAndDelete(null);
+        dispatch(fetchWarehouseReceipts());
+        dispatch(fetchLoadingPlans());
+      } else {
+        alert((res.payload as string) || 'Failed to delete receipt.');
+      }
+    } finally {
+      setIsDeletingProcess(false);
     }
   };
 
@@ -926,6 +1131,110 @@ export default function LoaderHub() {
     setAllotCarrierInput(targetPlan.shippingLine || 'MSC');
     setLoadingDateInput(targetPlan.loadingDate || new Date().toISOString().split('T')[0]);
     setDestinationInput(targetPlan.shippedTo || 'Nhava Sheva / Mundra, India');
+    setApiLookupStatus(null);
+    setIsLookingUpApi(false);
+  };
+
+  // Live Carrier API Lookup for Allot Modal (Fetches Loading Date & Live ETA)
+  const handleLookupAllotContainer = async () => {
+    const contNo = actualContainerNoInput.trim().toUpperCase();
+    if (!contNo) {
+      alert('Please enter an actual carrier container number first (e.g. MSCU1234567)');
+      return;
+    }
+    setIsLookingUpApi(true);
+    setApiLookupStatus(null);
+    try {
+      const res = await fetch('/api/containers/sync-eta', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          containerNumber: contNo,
+          shippingLine: allotCarrierInput,
+          lookupOnly: true,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.loadingDate) {
+        setLoadingDateInput(data.loadingDate);
+        if (data.shippedTo && (!destinationInput || destinationInput.includes('Nhava Sheva'))) {
+          setDestinationInput(data.shippedTo);
+        }
+        setApiLookupStatus({
+          type: 'success',
+          message: `✓ Retrieved from Carrier API: Loading Date is ${data.loadingDate} (ETA: ${data.eta || 'N/A'}, Status: ${data.status})`,
+          loadingDate: data.loadingDate,
+        });
+      } else if (data.success && !data.loadingDate) {
+        setApiLookupStatus({
+          type: 'warning',
+          message: `Container found in API (${data.status}), but departure/loading date is pending in carrier system. Please enter the Loading Date manually below.`,
+        });
+      } else {
+        setApiLookupStatus({
+          type: 'warning',
+          message: `Carrier API could not search container '${contNo}'. Please enter the Loading Date manually below.`,
+        });
+      }
+    } catch (err: any) {
+      setApiLookupStatus({
+        type: 'warning',
+        message: `API search could not reach carrier (${err?.message || 'Error'}). Please enter the Loading Date manually below.`,
+      });
+    } finally {
+      setIsLookingUpApi(false);
+    }
+  };
+
+  // Live Carrier API Lookup for Alter Modal
+  const handleLookupAlterContainer = async () => {
+    const contNo = alterActualNumber.trim().toUpperCase();
+    if (!contNo) {
+      alert('Please enter an actual carrier container number first (e.g. MSCU1234567)');
+      return;
+    }
+    setIsLookingUpAlterApi(true);
+    setAlterApiLookupStatus(null);
+    try {
+      const res = await fetch('/api/containers/sync-eta', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          containerNumber: contNo,
+          shippingLine: alterShippingLine,
+          lookupOnly: true,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.loadingDate) {
+        setAlterLoadingDate(data.loadingDate);
+        if (data.shippedTo && (!alterShippedTo || alterShippedTo.includes('Nhava Sheva'))) {
+          setAlterShippedTo(data.shippedTo);
+        }
+        setAlterApiLookupStatus({
+          type: 'success',
+          message: `✓ Retrieved from Carrier API: Loading Date is ${data.loadingDate} (ETA: ${data.eta || 'N/A'}, Status: ${data.status})`,
+          loadingDate: data.loadingDate,
+        });
+      } else if (data.success && !data.loadingDate) {
+        setAlterApiLookupStatus({
+          type: 'warning',
+          message: `Container found in API (${data.status}), but departure/loading date is pending in carrier system. Please enter the Loading Date manually below.`,
+        });
+      } else {
+        setAlterApiLookupStatus({
+          type: 'warning',
+          message: `Carrier API could not search container '${contNo}'. Please enter the Loading Date manually below.`,
+        });
+      }
+    } catch (err: any) {
+      setAlterApiLookupStatus({
+        type: 'warning',
+        message: `API search could not reach carrier (${err?.message || 'Error'}). Please enter the Loading Date manually below.`,
+      });
+    } finally {
+      setIsLookingUpAlterApi(false);
+    }
   };
 
   // Submit Allot Actual Container
@@ -1116,13 +1425,31 @@ export default function LoaderHub() {
           throw new Error(confirmedData.error || 'Failed to upload Excel file');
         }
 
+        dispatch(fetchWarehouseReceipts());
+        dispatch(fetchLoadingPlans());
+        dispatch(fetchUploadHistory());
+
+        if ((confirmedData.duplicateCount && confirmedData.duplicateCount > 0) || (confirmedData.missingCount && confirmedData.missingCount > 0)) {
+          setExcelUploadResult({
+            savedCount: confirmedData.savedCount || 0,
+            duplicateCount: confirmedData.duplicateCount || 0,
+            duplicates: confirmedData.duplicates || [],
+            missingCount: confirmedData.missingCount || 0,
+            missingDetails: confirmedData.missingDetails || [],
+            uploadId: confirmedData.uploadId,
+            message: confirmedData.message || '',
+          });
+          setExcelUploadStatus({
+            type: confirmedData.savedCount > 0 ? 'success' : 'error',
+            message: confirmedData.message || 'Upload completed with duplicates / missing records.',
+          });
+          return;
+        }
+
         setExcelUploadStatus({
           type: 'success',
           message: confirmedData.message || `Successfully processed and split loading plans!`,
         });
-
-        dispatch(fetchWarehouseReceipts());
-        dispatch(fetchLoadingPlans());
 
         setTimeout(() => {
           setIsExcelUploadOpen(false);
@@ -1132,7 +1459,29 @@ export default function LoaderHub() {
           setExcelUploadType('stock');
           setExcelTargetContainer('');
           setExcelUploadStatus(null);
+          setExcelUploadResult(null);
         }, 1500);
+        return;
+      }
+
+      dispatch(fetchWarehouseReceipts());
+      dispatch(fetchLoadingPlans());
+      dispatch(fetchUploadHistory());
+
+      if ((data.duplicateCount && data.duplicateCount > 0) || (data.missingCount && data.missingCount > 0)) {
+        setExcelUploadResult({
+          savedCount: data.savedCount || 0,
+          duplicateCount: data.duplicateCount || 0,
+          duplicates: data.duplicates || [],
+          missingCount: data.missingCount || 0,
+          missingDetails: data.missingDetails || [],
+          uploadId: data.uploadId,
+          message: data.message || '',
+        });
+        setExcelUploadStatus({
+          type: data.savedCount > 0 ? 'success' : 'error',
+          message: data.message || 'Upload completed with duplicates / missing records.',
+        });
         return;
       }
 
@@ -1140,9 +1489,6 @@ export default function LoaderHub() {
         type: 'success',
         message: data.message || `Successfully imported and translated records into China Warehouse Stock!`,
       });
-
-      dispatch(fetchWarehouseReceipts());
-      dispatch(fetchLoadingPlans());
 
       setTimeout(() => {
         setIsExcelUploadOpen(false);
@@ -1152,6 +1498,7 @@ export default function LoaderHub() {
         setExcelUploadType('stock');
         setExcelTargetContainer('');
         setExcelUploadStatus(null);
+        setExcelUploadResult(null);
       }, 1500);
     } catch (err: any) {
       setExcelUploadStatus({ type: 'error', message: err?.message || 'Upload error' });
@@ -1748,6 +2095,18 @@ export default function LoaderHub() {
             <Truck className="w-4 h-4" />
             <span>2. Loading Plans & Allotments ({loadingPlans.length})</span>
           </button>
+
+          <button
+            onClick={() => setActiveSubTab('uploads')}
+            className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              activeSubTab === 'uploads'
+                ? 'bg-red-600 text-white shadow-md shadow-red-200'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            <History className="w-4 h-4" />
+            <span>3. Upload Tracking Records ({uploadHistory.filter((u) => u.status === 'Active').length})</span>
+          </button>
         </div>
 
         <div className="flex items-center space-x-2">
@@ -1755,6 +2114,7 @@ export default function LoaderHub() {
             onClick={() => {
               dispatch(fetchWarehouseReceipts());
               dispatch(fetchLoadingPlans());
+              dispatch(fetchUploadHistory());
             }}
             disabled={loading}
             className="flex items-center space-x-1.5 px-3 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-semibold shadow-sm transition"
@@ -2282,6 +2642,20 @@ export default function LoaderHub() {
                       </button>
                     )}
 
+                    {!plan.isDelivered && ((plan.shipmentCount && plan.shipmentCount > 0) || (plan.totalQuantity && plan.totalQuantity > 0)) && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setContainerToUnloadGoods(plan);
+                        }}
+                        className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-[11px] font-bold transition flex items-center space-x-1 shadow-sm"
+                        title={`Unload cargo goods from ${plan.container} (restore back to warehouse stock)`}
+                      >
+                        <ArrowDownLeft className="w-3 h-3 text-amber-600" />
+                        <span>Unload Goods</span>
+                      </button>
+                    )}
+
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -2318,6 +2692,20 @@ export default function LoaderHub() {
                       >
                         <CheckCircle2 className="w-3 h-3 text-emerald-200" />
                         <span>Deliver</span>
+                      </button>
+                    )}
+
+                    {!plan.isDelivered && ((plan.shipmentCount || 0) > 0 || (plan.totalQuantity || 0) > 0) && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setContainerToUnloadGoods(plan);
+                        }}
+                        className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg text-[11px] font-bold transition flex items-center space-x-1"
+                        title="Unload goods from container back to China warehouse stock"
+                      >
+                        <ArrowDownLeft className="w-3 h-3 text-amber-600" />
+                        <span>Unload</span>
                       </button>
                     )}
 
@@ -2377,7 +2765,7 @@ export default function LoaderHub() {
                     </span>
                     <span className="text-slate-300 hidden sm:inline">•</span>
                     <span className="text-slate-500">
-                      Clearance Delivery ETA (+10d): <strong className="text-emerald-700 font-mono font-bold">{activePlan.eta ? (formatGlobalDate(activePlan.eta) || activePlan.eta) : 'Pending'}</strong>
+                      Clearance Delivery ETA (+{activePlan.etaBufferDays !== undefined ? activePlan.etaBufferDays : 10}d): <strong className="text-emerald-700 font-mono font-bold">{activePlan.destinationDate ? (formatGlobalDate(activePlan.destinationDate) || activePlan.destinationDate) : activePlan.eta ? (formatGlobalDate(activePlan.eta) || activePlan.eta) : 'Pending'}</strong>
                     </span>
                   </div>
                 </div>
@@ -2391,6 +2779,17 @@ export default function LoaderHub() {
                     >
                       <Plus className="w-4 h-4 text-emerald-200" />
                       <span>+ Load Goods into {activePlan.container}</span>
+                    </button>
+                  )}
+
+                  {!activePlan.isDelivered && ((activePlan.shipmentCount || 0) > 0 || (activePlan.totalQuantity || 0) > 0) && (
+                    <button
+                      onClick={() => handleUnloadAllCargo(activePlan)}
+                      className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-xl text-xs font-bold shadow-sm transition flex items-center space-x-1.5"
+                      title={`Unload all loaded cargo goods from ${activePlan.container} back to China Warehouse stock`}
+                    >
+                      <ArrowDownLeft className="w-3.5 h-3.5 text-amber-600" />
+                      <span>⚡ Unload All Cargo to Stock</span>
                     </button>
                   )}
 
@@ -2485,6 +2884,274 @@ export default function LoaderHub() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* SUB-TAB 3: UPLOAD TRACKING & ROLLBACK HISTORY */}
+      {activeSubTab === 'uploads' && (
+        <div className="space-y-4 animate-fadeIn">
+          {/* Top Info & Filters Bar */}
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Search Bar */}
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search file, batch, warehouse, receipt..."
+                  value={uploadSearchTerm}
+                  onChange={(e) => setUploadSearchTerm(e.target.value)}
+                  className="pl-8 pr-3 py-1.5 text-xs font-medium rounded-xl border border-slate-200 bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-red-500 w-64"
+                />
+              </div>
+
+              {/* Type Filter */}
+              <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-xl text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setUploadTypeFilter('all')}
+                  className={`px-3 py-1 rounded-lg transition ${
+                    uploadTypeFilter === 'all'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  All ({uploadHistory.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUploadTypeFilter('stock')}
+                  className={`px-3 py-1 rounded-lg transition ${
+                    uploadTypeFilter === 'stock'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  📦 Stock ({uploadHistory.filter((u) => u.uploadType === 'stock').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUploadTypeFilter('plan')}
+                  className={`px-3 py-1 rounded-lg transition ${
+                    uploadTypeFilter === 'plan'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  🚢 Plans ({uploadHistory.filter((u) => u.uploadType === 'plan').length})
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <span className="text-[11px] text-slate-500">
+                {uploadHistory.filter((u) => u.status === 'Active').length} Active Batches
+              </span>
+              <button
+                type="button"
+                onClick={() => dispatch(fetchUploadHistory())}
+                disabled={uploadHistoryLoading}
+                className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${uploadHistoryLoading ? 'animate-spin text-red-600' : ''}`} />
+                <span>Refresh History</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Upload History Table */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="bg-slate-50 text-slate-600 uppercase text-[10px] font-extrabold tracking-wider border-b border-slate-200">
+                  <tr>
+                    <th className="py-3 px-4">Uploaded At</th>
+                    <th className="py-3 px-4">Batch ID</th>
+                    <th className="py-3 px-4">File Name</th>
+                    <th className="py-3 px-4">Upload Type</th>
+                    <th className="py-3 px-4">Warehouse / Container</th>
+                    <th className="py-3 px-4 text-center">Saved Unique</th>
+                    <th className="py-3 px-4 text-center">Duplicates Skipped</th>
+                    <th className="py-3 px-4 text-center">Missing Skipped</th>
+                    <th className="py-3 px-4 text-center">Status</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {uploadHistory.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} className="py-12 text-center text-slate-400">
+                        <History className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                        <p className="font-semibold text-sm">No upload records found</p>
+                        <p className="text-xs text-slate-400 mt-1">
+                          When you upload China warehouse stock or loading plan Excel/CSV files, full tracking records will appear here.
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    uploadHistory
+                      .filter((u) => {
+                        if (uploadTypeFilter !== 'all' && u.uploadType !== uploadTypeFilter) return false;
+                        if (!uploadSearchTerm.trim()) return true;
+                        const term = uploadSearchTerm.toLowerCase();
+                        return (
+                          u.uploadId?.toLowerCase().includes(term) ||
+                          u.fileName?.toLowerCase().includes(term) ||
+                          u.warehouse?.toLowerCase().includes(term) ||
+                          u.targetContainer?.toLowerCase().includes(term) ||
+                          (u.receipts && u.receipts.some((r) => r.toLowerCase().includes(term)))
+                        );
+                      })
+                      .map((u) => {
+                        const isDeleted = u.status === 'Deleted';
+                        return (
+                          <tr
+                            key={u.uploadId}
+                            className={`hover:bg-slate-50 transition ${isDeleted ? 'opacity-60 bg-slate-50/50' : ''}`}
+                          >
+                            {/* Uploaded At */}
+                            <td className="py-3 px-4 whitespace-nowrap text-slate-600 font-medium">
+                              <div>{new Date(u.uploadedAt).toLocaleDateString()}</div>
+                              <div className="text-[10px] text-slate-400">{new Date(u.uploadedAt).toLocaleTimeString()}</div>
+                            </td>
+
+                            {/* Batch ID */}
+                            <td className="py-3 px-4 font-mono font-bold text-slate-800 whitespace-nowrap">
+                              <span className="bg-slate-100 px-2 py-0.5 rounded text-[11px] text-slate-700">
+                                {u.uploadId}
+                              </span>
+                            </td>
+
+                            {/* File Name */}
+                            <td className="py-3 px-4 font-medium text-slate-900 max-w-[220px]">
+                              <div className="flex items-center space-x-1.5 truncate">
+                                <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                                <span className="truncate font-semibold" title={u.fileName}>
+                                  {u.fileName}
+                                </span>
+                              </div>
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                Total: {u.totalRowsInFile || (u.savedCount + (u.duplicateCount || 0) + (u.missingCount || 0))} rows
+                              </span>
+                            </td>
+
+                            {/* Upload Type */}
+                            <td className="py-3 px-4 whitespace-nowrap">
+                              {u.uploadType === 'stock' ? (
+                                <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  <Boxes className="w-3 h-3 text-emerald-600" />
+                                  <span>Warehouse Stock</span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                  <Truck className="w-3 h-3 text-indigo-600" />
+                                  <span>Loading Plan</span>
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Warehouse / Container */}
+                            <td className="py-3 px-4 whitespace-nowrap">
+                              <div className="font-semibold text-slate-800">{u.warehouse || '—'}</div>
+                              {u.targetContainer && (
+                                <div className="text-[10px] font-mono text-indigo-600">
+                                  Internal Cont: {u.targetContainer}
+                                </div>
+                              )}
+                            </td>
+
+                            {/* Saved Unique */}
+                            <td className="py-3 px-4 text-center whitespace-nowrap">
+                              <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded text-xs">
+                                {u.savedCount}
+                              </span>
+                            </td>
+
+                            {/* Duplicates Skipped */}
+                            <td className="py-3 px-4 text-center whitespace-nowrap">
+                              {u.duplicateCount && u.duplicateCount > 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedDuplicatesModal(u)}
+                                  className="font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-0.5 rounded text-xs transition inline-flex items-center space-x-1"
+                                  title="Click to view duplicate receipts list"
+                                >
+                                  <span>{u.duplicateCount}</span>
+                                  <span className="underline text-[10px]">View</span>
+                                </button>
+                              ) : (
+                                <span className="text-slate-400 font-mono text-xs">0</span>
+                              )}
+                            </td>
+
+                            {/* Missing Skipped */}
+                            <td className="py-3 px-4 text-center whitespace-nowrap">
+                              {u.missingCount && u.missingCount > 0 ? (
+                                <span className="font-bold text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded text-xs" title={`${u.missingCount} rows missing receipt or date`}>
+                                  {u.missingCount}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 font-mono text-xs">0</span>
+                              )}
+                            </td>
+
+                            {/* Status */}
+                            <td className="py-3 px-4 text-center whitespace-nowrap">
+                              {isDeleted ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">
+                                  Rolled Back
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                  Active
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Actions */}
+                            <td className="py-3 px-4 text-right whitespace-nowrap">
+                              {isDeleted ? (
+                                <span className="text-[10px] text-slate-400">
+                                  {u.deletedAt ? `Deleted ${new Date(u.deletedAt).toLocaleDateString()}` : 'Deleted'}
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    const confirmMsg =
+                                      u.uploadType === 'stock'
+                                        ? `Are you sure you want to delete and rollback upload batch "${u.fileName}" (${u.uploadId})?\n\n• All ${u.savedCount} receipts created by this upload will be removed from China warehouse stock.\n• Any receipt already allocated into a loading plan will be safely protected.\n\nThis action cannot be undone.`
+                                        : `Are you sure you want to delete and rollback upload batch "${u.fileName}" (${u.uploadId})?\n\n• All shipments loaded by this upload into container "${u.targetContainer}" will be removed.\n• Allocated quantities will be returned to warehouse stock.\n\nThis action cannot be undone.`;
+
+                                    if (!window.confirm(confirmMsg)) return;
+
+                                    try {
+                                      const resultAction = await dispatch(deleteUploadBatch({ uploadId: u.uploadId }));
+                                      if (deleteUploadBatch.fulfilled.match(resultAction)) {
+                                        alert(resultAction.payload?.message || 'Upload batch rolled back successfully!');
+                                      } else {
+                                        alert(resultAction.error?.message || 'Failed to rollback upload batch');
+                                      }
+                                    } catch (err: any) {
+                                      alert(err?.message || 'Rollback error');
+                                    }
+                                  }}
+                                  className="px-2.5 py-1 text-xs font-bold text-red-600 hover:text-white hover:bg-red-600 border border-red-200 rounded-lg transition inline-flex items-center space-x-1"
+                                  title="Delete this upload and rollback its records"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                  <span>Delete Upload</span>
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
 
@@ -2739,17 +3406,49 @@ export default function LoaderHub() {
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                   Actual Carrier Container Number
                 </label>
-                <input
-                  type="text"
-                  value={actualContainerNoInput}
-                  onChange={(e) => setActualContainerNoInput(e.target.value.toUpperCase())}
-                  placeholder="e.g. MSCU1234567"
-                  className="w-full px-3 py-2 font-mono text-sm font-black rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-500 uppercase"
-                />
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="text"
+                    value={actualContainerNoInput}
+                    onChange={(e) => setActualContainerNoInput(e.target.value.toUpperCase())}
+                    placeholder="e.g. MSCU1234567"
+                    className="flex-1 px-3 py-2 font-mono text-sm font-black rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-500 uppercase"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleLookupAllotContainer}
+                    disabled={isLookingUpApi || !actualContainerNoInput.trim()}
+                    className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition disabled:opacity-50 flex items-center space-x-1.5 shrink-0"
+                    title="Fetch loading date and live ETA from JSONCargo API"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isLookingUpApi ? 'animate-spin text-white' : ''}`} />
+                    <span>{isLookingUpApi ? 'Searching...' : '⚡ Search API'}</span>
+                  </button>
+                </div>
                 <p className="text-[11px] text-slate-400 mt-1">
-                  Enter the real ISO carrier container number provided by the shipping line.
+                  Enter container number and click <strong>'⚡ Search API'</strong> to fetch Loading Date & ETA from Carrier API.
                 </p>
               </div>
+
+              {/* Live API Lookup Status Alert */}
+              {apiLookupStatus && (
+                <div
+                  className={`p-3 rounded-xl text-xs font-semibold flex items-start space-x-2 animate-fadeIn ${
+                    apiLookupStatus.type === 'success'
+                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                      : 'bg-amber-50 text-amber-800 border border-amber-300'
+                  }`}
+                >
+                  {apiLookupStatus.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  )}
+                  <div className="flex-1">
+                    <span>{apiLookupStatus.message}</span>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
@@ -2778,8 +3477,17 @@ export default function LoaderHub() {
                   required
                   value={loadingDateInput}
                   onChange={(e) => setLoadingDateInput(e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-red-200 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500"
+                  className={`w-full px-3 py-2 text-xs font-bold rounded-xl border bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500 ${
+                    apiLookupStatus && apiLookupStatus.type === 'warning'
+                      ? 'border-amber-400 ring-2 ring-amber-200 bg-amber-50/20'
+                      : 'border-slate-300'
+                  }`}
                 />
+                <p className="text-[10px] text-slate-500 mt-1">
+                  {apiLookupStatus?.loadingDate
+                    ? `✓ Populated from JSON Cargo API: ${apiLookupStatus.loadingDate} (you can edit if needed)`
+                    : 'If API does not find the container, please enter the Loading Date manually.'}
+                </p>
               </div>
 
               <div>
@@ -3143,6 +3851,7 @@ export default function LoaderHub() {
                   setExcelFile(null);
                   setExcelPreviewRows([]);
                   setExcelUploadStatus(null);
+                  setExcelUploadResult(null);
                 }}
                 className="text-slate-400 hover:text-white p-1 rounded-lg"
               >
@@ -3170,213 +3879,58 @@ export default function LoaderHub() {
                 </div>
               )}
 
-              {/* Upload Type Selector (Warehouse Stock vs Container Loading Plan) */}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                  Select Upload Purpose
-                </label>
-                <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl">
-                  <button
-                    type="button"
-                    onClick={() => setExcelUploadType('stock')}
-                    className={`py-2 px-3 text-xs font-bold rounded-lg transition text-center ${
-                      excelUploadType === 'stock'
-                        ? 'bg-white text-slate-900 shadow-sm border border-slate-200'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    📦 Receive Goods (Warehouse Stock)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setExcelUploadType('plan')}
-                    className={`py-2 px-3 text-xs font-bold rounded-lg transition text-center ${
-                      excelUploadType === 'plan'
-                        ? 'bg-indigo-600 text-white shadow-sm'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    🚢 Loading Plan (Container Cargo)
-                  </button>
-                </div>
-              </div>
+              {/* Rich Upload Results View (Shown when upload finishes with duplicates or missing rows) */}
+              {excelUploadResult ? (
+                <div className="space-y-4 animate-fadeIn">
+                  {/* Results Summary Cards */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl text-center">
+                      <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Saved Unique</span>
+                      <div className="text-2xl font-black text-emerald-800 mt-1">{excelUploadResult.savedCount}</div>
+                      <span className="text-[10px] text-emerald-600">Successfully Ingested</span>
+                    </div>
+                    <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-center">
+                      <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wider">Duplicates Skipped</span>
+                      <div className="text-2xl font-black text-amber-800 mt-1">{excelUploadResult.duplicateCount}</div>
+                      <span className="text-[10px] text-amber-600">Already in DB / File</span>
+                    </div>
+                    <div className="p-3.5 bg-red-50 border border-red-200 rounded-2xl text-center">
+                      <span className="text-[10px] font-bold text-red-700 uppercase tracking-wider">Missing Skipped</span>
+                      <div className="text-2xl font-black text-red-800 mt-1">{excelUploadResult.missingCount}</div>
+                      <span className="text-[10px] text-red-600">No Receipt / Date</span>
+                    </div>
+                  </div>
 
-              {/* Internal Container / Loading Plan Number (Mandatory for Loading Plan) */}
-              {excelUploadType === 'plan' && (
-                <div className="p-3.5 bg-indigo-50 border border-indigo-200 rounded-2xl space-y-1.5 animate-fadeIn">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-indigo-950 flex items-center justify-between">
-                    <span>Internal Loading Plan / Container Number</span>
-                    <span className="text-red-600 font-bold text-[10px]">* Mandatory</span>
-                  </label>
-                  <input
-                    type="text"
-                    list="excel-plans-list"
-                    required
-                    placeholder="Select or enter internal container number (e.g. USI-01)"
-                    value={excelTargetContainer}
-                    onChange={(e) => setExcelTargetContainer(e.target.value.toUpperCase())}
-                    className="w-full px-3 py-2 text-xs font-mono font-bold uppercase rounded-xl border border-indigo-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                  <datalist id="excel-plans-list">
-                    {loadingPlans.map((p) => (
-                      <option key={p.container} value={p.container}>
-                        {p.container} {p.containerNumber ? `(${p.containerNumber})` : ''} - {p.warehouse || 'China Warehouse'}
-                      </option>
-                    ))}
-                  </datalist>
-                  <p className="text-[11px] text-indigo-800">
-                    Mandatory rule: When uploading a loading plan, the Internal Container Number must be selected or provided.
-                  </p>
-                </div>
-              )}
-
-              {/* Target Warehouse Selector (Mandatory) */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center space-x-1">
-                    <span>Target China Warehouse</span>
-                    <span className="text-red-600 font-bold text-[10px]">* Mandatory</span>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setWarehouseModalContext('excel');
-                      setIsAddWarehouseModalOpen(true);
-                    }}
-                    className="text-[11px] font-bold text-indigo-600 hover:text-indigo-700 flex items-center space-x-0.5"
-                  >
-                    <Plus className="w-3 h-3" />
-                    <span>+ New Warehouse</span>
-                  </button>
-                </div>
-                <select
-                  value={excelUploadWarehouse}
-                  onChange={(e) => setExcelUploadWarehouse(e.target.value)}
-                  required
-                  className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-300 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  {availableWarehouses.filter((w) => w !== 'ALL').length === 0 ? (
-                    <option value="" disabled>
-                      No warehouses created yet — Click '+ New Warehouse' above
-                    </option>
-                  ) : (
-                    availableWarehouses
-                      .filter((w) => w !== 'ALL')
-                      .map((wh) => (
-                        <option key={wh} value={wh}>
-                          {wh}
-                        </option>
-                      ))
+                  {/* Batch Tracking ID */}
+                  {excelUploadResult.uploadId && (
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs flex items-center justify-between">
+                      <span className="text-slate-500 font-medium">Tracking Batch ID:</span>
+                      <span className="font-mono font-bold text-slate-800">{excelUploadResult.uploadId}</span>
+                    </div>
                   )}
-                </select>
-              </div>
 
-              {availableWarehouses.filter((w) => w !== 'ALL').length === 0 && (
-                <div className="p-3 bg-amber-50 border border-amber-300 rounded-2xl flex items-start space-x-2 text-amber-900 text-xs">
-                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <span className="font-bold">No Warehouse Found:</span> You cannot upload goods or loading plans until at least one China warehouse is created.
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setWarehouseModalContext('excel');
-                        setIsAddWarehouseModalOpen(true);
-                      }}
-                      className="block mt-1 font-bold text-indigo-700 underline"
-                    >
-                      Click here to create a China warehouse now
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* File Dropzone */}
-              {!excelFile ? (
-                <div className="border-2 border-dashed border-indigo-200 hover:border-indigo-500 rounded-2xl p-6 text-center cursor-pointer transition bg-indigo-50/30 hover:bg-indigo-50/60 relative group">
-                  <input
-                    type="file"
-                    accept=".xlsx, .xls, .csv"
-                    onChange={handleExcelFileSelect}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  />
-                  <div className="space-y-2">
-                    <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center mx-auto group-hover:scale-110 transition-transform">
-                      <Upload className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-bold text-slate-800">
-                        Choose or Drop Chinese Warehouse File (.xlsx / .xls / .csv)
-                      </p>
-                      <p className="text-[11px] text-slate-500 mt-0.5">
-                        Supports pure Chinese headers (如: 单号, 客户, 品名, 件数, 包装, 仓库, 唛头)
-                      </p>
-                    </div>
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                      ✓ Instant Chinese-to-English translation before saving
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {/* Selected File Bar */}
-                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs">
-                    <div className="flex items-center space-x-2 truncate">
-                      <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span className="font-bold text-slate-900 truncate">{excelFile.name}</span>
-                      <span className="text-slate-400 font-mono">({excelTotalRows} records)</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setExcelFile(null);
-                        setExcelPreviewRows([]);
-                        setExcelUploadStatus(null);
-                      }}
-                      className="text-red-500 hover:underline font-bold text-[11px] ml-2 shrink-0"
-                    >
-                      Change File
-                    </button>
-                  </div>
-
-                  {/* Live Translation Preview */}
-                  {excelPreviewRows.length > 0 && (
+                  {/* Duplicates List */}
+                  {excelUploadResult.duplicates && excelUploadResult.duplicates.length > 0 && (
                     <div className="space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-700">
-                          Live Translation Preview (First {excelPreviewRows.length} rows):
-                        </span>
-                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                          Chinese ➔ Clean English
-                        </span>
-                      </div>
-
-                      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white text-xs shadow-inner">
+                      <span className="text-xs font-bold text-amber-900 flex items-center space-x-1">
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Duplicate Receipts Found ({excelUploadResult.duplicates.length}):</span>
+                      </span>
+                      <div className="max-h-44 overflow-y-auto rounded-xl border border-amber-200 bg-amber-50/40 text-xs">
                         <table className="w-full text-left">
-                          <thead className="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-200">
+                          <thead className="bg-amber-100/60 text-[10px] uppercase font-bold text-amber-800 border-b border-amber-200 sticky top-0">
                             <tr>
-                              <th className="p-2">Receipt</th>
-                              <th className="p-2">Party</th>
-                              <th className="p-2">Original Chinese</th>
-                              <th className="p-2 text-emerald-800 bg-emerald-50/50">Translated English</th>
-                              <th className="p-2">Qty / Pkg</th>
+                              <th className="p-2">Receipt #</th>
+                              <th className="p-2 text-center">Row in File</th>
+                              <th className="p-2">Reason / Details</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-100 text-[11px]">
-                            {excelPreviewRows.map((r) => (
-                              <tr key={r.idx} className="hover:bg-slate-50">
-                                <td className="p-2 font-mono font-bold text-slate-900 whitespace-nowrap">
-                                  {r.receipt}
-                                </td>
-                                <td className="p-2 text-slate-600 whitespace-nowrap">{r.party}</td>
-                                <td className="p-2 font-medium text-slate-500 max-w-[120px] truncate">
-                                  {r.chineseCommodity || '—'}
-                                </td>
-                                <td className="p-2 font-bold text-emerald-800 bg-emerald-50/30 max-w-[180px] truncate">
-                                  {r.englishCommodity}
-                                </td>
-                                <td className="p-2 whitespace-nowrap text-slate-600">
-                                  <strong>{r.qty}</strong> {r.packaging}
-                                </td>
+                          <tbody className="divide-y divide-amber-100 text-[11px]">
+                            {excelUploadResult.duplicates.map((d, i) => (
+                              <tr key={i} className="hover:bg-amber-100/40">
+                                <td className="p-2 font-mono font-bold text-slate-900">{d.receipt}</td>
+                                <td className="p-2 text-center font-mono text-slate-500">{d.row ? `Row ${d.row}` : '—'}</td>
+                                <td className="p-2 text-slate-700">{d.reason}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -3384,57 +3938,403 @@ export default function LoaderHub() {
                       </div>
                     </div>
                   )}
+
+                  {/* Missing Mandatory Fields List */}
+                  {excelUploadResult.missingDetails && excelUploadResult.missingDetails.length > 0 && (
+                    <div className="space-y-1.5">
+                      <span className="text-xs font-bold text-red-900 flex items-center space-x-1">
+                        <AlertCircle className="w-3.5 h-3.5 text-red-600" />
+                        <span>Rows Missing Mandatory Fields ({excelUploadResult.missingDetails.length}):</span>
+                      </span>
+                      <div className="max-h-36 overflow-y-auto rounded-xl border border-red-200 bg-red-50/40 text-xs p-2 space-y-1">
+                        {excelUploadResult.missingDetails.map((m, i) => (
+                          <div key={i} className="text-[11px] text-red-700 flex items-center justify-between border-b border-red-100 pb-1 last:border-0 last:pb-0">
+                            <span className="font-mono font-bold">Row {m.row}</span>
+                            <span>{m.reason}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
+              ) : (
+                <>
+                  {/* Upload Type Selector (Warehouse Stock vs Container Loading Plan) */}
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                      Select Upload Purpose
+                    </label>
+                    <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl">
+                      <button
+                        type="button"
+                        onClick={() => setExcelUploadType('stock')}
+                        className={`py-2 px-3 text-xs font-bold rounded-lg transition text-center ${
+                          excelUploadType === 'stock'
+                            ? 'bg-white text-slate-900 shadow-sm border border-slate-200'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        📦 Receive Goods (Warehouse Stock)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setExcelUploadType('plan')}
+                        className={`py-2 px-3 text-xs font-bold rounded-lg transition text-center ${
+                          excelUploadType === 'plan'
+                            ? 'bg-indigo-600 text-white shadow-sm'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        🚢 Loading Plan (Container Cargo)
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Internal Container / Loading Plan Number (Mandatory for Loading Plan) */}
+                  {excelUploadType === 'plan' && (
+                    <div className="p-3.5 bg-indigo-50 border border-indigo-200 rounded-2xl space-y-1.5 animate-fadeIn">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-indigo-950 flex items-center justify-between">
+                        <span>Internal Loading Plan / Container Number</span>
+                        <span className="text-red-600 font-bold text-[10px]">* Mandatory</span>
+                      </label>
+                      <input
+                        type="text"
+                        list="excel-plans-list"
+                        required
+                        placeholder="Select or enter internal container number (e.g. USI-01)"
+                        value={excelTargetContainer}
+                        onChange={(e) => setExcelTargetContainer(e.target.value.toUpperCase())}
+                        className="w-full px-3 py-2 text-xs font-mono font-bold uppercase rounded-xl border border-indigo-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                      <datalist id="excel-plans-list">
+                        {loadingPlans.map((p) => (
+                          <option key={p.container} value={p.container}>
+                            {p.container} {p.containerNumber ? `(${p.containerNumber})` : ''} - {p.warehouse || 'China Warehouse'}
+                          </option>
+                        ))}
+                      </datalist>
+                      <p className="text-[11px] text-indigo-800">
+                        Mandatory rule: When uploading a loading plan, the Internal Container Number must be selected or provided.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Target Warehouse Selector (Mandatory) */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center space-x-1">
+                        <span>Target China Warehouse</span>
+                        <span className="text-red-600 font-bold text-[10px]">* Mandatory</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setWarehouseModalContext('excel');
+                          setIsAddWarehouseModalOpen(true);
+                        }}
+                        className="text-[11px] font-bold text-indigo-600 hover:text-indigo-700 flex items-center space-x-0.5"
+                      >
+                        <Plus className="w-3 h-3" />
+                        <span>+ New Warehouse</span>
+                      </button>
+                    </div>
+                    <select
+                      value={excelUploadWarehouse}
+                      onChange={(e) => setExcelUploadWarehouse(e.target.value)}
+                      required
+                      className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-300 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
+                      {availableWarehouses.filter((w) => w !== 'ALL').length === 0 ? (
+                        <option value="" disabled>
+                          No warehouses created yet — Click '+ New Warehouse' above
+                        </option>
+                      ) : (
+                        availableWarehouses
+                          .filter((w) => w !== 'ALL')
+                          .map((wh) => (
+                            <option key={wh} value={wh}>
+                              {wh}
+                            </option>
+                          ))
+                      )}
+                    </select>
+                  </div>
+
+                  {availableWarehouses.filter((w) => w !== 'ALL').length === 0 && (
+                    <div className="p-3 bg-amber-50 border border-amber-300 rounded-2xl flex items-start space-x-2 text-amber-900 text-xs">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <span className="font-bold">No Warehouse Found:</span> You cannot upload goods or loading plans until at least one China warehouse is created.
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setWarehouseModalContext('excel');
+                            setIsAddWarehouseModalOpen(true);
+                          }}
+                          className="block mt-1 font-bold text-indigo-700 underline"
+                        >
+                          Click here to create a China warehouse now
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* File Dropzone */}
+                  {!excelFile ? (
+                    <div className="border-2 border-dashed border-indigo-200 hover:border-indigo-500 rounded-2xl p-6 text-center cursor-pointer transition bg-indigo-50/30 hover:bg-indigo-50/60 relative group">
+                      <input
+                        type="file"
+                        accept=".xlsx, .xls, .csv"
+                        onChange={handleExcelFileSelect}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                      <div className="space-y-2">
+                        <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center mx-auto group-hover:scale-110 transition-transform">
+                          <Upload className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-slate-800">
+                            Choose or Drop Chinese Warehouse File (.xlsx / .xls / .csv)
+                          </p>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            Supports pure Chinese headers (如: 单号, 客户, 品名, 件数, 包装, 仓库, 唛头)
+                          </p>
+                        </div>
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                          ✓ Instant Chinese-to-English translation before saving
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {/* Selected File Bar */}
+                      <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs">
+                        <div className="flex items-center space-x-2 truncate">
+                          <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span className="font-bold text-slate-900 truncate">{excelFile.name}</span>
+                          <span className="text-slate-400 font-mono">({excelTotalRows} records)</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setExcelFile(null);
+                            setExcelPreviewRows([]);
+                            setExcelUploadStatus(null);
+                            setExcelUploadResult(null);
+                          }}
+                          className="text-red-500 hover:underline font-bold text-[11px] ml-2 shrink-0"
+                        >
+                          Change File
+                        </button>
+                      </div>
+
+                      {/* Live Translation Preview */}
+                      {excelPreviewRows.length > 0 && (
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-slate-700">
+                              Live Translation Preview (First {excelPreviewRows.length} rows):
+                            </span>
+                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                              Chinese ➔ Clean English
+                            </span>
+                          </div>
+
+                          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white text-xs shadow-inner">
+                            <table className="w-full text-left">
+                              <thead className="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-200">
+                                <tr>
+                                  <th className="p-2">Receipt</th>
+                                  <th className="p-2">Party</th>
+                                  <th className="p-2">Original Chinese</th>
+                                  <th className="p-2 text-emerald-800 bg-emerald-50/50">Translated English</th>
+                                  <th className="p-2">Qty / Pkg</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100 text-[11px]">
+                                {excelPreviewRows.map((r) => (
+                                  <tr key={r.idx} className="hover:bg-slate-50">
+                                    <td className="p-2 font-mono font-bold text-slate-900 whitespace-nowrap">
+                                      {r.receipt}
+                                    </td>
+                                    <td className="p-2 text-slate-600 whitespace-nowrap">{r.party}</td>
+                                    <td className="p-2 font-medium text-slate-500 max-w-[120px] truncate">
+                                      {r.chineseCommodity || '—'}
+                                    </td>
+                                    <td className="p-2 font-bold text-emerald-800 bg-emerald-50/30 max-w-[180px] truncate">
+                                      {r.englishCommodity}
+                                    </td>
+                                    <td className="p-2 whitespace-nowrap text-slate-600">
+                                      <strong>{r.qty}</strong> {r.packaging}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
             {/* Modal Footer */}
             <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
-              <span className="text-[11px] text-slate-500">
-                {excelTotalRows > 0
-                  ? excelUploadType === 'plan'
-                    ? `${excelTotalRows} cargo entries will be loaded into Container '${excelTargetContainer || '...'}'`
-                    : `${excelTotalRows} receipts will be added to China WH Stock`
-                  : 'Select a file to begin'}
-              </span>
-              <div className="flex items-center space-x-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsExcelUploadOpen(false);
-                    setExcelFile(null);
-                    setExcelPreviewRows([]);
-                    setExcelUploadType('stock');
-                    setExcelTargetContainer('');
-                    setExcelUploadStatus(null);
-                  }}
-                  className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleConfirmExcelUpload}
-                  disabled={
-                    !excelFile ||
-                    isUploadingExcel ||
-                    availableWarehouses.filter((w) => w !== 'ALL').length === 0 ||
-                    !excelUploadWarehouse ||
-                    excelUploadWarehouse === 'ALL' ||
-                    (excelUploadType === 'plan' && !excelTargetContainer.trim())
-                  }
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition disabled:opacity-50 flex items-center space-x-1.5"
-                >
-                  {isUploadingExcel ? (
-                    <span>Translating & Ingesting...</span>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>{excelUploadType === 'plan' ? 'Process & Load into Container' : 'Translate & Save in DB'}</span>
-                    </>
-                  )}
-                </button>
+              {excelUploadResult ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsExcelUploadOpen(false);
+                      setExcelFile(null);
+                      setExcelPreviewRows([]);
+                      setExcelUploadStatus(null);
+                      setExcelUploadResult(null);
+                      setActiveSubTab('uploads');
+                    }}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition flex items-center space-x-1.5"
+                  >
+                    <History className="w-4 h-4 text-slate-600" />
+                    <span>View in Upload Tracking</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsExcelUploadOpen(false);
+                      setExcelFile(null);
+                      setExcelPreviewRows([]);
+                      setExcelUploadStatus(null);
+                      setExcelUploadResult(null);
+                    }}
+                    className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition"
+                  >
+                    Done
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="text-[11px] text-slate-500">
+                    {excelTotalRows > 0
+                      ? excelUploadType === 'plan'
+                        ? `${excelTotalRows} cargo entries will be loaded into Container '${excelTargetContainer || '...'}'`
+                        : `${excelTotalRows} receipts will be added to China WH Stock`
+                      : 'Select a file to begin'}
+                  </span>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsExcelUploadOpen(false);
+                        setExcelFile(null);
+                        setExcelPreviewRows([]);
+                        setExcelUploadType('stock');
+                        setExcelTargetContainer('');
+                        setExcelUploadStatus(null);
+                        setExcelUploadResult(null);
+                      }}
+                      className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl transition"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleConfirmExcelUpload}
+                      disabled={
+                        !excelFile ||
+                        isUploadingExcel ||
+                        availableWarehouses.filter((w) => w !== 'ALL').length === 0 ||
+                        !excelUploadWarehouse ||
+                        excelUploadWarehouse === 'ALL' ||
+                        (excelUploadType === 'plan' && !excelTargetContainer.trim())
+                      }
+                      className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition disabled:opacity-50 flex items-center space-x-1.5"
+                    >
+                      {isUploadingExcel ? (
+                        <span>Translating & Ingesting...</span>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>{excelUploadType === 'plan' ? 'Process & Load into Container' : 'Translate & Save in DB'}</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: VIEW DUPLICATES LIST */}
+      {selectedDuplicatesModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-xl w-full border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150 max-h-[85vh] flex flex-col">
+            <div className="p-5 bg-amber-500 text-slate-950 flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-2.5">
+                <AlertCircle className="w-5 h-5 text-slate-950" />
+                <div>
+                  <h3 className="font-black text-sm uppercase tracking-wider">
+                    Duplicate Receipts ({selectedDuplicatesModal.duplicateCount})
+                  </h3>
+                  <p className="text-[11px] text-slate-900 font-medium">
+                    Batch: {selectedDuplicatesModal.uploadId} • File: {selectedDuplicatesModal.fileName}
+                  </p>
+                </div>
               </div>
+              <button
+                onClick={() => setSelectedDuplicatesModal(null)}
+                className="text-slate-800 hover:text-black p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3 overflow-y-auto flex-1">
+              <p className="text-xs text-slate-600">
+                These receipt numbers already existed in China Warehouse stock or appeared multiple times in the uploaded file. To prevent duplicate entries, they were skipped while all unique records were saved.
+              </p>
+
+              <div className="rounded-xl border border-slate-200 overflow-hidden">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th className="p-2.5">Receipt #</th>
+                      <th className="p-2.5 text-center">Row in File</th>
+                      <th className="p-2.5">Reason / Details</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {selectedDuplicatesModal.duplicates && selectedDuplicatesModal.duplicates.length > 0 ? (
+                      selectedDuplicatesModal.duplicates.map((dup, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50">
+                          <td className="p-2.5 font-mono font-bold text-slate-900">{dup.receipt}</td>
+                          <td className="p-2.5 text-center text-slate-500 font-mono">{dup.row ? `Row ${dup.row}` : '—'}</td>
+                          <td className="p-2.5 text-slate-600">{dup.reason}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={3} className="p-4 text-center text-slate-400">
+                          No duplicate records detailed.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end shrink-0">
+              <button
+                type="button"
+                onClick={() => setSelectedDuplicatesModal(null)}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
@@ -4175,52 +5075,112 @@ export default function LoaderHub() {
               </button>
             </div>
 
+            {/* Mode Switcher Tabs */}
+            <div className="flex border-b border-slate-200 bg-slate-50 p-1.5 gap-1.5">
+              <button
+                type="button"
+                onClick={() => setEditWarehouseMode('rename')}
+                className={`flex-1 py-2 text-xs font-bold rounded-xl transition ${
+                  editWarehouseMode === 'rename'
+                    ? 'bg-white text-blue-700 shadow-sm border border-slate-200'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Rename Warehouse
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditWarehouseMode('merge')}
+                className={`flex-1 py-2 text-xs font-bold rounded-xl transition ${
+                  editWarehouseMode === 'merge'
+                    ? 'bg-white text-indigo-700 shadow-sm border border-slate-200'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Merge into Existing Warehouse
+              </button>
+            </div>
+
             <form onSubmit={handleEditWarehouseSubmit} className="p-6 space-y-4">
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 leading-relaxed">
-                ℹ️ <strong>Database Synchronization:</strong> Renaming this warehouse will automatically update all receipts, container plans, and shipments currently mapped to <span className="font-bold">{editWarehouseOldName}</span> database-wide.
-              </div>
+              {editWarehouseMode === 'rename' ? (
+                <>
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 leading-relaxed">
+                    ℹ️ <strong>Database Synchronization:</strong> Renaming this warehouse will automatically update all receipts, container plans, and shipments currently mapped to <span className="font-bold">{editWarehouseOldName}</span> database-wide.
+                  </div>
 
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                  Warehouse Name *
-                </label>
-                <input
-                  type="text"
-                  value={editWarehouseNewName}
-                  onChange={(e) => setEditWarehouseNewName(e.target.value)}
-                  placeholder="e.g. Qingdao Logistics Hub"
-                  required
-                  className="w-full px-3 py-2 text-sm font-bold rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
+                      Warehouse Name *
+                    </label>
+                    <input
+                      type="text"
+                      value={editWarehouseNewName}
+                      onChange={(e) => setEditWarehouseNewName(e.target.value)}
+                      placeholder="e.g. Qingdao Logistics Hub"
+                      required
+                      className="w-full px-3 py-2 text-sm font-bold rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                    City / Province
-                  </label>
-                  <input
-                    type="text"
-                    value={editWarehouseCity}
-                    onChange={(e) => setEditWarehouseCity(e.target.value)}
-                    placeholder="e.g. Qingdao, Shandong"
-                    className="w-full px-3 py-2 text-xs font-medium rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
+                        City / Province
+                      </label>
+                      <input
+                        type="text"
+                        value={editWarehouseCity}
+                        onChange={(e) => setEditWarehouseCity(e.target.value)}
+                        placeholder="e.g. Qingdao, Shandong"
+                        className="w-full px-3 py-2 text-xs font-medium rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
 
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                    Warehouse Code
-                  </label>
-                  <input
-                    type="text"
-                    value={editWarehouseCode}
-                    onChange={(e) => setEditWarehouseCode(e.target.value.toUpperCase())}
-                    placeholder="e.g. QD-01"
-                    className="w-full px-3 py-2 font-mono text-xs font-bold uppercase rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
+                        Warehouse Code
+                      </label>
+                      <input
+                        type="text"
+                        value={editWarehouseCode}
+                        onChange={(e) => setEditWarehouseCode(e.target.value.toUpperCase())}
+                        placeholder="e.g. QD-01"
+                        className="w-full px-3 py-2 font-mono text-xs font-bold uppercase rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-xs text-indigo-900 leading-relaxed">
+                    🔀 <strong>Merge / Reassign Warehouse:</strong> Move all receipts, container plans, and cargo shipments from <span className="font-bold">{editWarehouseOldName}</span> into an existing China warehouse. Once migrated, <span className="font-bold">{editWarehouseOldName}</span> will be deleted automatically.
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
+                      Select Existing Warehouse to Merge Into *
+                    </label>
+                    <select
+                      value={editWarehouseTargetMerge}
+                      onChange={(e) => setEditWarehouseTargetMerge(e.target.value)}
+                      required
+                      className="w-full px-3 py-2 text-sm font-bold rounded-xl border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="" disabled>-- Select Existing Destination Warehouse --</option>
+                      {availableWarehouses
+                        .filter((w) => w !== 'ALL' && w.toLowerCase() !== editWarehouseOldName.toLowerCase())
+                        .map((w) => (
+                          <option key={w} value={w}>
+                            {w}
+                          </option>
+                        ))}
+                    </select>
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      All receipts, container plans, and cargo items will be transferred to this warehouse.
+                    </p>
+                  </div>
+                </>
+              )}
 
               <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
                 <button
@@ -4228,7 +5188,7 @@ export default function LoaderHub() {
                   onClick={() => handleDeleteWarehouse(editWarehouseOldName)}
                   disabled={isSubmittingEditWarehouse}
                   className="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold rounded-xl border border-red-200 transition flex items-center space-x-1.5"
-                  title={`Delete warehouse '${editWarehouseOldName}' (only if zero data is mapped)`}
+                  title={`Delete warehouse '${editWarehouseOldName}' (strict validation applies)`}
                 >
                   <Trash2 className="w-3.5 h-3.5 text-red-600" />
                   <span>Delete Warehouse</span>
@@ -4243,16 +5203,19 @@ export default function LoaderHub() {
                   </button>
                   <button
                     type="submit"
-                    disabled={isSubmittingEditWarehouse || !editWarehouseNewName.trim()}
+                    disabled={
+                      isSubmittingEditWarehouse ||
+                      (editWarehouseMode === 'rename' ? !editWarehouseNewName.trim() : !editWarehouseTargetMerge.trim())
+                    }
                     className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition disabled:opacity-50 flex items-center space-x-1.5"
                   >
                     {isSubmittingEditWarehouse ? (
                       <>
                         <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        <span>Updating...</span>
+                        <span>Processing...</span>
                       </>
                     ) : (
-                      <span>Save Changes</span>
+                      <span>{editWarehouseMode === 'merge' ? 'Merge All Data' : 'Save Changes'}</span>
                     )}
                   </button>
                 </div>
@@ -4691,14 +5654,26 @@ export default function LoaderHub() {
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
                     Actual Carrier Container No
                   </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. MSCU1234567"
-                    value={alterActualNumber}
-                    onChange={(e) => setAlterActualNumber(e.target.value.toUpperCase())}
-                    className="w-full px-3 py-2 text-xs font-mono font-bold rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 focus:bg-white text-slate-900 uppercase"
-                  />
-                  <span className="text-[10px] text-slate-400">Carrier tracking number</span>
+                  <div className="flex space-x-2">
+                    <input
+                      type="text"
+                      placeholder="e.g. MSCU1234567"
+                      value={alterActualNumber}
+                      onChange={(e) => setAlterActualNumber(e.target.value.toUpperCase())}
+                      className="flex-1 px-3 py-2 text-xs font-mono font-bold rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 focus:bg-white text-slate-900 uppercase"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleLookupAlterContainer}
+                      disabled={isLookingUpAlterApi || !alterActualNumber.trim()}
+                      className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition disabled:opacity-50 flex items-center space-x-1.5 shrink-0"
+                      title="Fetch loading date and live ETA from JSONCargo API"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isLookingUpAlterApi ? 'animate-spin text-white' : ''}`} />
+                      <span>{isLookingUpAlterApi ? 'Searching...' : '⚡ Search API'}</span>
+                    </button>
+                  </div>
+                  <span className="text-[10px] text-slate-400">Carrier tracking number (click '⚡ Search API' to prefill loading date & ETA)</span>
                 </div>
 
                 {/* Carrier Line */}
@@ -4718,6 +5693,26 @@ export default function LoaderHub() {
                     ))}
                   </select>
                 </div>
+
+                {/* Live Alter API Status Alert Banner */}
+                {alterApiLookupStatus && (
+                  <div
+                    className={`md:col-span-2 p-3 rounded-xl text-xs font-semibold flex items-start space-x-2 animate-fadeIn ${
+                      alterApiLookupStatus.type === 'success'
+                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                        : 'bg-amber-50 text-amber-800 border border-amber-300'
+                    }`}
+                  >
+                    {alterApiLookupStatus.type === 'success' ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    )}
+                    <div className="flex-1">
+                      <span>{alterApiLookupStatus.message}</span>
+                    </div>
+                  </div>
+                )}
 
                 {/* Warehouse */}
                 <div>
@@ -4760,15 +5755,26 @@ export default function LoaderHub() {
 
                 {/* Loading Date */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    Loading Date
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center justify-between">
+                    <span>Loading Date</span>
+                    {alterActualNumber.trim() && <span className="text-red-600 font-bold text-[10px]">* Mandatory</span>}
                   </label>
                   <input
                     type="date"
+                    required={!!alterActualNumber.trim()}
                     value={alterLoadingDate}
                     onChange={(e) => setAlterLoadingDate(e.target.value)}
-                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 focus:bg-white text-slate-900"
+                    className={`w-full px-3 py-2 text-xs font-bold rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 ${
+                      alterApiLookupStatus && alterApiLookupStatus.type === 'warning'
+                        ? 'border-amber-400 ring-2 ring-amber-200 bg-amber-50/20'
+                        : 'border-slate-200 bg-slate-50 focus:bg-white'
+                    }`}
                   />
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    {alterApiLookupStatus?.loadingDate
+                      ? `✓ Populated from JSON Cargo API: ${alterApiLookupStatus.loadingDate}`
+                      : 'If API does not find the container, please enter the Loading Date manually.'}
+                  </p>
                 </div>
 
                 {/* Destination */}
@@ -4783,6 +5789,25 @@ export default function LoaderHub() {
                     onChange={(e) => setAlterShippedTo(e.target.value)}
                     className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 focus:bg-white text-slate-900"
                   />
+                </div>
+
+                {/* Public ETA Delivery Buffer */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center justify-between">
+                    <span>Public Delivery Buffer (Days)</span>
+                    <span className="text-[10px] text-blue-600 font-semibold">Default: +10 Days</span>
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={60}
+                    value={alterEtaBufferDays}
+                    onChange={(e) => setAlterEtaBufferDays(parseInt(e.target.value, 10) || 0)}
+                    className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 focus:bg-white text-slate-900"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Public portal shows Carrier ETA + {alterEtaBufferDays} buffer days.
+                  </p>
                 </div>
               </div>
 
@@ -5088,6 +6113,371 @@ export default function LoaderHub() {
                 </>
               )}
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL 1: PROCESS-WISE RECEIPT DELETION (UNMARK LOADED GOODS FIRST) ── */}
+      {receiptToUnmarkAndDelete && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-red-200 overflow-hidden animate-fadeIn">
+            <div className="p-5 bg-gradient-to-r from-red-900 to-rose-900 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-red-600/40 border border-red-500/50 flex items-center justify-center">
+                  <AlertCircle className="w-4 h-4 text-red-200" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black">Process Integrity: Loaded Receipt Deletion</h3>
+                  <p className="text-[11px] text-red-200">Goods are currently allocated inside container(s)</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReceiptToUnmarkAndDelete(null)}
+                className="text-white/80 hover:text-white transition p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-900 leading-relaxed">
+                ⚠️ <strong>Integrity Rule:</strong> Receipt <strong className="font-mono">#{receiptToUnmarkAndDelete.receipt.receipt}</strong> ({receiptToUnmarkAndDelete.receipt.quantity} CTN total) is currently loaded inside container loading plans. You cannot delete a receipt until it is unmarked / unloaded from all containers.
+              </div>
+
+              <div>
+                <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                  Currently Loaded In:
+                </p>
+                <div className="rounded-xl border border-slate-200 overflow-hidden">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-200">
+                      <tr>
+                        <th className="p-2.5">Container Plan</th>
+                        <th className="p-2.5">Carrier / No</th>
+                        <th className="p-2.5 text-right">Loaded Qty</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium">
+                      {receiptToUnmarkAndDelete.containers.map((c, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50">
+                          <td className="p-2.5 font-mono font-bold text-slate-900">{c.container}</td>
+                          <td className="p-2.5 font-mono text-slate-600">
+                            {c.containerNumber ? `${c.containerNumber} (${c.shippingLine || 'MSC'})` : 'In Planning'}
+                          </td>
+                          <td className="p-2.5 text-right font-bold text-slate-900">{c.quantity} CTN</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900">
+                <span className="font-bold">Automated Process Action:</span> Clicking &ldquo;Unmark &amp; Delete&rdquo; will automatically unmark / remove this cargo from the container(s), restore the container counts, and delete the receipt entry from the system.
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setReceiptToUnmarkAndDelete(null)}
+                  disabled={isDeletingProcess}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmUnmarkAndDeleteReceipt}
+                  disabled={isDeletingProcess}
+                  className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center space-x-1.5 disabled:opacity-50"
+                >
+                  {isDeletingProcess ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Unmarking &amp; Deleting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Unmark from Containers &amp; Delete</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL 2: PROCESS-WISE CONTAINER DELETION (UNLOAD ALL CARGO FIRST) ── */}
+      {containerToUnloadAndDelete && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-red-200 overflow-hidden animate-fadeIn">
+            <div className="p-5 bg-gradient-to-r from-red-900 to-rose-900 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-red-600/40 border border-red-500/50 flex items-center justify-center">
+                  <AlertCircle className="w-4 h-4 text-red-200" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black">Process Integrity: Container Deletion</h3>
+                  <p className="text-[11px] text-red-200">Container contains loaded cargo goods</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setContainerToUnloadAndDelete(null)}
+                className="text-white/80 hover:text-white transition p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-900 leading-relaxed">
+                ⚠️ <strong>Integrity Rule:</strong> Container plan <strong className="font-mono">{containerToUnloadAndDelete.container}</strong> currently holds <strong className="font-bold">{containerToUnloadAndDelete.totalQuantity || 0} CTN</strong> across <strong className="font-bold">{containerToUnloadAndDelete.shipmentCount || 0} cargo items</strong>. Under system integrity rules, you must unload the container before deleting it.
+              </div>
+
+              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900">
+                <span className="font-bold">Safe Unload &amp; Delete:</span> Clicking &ldquo;Unload Cargo &amp; Delete Container&rdquo; will restore all {containerToUnloadAndDelete.totalQuantity || 0} cartons back to China Warehouse stock as available items, and then delete the container plan.
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setContainerToUnloadAndDelete(null)}
+                  disabled={isDeletingProcess}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmUnloadAndDeleteContainer}
+                  disabled={isDeletingProcess}
+                  className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center space-x-1.5 disabled:opacity-50"
+                >
+                  {isDeletingProcess ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Unloading &amp; Deleting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ArrowDownLeft className="w-3.5 h-3.5" />
+                      <span>⚡ Unload Cargo to Stock &amp; Delete Container</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL 3: DIRECT LOAD & UNLOAD GOODS FROM CONTAINER ── */}
+      {containerToUnloadGoods && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-amber-200 overflow-hidden animate-fadeIn">
+            <div className="p-5 bg-gradient-to-r from-amber-900 to-orange-900 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-600/40 border border-amber-500/50 flex items-center justify-center">
+                  <ArrowDownLeft className="w-4 h-4 text-amber-200" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black">Unload Goods: {containerToUnloadGoods.container}</h3>
+                  <p className="text-[11px] text-amber-200">
+                    Carrier: {containerToUnloadGoods.containerNumber || 'Planning'} ({containerToUnloadGoods.shippingLine || 'MSC'}) | Loaded: {containerToUnloadGoods.totalQuantity || 0} CTN
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setContainerToUnloadGoods(null)}
+                className="text-white/80 hover:text-white transition p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 overflow-y-auto flex-1">
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 leading-relaxed flex items-center justify-between">
+                <span>
+                  Unload individual items back to warehouse stock, or click <strong>Unload All Cargo</strong> to restore all goods into China Warehouse stock at once.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleUnloadAllCargo(containerToUnloadGoods)}
+                  className="ml-3 px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold rounded-xl shadow-sm shrink-0 transition flex items-center space-x-1"
+                >
+                  <ArrowDownLeft className="w-3.5 h-3.5" />
+                  <span>⚡ Unload All Cargo</span>
+                </button>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 overflow-hidden">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th className="p-2.5">Receipt #</th>
+                      <th className="p-2.5">Shipper / Party</th>
+                      <th className="p-2.5">Commodity</th>
+                      <th className="p-2.5 text-center">Cartons</th>
+                      <th className="p-2.5 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-medium">
+                    {(() => {
+                      const livePlan = loadingPlans.find((p) => p.container === containerToUnloadGoods.container) || containerToUnloadGoods;
+                      const items = livePlan.items || [];
+                      if (items.length === 0) {
+                        return (
+                          <tr>
+                            <td colSpan={5} className="p-6 text-center text-slate-400 font-semibold">
+                              No cargo items currently loaded in this container.
+                            </td>
+                          </tr>
+                        );
+                      }
+                      return items.map((item) => (
+                        <tr key={item._id} className="hover:bg-slate-50">
+                          <td className="p-2.5 font-mono font-bold text-slate-900">#{item.receipt}</td>
+                          <td className="p-2.5 font-bold text-slate-800">{item.party || 'General'}</td>
+                          <td className="p-2.5 text-slate-600 truncate max-w-[180px]">
+                            {item.english || item.commodity || 'Goods'}
+                          </td>
+                          <td className="p-2.5 text-center font-black text-slate-900">{item.quantity} CTN</td>
+                          <td className="p-2.5 text-right">
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                await handleDeallocateItem(item._id);
+                              }}
+                              className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg text-[11px] font-bold transition inline-flex items-center space-x-1"
+                              title="Unload this cargo item back to warehouse stock"
+                            >
+                              <ArrowDownLeft className="w-3 h-3 text-amber-600" />
+                              <span>Unload Item</span>
+                            </button>
+                          </td>
+                        </tr>
+                      ));
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
+              <button
+                type="button"
+                onClick={() => setContainerToUnloadGoods(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setContainerToUnloadGoods(null);
+                  handleOpenContainerWiseLoad(containerToUnloadGoods);
+                }}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm transition flex items-center space-x-1.5"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Load More Goods</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL 4: PROCESS-WISE WAREHOUSE DELETION (RECEIPTS EXIST) ── */}
+      {warehouseToDeleteWithReceipts && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-red-200 overflow-hidden animate-fadeIn">
+            <div className="p-5 bg-gradient-to-r from-red-900 to-rose-900 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-red-600/40 border border-red-500/50 flex items-center justify-center">
+                  <AlertCircle className="w-4 h-4 text-red-200" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black">Process Integrity: Warehouse Deletion</h3>
+                  <p className="text-[11px] text-red-200">Receipt records are mapped to this warehouse</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setWarehouseToDeleteWithReceipts(null)}
+                className="text-white/80 hover:text-white transition p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-900 leading-relaxed">
+                ⚠️ <strong>Integrity Rule:</strong> Warehouse <strong className="font-bold">{warehouseToDeleteWithReceipts.warehouse}</strong> currently contains <strong className="font-bold">{warehouseToDeleteWithReceipts.count} receipt entry/entries</strong>. Under system integrity rules, you cannot delete a warehouse while receipt entries exist.
+              </div>
+
+              <div className="space-y-2">
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700">
+                  <strong className="text-slate-900">Option A: Review or Delete Receipts First</strong>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Filter by this warehouse in China Warehouse Stock to review, edit, or delete receipts individually.
+                  </p>
+                </div>
+
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900">
+                  <strong className="text-amber-950">Option B: Automated Process Cascade</strong>
+                  <p className="text-[11px] text-amber-700 mt-0.5">
+                    Unmark all loaded goods from container plans, delete all {warehouseToDeleteWithReceipts.count} receipts, and delete this warehouse.
+                  </p>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-between flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setWarehouseToDeleteWithReceipts(null)}
+                  disabled={isDeletingProcess}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
+                >
+                  Cancel
+                </button>
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      dispatch(setSelectedWarehouse(warehouseToDeleteWithReceipts.warehouse));
+                      setWarehouseToDeleteWithReceipts(null);
+                    }}
+                    disabled={isDeletingProcess}
+                    className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition"
+                  >
+                    View Receipts in Stock
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmDeleteWarehouseWithReceipts}
+                    disabled={isDeletingProcess}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center space-x-1.5 disabled:opacity-50"
+                  >
+                    {isDeletingProcess ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Deleting All...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete All Receipts &amp; Warehouse</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

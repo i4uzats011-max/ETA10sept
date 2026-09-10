@@ -86,8 +86,12 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { receipt, warehouse, quantity, commodity, packaging, mainMarka, subMarka, loadIntoPlan, loadingPlan, ...rest } = body;
 
-    if (!receipt) {
-      return NextResponse.json({ error: 'Receipt number is required' }, { status: 400 });
+    if (!receipt || !String(receipt).trim()) {
+      return NextResponse.json({ error: 'Receipt number is mandatory. An entry cannot be created without a receipt number.' }, { status: 400 });
+    }
+
+    if (!body.date || !String(body.date).trim()) {
+      return NextResponse.json({ error: 'Receipt Date is mandatory. An entry cannot be created without a receipt date.' }, { status: 400 });
     }
 
     if (!warehouse || !String(warehouse).trim() || String(warehouse).trim() === 'ALL') {
@@ -336,7 +340,7 @@ export async function DELETE(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id')?.trim();
   const receipt = searchParams.get('receipt')?.trim();
-  const force = searchParams.get('force') === 'true';
+  const unloadFirst = searchParams.get('unloadFirst') === 'true' || searchParams.get('force') === 'true';
 
   if (!id && !receipt) {
     return NextResponse.json({ error: 'Receipt ID or Receipt Number is required' }, { status: 400 });
@@ -359,17 +363,45 @@ export async function DELETE(req: NextRequest) {
 
     const isLoaded = (existing.loadedQuantity && existing.loadedQuantity > 0) || loadedShipments.length > 0;
 
-    if (isLoaded) {
+    if (isLoaded && unloadFirst) {
+      // Process Rule: Unmark and unload this receipt from all mapped container plans
+      for (const s of loadedShipments) {
+        const qty = parseInt(String(s.quantity || 0), 10) || 0;
+        if (s.container) {
+          await Container.findOneAndUpdate(
+            { container: s.container },
+            {
+              $inc: {
+                shipmentCount: -1,
+                totalQuantity: -qty,
+              },
+            }
+          );
+        }
+        await Shipment.findByIdAndDelete(s._id);
+      }
+    } else if (isLoaded) {
       const containers = Array.from(new Set(loadedShipments.map((s: any) => s.container).filter(Boolean)));
+      const containerDetails = containers.map((c) => {
+        const matchingShipments = loadedShipments.filter((s: any) => s.container === c);
+        const ctn = matchingShipments.reduce((sum: number, s: any) => sum + (parseInt(String(s.quantity || 0), 10) || 0), 0);
+        return {
+          container: c,
+          quantity: ctn,
+          carrierContainerNumber: matchingShipments[0]?.containerNumber || '',
+          shippingLine: matchingShipments[0]?.shippingLine || '',
+        };
+      });
       const containerText = containers.length > 0 ? containers.join(', ') : 'container plan(s)';
       const cartonsLoaded = existing.loadedQuantity || loadedShipments.reduce((sum: number, s: any) => sum + (parseInt(s.quantity, 10) || 0), 0);
 
       return NextResponse.json(
         {
-          error: `Cannot delete received goods record '${existing.receipt}': ${cartonsLoaded} carton(s) are currently loaded and mapped in ${containerText}. Under system integrity rules, first delete/remove the loaded cargo entry from the container loading plan (do NOT delete the container, only delete that mapped entry). After removing that entry, you can delete this received goods record.`,
+          error: `Cannot delete received goods record '${existing.receipt}': ${cartonsLoaded} carton(s) are currently loaded and mapped in ${containerText}. Under process rules, this cargo must be unmarked/unloaded from the container(s) before it can be deleted from the software.`,
           isLoaded: true,
           loadedQuantity: cartonsLoaded,
           containers,
+          containerDetails,
         },
         { status: 400 }
       );
@@ -382,8 +414,11 @@ export async function DELETE(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `Warehouse receipt '${existing.receipt}' deleted successfully.`,
+      message: isLoaded && unloadFirst
+        ? `Successfully unmarked/unloaded receipt '${existing.receipt}' from container(s) and deleted entry from software.`
+        : `Warehouse receipt '${existing.receipt}' deleted successfully.`,
       receipt: existing.receipt,
+      unloadedFirst: Boolean(isLoaded && unloadFirst),
     });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Failed to delete warehouse receipt' }, { status: 500 });

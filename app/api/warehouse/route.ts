@@ -122,13 +122,18 @@ export async function PUT(req: NextRequest) {
     const cleanNew = translateWarehouse(newName.trim());
 
     // Check if newName already exists under another document
-    if (cleanOld.toLowerCase() !== cleanNew.toLowerCase()) {
-      const collision = await Warehouse.findOne({
+    const isNameChanging = cleanOld.toLowerCase() !== cleanNew.toLowerCase();
+    let collision: any = null;
+    if (isNameChanging) {
+      collision = await Warehouse.findOne({
         name: new RegExp(`^${cleanNew.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
       });
-      if (collision) {
+      if (collision && !body.mergeWithExisting) {
         return NextResponse.json(
-          { error: `Cannot rename warehouse to '${cleanNew}': A warehouse with that name already exists.` },
+          {
+            error: `Cannot rename warehouse to '${cleanNew}': A warehouse with that name already exists. You can select 'Merge / Reassign into Existing Warehouse' to combine them.`,
+            alreadyExists: true,
+          },
           { status: 400 }
         );
       }
@@ -136,7 +141,36 @@ export async function PUT(req: NextRequest) {
 
     const oldPattern = new RegExp(`^${cleanOld.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
 
-    // 1. Update or upsert in Warehouse collection
+    // 1. If merging into existing warehouse:
+    if (collision && body.mergeWithExisting) {
+      // Reassign all receipts, containers, and shipments to cleanNew
+      const receiptRes = await WarehouseReceipt.updateMany(
+        { warehouse: oldPattern },
+        { $set: { warehouse: cleanNew } }
+      );
+      const containerRes = await Container.updateMany(
+        { warehouse: oldPattern },
+        { $set: { warehouse: cleanNew } }
+      );
+      const shipmentRes = await Shipment.updateMany(
+        { warehouse: oldPattern },
+        { $set: { warehouse: cleanNew } }
+      );
+
+      // Remove the old warehouse record
+      await Warehouse.deleteOne({ name: oldPattern });
+
+      return NextResponse.json({
+        success: true,
+        message: `Successfully merged warehouse '${cleanOld}' into existing warehouse '${cleanNew}'. Reassigned ${receiptRes.modifiedCount} receipt(s), ${containerRes.modifiedCount} container(s), and ${shipmentRes.modifiedCount} shipment(s).`,
+        warehouse: collision,
+        oldName: cleanOld,
+        newName: cleanNew,
+        merged: true,
+      });
+    }
+
+    // Standard Rename / Update
     let updatedWarehouse = await Warehouse.findOneAndUpdate(
       { name: oldPattern },
       {
@@ -164,17 +198,14 @@ export async function PUT(req: NextRequest) {
     }
 
     // 2. Cascade rename across all mapped collections database-wide:
-    // - WarehouseReceipt
     const receiptRes = await WarehouseReceipt.updateMany(
       { warehouse: oldPattern },
       { $set: { warehouse: cleanNew } }
     );
-    // - Container
     const containerRes = await Container.updateMany(
       { warehouse: oldPattern },
       { $set: { warehouse: cleanNew } }
     );
-    // - Shipment
     const shipmentRes = await Shipment.updateMany(
       { warehouse: oldPattern },
       { $set: { warehouse: cleanNew } }
@@ -200,7 +231,7 @@ export async function PUT(req: NextRequest) {
   }
 }
 
-// DELETE: Delete a warehouse only if NO data is mapped to it
+// DELETE: Delete a warehouse with process-wise validation
 export async function DELETE(req: NextRequest) {
   const token = getAdminTokenFromRequest(req);
   if (token && !isStaffOrAdminAuthenticated(req)) {
@@ -214,12 +245,14 @@ export async function DELETE(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     let name = searchParams.get('name')?.trim();
     let id = searchParams.get('id')?.trim();
+    let deleteAllReceiptsFirst = searchParams.get('deleteAllReceiptsFirst') === 'true';
 
     if (!name && !id) {
       try {
         const body = await req.json();
         name = body.name?.trim();
         id = body.id?.trim();
+        if (body.deleteAllReceiptsFirst !== undefined) deleteAllReceiptsFirst = Boolean(body.deleteAllReceiptsFirst);
       } catch {}
     }
 
@@ -248,15 +281,48 @@ export async function DELETE(req: NextRequest) {
 
     const totalMapped = receiptCount + containerCount + shipmentCount;
 
-    if (totalMapped > 0) {
-      const breakdown: string[] = [];
-      if (receiptCount > 0) breakdown.push(`${receiptCount} warehouse receipt(s)`);
-      if (containerCount > 0) breakdown.push(`${containerCount} container plan(s)`);
-      if (shipmentCount > 0) breakdown.push(`${shipmentCount} shipment item(s)`);
+    if (totalMapped > 0 && deleteAllReceiptsFirst) {
+      // Process Rule: Delete all receipts via this warehouse first
+      const receiptsInWh = await WarehouseReceipt.find({ warehouse: regexPattern });
+      for (const r of receiptsInWh) {
+        // If any goods were loaded in containers, unmark from container
+        const loadedShipments = await Shipment.find({
+          receipt: new RegExp(`^${(r.receipt || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        });
+        for (const s of loadedShipments) {
+          const qty = parseInt(String(s.quantity || 0), 10) || 0;
+          if (s.container) {
+            await Container.findOneAndUpdate(
+              { container: s.container },
+              { $inc: { shipmentCount: -1, totalQuantity: -qty } }
+            );
+          }
+          await Shipment.findByIdAndDelete(s._id);
+        }
+        await WarehouseReceipt.findByIdAndDelete(r._id);
+      }
 
+      // Also clean up any orphan containers mapped to this warehouse
+      await Container.deleteMany({ warehouse: regexPattern, shipmentCount: { $lte: 0 } });
+
+      if (targetWarehouse) {
+        await Warehouse.findByIdAndDelete(targetWarehouse._id);
+      } else {
+        await Warehouse.deleteOne({ name: regexPattern });
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: `Successfully deleted all ${receiptCount} receipt entries and removed warehouse '${warehouseName}'.`,
+        warehouse: warehouseName,
+        deletedReceiptsCount: receiptCount,
+      });
+    }
+
+    if (totalMapped > 0) {
       return NextResponse.json(
         {
-          error: `Cannot delete warehouse '${warehouseName}': ${receiptCount} received goods record(s) (along with ${containerCount} container plan(s) and ${shipmentCount} shipment item(s)) still exist in this warehouse. Under system rules, all received goods inside this warehouse must be deleted first before deleting the warehouse.`,
+          error: `Cannot delete warehouse '${warehouseName}': ${receiptCount} receipt entry(ies) exist in this warehouse. Under process rules, you must delete all receipt entries via this warehouse first before deleting the warehouse name.`,
           mappedCount: totalMapped,
           receiptCount,
           containerCount,
@@ -274,7 +340,7 @@ export async function DELETE(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `Warehouse '${warehouseName}' deleted successfully (zero data was mapped to it).`,
+      message: `Warehouse '${warehouseName}' deleted successfully.`,
       warehouse: warehouseName,
     });
   } catch (error: any) {

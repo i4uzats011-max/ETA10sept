@@ -253,6 +253,75 @@ export function addFilingBufferDays(etaDateInput: string | Date, daysToAdd: numb
   return `${yyyy}-${mm}-${dd}`;
 }
 
+/**
+ * Extracts loading / origin departure date from JSON Cargo API response.
+ * Inspects atd_origin, loading_date, departure_date, gate_in_date, and tracking events.
+ */
+export function extractLoadingDateFromApi(dataObj: any): string {
+  if (!dataObj) return '';
+
+  const candidates = [
+    dataObj.loading_date,
+    dataObj.load_date,
+    dataObj.atd_origin,
+    dataObj.date_of_loading,
+    dataObj.departure_date,
+    dataObj.atd,
+    dataObj.gate_in_date,
+    dataObj.atd_last_location,
+    dataObj.start_date,
+  ];
+
+  for (const cand of candidates) {
+    if (cand && (typeof cand === 'string' || typeof cand === 'number' || cand instanceof Date)) {
+      const match = String(cand).match(/\d{4}-\d{2}-\d{2}/);
+      if (match) return match[0];
+      const parsed = new Date(cand);
+      if (!isNaN(parsed.getTime())) {
+        const yyyy = parsed.getFullYear();
+        const mm = String(parsed.getMonth() + 1).padStart(2, '0');
+        const dd = String(parsed.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+      }
+    }
+  }
+
+  // Scan events or milestones if available
+  const events = dataObj.events || dataObj.timeline || dataObj.movements || dataObj.milestones || dataObj.container_events;
+  if (Array.isArray(events)) {
+    const loadEvent = events.find((ev: any) => {
+      const desc = String(ev.event_description || ev.description || ev.name || ev.event || ev.status || ev.activity || '').toLowerCase();
+      const code = String(ev.event_code || ev.code || '').toLowerCase();
+      return (
+        desc.includes('loaded') ||
+        desc.includes('loading') ||
+        desc.includes('departure') ||
+        desc.includes('departed') ||
+        desc.includes('gate in') ||
+        code.includes('load') ||
+        code.includes('dept')
+      );
+    });
+
+    if (loadEvent) {
+      const evDate = loadEvent.timestamp || loadEvent.date || loadEvent.actual_time || loadEvent.event_date || loadEvent.created_at;
+      if (evDate) {
+        const match = String(evDate).match(/\d{4}-\d{2}-\d{2}/);
+        if (match) return match[0];
+        const parsed = new Date(evDate);
+        if (!isNaN(parsed.getTime())) {
+          const yyyy = parsed.getFullYear();
+          const mm = String(parsed.getMonth() + 1).padStart(2, '0');
+          const dd = String(parsed.getDate()).padStart(2, '0');
+          return `${yyyy}-${mm}-${dd}`;
+        }
+      }
+    }
+  }
+
+  return '';
+}
+
 export interface ContainerTrackingResult {
   eta: string;
   rawEta?: string;
@@ -261,6 +330,7 @@ export interface ContainerTrackingResult {
   shippedTo: string;
   currentLocation: string;
   startDate: string;
+  loadingDate?: string;
   destinationDate: string;
   vesselName: string;
   voyageNumber: string;
@@ -354,7 +424,8 @@ export async function fetchContainerTracking(
       const shippedFrom = dataObj?.shipped_from || dataObj?.loading_port || 'Ningbo / Shanghai, China';
       const shippedTo = dataObj?.shipped_to || dataObj?.discharging_port || 'Nhava Sheva / Mundra, India';
       const currentLocation = dataObj?.last_location || (dataObj?.next_location ? `Approaching ${dataObj.next_location}` : finalStatus || 'In Transit');
-      const startDate = dataObj?.atd_origin || dataObj?.atd_last_location || '';
+      const apiLoadingDate = extractLoadingDateFromApi(dataObj);
+      const startDate = apiLoadingDate || dataObj?.atd_origin || dataObj?.atd_last_location || '';
       const vesselName = dataObj?.current_vessel_name || dataObj?.last_vessel_name || '';
       const voyageNumber = dataObj?.current_voyage_number || dataObj?.last_voyage_number || '';
 
@@ -366,11 +437,13 @@ export async function fetchContainerTracking(
         shippedTo,
         currentLocation,
         startDate,
+        loadingDate: apiLoadingDate || startDate || '',
         destinationDate: formattedEta,
         vesselName,
         voyageNumber,
         dataDetails: {
           ...dataObj,
+          loading_date: apiLoadingDate || startDate || null,
           eta_final_destination: formattedEta,
           raw_carrier_eta: normalizedRawEta || rawEta || null,
           clearance_eta: formattedEta,
@@ -413,6 +486,7 @@ export async function fetchContainerTracking(
         shippedTo: 'Nhava Sheva / Mundra, India',
         last_location: 'In Transit (Singapore Strait / Malacca)',
         atd_origin: mockStartDate,
+        loading_date: mockStartDate,
         current_vessel_name: 'MSC LORETTA',
         current_voyage_number: '2508W',
         last_updated: new Date().toISOString(),
@@ -426,6 +500,7 @@ export async function fetchContainerTracking(
         shippedTo: 'Nhava Sheva / Mundra, India',
         currentLocation: 'In Transit (Singapore Strait / Malacca)',
         startDate: mockStartDate,
+        loadingDate: mockStartDate,
         destinationDate: clearanceMockEta,
         vesselName: 'MSC LORETTA',
         voyageNumber: '2508W',

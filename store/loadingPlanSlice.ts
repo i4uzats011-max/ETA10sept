@@ -53,6 +53,8 @@ export interface LoadingItemAllocation {
   isDelivered?: boolean;
   eta?: string;
   rawEta?: string;
+  destinationDate?: string;
+  etaBufferDays?: number;
   status?: string;
 }
 
@@ -74,12 +76,32 @@ export interface LoadingPlanItem {
   eta?: string;
   rawEta?: string;
   destinationDate?: string;
+  etaBufferDays?: number;
   status?: string;
   shipmentCount?: number;
   totalQuantity?: number;
   totalWeight?: string;
   totalVolume?: string;
   items?: LoadingItemAllocation[];
+}
+
+export interface UploadHistoryItem {
+  _id: string;
+  uploadId: string;
+  fileName: string;
+  uploadType: 'stock' | 'plan';
+  warehouse: string;
+  targetContainer?: string;
+  totalRowsInFile: number;
+  savedCount: number;
+  duplicateCount: number;
+  duplicates: Array<{ receipt: string; row?: number; reason: string }>;
+  missingCount: number;
+  missingDetails: Array<{ row: number; reason: string }>;
+  receipts: string[];
+  status: 'Active' | 'Deleted';
+  deletedAt?: string | null;
+  uploadedAt: string;
 }
 
 export interface LoadingPlanState {
@@ -101,6 +123,9 @@ export interface LoadingPlanState {
   // Action Status
   actionLoading: boolean;
   actionMessage: { type: 'success' | 'error'; text: string } | null;
+  // Upload History Tracking
+  uploadHistory: UploadHistoryItem[];
+  uploadHistoryLoading: boolean;
 }
 
 const initialState: LoadingPlanState = {
@@ -119,6 +144,8 @@ const initialState: LoadingPlanState = {
   activePlanForAllot: null,
   actionLoading: false,
   actionMessage: null,
+  uploadHistory: [],
+  uploadHistoryLoading: false,
 };
 
 // 1. Fetch Warehouse Receipts
@@ -240,6 +267,31 @@ export const deallocateItem = createAsyncThunk(
   }
 );
 
+// 5b. Unload All goods from container (return all cargo to warehouse stock)
+export const unloadContainer = createAsyncThunk(
+  'loadingPlan/unloadContainer',
+  async (
+    payload: { container: string },
+    { rejectWithValue }
+  ) => {
+    try {
+      const res = await fetch('/api/loading-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'unload-container',
+          ...payload,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to unload container');
+      return data;
+    } catch (err: any) {
+      return rejectWithValue(err.message || 'Error unloading container');
+    }
+  }
+);
+
 // 6. Finalize Plan & Allot Actual Carrier Container
 export const finalizeAndAllotContainer = createAsyncThunk(
   'loadingPlan/finalizeAndAllotContainer',
@@ -251,6 +303,7 @@ export const finalizeAndAllotContainer = createAsyncThunk(
       loadingDate?: string;
       shippedTo?: string;
       autoSync?: boolean;
+      etaBufferDays?: number;
     },
     { rejectWithValue }
   ) => {
@@ -305,7 +358,7 @@ export const markContainerDelivered = createAsyncThunk(
 export const deleteWarehouseReceipt = createAsyncThunk(
   'loadingPlan/deleteWarehouseReceipt',
   async (
-    payload: { id?: string; receipt?: string; force?: boolean },
+    payload: { id?: string; receipt?: string; force?: boolean; unloadFirst?: boolean },
     { rejectWithValue }
   ) => {
     try {
@@ -313,13 +366,14 @@ export const deleteWarehouseReceipt = createAsyncThunk(
       if (payload.id) params.append('id', payload.id);
       if (payload.receipt) params.append('receipt', payload.receipt);
       if (payload.force) params.append('force', 'true');
+      if (payload.unloadFirst) params.append('unloadFirst', 'true');
 
       const res = await fetch(`/api/warehouse/receipts?${params.toString()}`, {
         method: 'DELETE',
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to delete warehouse receipt');
-      return { id: payload.id, receipt: payload.receipt || data.receipt, message: data.message };
+      return { id: payload.id, receipt: payload.receipt || data.receipt, message: data.message, unloadedFirst: payload.unloadFirst };
     } catch (err: any) {
       return rejectWithValue(err.message || 'Error deleting warehouse receipt');
     }
@@ -442,6 +496,8 @@ export const alterContainer = createAsyncThunk(
       loadingDate?: string;
       shippedTo?: string;
       autoSync?: boolean;
+      etaBufferDays?: number;
+      destinationDate?: string;
     },
     { rejectWithValue }
   ) => {
@@ -463,45 +519,59 @@ export const alterContainer = createAsyncThunk(
   }
 );
 
-// 14. Delete Loading Plan / Container
+// 14. Delete Loading Plan / Container (supports unloadFirst to restore stock before delete)
 export const deleteLoadingPlan = createAsyncThunk(
   'loadingPlan/deleteLoadingPlan',
-  async (payload: { container: string }, { rejectWithValue }) => {
+  async (payload: { container: string; unloadFirst?: boolean }, { rejectWithValue }) => {
     try {
-      const res = await fetch(`/api/loading-plan?container=${encodeURIComponent(payload.container)}`, {
+      const url = `/api/loading-plan?container=${encodeURIComponent(payload.container)}${payload.unloadFirst ? '&unloadFirst=true' : ''}`;
+      const res = await fetch(url, {
         method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ container: payload.container, unloadFirst: payload.unloadFirst }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to delete loading plan');
-      return { container: payload.container, message: data.message };
+      return { container: payload.container, message: data.message, unloadedFirst: payload.unloadFirst };
     } catch (err: any) {
       return rejectWithValue(err.message || 'Error deleting loading plan');
     }
   }
 );
 
-// 15. Delete Warehouse (Strict rule: zero mapped records required)
+// 15. Delete Warehouse (Supports process rule to delete all receipts first)
 export const deleteWarehouse = createAsyncThunk(
   'loadingPlan/deleteWarehouse',
-  async (payload: { name: string }, { rejectWithValue }) => {
+  async (payload: { name: string; deleteAllReceiptsFirst?: boolean }, { rejectWithValue }) => {
     try {
-      const res = await fetch(`/api/warehouse?name=${encodeURIComponent(payload.name)}`, {
+      const url = `/api/warehouse?name=${encodeURIComponent(payload.name)}${payload.deleteAllReceiptsFirst ? '&deleteAllReceiptsFirst=true' : ''}`;
+      const res = await fetch(url, {
         method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: payload.name, deleteAllReceiptsFirst: payload.deleteAllReceiptsFirst }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to delete warehouse');
-      return { name: payload.name, message: data.message };
+      return { name: payload.name, message: data.message, deleteAllReceiptsFirst: payload.deleteAllReceiptsFirst };
     } catch (err: any) {
       return rejectWithValue(err.message || 'Error deleting warehouse');
     }
   }
 );
 
-// 16. Edit / Rename Warehouse (propagates database-wide)
+// 16. Edit / Rename / Merge Warehouse (propagates database-wide)
 export const updateWarehouse = createAsyncThunk(
   'loadingPlan/updateWarehouse',
   async (
-    payload: { oldName: string; newName: string; code?: string; city?: string; address?: string; contact?: string },
+    payload: {
+      oldName: string;
+      newName: string;
+      code?: string;
+      city?: string;
+      address?: string;
+      contact?: string;
+      mergeWithExisting?: boolean;
+    },
     { rejectWithValue }
   ) => {
     try {
@@ -519,6 +589,49 @@ export const updateWarehouse = createAsyncThunk(
   }
 );
 export const editWarehouse = updateWarehouse;
+
+// 17. fetchUploadHistory
+export const fetchUploadHistory = createAsyncThunk(
+  'loadingPlan/fetchUploadHistory',
+  async (
+    params: { warehouse?: string; type?: string; status?: string } | undefined,
+    { rejectWithValue }
+  ) => {
+    try {
+      const query = new URLSearchParams();
+      if (params?.warehouse && params.warehouse !== 'ALL') query.set('warehouse', params.warehouse);
+      if (params?.type) query.set('type', params.type);
+      if (params?.status) query.set('status', params.status);
+
+      const res = await fetch(`/api/upload/history?${query.toString()}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to fetch upload history');
+      return data.history as UploadHistoryItem[];
+    } catch (err: any) {
+      return rejectWithValue(err.message || 'Failed to fetch upload history');
+    }
+  }
+);
+
+// 18. deleteUploadBatch
+export const deleteUploadBatch = createAsyncThunk(
+  'loadingPlan/deleteUploadBatch',
+  async ({ uploadId }: { uploadId: string }, { rejectWithValue, dispatch }) => {
+    try {
+      const res = await fetch(`/api/upload/history?id=${encodeURIComponent(uploadId)}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete upload batch');
+      dispatch(fetchWarehouseReceipts());
+      dispatch(fetchLoadingPlans());
+      dispatch(fetchUploadHistory());
+      return { uploadId, message: data.message };
+    } catch (err: any) {
+      return rejectWithValue(err.message || 'Failed to delete upload batch');
+    }
+  }
+);
 
 export const loadingPlanSlice = createSlice({
   name: 'loadingPlan',
@@ -983,6 +1096,44 @@ export const loadingPlanSlice = createSlice({
       state.actionMessage = {
         type: 'error',
         text: (action.payload as string) || 'Failed to update warehouse',
+      };
+    });
+
+    // 17. fetchUploadHistory
+    builder.addCase(fetchUploadHistory.pending, (state) => {
+      state.uploadHistoryLoading = true;
+    });
+    builder.addCase(fetchUploadHistory.fulfilled, (state, action) => {
+      state.uploadHistoryLoading = false;
+      state.uploadHistory = action.payload;
+    });
+    builder.addCase(fetchUploadHistory.rejected, (state) => {
+      state.uploadHistoryLoading = false;
+    });
+
+    // 18. deleteUploadBatch
+    builder.addCase(deleteUploadBatch.pending, (state) => {
+      state.actionLoading = true;
+      state.actionMessage = null;
+    });
+    builder.addCase(deleteUploadBatch.fulfilled, (state, action) => {
+      state.actionLoading = false;
+      state.actionMessage = {
+        type: 'success',
+        text: action.payload.message || 'Upload batch deleted successfully',
+      };
+      // Mark as deleted in local state
+      state.uploadHistory = state.uploadHistory.map((u) =>
+        u.uploadId === action.payload.uploadId
+          ? { ...u, status: 'Deleted', deletedAt: new Date().toISOString() }
+          : u
+      );
+    });
+    builder.addCase(deleteUploadBatch.rejected, (state, action) => {
+      state.actionLoading = false;
+      state.actionMessage = {
+        type: 'error',
+        text: (action.payload as string) || 'Failed to delete upload batch',
       };
     });
   },

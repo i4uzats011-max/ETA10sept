@@ -47,13 +47,15 @@ export interface IShipment extends Document {
   apiCalled?: boolean;          // Whether API was invoked for this container/shipment
   apiCallCount?: number;        // Count of API calls made
   rawEta?: string;              // Carrier raw ETA
+  etaBufferDays?: number;       // Clearance procedure buffer days added to raw ETA (default: 10)
+  uploadBatchId?: string;       // ID of upload batch for tracking & rollback
   uploadedAt: Date;             // Record creation timestamp
 }
 
 const ShipmentSchema = new Schema<IShipment>({
   receipt: { type: String, required: true, index: true, trim: true },
   container: { type: String, required: true, index: true, trim: true },
-  containerNumber: { type: String, required: true, index: true, trim: true },
+  containerNumber: { type: String, default: '', index: true, trim: true },
   shippingLine: { type: String, default: 'Default', trim: true },
 
   stockstatus: { type: String, default: '' },
@@ -79,6 +81,7 @@ const ShipmentSchema = new Schema<IShipment>({
 
   eta: { type: String, default: 'N/A' },
   rawEta: { type: String, default: '' },
+  etaBufferDays: { type: Number, default: 10 },
   status: { type: String, default: 'Pending' },
   deliveryDate: { type: String, default: '' },
   daysToDeliver: { type: Number, default: null },
@@ -94,6 +97,7 @@ const ShipmentSchema = new Schema<IShipment>({
   lastApiSync: { type: Date, default: null },
   apiCalled: { type: Boolean, default: false, index: true },
   apiCallCount: { type: Number, default: 0 },
+  uploadBatchId: { type: String, default: '', index: true },
   uploadedAt: { type: Date, default: Date.now }
 }, {
   timestamps: true,
@@ -106,5 +110,6 @@ ShipmentSchema.index({ container: 1, containerNumber: 1 });
 ShipmentSchema.index({ containerNumber: 1, receipt: 1 });
 ShipmentSchema.index({ party: 1, receipt: 1 });
 ShipmentSchema.index({ warehouse: 1 });
+ShipmentSchema.index({ uploadBatchId: 1 });
 
 export default mongoose.models.Shipment || mongoose.model<IShipment>('Shipment', ShipmentSchema);

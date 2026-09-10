@@ -22,6 +22,7 @@ export interface IWarehouseReceipt extends Document {
   deliveryDate?: string;        // Final delivery date
   isDelivered?: boolean;        // Delivery status
   notes?: string;               // Optional notes or remarks from warehouse
+  uploadBatchId?: string;       // ID of upload batch for tracking & rollback
   uploadedAt: Date;             // Entry creation timestamp
   createdAt: Date;
   updatedAt: Date;
@@ -33,7 +34,7 @@ const WarehouseReceiptSchema = new Schema<IWarehouseReceipt>(
     party: { type: String, default: '', index: true, trim: true },
     warehouse: { type: String, default: 'China Warehouse', index: true, trim: true },
     warehouseEntry: { type: String, default: '', trim: true },
-    date: { type: String, default: '' },
+    date: { type: String, default: '', required: true },
     quantity: { type: Number, default: 0 },
     loadedQuantity: { type: Number, default: 0 },
     remainingQuantity: { type: Number, default: 0 },
@@ -55,6 +56,7 @@ const WarehouseReceiptSchema = new Schema<IWarehouseReceipt>(
     deliveryDate: { type: String, default: '' },
     isDelivered: { type: Boolean, default: false },
     notes: { type: String, default: '' },
+    uploadBatchId: { type: String, default: '', index: true },
     uploadedAt: { type: Date, default: Date.now },
   },
   {

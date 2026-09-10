@@ -122,6 +122,35 @@ function addFilingBufferDays(etaDateInput, daysToAdd = 7) {
   return yyyy + '-' + mm + '-' + dd;
 }
 
+function extractLoadingDate(dataObj) {
+  if (!dataObj) return '';
+  const candidates = [
+    dataObj.loading_date,
+    dataObj.load_date,
+    dataObj.atd_origin,
+    dataObj.date_of_loading,
+    dataObj.departure_date,
+    dataObj.atd,
+    dataObj.gate_in_date,
+    dataObj.atd_last_location,
+    dataObj.start_date,
+  ];
+  for (const cand of candidates) {
+    if (cand) {
+      const match = String(cand).match(/\d{4}-\d{2}-\d{2}/);
+      if (match) return match[0];
+      const parsed = new Date(cand);
+      if (!isNaN(parsed.getTime())) {
+        const yyyy = parsed.getFullYear();
+        const mm = String(parsed.getMonth() + 1).padStart(2, '0');
+        const dd = String(parsed.getDate()).padStart(2, '0');
+        return yyyy + '-' + mm + '-' + dd;
+      }
+    }
+  }
+  return '';
+}
+
 async function fetchContainerFromApi(containerNumber, carrier = 'MSC') {
   const cleanCarrier = carrier.replace(/[-\s]/g, '_') || 'MSC';
   const url = 'http://api.jsoncargo.com/api/v1/containers/' + encodeURIComponent(containerNumber.trim()) + '?shipping_line=' + encodeURIComponent(cleanCarrier);
@@ -144,7 +173,8 @@ async function fetchContainerFromApi(containerNumber, carrier = 'MSC') {
         const shippedFrom = dataObj?.shipped_from || dataObj?.loading_port || 'Ningbo / Shanghai, China';
         const shippedTo = dataObj?.shipped_to || dataObj?.discharging_port || 'Nhava Sheva / Mundra, India';
         const currentLocation = dataObj?.last_location || (dataObj?.next_location ? 'Approaching ' + dataObj.next_location : rawStatus || 'In Transit');
-        const startDate = dataObj?.atd_origin || dataObj?.atd_last_location || '';
+        const loadingDate = extractLoadingDate(dataObj);
+        const startDate = loadingDate || dataObj?.atd_origin || dataObj?.atd_last_location || '';
         const vesselName = dataObj?.current_vessel_name || dataObj?.last_vessel_name || '';
         const voyageNumber = dataObj?.current_voyage_number || dataObj?.last_voyage_number || '';
         const destinationDate = rawEta ? addFilingBufferDays(rawEta, 7) : 'N/A';
@@ -156,6 +186,7 @@ async function fetchContainerFromApi(containerNumber, carrier = 'MSC') {
           shippedTo,
           currentLocation,
           startDate,
+          loadingDate: loadingDate || startDate || '',
           destinationDate,
           vesselName,
           voyageNumber,
@@ -240,6 +271,14 @@ async function run7amSync() {
       console.log('[SYNCING] ' + containerNumber + ' (' + shippingLine + ') - Previous ETA: ' + (eta || 'None'));
       const tracking = await fetchContainerFromApi(containerNumber, shippingLine);
       
+      const dateFields = {};
+      if (tracking.loadingDate) {
+        dateFields.loadingDate = tracking.loadingDate;
+        dateFields.startDate = tracking.loadingDate;
+      } else if (tracking.startDate) {
+        dateFields.startDate = tracking.startDate;
+      }
+
       const updateResult = await Shipment.updateMany(
         { containerNumber },
         {
@@ -249,7 +288,7 @@ async function run7amSync() {
             shippedFrom: tracking.shippedFrom,
             shippedTo: tracking.shippedTo,
             currentLocation: tracking.currentLocation,
-            startDate: tracking.startDate,
+            ...dateFields,
             destinationDate: tracking.destinationDate,
             vesselName: tracking.vesselName,
             voyageNumber: tracking.voyageNumber,
@@ -274,7 +313,7 @@ async function run7amSync() {
             shippedFrom: tracking.shippedFrom,
             shippedTo: tracking.shippedTo,
             currentLocation: tracking.currentLocation,
-            startDate: tracking.startDate,
+            ...dateFields,
             destinationDate: tracking.destinationDate,
             vesselName: tracking.vesselName,
             voyageNumber: tracking.voyageNumber,
@@ -287,9 +326,10 @@ async function run7amSync() {
           $push: {
             apiCallHistory: {
               timestamp: now,
-              source: 'cron',
+              source: 'cron_7am',
               eta: tracking.eta,
               status: tracking.status,
+              loadingDate: tracking.loadingDate || null,
             },
           },
         },

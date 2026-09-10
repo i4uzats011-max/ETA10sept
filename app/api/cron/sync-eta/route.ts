@@ -76,6 +76,14 @@ async function handleSync(req: NextRequest) {
         try {
           const tracking = await fetchContainerTracking(containerNumber, shippingLine);
 
+          const dateFields: Record<string, any> = {};
+          if (tracking.loadingDate) {
+            dateFields.loadingDate = tracking.loadingDate;
+            dateFields.startDate = tracking.loadingDate;
+          } else if (tracking.startDate) {
+            dateFields.startDate = tracking.startDate;
+          }
+
           await Shipment.updateMany(
             { containerNumber },
             {
@@ -86,7 +94,7 @@ async function handleSync(req: NextRequest) {
                 shippedFrom: tracking.shippedFrom,
                 shippedTo: tracking.shippedTo,
                 currentLocation: tracking.currentLocation,
-                startDate: tracking.startDate,
+                ...dateFields,
                 destinationDate: tracking.destinationDate,
                 vesselName: tracking.vesselName,
                 voyageNumber: tracking.voyageNumber,
@@ -112,7 +120,7 @@ async function handleSync(req: NextRequest) {
                   shippedFrom: tracking.shippedFrom,
                   shippedTo: tracking.shippedTo,
                   currentLocation: tracking.currentLocation,
-                  startDate: tracking.startDate,
+                  ...dateFields,
                   destinationDate: tracking.destinationDate,
                   vesselName: tracking.vesselName,
                   voyageNumber: tracking.voyageNumber,
@@ -128,6 +136,7 @@ async function handleSync(req: NextRequest) {
                     source: 'cron',
                     eta: tracking.eta,
                     status: tracking.status,
+                    loadingDate: tracking.loadingDate || null,
                   },
                 },
               },

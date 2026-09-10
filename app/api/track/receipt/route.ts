@@ -95,8 +95,11 @@ export async function GET(req: NextRequest) {
       }
 
       let publicDeliveryDate = 'Pending';
-      if (rawCarrierEta && rawCarrierEta !== 'N/A' && rawCarrierEta !== 'Pending') {
-        publicDeliveryDate = calculatePublicDeliveryDate(rawCarrierEta);
+      const bufferDays = fallbackDoc?.etaBufferDays ?? shipment.etaBufferDays ?? 10;
+      if (fallbackDoc?.destinationDate && fallbackDoc.destinationDate !== 'N/A' && fallbackDoc.destinationDate !== 'Pending') {
+        publicDeliveryDate = formatGlobalDate(fallbackDoc.destinationDate);
+      } else if (rawCarrierEta && rawCarrierEta !== 'N/A' && rawCarrierEta !== 'Pending') {
+        publicDeliveryDate = calculatePublicDeliveryDate(rawCarrierEta, bufferDays);
       } else if (resolvedEta && resolvedEta !== 'N/A' && resolvedEta !== 'Pending') {
         publicDeliveryDate = formatGlobalDate(resolvedEta);
       }
