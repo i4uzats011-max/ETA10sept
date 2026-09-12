@@ -73,12 +73,12 @@ export async function GET(req: NextRequest) {
     const actualCarrierEta = target.rawEta;
     const clearanceEta = target.destinationDate || target.eta || '';
     const bufferDays = target.etaBufferDays ?? 10;
+    // Per user requirement: Search by Container No. -> ETA = Actual Vessel ETA (Carrier) + 10d
     let dateOfDelivery = 'Pending';
-
-    if (clearanceEta && clearanceEta !== 'N/A' && clearanceEta !== 'Pending') {
+    if (actualCarrierEta && actualCarrierEta !== 'N/A' && actualCarrierEta !== 'Pending') {
+      dateOfDelivery = calculatePublicDeliveryDate(actualCarrierEta, 10);
+    } else if (clearanceEta && clearanceEta !== 'N/A' && clearanceEta !== 'Pending') {
       dateOfDelivery = formatGlobalDate(clearanceEta);
-    } else if (actualCarrierEta && actualCarrierEta !== 'N/A' && actualCarrierEta !== 'Pending') {
-      dateOfDelivery = calculatePublicDeliveryDate(actualCarrierEta, bufferDays);
     }
 
     // Public tracking security: Users cannot see actual container no., status, or destination.

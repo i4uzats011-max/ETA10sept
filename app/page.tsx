@@ -358,6 +358,7 @@ export default function PublicTrackerPage() {
               success
               container
               eta
+              dateOfDelivery
               status
               shippedFrom
               shippedTo
@@ -496,7 +497,7 @@ export default function PublicTrackerPage() {
   const faqs = [
     {
       q: 'How does the container arrival date calculation work?',
-      a: 'For live carrier APIs, an automated +7 days filing buffer is included to account for customs clearance and container terminal processing in India. If the ETA date is explicitly defined by our admin team, the exact actual date set by the admin is displayed directly.',
+      a: 'For live carrier APIs, an automated +10 days buffer is added to the actual carrier vessel ETA to account for customs clearance and container terminal processing in India. If the ETA date is explicitly defined by our admin team, the exact date set by the admin is displayed directly.',
     },
     {
       q: 'Can I track multiple cargo packages with a single Receipt Number?',
@@ -642,7 +643,7 @@ export default function PublicTrackerPage() {
                     }`}
                   >
                     <Box className="w-4 h-4" />
-                    <span>Search by Container Alias</span>
+                    <span>Search by Container No.</span>
                   </button>
                 </div>
 
@@ -652,7 +653,7 @@ export default function PublicTrackerPage() {
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
                       {activeTab === 'receipt'
                         ? 'Enter Receipt Number (e.g., REC-1002)'
-                        : 'Enter Container ID (e.g., USI-01)'}
+                        : 'Enter Container Number (e.g., USI-01 or MSCU1234567)'}
                     </label>
                     <div className="relative" ref={suggestionsBoxRef}>
                       <div className="relative flex items-center">
@@ -671,7 +672,7 @@ export default function PublicTrackerPage() {
                           placeholder={
                             activeTab === 'receipt'
                               ? 'Enter exact Receipt Number (e.g., REC-1002)...'
-                              : 'Enter Container ID (e.g., USI-01)...'
+                              : 'Enter Container Number (e.g., USI-01 or MSCU1234567)...'
                           }
                           className="w-full pl-12 pr-36 py-4 rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-600 focus:border-transparent text-base font-semibold text-slate-900 placeholder-slate-400 bg-slate-50"
                           required
@@ -1278,7 +1279,7 @@ export default function PublicTrackerPage() {
             <section className="max-w-md mx-auto px-4 sm:px-6 space-y-4">
               <div className="bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden p-8 space-y-6 text-center animate-fadeIn">
                 <div className="space-y-1">
-                  <span className="text-xs uppercase font-bold text-slate-500 tracking-wider">Container Alias</span>
+                  <span className="text-xs uppercase font-bold text-slate-500 tracking-wider">Container No.</span>
                   <div className="text-3xl font-black font-mono text-slate-950">
                     {containerResult.container}
                   </div>
@@ -1431,7 +1432,7 @@ export default function PublicTrackerPage() {
                 </div>
                 <div className="flex items-center space-x-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span>Automated Carrier ETA Updates (+7 Days Filing Buffer)</span>
+                  <span>Automated Carrier ETA Updates (Actual Vessel ETA + 10 Days Buffer)</span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />

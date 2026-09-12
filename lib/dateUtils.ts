@@ -16,8 +16,23 @@ export function parseReceiptDate(dateStr?: string | number | null): Date | null 
     if (!isNaN(d.getTime())) return d;
   }
 
-  // Format: DD-MM-YY or DD-MM-YYYY or DD/MM/YY or DD/MM/YYYY
-  const dmyMatch = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
+  // Format: (Ddd, )DD-MMM-YY or (Ddd, )DD-MMM-YYYY (e.g. Sat, 12-Sep-26 or 12-Sep-26)
+  const dMmmYMatch = s.match(/^(?:[A-Za-z]{3},\s*)?(\d{1,2})[-/ ]([A-Za-z]{3})[-/ ](\d{2,4})$/);
+  if (dMmmYMatch) {
+    const day = parseInt(dMmmYMatch[1], 10);
+    const mStr = dMmmYMatch[2].toLowerCase();
+    const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+    const month = monthNames.indexOf(mStr);
+    if (month !== -1) {
+      let year = parseInt(dMmmYMatch[3], 10);
+      if (year < 100) year += 2000;
+      const d = new Date(Date.UTC(year, month, day));
+      if (!isNaN(d.getTime())) return d;
+    }
+  }
+
+  // Format: (Ddd, )DD-MM-YY or DD-MM-YYYY or DD/MM/YY or DD/MM/YYYY (e.g. Sat, 12-09-26 or 12-09-26)
+  const dmyMatch = s.match(/^(?:[A-Za-z]{3},\s*)?(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
   if (dmyMatch) {
     const day = parseInt(dmyMatch[1], 10);
     const month = parseInt(dmyMatch[2], 10) - 1;
@@ -71,6 +86,11 @@ export function formatGlobalDate(dateInput?: string | number | Date | null): str
   const strVal = String(dateInput).trim();
   if (!strVal || strVal === 'N/A' || strVal === 'Pending' || strVal === '—') {
     return strVal || '—';
+  }
+
+  // If already formatted like 'Sat, 12-09-26', return directly to avoid re-parsing overhead and edge cases
+  if (/^[A-Za-z]{3},\s*\d{2}-\d{2}-\d{2}$/.test(strVal)) {
+    return strVal;
   }
 
   let d: Date | null = null;

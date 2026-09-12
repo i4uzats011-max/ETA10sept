@@ -94,12 +94,12 @@ export async function GET(req: NextRequest) {
         Shipment.updateOne({ _id: shipment._id }, { $set: { eta: resolvedEta } }).exec().catch(() => {});
       }
 
+      // Per user requirement: Search by Receipt No. -> ETA = Actual Vessel ETA (Carrier) + 10 DAYS
       let publicDeliveryDate = 'Pending';
-      const bufferDays = fallbackDoc?.etaBufferDays ?? shipment.etaBufferDays ?? 10;
-      if (fallbackDoc?.destinationDate && fallbackDoc.destinationDate !== 'N/A' && fallbackDoc.destinationDate !== 'Pending') {
+      if (rawCarrierEta && rawCarrierEta !== 'N/A' && rawCarrierEta !== 'Pending') {
+        publicDeliveryDate = calculatePublicDeliveryDate(rawCarrierEta, 10);
+      } else if (fallbackDoc?.destinationDate && fallbackDoc.destinationDate !== 'N/A' && fallbackDoc.destinationDate !== 'Pending') {
         publicDeliveryDate = formatGlobalDate(fallbackDoc.destinationDate);
-      } else if (rawCarrierEta && rawCarrierEta !== 'N/A' && rawCarrierEta !== 'Pending') {
-        publicDeliveryDate = calculatePublicDeliveryDate(rawCarrierEta, bufferDays);
       } else if (resolvedEta && resolvedEta !== 'N/A' && resolvedEta !== 'Pending') {
         publicDeliveryDate = formatGlobalDate(resolvedEta);
       }

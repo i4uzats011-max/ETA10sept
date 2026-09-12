@@ -7,7 +7,7 @@ import WarehouseReceipt from '@/models/WarehouseReceipt';
 import { isAdminAuthenticated } from '@/lib/auth';
 import { fetchContainerTracking, fetchApiKeyStats, addFilingBufferDays } from '@/lib/jsoncargo';
 import { translateToEnglish } from '@/lib/translate';
-import { calculatePublicDeliveryDate } from '@/lib/dateUtils';
+import { calculatePublicDeliveryDate, formatGlobalDate } from '@/lib/dateUtils';
 
 export const dynamic = 'force-dynamic';
 
@@ -113,6 +113,7 @@ const schema = buildSchema(`
     success: Boolean!
     container: String!
     eta: String
+    dateOfDelivery: String
     status: String
     shippedFrom: String
     shippedTo: String
@@ -121,7 +122,7 @@ const schema = buildSchema(`
     destinationDate: String
     vesselName: String
     voyageNumber: String
-    formattedArrivalMessage: String!
+    formattedArrivalMessage: String
     daysRemaining: Int
     shipments: [Shipment!]
   }
@@ -283,7 +284,16 @@ function createRootResolver(req: NextRequest) {
           }
         }
 
-        const publicDeliveryDate = calculatePublicDeliveryDate(resolvedEta);
+        // Per user requirement: Search by Receipt No. -> ETA = Actual Vessel ETA (Carrier) + 10 DAYS
+        const rawCarrierEta = s.rawEta || fallbackDoc?.rawEta;
+        let publicDeliveryDate = 'Pending';
+        if (rawCarrierEta && rawCarrierEta !== 'N/A' && rawCarrierEta !== 'Pending') {
+          publicDeliveryDate = calculatePublicDeliveryDate(rawCarrierEta, 10);
+        } else if (fallbackDoc?.destinationDate && fallbackDoc.destinationDate !== 'N/A' && fallbackDoc.destinationDate !== 'Pending') {
+          publicDeliveryDate = formatGlobalDate(fallbackDoc.destinationDate);
+        } else if (resolvedEta && resolvedEta !== 'N/A' && resolvedEta !== 'Pending') {
+          publicDeliveryDate = formatGlobalDate(resolvedEta);
+        }
 
         return {
           id: String(s._id),
@@ -359,38 +369,52 @@ function createRootResolver(req: NextRequest) {
       const foundContainer: any = await Container.findOne({ $or: orConditions }).lean();
 
       let containerAlias = '';
-      let etaStr = 'Pending';
+      let target: any = null;
 
       if (foundContainer) {
         containerAlias = foundContainer.container;
-        etaStr = foundContainer.destinationDate || foundContainer.eta || 'Pending';
+        target = foundContainer;
       } else {
         // 2. Fallback to Shipment records
         const rawContainerShipments: any[] = await Shipment.find({ $or: orConditions }).sort({ uploadedAt: -1 }).lean();
         if (rawContainerShipments && rawContainerShipments.length > 0) {
           containerAlias = rawContainerShipments[0].container;
-          etaStr = rawContainerShipments[0].eta || 'Pending';
+          target = rawContainerShipments[0];
         }
       }
 
-      if (!containerAlias) {
+      if (!containerAlias || !target) {
         throw new Error(`No container found matching '${cleanQuery}'. Please check the container number and try again.`);
+      }
+
+      // Per user requirement: Search by Container No. -> ETA = Actual Vessel ETA (Carrier) + 10d
+      const actualCarrierEta = target.rawEta;
+      let calculatedDeliveryDate = 'Pending';
+
+      if (actualCarrierEta && actualCarrierEta !== 'N/A' && actualCarrierEta !== 'Pending') {
+        calculatedDeliveryDate = calculatePublicDeliveryDate(actualCarrierEta, 10);
+      } else {
+        const fallbackEta = target.destinationDate || target.eta;
+        if (fallbackEta && fallbackEta !== 'N/A' && fallbackEta !== 'Pending') {
+          calculatedDeliveryDate = formatGlobalDate(fallbackEta);
+        }
       }
 
       // STRICT PRIVACY: Return ONLY container alias and ETA date.
       return {
         success: true,
         container: containerAlias,
-        eta: etaStr || 'Pending',
+        eta: calculatedDeliveryDate,
+        dateOfDelivery: calculatedDeliveryDate,
         status: 'Scheduled',
         shippedFrom: null,
         shippedTo: null,
         currentLocation: null,
         startDate: null,
-        destinationDate: null,
+        destinationDate: calculatedDeliveryDate,
         vesselName: null,
         voyageNumber: null,
-        formattedArrivalMessage: null,
+        formattedArrivalMessage: '',
         daysRemaining: null,
         shipments: [],
       };
