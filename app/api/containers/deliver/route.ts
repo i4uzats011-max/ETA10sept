@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
         { new: true }
       );
 
+      const affectedShipments = await Shipment.find({ container: cleanAlias });
       const shipUpdate = await Shipment.updateMany(
         { container: cleanAlias },
         {
@@ -52,6 +53,30 @@ export async function POST(req: NextRequest) {
           },
         }
       );
+
+      // Revert WarehouseReceipt status for receipts in this container
+      const WarehouseReceipt = (await import('@/models/WarehouseReceipt')).default;
+      const affectedReceipts = Array.from(new Set(affectedShipments.map((s) => s.receipt).filter(Boolean)));
+      for (const r of affectedReceipts) {
+        const wh = await WarehouseReceipt.findOne({
+          receipt: new RegExp(`^${r.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        });
+        if (wh) {
+          wh.deliveryDate = '';
+          wh.isDelivered = false;
+          if (wh.loadedQuantity >= wh.quantity) {
+            wh.status = 'Loaded';
+            wh.stockstatus = 'Dispatched';
+          } else if (wh.loadedQuantity > 0) {
+            wh.status = 'Partially Loaded';
+            wh.stockstatus = 'Partially Dispatched';
+          } else {
+            wh.status = 'Received';
+            wh.stockstatus = 'In Stock';
+          }
+          await wh.save();
+        }
+      }
 
       return NextResponse.json({
         success: true,

@@ -325,13 +325,14 @@ export const finalizeAndAllotContainer = createAsyncThunk(
   }
 );
 
-// 7. Mark Container as Delivered
+// 7. Mark Container as Delivered / Undelivered
 export const markContainerDelivered = createAsyncThunk(
   'loadingPlan/markContainerDelivered',
   async (
     payload: {
       container: string;
-      deliveryDate: string;
+      deliveryDate?: string;
+      isDelivered?: boolean;
       excludedReceipts?: string[];
     },
     { rejectWithValue }
@@ -341,15 +342,15 @@ export const markContainerDelivered = createAsyncThunk(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'mark-delivered',
+          action: payload.isDelivered === false ? 'unmark-delivered' : 'mark-delivered',
           ...payload,
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to mark container delivered');
+      if (!res.ok) throw new Error(data.error || 'Failed to update container delivery status');
       return data;
     } catch (err: any) {
-      return rejectWithValue(err.message || 'Error marking container delivered');
+      return rejectWithValue(err.message || 'Error updating container delivery status');
     }
   }
 );

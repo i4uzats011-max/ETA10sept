@@ -67,6 +67,8 @@ import {
   History,
   FileText,
   Download,
+  RotateCcw,
+  Zap,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import {
@@ -191,6 +193,8 @@ export default function LoaderHub() {
   // Filter and Search for Loading Plans tab (including date-wise sorting for delivered)
   const [planFilterStatus, setPlanFilterStatus] = useState<'all' | 'active' | 'delivered'>('all');
   const [planSearchQuery, setPlanSearchQuery] = useState('');
+  const [apiStats, setApiStats] = useState<any | null>(null);
+  const [isSyncingPlanContainer, setIsSyncingPlanContainer] = useState<string | null>(null);
 
   // Local state for Chinese Excel Import Modal
   const [isExcelUploadOpen, setIsExcelUploadOpen] = useState(false);
@@ -370,9 +374,22 @@ export default function LoaderHub() {
     }
   };
 
+  const fetchHubApiStats = async () => {
+    try {
+      const res = await fetch('/api/admin/jsoncargo-stats');
+      if (res.ok) {
+        const data = await res.json();
+        if (!data.error) {
+          setApiStats(data);
+        }
+      }
+    } catch {}
+  };
+
   useEffect(() => {
     fetchWarehouses();
     dispatch(fetchUploadHistory());
+    fetchHubApiStats();
   }, [dispatch]);
 
   const handleCreateWarehouse = async (e: React.FormEvent) => {

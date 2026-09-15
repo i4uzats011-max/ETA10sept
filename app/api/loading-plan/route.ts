@@ -581,6 +581,86 @@ export async function POST(req: NextRequest) {
     }
 
     // ----------------------------------------------------
+    // Action 5a: Revert Delivery (Make Container Undelivered)
+    // ----------------------------------------------------
+    if (action === 'unmark-delivered' || (action === 'mark-delivered' && body.isDelivered === false)) {
+      const { container } = body;
+      const cleanAlias = (container || '').trim();
+
+      if (!cleanAlias) {
+        return NextResponse.json({ error: 'Container identifier is required' }, { status: 400 });
+      }
+
+      const targetContainer = await Container.findOne({
+        $or: [
+          { container: new RegExp(`^${cleanAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+          { containerNumber: new RegExp(`^${cleanAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+        ],
+      });
+
+      if (!targetContainer) {
+        return NextResponse.json({ error: `Container '${cleanAlias}' not found` }, { status: 404 });
+      }
+
+      const restoredStatus = targetContainer.containerNumber ? 'In Transit' : 'Planning';
+      const restoredPlanStatus = targetContainer.containerNumber ? 'Finalized' : 'Planning';
+
+      // Revert container document
+      targetContainer.deliveryDate = '';
+      targetContainer.daysToDeliver = null;
+      targetContainer.isDelivered = false;
+      targetContainer.status = restoredStatus;
+      targetContainer.planStatus = restoredPlanStatus;
+      await targetContainer.save();
+
+      // Revert all shipments under this container
+      const containerShipments = await Shipment.find({ container: targetContainer.container });
+      const shipIds = containerShipments.map((s) => s._id);
+      if (shipIds.length > 0) {
+        await Shipment.updateMany(
+          { _id: { $in: shipIds } },
+          {
+            $set: {
+              deliveryDate: '',
+              daysToDeliver: null,
+              isDelivered: false,
+              status: restoredStatus,
+            },
+          }
+        );
+      }
+
+      // Revert WarehouseReceipt records for receipts under this container
+      const affectedReceipts = Array.from(new Set(containerShipments.map((s) => s.receipt).filter(Boolean)));
+      for (const r of affectedReceipts) {
+        const wh = await WarehouseReceipt.findOne({
+          receipt: new RegExp(`^${r.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        });
+        if (wh) {
+          wh.deliveryDate = '';
+          wh.isDelivered = false;
+          if (wh.loadedQuantity >= wh.quantity) {
+            wh.status = 'Loaded';
+            wh.stockstatus = 'Dispatched';
+          } else if (wh.loadedQuantity > 0) {
+            wh.status = 'Partially Loaded';
+            wh.stockstatus = 'Partially Dispatched';
+          } else {
+            wh.status = 'Received';
+            wh.stockstatus = 'In Stock';
+          }
+          await wh.save();
+        }
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: `Container '${targetContainer.container}' marked as Undelivered. Reverted back to Active / In Transit.`,
+        plan: targetContainer,
+      });
+    }
+
+    // ----------------------------------------------------
     // Action 5: Mark Container / Shipments as Delivered
     // ----------------------------------------------------
     if (action === 'mark-delivered') {
