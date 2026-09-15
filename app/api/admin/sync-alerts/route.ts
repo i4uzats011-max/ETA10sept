@@ -53,6 +53,13 @@ export async function GET(req: NextRequest) {
       const line = (err.shippingLine || 'MSC').toUpperCase();
       const cntrKey = err.container || err.containerNumber || 'Unknown';
 
+      let cleanErrMsg = err.errorMessage || 'Sync failed';
+      if (typeof cleanErrMsg === 'string') {
+        if (cleanErrMsg.includes('[object Object]') || cleanErrMsg.includes('does not exist')) {
+          cleanErrMsg = 'JSONCargo API key rejected: Api key does not exist or has expired. Please update API key in Settings.';
+        }
+      }
+
       // Carrier grouping
       if (!carrierGroupMap[line]) {
         carrierGroupMap[line] = {
@@ -60,7 +67,7 @@ export async function GET(req: NextRequest) {
           failureCount: 0,
           affectedContainers: new Set(),
           lastFailedAt: err.createdAt,
-          latestError: err.errorMessage || 'Sync failed',
+          latestError: cleanErrMsg,
           sources: new Set(),
         };
       }
@@ -70,7 +77,7 @@ export async function GET(req: NextRequest) {
       if (err.source) carrierGroupMap[line].sources.add(err.source);
       if (new Date(err.createdAt) > new Date(carrierGroupMap[line].lastFailedAt)) {
         carrierGroupMap[line].lastFailedAt = err.createdAt;
-        carrierGroupMap[line].latestError = err.errorMessage || 'Sync failed';
+        carrierGroupMap[line].latestError = cleanErrMsg;
       }
 
       // Container grouping
@@ -80,7 +87,7 @@ export async function GET(req: NextRequest) {
           containerNumber: err.containerNumber || '',
           shippingLine: line,
           failureCount: 0,
-          latestError: err.errorMessage || 'Sync failed',
+          latestError: cleanErrMsg,
           lastFailedAt: err.createdAt,
           source: err.source || 'manual',
         };
@@ -88,7 +95,7 @@ export async function GET(req: NextRequest) {
       containerFailureMap[cntrKey].failureCount++;
       if (new Date(err.createdAt) > new Date(containerFailureMap[cntrKey].lastFailedAt)) {
         containerFailureMap[cntrKey].lastFailedAt = err.createdAt;
-        containerFailureMap[cntrKey].latestError = err.errorMessage || 'Sync failed';
+        containerFailureMap[cntrKey].latestError = cleanErrMsg;
         containerFailureMap[cntrKey].source = err.source || 'manual';
       }
     });
@@ -137,10 +144,10 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// Clear or dismiss sync errors (Super Admin only)
+// Clear or dismiss sync errors (Staff or Admin)
 export async function DELETE(req: NextRequest) {
-  if (!isSuperAdminAuthenticated(req)) {
-    return NextResponse.json({ error: 'Forbidden: Super Admin only' }, { status: 403 });
+  if (!isStaffOrAdminAuthenticated(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   try {

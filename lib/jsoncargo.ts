@@ -36,7 +36,12 @@ export interface ApiKeyStats {
   requests_total?: number;
   requests_made?: number;
   requests_available?: number;
+  totalCalls?: number;
+  usedCalls?: number;
+  remainingCalls?: number;
+  status?: 'configured' | 'invalid_key' | 'not_configured' | 'error';
   error?: string;
+  keyMasked?: string;
 }
 
 export const SHIPPING_LINE_MAP: Record<string, string> = {
@@ -461,26 +466,32 @@ export async function fetchContainerTracking(
       try {
         const errJson = await res.json();
         if (errJson) {
-          if (typeof errJson.error === 'string') {
-            errDetail = errJson.error;
-          } else if (typeof errJson.message === 'string') {
-            errDetail = errJson.message;
-          } else if (errJson.error && typeof errJson.error === 'object') {
-            errDetail = errJson.error.message || errJson.error.detail || errJson.error.description || errJson.error.error || JSON.stringify(errJson.error);
-          } else if (errJson.message && typeof errJson.message === 'object') {
-            errDetail = errJson.message.message || errJson.message.detail || JSON.stringify(errJson.message);
+          const raw = errJson.error || errJson.message;
+          if (typeof raw === 'string') {
+            errDetail = raw;
+          } else if (typeof raw === 'object' && raw !== null) {
+            errDetail = raw.title || raw.message || raw.detail || raw.description || raw.error || JSON.stringify(raw);
           } else if (typeof errJson.detail === 'string') {
             errDetail = errJson.detail;
           } else if (Array.isArray(errJson.errors) && errJson.errors.length > 0) {
             const first = errJson.errors[0];
-            errDetail = typeof first === 'string' ? first : (first?.message || first?.detail || JSON.stringify(first));
+            errDetail = typeof first === 'string' ? first : (first?.title || first?.message || first?.detail || JSON.stringify(first));
           } else if (typeof errJson === 'object') {
             const str = JSON.stringify(errJson);
             errDetail = str === '{}' ? `HTTP ${res.status}: ${res.statusText || 'Carrier API response error'}` : str;
           }
         }
       } catch (_) {}
-      throw new Error(`Carrier ${shippingLineCode} API error: ${errDetail}`);
+
+      if (res.status === 401 || res.status === 403) {
+        throw new Error(`JSONCargo API Authentication Failed (${res.status}): ${errDetail}. Please update your API key in Settings.`);
+      } else if (res.status === 404) {
+        throw new Error(`Carrier ${shippingLineCode} API: Container '${containerNumber}' not found by carrier (HTTP 404). Verify container number and carrier.`);
+      } else if (res.status === 429) {
+        throw new Error(`JSONCargo API Rate Limit / Quota Exceeded (HTTP 429): Your monthly quota is exhausted.`);
+      } else {
+        throw new Error(`Carrier ${shippingLineCode} API error: ${errDetail}`);
+      }
     }
   } catch (error: any) {
     let cleanErrMsg = error?.message;
@@ -540,9 +551,26 @@ export async function fetchContainerTracking(
   }
 }
 
-export async function fetchApiKeyStats(): Promise<ApiKeyStats> {
-  const apiKey = process.env.JSON_CARGO_API_KEY;
-  if (!apiKey) return { error: 'JSON_CARGO_API_KEY not configured' };
+export async function fetchApiKeyStats(overrideKey?: string): Promise<ApiKeyStats> {
+  const apiKey = (overrideKey || process.env.JSON_CARGO_API_KEY || '').trim();
+  if (!apiKey) {
+    return {
+      status: 'not_configured',
+      error: 'JSON_CARGO_API_KEY is not configured in server environment (.env.local)',
+      plan: 'No Key Configured',
+      requests_total: 0,
+      requests_made: 0,
+      requests_available: 0,
+      totalCalls: 0,
+      usedCalls: 0,
+      remainingCalls: 0,
+      keyMasked: 'None',
+    };
+  }
+
+  const keyMasked = apiKey.length > 8
+    ? `${apiKey.slice(0, 4)}••••••••${apiKey.slice(-4)}`
+    : '••••••••';
 
   try {
     const res = await fetch('http://api.jsoncargo.com/api/v1/api_key/stats', {
@@ -556,11 +584,62 @@ export async function fetchApiKeyStats(): Promise<ApiKeyStats> {
 
     if (res.ok) {
       const data = await res.json();
-      return data?.data || data;
+      const stats = data?.data || data;
+      const total = typeof stats.requests_total === 'number' ? stats.requests_total : 1000;
+      const used = typeof stats.requests_made === 'number' ? stats.requests_made : 0;
+      const available = typeof stats.requests_available === 'number' ? stats.requests_available : Math.max(0, total - used);
+
+      return {
+        status: 'configured',
+        plan: stats.plan || 'Standard Plan',
+        requests_total: total,
+        requests_made: used,
+        requests_available: available,
+        totalCalls: total,
+        usedCalls: used,
+        remainingCalls: available,
+        keyMasked,
+      };
     } else {
-      return { error: `API stats error: ${res.status}` };
+      let errMsg = `HTTP ${res.status}`;
+      try {
+        const errJson = await res.json();
+        const raw = errJson?.error || errJson?.message;
+        if (typeof raw === 'object' && raw !== null) {
+          errMsg = raw.title || raw.message || raw.detail || raw.description || JSON.stringify(raw);
+        } else if (typeof raw === 'string') {
+          errMsg = raw;
+        }
+      } catch {}
+
+      const isAuthFail = res.status === 401 || res.status === 403;
+      return {
+        status: isAuthFail ? 'invalid_key' : 'error',
+        error: isAuthFail
+          ? `JSONCargo API key rejected (${res.status}): ${errMsg}. Please update with a valid JSONCargo API key.`
+          : `JSONCargo API stats error (${res.status}): ${errMsg}`,
+        plan: isAuthFail ? 'Key Inactive / Not Found' : 'Error',
+        requests_total: 0,
+        requests_made: 0,
+        requests_available: 0,
+        totalCalls: 0,
+        usedCalls: 0,
+        remainingCalls: 0,
+        keyMasked,
+      };
     }
   } catch (err: any) {
-    return { error: err?.message || 'Failed to fetch API stats' };
+    return {
+      status: 'error',
+      error: err?.message || 'Failed to connect to JSONCargo API server',
+      plan: 'Network Error',
+      requests_total: 0,
+      requests_made: 0,
+      requests_available: 0,
+      totalCalls: 0,
+      usedCalls: 0,
+      remainingCalls: 0,
+      keyMasked,
+    };
   }
 }
