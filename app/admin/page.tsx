@@ -393,6 +393,24 @@ export default function AdminDashboardPage() {
     }
   };
 
+  const handleClearSyncAlerts = async () => {
+    if (!confirm('Are you sure you want to clear all logged sync errors and carrier outage alerts?')) {
+      return;
+    }
+    try {
+      const res = await fetch('/api/admin/sync-alerts', { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok) {
+        alert(data.message || 'Successfully cleared sync error log.');
+        fetchSyncAlerts();
+      } else {
+        throw new Error(data.error || 'Failed to clear sync error log');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Error clearing sync alerts');
+    }
+  };
+
   const handleJumpToManualEta = (containerAlias: string, company?: string) => {
     setActiveAdminTab('manual-eta');
     if (containerAlias) {
