@@ -1335,10 +1335,12 @@ export default function LoaderHub() {
       alert('Delivery Date is strictly mandatory when marking container delivered.');
       return;
     }
+    const deliveredContainer = planToDeliver.container;
     const res = await dispatch(
       markContainerDelivered({
         container: planToDeliver.container,
         deliveryDate: deliveryDateInput.trim(),
+        isDelivered: true,
         excludedReceipts: Array.from(excludedReceiptsForDelivery),
       })
     );
@@ -1349,6 +1351,69 @@ export default function LoaderHub() {
       setExcludedReceiptsForDelivery(new Set());
       dispatch(fetchWarehouseReceipts());
       dispatch(fetchLoadingPlans());
+      setPlanFilterStatus('delivered');
+      alert(`Container '${deliveredContainer}' successfully marked as delivered on ${deliveryDateInput.trim()} and moved to the Delivered list.`);
+    }
+  };
+
+  // Revert Container Delivery (Make Undelivered)
+  const handleUnmarkDeliver = async (plan: LoadingPlanItem) => {
+    if (
+      !confirm(
+        `Are you sure you want to revert container '${plan.container}' back to Undelivered (In Transit)?\n\nDelivery status and delivery date will be cleared.`
+      )
+    ) {
+      return;
+    }
+    const res = await dispatch(
+      markContainerDelivered({
+        container: plan.container,
+        deliveryDate: '',
+        isDelivered: false,
+      })
+    );
+    if (markContainerDelivered.fulfilled.match(res)) {
+      dispatch(fetchWarehouseReceipts());
+      dispatch(fetchLoadingPlans());
+      setPlanFilterStatus('active');
+      alert(`Container '${plan.container}' has been reverted back to Active / In Transit.`);
+    } else {
+      alert((res.payload as string) || 'Failed to revert delivery status.');
+    }
+  };
+
+  // Quick Live Sync with Shipping Line API from Loader Hub
+  const handleSyncContainerEta = async (plan: LoadingPlanItem) => {
+    if (!plan.containerNumber) {
+      alert(`Container '${plan.container}' has not been allotted an actual carrier container number yet.`);
+      return;
+    }
+    setIsSyncingPlanContainer(plan.container);
+    try {
+      const res = await fetch('/api/containers/sync-eta', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          container: plan.container,
+          containerNumber: plan.containerNumber,
+          shippingLine: plan.shippingLine || 'MSC',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to sync container ETA');
+      }
+      alert(
+        `✓ Synced '${plan.container}' (${plan.shippingLine || 'MSC'}):\nStatus: ${data.status || 'In Transit'}\nETA: ${data.eta || 'N/A'}${
+          data.loadingDate ? `\nLoading Date: ${data.loadingDate}` : ''
+        }`
+      );
+      dispatch(fetchLoadingPlans());
+      fetchHubApiStats();
+    } catch (err: any) {
+      alert(err?.message || 'Sync failed');
+    } finally {
+      setIsSyncingPlanContainer(null);
     }
   };
 
@@ -2573,15 +2638,33 @@ export default function LoaderHub() {
               </button>
             </div>
 
-            <div className="relative w-full sm:w-64">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
-              <input
-                type="text"
-                value={planSearchQuery}
-                onChange={(e) => setPlanSearchQuery(e.target.value)}
-                placeholder="Search plan / carrier container..."
-                className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500"
-              />
+            <div className="flex items-center space-x-2 flex-wrap sm:flex-nowrap gap-y-2">
+              {apiStats && (
+                <div
+                  className="flex items-center space-x-1.5 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl text-xs whitespace-nowrap shadow-xs"
+                  title="Remaining JSONCargo API calls for tracking containers"
+                >
+                  <Zap className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span className="text-slate-600 font-medium">
+                    API Syncs Left:
+                    <strong className="font-mono text-emerald-800 font-bold ml-1">
+                      {apiStats.calls_balance ?? apiStats.remaining_calls ?? (apiStats.limit ? apiStats.limit - (apiStats.used || 0) : '—')}
+                    </strong>
+                    {apiStats.limit ? <span className="text-slate-400 text-[10px]"> / {apiStats.limit}</span> : ''}
+                  </span>
+                </div>
+              )}
+
+              <div className="relative w-full sm:w-60">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+                <input
+                  type="text"
+                  value={planSearchQuery}
+                  onChange={(e) => setPlanSearchQuery(e.target.value)}
+                  placeholder="Search plan / container..."
+                  className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500"
+                />
+              </div>
             </div>
           </div>
 
