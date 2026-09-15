@@ -204,6 +204,15 @@ export async function POST(req: NextRequest) {
       dataDetails: tracking.dataDetails,
     });
   } catch (error: any) {
+    let cleanErr = error?.message;
+    if (typeof cleanErr !== 'string' || cleanErr.includes('[object Object]')) {
+      try {
+        cleanErr = typeof error === 'object' ? JSON.stringify(error) : String(error);
+      } catch {
+        cleanErr = 'Manual JSONCargo ETA sync failed';
+      }
+    }
+
     // Record API sync failure to SyncError collection
     try {
       if (finalTrackingNumber || publicAlias) {
@@ -212,7 +221,7 @@ export async function POST(req: NextRequest) {
           container: publicAlias || 'N/A',
           containerNumber: finalTrackingNumber || 'N/A',
           shippingLine: carrierCompany || 'MSC',
-          errorMessage: error?.message || 'Manual JSONCargo ETA sync failed',
+          errorMessage: cleanErr,
           source: 'manual',
         });
       }
@@ -223,7 +232,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: error?.message || 'Manual JSONCargo ETA sync failed',
+        error: cleanErr,
         canUpdateManually: true,
         container: publicAlias,
         containerNumber: finalTrackingNumber,

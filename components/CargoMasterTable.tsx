@@ -16,6 +16,7 @@ import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import {
   fetchCargoFleet,
   openDeliveryModal,
+  markContainerDelivered,
   ContainerMasterItem,
   setSearchTerm,
   setStatusFilter,
@@ -92,8 +93,22 @@ export default function CargoMasterTable({
     actions: true,
   });
 
+  const [apiStats, setApiStats] = useState<any | null>(null);
+  const [syncingContainer, setSyncingContainer] = useState<string | null>(null);
+
+  const fetchTableApiStats = async () => {
+    try {
+      const res = await fetch('/api/admin/jsoncargo-stats');
+      if (res.ok) {
+        const d = await res.json();
+        if (!d.error) setApiStats(d);
+      }
+    } catch {}
+  };
+
   useEffect(() => {
     dispatch(fetchCargoFleet());
+    fetchTableApiStats();
   }, [dispatch]);
 
   const copyToClipboard = (text: string, id: string) => {
@@ -184,17 +199,19 @@ export default function CargoMasterTable({
     }
   };
 
-  // Handle Deleting Container Plan (with strict rule enforcement)
+  // Handle Deleting Container Plan (with automatic carton restore to warehouse stock)
   const handleDeleteContainer = async (c: ContainerMasterItem) => {
-    if (c.shipmentCount && c.shipmentCount > 0) {
-      alert(`Cannot delete container '${c.container}': It currently contains ${c.shipmentCount} loaded cargo item(s). Under system integrity rules, you must first delete/de-allocate all loaded cargo items from this container.`);
+    const hasItems = Boolean(c.shipmentCount && c.shipmentCount > 0);
+    const confirmMsg = hasItems
+      ? `Container '${c.container}' contains ${c.shipmentCount} loaded cargo item(s).\n\nDeleting this wrong loading plan will automatically UNLOAD all items and return their cartons back to China Warehouse Stock (In Stock).\n\nAre you sure you want to proceed and delete this plan?`
+      : `Are you sure you want to delete container plan '${c.container}'? This action cannot be undone.`;
+
+    if (!confirm(confirmMsg)) {
       return;
     }
-    if (!confirm(`Are you sure you want to delete container plan '${c.container}'? This action cannot be undone.`)) {
-      return;
-    }
+
     try {
-      const res = await fetch(`/api/loading-plan?container=${encodeURIComponent(c.container)}`, {
+      const res = await fetch(`/api/loading-plan?container=${encodeURIComponent(c.container)}&unloadFirst=${hasItems}`, {
         method: 'DELETE',
       });
       const data = await res.json();
@@ -205,6 +222,58 @@ export default function CargoMasterTable({
       alert(err.message || 'Delete error');
     }
   };
+
+  // Handle Reverting Delivered Container back to Undelivered (In Transit)
+  const handleUnmarkDeliverRow = async (c: ContainerMasterItem) => {
+    if (
+      !confirm(
+        `Are you sure you want to revert container '${c.container}' back to Undelivered (In Transit)?\n\nThis will clear the delivery date and restore its cargo status to In Transit.`
+      )
+    ) {
+      return;
+    }
+    try {
+      await dispatch(
+        markContainerDelivered({ container: c.container, isDelivered: false })
+      ).unwrap();
+      dispatch(setStatusFilter('in-transit'));
+      alert(`Container '${c.container}' has been reverted to Undelivered (In Transit).`);
+      dispatch(fetchCargoFleet());
+    } catch (err: any) {
+      alert(err || 'Failed to revert delivery status');
+    }
+  };
+
+  // Handle Direct API Status & ETA Sync
+  const handleSyncContainer = async (containerAlias: string, containerNumber?: string, shippingLine?: string) => {
+    if (!containerNumber || !containerNumber.trim()) {
+      alert(`Container '${containerAlias}' does not have an actual carrier container number allotted yet.`);
+      return;
+    }
+    setSyncingContainer(containerAlias);
+    try {
+      const res = await fetch('/api/containers/sync-eta', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          containerNumber: containerNumber.trim(),
+          shippingLine: shippingLine || 'MSC',
+          forceRefresh: true,
+          planContainer: containerAlias,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to sync carrier status');
+      alert(`Status updated successfully for '${containerAlias}' (${containerNumber}).\nStatus: ${data.status || 'In Transit'}\nETA: ${data.eta || 'Updated'}`);
+      dispatch(fetchCargoFleet());
+      fetchTableApiStats();
+    } catch (err: any) {
+      alert(err.message || 'API sync failed');
+    } finally {
+      setSyncingContainer(null);
+    }
+  };
+
 
   // Define Columns using TanStack React Table
   const columns = useMemo<ColumnDef<ContainerMasterItem>[]>(() => {
@@ -579,14 +648,32 @@ export default function CargoMasterTable({
                 <span>{isDelivered ? 'Edit' : 'Deliver'}</span>
               </button>
 
-              {onSyncApi && !isDelivered && (
+              {isDelivered && (
                 <button
                   type="button"
-                  onClick={() => onSyncApi(c.container)}
-                  className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-300 rounded-lg text-xs font-semibold transition"
-                  title="Manual API Sync (Immediate 1-call bypass)"
+                  onClick={() => handleUnmarkDeliverRow(c)}
+                  className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-xs font-semibold transition flex items-center space-x-1"
+                  title="Mistake correction: Revert container back to Undelivered (In Transit)"
                 >
-                  <Zap className="w-3.5 h-3.5" />
+                  <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Undeliver</span>
+                </button>
+              )}
+
+              {!isDelivered && hasActualContainer && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onSyncApi
+                      ? onSyncApi(c.container)
+                      : handleSyncContainer(c.container, c.containerNumber, c.shippingLine)
+                  }
+                  disabled={syncingContainer === c.container}
+                  className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-300 rounded-lg text-xs font-semibold transition flex items-center space-x-1"
+                  title="Manual API Sync (Immediate carrier tracking & ETA status update)"
+                >
+                  <Zap className={`w-3.5 h-3.5 text-indigo-600 ${syncingContainer === c.container ? 'animate-spin' : ''}`} />
+                  <span>Sync</span>
                 </button>
               )}
 
@@ -610,12 +697,12 @@ export default function CargoMasterTable({
                   onClick={() => handleDeleteContainer(c)}
                   className={`p-1 rounded-lg border text-xs transition ${
                     c.shipmentCount && c.shipmentCount > 0
-                      ? 'bg-amber-50 text-amber-600 border-amber-300 hover:bg-amber-100'
+                      ? 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100'
                       : 'bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100'
                   }`}
                   title={
                     c.shipmentCount && c.shipmentCount > 0
-                      ? `Contains ${c.shipmentCount} loaded cargo item(s) - must delete/de-allocate items first`
+                      ? `Delete wrong loading plan (${c.shipmentCount} items will be safely returned to China warehouse stock)`
                       : 'Delete Container Plan'
                   }
                 >
@@ -627,7 +714,7 @@ export default function CargoMasterTable({
         },
       },
     ];
-  }, [copiedId, dispatch, onEditDates, onSyncApi, isStaffOnly]);
+  }, [copiedId, dispatch, onEditDates, onSyncApi, isStaffOnly, syncingContainer]);
 
   // Master Logistics Columns Reveal State
   const isLogisticsRevealed = Boolean(
@@ -750,6 +837,25 @@ export default function CargoMasterTable({
                 <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full font-bold text-[11px]">
                   {filteredData.length} records
                 </span>
+                {apiStats && apiStats.status === 'configured' && (
+                  <span
+                    className={`inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full font-bold text-[11px] border ${
+                      (apiStats.remainingCalls ?? 0) < 50
+                        ? 'bg-rose-50 text-rose-700 border-rose-200'
+                        : (apiStats.remainingCalls ?? 0) < 150
+                        ? 'bg-amber-50 text-amber-700 border-amber-200'
+                        : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    }`}
+                    title={`JSONCargo Carrier API Quota: ${apiStats.usedCalls ?? 0} used / ${apiStats.totalCalls ?? 1000} total (Limit: ${apiStats.monthlyLimit ?? 1000}/mo)`}
+                  >
+                    <Zap className="w-3 h-3 text-amber-500 fill-amber-400" />
+                    <span>
+                      {apiStats.remainingCalls !== undefined
+                        ? `${apiStats.remainingCalls} API Syncs Left`
+                        : 'Carrier API Active'}
+                    </span>
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
                 Manage carrier actual container numbers, shipping lines, China departure, and delivery turnaround dates.

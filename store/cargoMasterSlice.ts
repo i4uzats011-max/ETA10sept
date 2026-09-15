@@ -78,12 +78,12 @@ export const markContainerDelivered = createAsyncThunk(
   async (
     {
       container,
-      deliveryDate,
+      deliveryDate = '',
       isDelivered = true,
       excludedReceipts,
     }: {
       container: string;
-      deliveryDate: string;
+      deliveryDate?: string;
       isDelivered?: boolean;
       excludedReceipts?: string[];
     },

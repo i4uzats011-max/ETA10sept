@@ -460,14 +460,38 @@ export async function fetchContainerTracking(
       let errDetail = `HTTP ${res.status}: ${res.statusText || 'Carrier API response error'}`;
       try {
         const errJson = await res.json();
-        if (errJson?.error || errJson?.message) {
-          errDetail = errJson.error || errJson.message;
+        if (errJson) {
+          if (typeof errJson.error === 'string') {
+            errDetail = errJson.error;
+          } else if (typeof errJson.message === 'string') {
+            errDetail = errJson.message;
+          } else if (errJson.error && typeof errJson.error === 'object') {
+            errDetail = errJson.error.message || errJson.error.detail || errJson.error.description || errJson.error.error || JSON.stringify(errJson.error);
+          } else if (errJson.message && typeof errJson.message === 'object') {
+            errDetail = errJson.message.message || errJson.message.detail || JSON.stringify(errJson.message);
+          } else if (typeof errJson.detail === 'string') {
+            errDetail = errJson.detail;
+          } else if (Array.isArray(errJson.errors) && errJson.errors.length > 0) {
+            const first = errJson.errors[0];
+            errDetail = typeof first === 'string' ? first : (first?.message || first?.detail || JSON.stringify(first));
+          } else if (typeof errJson === 'object') {
+            const str = JSON.stringify(errJson);
+            errDetail = str === '{}' ? `HTTP ${res.status}: ${res.statusText || 'Carrier API response error'}` : str;
+          }
         }
       } catch (_) {}
       throw new Error(`Carrier ${shippingLineCode} API error: ${errDetail}`);
     }
   } catch (error: any) {
-    console.warn(`JSONCargo API call error for ${containerNumber} (${shippingLineCode}):`, error?.message || error);
+    let cleanErrMsg = error?.message;
+    if (typeof cleanErrMsg !== 'string' || cleanErrMsg.includes('[object Object]')) {
+      try {
+        cleanErrMsg = typeof error === 'object' ? JSON.stringify(error) : String(error);
+      } catch {
+        cleanErrMsg = 'Carrier API error';
+      }
+    }
+    console.warn(`JSONCargo API call error for ${containerNumber} (${shippingLineCode}):`, cleanErrMsg);
 
     // Only allow mock data if explicitly enabled via environment variable
     if (process.env.MOCK_CARGO_FALLBACK === 'true') {
@@ -508,7 +532,11 @@ export async function fetchContainerTracking(
       };
     }
 
-    throw error;
+    if (error instanceof Error && !error.message.includes('[object Object]')) {
+      throw error;
+    } else {
+      throw new Error(`Carrier ${shippingLineCode} API error: ${cleanErrMsg}`);
+    }
   }
 }
 
