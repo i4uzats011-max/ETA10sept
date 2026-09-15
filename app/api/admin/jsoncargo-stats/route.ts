@@ -57,23 +57,25 @@ export async function POST(req: NextRequest) {
     // Update in-memory environment variable
     process.env.JSON_CARGO_API_KEY = newKey;
 
-    // Persist to .env.local file
-    try {
-      const envPath = path.join(process.cwd(), '.env.local');
-      if (fs.existsSync(envPath)) {
-        let envContent = fs.readFileSync(envPath, 'utf8');
-        if (envContent.includes('JSON_CARGO_API_KEY=')) {
-          envContent = envContent.replace(
-            /JSON_CARGO_API_KEY=.*/,
-            `JSON_CARGO_API_KEY=${newKey}`
-          );
-        } else {
-          envContent += `\nJSON_CARGO_API_KEY=${newKey}\n`;
+    // Persist to .env.local and .env files
+    for (const fileName of ['.env.local', '.env']) {
+      try {
+        const envPath = path.join(process.cwd(), fileName);
+        if (fs.existsSync(envPath)) {
+          let envContent = fs.readFileSync(envPath, 'utf8');
+          if (envContent.includes('JSON_CARGO_API_KEY=')) {
+            envContent = envContent.replace(
+              /JSON_CARGO_API_KEY=.*/,
+              `JSON_CARGO_API_KEY=${newKey}`
+            );
+          } else {
+            envContent += `\nJSON_CARGO_API_KEY=${newKey}\n`;
+          }
+          fs.writeFileSync(envPath, envContent, 'utf8');
         }
-        fs.writeFileSync(envPath, envContent, 'utf8');
+      } catch (fsErr) {
+        console.warn(`Could not persist updated JSON_CARGO_API_KEY to ${fileName}:`, fsErr);
       }
-    } catch (fsErr) {
-      console.warn('Could not persist updated JSON_CARGO_API_KEY to .env.local:', fsErr);
     }
 
     return NextResponse.json({
