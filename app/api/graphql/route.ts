@@ -132,6 +132,8 @@ const schema = buildSchema(`
     count: Int!
     receipt: String!
     isSplit: Boolean
+    requiresCartonVerification: Boolean
+    message: String
     warehouseReceipt: WarehouseReceipt
     shipments: [Shipment!]!
   }
@@ -151,7 +153,7 @@ const schema = buildSchema(`
   }
 
   type Query {
-    trackByReceipt(receipt: String!): ReceiptSearchResult!
+    trackByReceipt(receipt: String!, cartons: Int): ReceiptSearchResult!
     trackByContainer(container: String!): ContainerArrival!
     shipments(search: String): [Shipment!]!
     warehouseReceipts(warehouse: String, status: String, search: String): [WarehouseReceipt!]!
@@ -175,25 +177,60 @@ const schema = buildSchema(`
 function createRootResolver(req: NextRequest) {
   return {
     // 1. Receipt Search Query (Pure Direct MongoDB Read - Zero JSONCargo API Calls)
-    trackByReceipt: async ({ receipt }: { receipt: string }) => {
+    trackByReceipt: async ({ receipt, cartons }: { receipt: string; cartons?: number }) => {
       const cleanQuery = receipt.trim();
       if (!cleanQuery) {
         throw new Error('Receipt parameter is required');
       }
 
       await connectToDatabase();
-      
-      // Fast exact index lookup first, fallback to regex
-      let rawShipments: any[] = await Shipment.find({ receipt: cleanQuery }).sort({ uploadedAt: -1 }).lean();
-      if (!rawShipments || rawShipments.length === 0) {
-        const regex = new RegExp(`^${cleanQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
-        rawShipments = await Shipment.find({ receipt: regex }).sort({ uploadedAt: -1 }).lean();
+
+      // Check if duplicate receipt exists in multiple China warehouses
+      const matchingWhItems: any[] = await WarehouseReceipt.find({
+        receipt: new RegExp(`^${cleanQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+      }).sort({ createdAt: -1 }).lean();
+
+      const distinctWhNames = Array.from(new Set(matchingWhItems.map((w) => (w.warehouse || 'China Warehouse').trim())));
+
+      let whItem: any = null;
+      let selectedWarehouse: string = '';
+
+      if (distinctWhNames.length > 1) {
+        if (!cartons || cartons <= 0) {
+          return {
+            success: false,
+            count: 0,
+            receipt: cleanQuery,
+            isSplit: false,
+            requiresCartonVerification: true,
+            message: `Receipt #${cleanQuery} was found in multiple China warehouses. Please enter the number of cartons (CTN) printed on your warehouse receipt to verify your cargo.`,
+            warehouseReceipt: null,
+            shipments: [],
+          };
+        }
+
+        whItem = matchingWhItems.find((w) => Number(w.quantity) === Number(cartons));
+        if (!whItem) {
+          throw new Error(`Carton count (${cartons} CTN) does not match China warehouse receipt records for receipt #${cleanQuery}. Please check your receipt slip.`);
+        }
+        selectedWarehouse = whItem.warehouse;
+      } else {
+        whItem = matchingWhItems[0] || null;
+        if (whItem) selectedWarehouse = whItem.warehouse;
       }
 
-      // Check if goods exist in China Warehouse Inward Stock
-      const whItem: any = await WarehouseReceipt.findOne({
+      // Query shipments for this specific warehouse / receipt
+      const shipmentQuery: any = {
         receipt: new RegExp(`^${cleanQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-      }).lean();
+      };
+      if (selectedWarehouse && whItem) {
+        shipmentQuery.$or = [
+          { warehouse: new RegExp(`^${selectedWarehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+          { receiptId: whItem._id },
+        ];
+      }
+
+      let rawShipments: any[] = await Shipment.find(shipmentQuery).sort({ uploadedAt: -1 }).lean();
 
       if ((!rawShipments || rawShipments.length === 0) && !whItem) {
         throw new Error(`No cargo record found for receipt number '${cleanQuery}'`);
@@ -234,6 +271,8 @@ function createRootResolver(req: NextRequest) {
           count: 0,
           receipt: cleanQuery,
           isSplit: false,
+          requiresCartonVerification: false,
+          message: '',
           warehouseReceipt: formattedWhReceipt,
           shipments: [],
         };

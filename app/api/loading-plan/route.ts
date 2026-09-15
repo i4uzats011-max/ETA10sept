@@ -200,15 +200,26 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: `Loading plan / container '${cleanContainer}' not found` }, { status: 404 });
       }
 
-      // 2. Fetch Warehouse Receipt Stock
-      let whReceipt = await WarehouseReceipt.findOne({
+      // 2. Fetch Warehouse Receipt Stock (Warehouse-First)
+      const targetWarehouse = (body.warehouse || targetContainer.warehouse || '').trim();
+      const whQuery: any = {
         receipt: new RegExp(`^${cleanReceipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-      });
+      };
+      if (targetWarehouse && targetWarehouse !== 'ALL') {
+        whQuery.warehouse = new RegExp(`^${targetWarehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+      }
+
+      let whReceipt = await WarehouseReceipt.findOne(whQuery);
+      if (!whReceipt && !body.warehouse) {
+        whReceipt = await WarehouseReceipt.findOne({
+          receipt: new RegExp(`^${cleanReceipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        });
+      }
 
       if (!whReceipt) {
         return NextResponse.json(
           {
-            error: `Receipt '${cleanReceipt}' has not been received in China warehouse stock yet. Goods must be received in warehouse inventory before they can be loaded into a container plan.`,
+            error: `Receipt '${cleanReceipt}'${targetWarehouse ? ` for warehouse '${targetWarehouse}'` : ''} has not been received in China warehouse stock yet. Goods must be received in warehouse inventory before they can be loaded into a container plan.`,
           },
           { status: 400 }
         );
@@ -320,10 +331,20 @@ export async function POST(req: NextRequest) {
       const receiptNum = shipment.receipt;
       const containerAlias = shipment.container;
 
-      // Restore quantity in Warehouse Receipt
-      const whReceipt = await WarehouseReceipt.findOne({
-        receipt: new RegExp(`^${receiptNum.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-      });
+      // Restore quantity in Warehouse Receipt by receiptId or receipt + warehouse
+      let whReceipt: any = null;
+      if (shipment.receiptId) {
+        whReceipt = await WarehouseReceipt.findById(shipment.receiptId);
+      }
+      if (!whReceipt) {
+        const whFilter: any = {
+          receipt: new RegExp(`^${receiptNum.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        };
+        if (shipment.warehouse) {
+          whFilter.warehouse = new RegExp(`^${shipment.warehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+        }
+        whReceipt = await WarehouseReceipt.findOne(whFilter);
+      }
 
       if (whReceipt) {
         whReceipt.loadedQuantity = Math.max(0, (whReceipt.loadedQuantity || 0) - qtyRestored);
@@ -377,9 +398,19 @@ export async function POST(req: NextRequest) {
       for (const s of shipments) {
         const qty = parseInt(String(s.quantity || 0), 10) || 0;
         totalRestored += qty;
-        const whReceipt = await WarehouseReceipt.findOne({
-          receipt: new RegExp(`^${(s.receipt || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-        });
+        let whReceipt: any = null;
+        if (s.receiptId) {
+          whReceipt = await WarehouseReceipt.findById(s.receiptId);
+        }
+        if (!whReceipt) {
+          const whFilter: any = {
+            receipt: new RegExp(`^${(s.receipt || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+          };
+          if (s.warehouse) {
+            whFilter.warehouse = new RegExp(`^${s.warehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+          }
+          whReceipt = await WarehouseReceipt.findOne(whFilter);
+        }
         if (whReceipt) {
           whReceipt.loadedQuantity = Math.max(0, (whReceipt.loadedQuantity || 0) - qty);
           whReceipt.remainingQuantity = Math.max(0, whReceipt.quantity - whReceipt.loadedQuantity);
@@ -960,9 +991,19 @@ export async function POST(req: NextRequest) {
         for (const s of shipments) {
           const qty = parseInt(String(s.quantity || 0), 10) || 0;
           totalRestored += qty;
-          const whReceipt = await WarehouseReceipt.findOne({
-            receipt: new RegExp(`^${(s.receipt || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-          });
+          let whReceipt: any = null;
+          if (s.receiptId) {
+            whReceipt = await WarehouseReceipt.findById(s.receiptId);
+          }
+          if (!whReceipt) {
+            const whFilter: any = {
+              receipt: new RegExp(`^${(s.receipt || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+            };
+            if (s.warehouse) {
+              whFilter.warehouse = new RegExp(`^${s.warehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+            }
+            whReceipt = await WarehouseReceipt.findOne(whFilter);
+          }
           if (whReceipt) {
             whReceipt.loadedQuantity = Math.max(0, (whReceipt.loadedQuantity || 0) - qty);
             whReceipt.remainingQuantity = Math.max(0, whReceipt.quantity - whReceipt.loadedQuantity);
@@ -1062,9 +1103,19 @@ export async function DELETE(req: NextRequest) {
       for (const s of shipments) {
         const qty = parseInt(String(s.quantity || 0), 10) || 0;
         totalRestored += qty;
-        const whReceipt = await WarehouseReceipt.findOne({
-          receipt: new RegExp(`^${(s.receipt || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-        });
+        let whReceipt: any = null;
+        if (s.receiptId) {
+          whReceipt = await WarehouseReceipt.findById(s.receiptId);
+        }
+        if (!whReceipt) {
+          const whFilter: any = {
+            receipt: new RegExp(`^${(s.receipt || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+          };
+          if (s.warehouse) {
+            whFilter.warehouse = new RegExp(`^${s.warehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+          }
+          whReceipt = await WarehouseReceipt.findOne(whFilter);
+        }
         if (whReceipt) {
           whReceipt.loadedQuantity = Math.max(0, (whReceipt.loadedQuantity || 0) - qty);
           whReceipt.remainingQuantity = Math.max(0, whReceipt.quantity - whReceipt.loadedQuantity);

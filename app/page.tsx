@@ -64,6 +64,11 @@ export default function PublicTrackerPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Carton verification state for duplicate receipts across warehouses
+  const [pendingCartonReceipt, setPendingCartonReceipt] = useState<string | null>(null);
+  const [cartonInput, setCartonInput] = useState('');
+  const [cartonVerificationError, setCartonVerificationError] = useState<string | null>(null);
+
   // Download & Print Sanitized PDF Receipt (ZERO carrier details exposed)
   const downloadReceiptPDF = (receiptNumber: string, shipments: any[]) => {
     if (!shipments || shipments.length === 0) return;
@@ -263,23 +268,27 @@ export default function PublicTrackerPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const performDirectSearch = async (queryInput: string, targetTab: 'receipt' | 'container') => {
+  const performDirectSearch = async (queryInput: string, targetTab: 'receipt' | 'container', cartons?: number) => {
     if (!queryInput) return;
     setIsLoading(true);
     setError(null);
-    setReceiptResult(null);
-    setContainerResult(null);
+    if (!cartons) {
+      setReceiptResult(null);
+      setContainerResult(null);
+    }
     setShowSuggestions(false);
 
     try {
       if (targetTab === 'receipt') {
         const gqlQuery = `
-          query TrackReceipt($receipt: String!) {
-            trackByReceipt(receipt: $receipt) {
+          query TrackReceipt($receipt: String!, $cartons: Int) {
+            trackByReceipt(receipt: $receipt, cartons: $cartons) {
               success
               count
               receipt
               isSplit
+              requiresCartonVerification
+              message
               warehouseReceipt {
                 id
                 receipt
@@ -330,13 +339,33 @@ export default function PublicTrackerPage() {
           }
         `;
 
-        const response = await fetchGraphQL(gqlQuery, { receipt: queryInput });
+        const response = await fetchGraphQL(gqlQuery, { receipt: queryInput, cartons: cartons || undefined });
 
-        if (response.errors && response.errors.length > 0) {
-          const res = await fetch(`/api/track/receipt?receipt=${encodeURIComponent(queryInput)}`);
+        if (response.data?.trackByReceipt) {
+          const trackData = response.data.trackByReceipt;
+          if (trackData.requiresCartonVerification) {
+            setPendingCartonReceipt(queryInput);
+            setCartonVerificationError(null);
+            setIsLoading(false);
+            return;
+          }
+          setReceiptResult(trackData);
+          setPendingCartonReceipt(null);
+          setCartonVerificationError(null);
+        } else if (response.errors && response.errors.length > 0) {
+          const url = `/api/track/receipt?receipt=${encodeURIComponent(queryInput)}${cartons ? `&cartons=${encodeURIComponent(cartons)}` : ''}`;
+          const res = await fetch(url);
           const data = await res.json();
+          if (data.requiresCartonVerification) {
+            setPendingCartonReceipt(queryInput);
+            setCartonVerificationError(data.error || null);
+            setIsLoading(false);
+            return;
+          }
           if (res.ok && ((data.shipments && data.shipments.length > 0) || data.warehouseReceipt)) {
             setReceiptResult(data);
+            setPendingCartonReceipt(null);
+            setCartonVerificationError(null);
           } else {
             // Smart Fallback: Check if user entered a container alias/number while on receipt tab
             const containerRes = await fetch(`/api/track/container?container=${encodeURIComponent(queryInput)}`);
@@ -344,12 +373,16 @@ export default function PublicTrackerPage() {
             if (containerRes.ok && cData.container) {
               setActiveTab('container');
               setContainerResult(cData);
+              setPendingCartonReceipt(null);
+              setCartonVerificationError(null);
             } else {
-              throw new Error(data.error || response.errors[0].message);
+              if (pendingCartonReceipt || cartons) {
+                setCartonVerificationError(data.error || response.errors[0].message);
+              } else {
+                throw new Error(data.error || response.errors[0].message);
+              }
             }
           }
-        } else if (response.data?.trackByReceipt) {
-          setReceiptResult(response.data.trackByReceipt);
         }
       } else {
         const gqlQuery = `
@@ -796,6 +829,94 @@ export default function PublicTrackerPage() {
             </div>
           </div>
         </section>
+
+        {/* Carton Verification Card (When duplicate receipt found across multiple warehouses) */}
+        {pendingCartonReceipt && (
+          <section className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 animate-fadeIn mb-8">
+            <div className="bg-white rounded-3xl border-2 border-amber-300 shadow-xl p-6 sm:p-8 space-y-5">
+              <div className="flex items-start space-x-3.5">
+                <div className="p-3 bg-amber-100 text-amber-800 rounded-2xl shrink-0">
+                  <Boxes className="w-6 h-6 text-amber-700" />
+                </div>
+                <div>
+                  <span className="text-[11px] font-black uppercase tracking-wider text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-full border border-amber-200">
+                    Cargo Verification Required
+                  </span>
+                  <h3 className="text-lg font-black text-slate-900 mt-1">
+                    Multiple Warehouses Found for Receipt #{pendingCartonReceipt}
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                    This receipt number is registered in more than one China warehouse (each warehouse maintains its own receipt series). To display the correct tracking slip, please enter the total received cartons (CTN) printed on your China Warehouse Receipt.
+                  </p>
+                </div>
+              </div>
+
+              {cartonVerificationError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 font-medium flex items-center space-x-2">
+                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                  <span>{cartonVerificationError}</span>
+                </div>
+              )}
+
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!cartonInput.trim()) return;
+                  const parsed = parseInt(cartonInput.trim(), 10);
+                  if (isNaN(parsed) || parsed <= 0) {
+                    setCartonVerificationError('Please enter a valid carton count.');
+                    return;
+                  }
+                  performDirectSearch(pendingCartonReceipt, 'receipt', parsed);
+                }}
+                className="space-y-4 pt-1"
+              >
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                    Total Cartons / Packages (CTN) on Warehouse Receipt:
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={cartonInput}
+                    onChange={(e) => setCartonInput(e.target.value)}
+                    placeholder="e.g. 50"
+                    className="w-full px-4 py-3 text-sm font-mono font-bold rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-slate-50 focus:bg-white text-slate-900"
+                    autoFocus
+                  />
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPendingCartonReceipt(null);
+                      setCartonInput('');
+                      setCartonVerificationError(null);
+                    }}
+                    className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-800"
+                  >
+                    Cancel Search
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!cartonInput.trim() || isLoading}
+                    className="px-6 py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center space-x-2 disabled:opacity-50"
+                  >
+                    {isLoading ? (
+                      <span>Verifying...</span>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Verify &amp; View Tracking Slip</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </section>
+        )}
 
         {/* 5. Receipt & Container Search Results */}
         <div id="results-section" className="space-y-8">

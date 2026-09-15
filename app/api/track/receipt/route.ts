@@ -32,14 +32,71 @@ export async function GET(req: NextRequest) {
   try {
     await connectToDatabase();
 
-    // Perform case-insensitive search for receipt - returns ALL matching shipments across all containers
-    const rawShipments: any[] = await Shipment.find({
-      receipt: { $regex: new RegExp(`^${receiptQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
-    }).sort({ uploadedAt: -1 }).lean();
+    const cartonsParam = searchParams.get('cartons')?.trim();
 
-    const whItem: any = await WarehouseReceipt.findOne({
+    // Fetch all WarehouseReceipt documents matching this receipt number
+    const matchingWhItems: any[] = await WarehouseReceipt.find({
       receipt: { $regex: new RegExp(`^${receiptQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
-    }).lean();
+    }).sort({ createdAt: -1 }).lean();
+
+    const distinctWhNames = Array.from(new Set(matchingWhItems.map((w) => (w.warehouse || 'China Warehouse').trim())));
+
+    let whItem: any = null;
+    let selectedWarehouse: string = '';
+
+    if (distinctWhNames.length > 1) {
+      // Duplicate receipt across warehouses!
+      // Must check cartons against China Warehouse Receipt (w.quantity)
+      if (!cartonsParam) {
+        return NextResponse.json({
+          success: false,
+          requiresCartonVerification: true,
+          receipt: receiptQuery,
+          warehouseCount: distinctWhNames.length,
+          message: `Receipt #${receiptQuery} was found in multiple China warehouses. Please enter the number of cartons (CTN) printed on your warehouse receipt to verify your cargo.`,
+        });
+      }
+
+      const parsedCartons = parseInt(cartonsParam, 10);
+      if (isNaN(parsedCartons) || parsedCartons <= 0) {
+        return NextResponse.json(
+          { error: 'Please enter a valid positive carton count to verify your cargo.' },
+          { status: 400 }
+        );
+      }
+
+      // Match against China Warehouse Receipt quantity (pieces / carton count)
+      whItem = matchingWhItems.find((w) => Number(w.quantity) === parsedCartons);
+
+      if (!whItem) {
+        return NextResponse.json(
+          {
+            error: `Carton count (${parsedCartons} CTN) does not match any China warehouse receipt for #${receiptQuery}. Please check your warehouse receipt slip.`,
+            requiresCartonVerification: true,
+            receipt: receiptQuery,
+          },
+          { status: 400 }
+        );
+      }
+
+      selectedWarehouse = whItem.warehouse;
+    } else {
+      whItem = matchingWhItems[0] || null;
+      if (whItem) selectedWarehouse = whItem.warehouse;
+    }
+
+    // Now query shipments for this specific warehouse / receipt
+    const shipmentQuery: any = {
+      receipt: { $regex: new RegExp(`^${receiptQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+    };
+    if (selectedWarehouse && whItem) {
+      shipmentQuery.$or = [
+        { warehouse: new RegExp(`^${selectedWarehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+        { receiptId: whItem._id },
+      ];
+    }
+
+    const rawShipments: any[] = await Shipment.find(shipmentQuery).sort({ uploadedAt: -1 }).lean();
 
     if ((!rawShipments || rawShipments.length === 0) && !whItem) {
       return NextResponse.json(

@@ -211,6 +211,39 @@ export default function LoaderHub() {
     message: string;
   } | null>(null);
 
+  // Exact Error Reporting & Downloadable CSV State
+  const [uploadErrorDetails, setUploadErrorDetails] = useState<
+    Array<{ row?: number; receipt?: string; warehouse?: string; errorType?: string; reason: string }>
+  >([]);
+
+  const downloadErrorReportCsv = (
+    errors: Array<{ row?: number; receipt?: string; warehouse?: string; errorType?: string; reason: string }>,
+    fileName: string = 'Upload_Error_Report.csv'
+  ) => {
+    if (!errors || errors.length === 0) return;
+    const headers = ['Row Number', 'Receipt Number', 'Warehouse', 'Error Type', 'Exact Failure Reason'];
+    const csvRows = [headers.join(',')];
+
+    for (const err of errors) {
+      const rowNum = err.row !== undefined ? String(err.row) : '—';
+      const receipt = err.receipt ? `"${String(err.receipt).replace(/"/g, '""')}"` : '—';
+      const warehouse = err.warehouse ? `"${String(err.warehouse).replace(/"/g, '""')}"` : '—';
+      const errorType = err.errorType ? `"${String(err.errorType).replace(/"/g, '""')}"` : '"Validation Error"';
+      const reason = `"${String(err.reason || '').replace(/"/g, '""')}"`;
+      csvRows.push([rowNum, receipt, warehouse, errorType, reason].join(','));
+    }
+
+    const blob = new Blob([csvRows.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', fileName);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   // Upload Tracking & Deletion History State
   const [uploadSearchTerm, setUploadSearchTerm] = useState('');
   const [uploadTypeFilter, setUploadTypeFilter] = useState<'all' | 'stock' | 'plan'>('all');
@@ -552,11 +585,11 @@ export default function LoaderHub() {
       return;
     }
     if (!receiveReceipt.trim()) {
-      alert('Receipt number is strictly mandatory. Goods cannot be received without a receipt number (रिसीट नंबर अनिवार्य है).');
+      alert('Receipt number is strictly mandatory. Goods cannot be received without a receipt number.');
       return;
     }
     if (!receiveDate.trim()) {
-      alert('Receipt date is strictly mandatory. Goods cannot be received without a receipt date (रिसीट डेट अनिवार्य है).');
+      alert('Receipt date is strictly mandatory. Goods cannot be received without a receipt date.');
       return;
     }
     if (!receiveWarehouse.trim() || receiveWarehouse === 'ALL') {
@@ -1387,6 +1420,17 @@ export default function LoaderHub() {
 
       const data = await res.json();
       if (!res.ok) {
+        if (data.errorDetails && Array.isArray(data.errorDetails) && data.errorDetails.length > 0) {
+          setUploadErrorDetails(data.errorDetails);
+        } else if (data.validationErrors && Array.isArray(data.validationErrors) && data.validationErrors.length > 0) {
+          setUploadErrorDetails(
+            data.validationErrors.map((v: string) => ({
+              reason: v,
+              errorType: 'Stock Over-Allocation',
+              warehouse: excelUploadWarehouse,
+            }))
+          );
+        }
         throw new Error(data.error || 'Failed to upload Excel file');
       }
 
@@ -1422,12 +1466,27 @@ export default function LoaderHub() {
 
         const confirmedData = await confirmedRes.json();
         if (!confirmedRes.ok) {
+          if (confirmedData.errorDetails && Array.isArray(confirmedData.errorDetails) && confirmedData.errorDetails.length > 0) {
+            setUploadErrorDetails(confirmedData.errorDetails);
+          } else if (confirmedData.validationErrors && Array.isArray(confirmedData.validationErrors)) {
+            setUploadErrorDetails(
+              confirmedData.validationErrors.map((v: string) => ({
+                reason: v,
+                errorType: 'Stock Over-Allocation',
+                warehouse: excelUploadWarehouse,
+              }))
+            );
+          }
           throw new Error(confirmedData.error || 'Failed to upload Excel file');
         }
 
         dispatch(fetchWarehouseReceipts());
         dispatch(fetchLoadingPlans());
         dispatch(fetchUploadHistory());
+
+        if (confirmedData.errorDetails && Array.isArray(confirmedData.errorDetails)) {
+          setUploadErrorDetails(confirmedData.errorDetails);
+        }
 
         if ((confirmedData.duplicateCount && confirmedData.duplicateCount > 0) || (confirmedData.missingCount && confirmedData.missingCount > 0)) {
           setExcelUploadResult({
@@ -1460,6 +1519,7 @@ export default function LoaderHub() {
           setExcelTargetContainer('');
           setExcelUploadStatus(null);
           setExcelUploadResult(null);
+          setUploadErrorDetails([]);
         }, 1500);
         return;
       }
@@ -1467,6 +1527,10 @@ export default function LoaderHub() {
       dispatch(fetchWarehouseReceipts());
       dispatch(fetchLoadingPlans());
       dispatch(fetchUploadHistory());
+
+      if (data.errorDetails && Array.isArray(data.errorDetails)) {
+        setUploadErrorDetails(data.errorDetails);
+      }
 
       if ((data.duplicateCount && data.duplicateCount > 0) || (data.missingCount && data.missingCount > 0)) {
         setExcelUploadResult({
@@ -3852,6 +3916,7 @@ export default function LoaderHub() {
                   setExcelPreviewRows([]);
                   setExcelUploadStatus(null);
                   setExcelUploadResult(null);
+                  setUploadErrorDetails([]);
                 }}
                 className="text-slate-400 hover:text-white p-1 rounded-lg"
               >
@@ -3879,9 +3944,95 @@ export default function LoaderHub() {
                 </div>
               )}
 
+              {/* Detailed Error Report & CSV Download (When upload fails with specific errors) */}
+              {excelUploadStatus?.type === 'error' && uploadErrorDetails.length > 0 && (
+                <div className="p-4 bg-red-50/90 border-2 border-red-300 rounded-2xl space-y-3 animate-fadeIn">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                      <span className="text-xs font-bold text-red-900">
+                        Exact Failure Details ({uploadErrorDetails.length} issue{uploadErrorDetails.length > 1 ? 's' : ''} detected):
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        downloadErrorReportCsv(
+                          uploadErrorDetails,
+                          `Upload_Error_Report_${excelUploadWarehouse || 'China'}.csv`
+                        )
+                      }
+                      className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-sm transition"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download Error CSV</span>
+                    </button>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto rounded-xl border border-red-200 bg-white text-xs">
+                    <table className="w-full text-left">
+                      <thead className="bg-red-100/70 text-[10px] uppercase font-bold text-red-800 border-b border-red-200 sticky top-0">
+                        <tr>
+                          <th className="p-2">Row</th>
+                          <th className="p-2">Receipt #</th>
+                          <th className="p-2">Warehouse</th>
+                          <th className="p-2">Error Type</th>
+                          <th className="p-2">Exact Error / Reason</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-red-100 text-[11px]">
+                        {uploadErrorDetails.map((err, i) => (
+                          <tr key={i} className="hover:bg-red-50/50">
+                            <td className="p-2 font-mono font-bold text-slate-700">{err.row ? `Row ${err.row}` : '—'}</td>
+                            <td className="p-2 font-mono font-bold text-slate-900">{err.receipt || '—'}</td>
+                            <td className="p-2 text-slate-700">{err.warehouse || '—'}</td>
+                            <td className="p-2 font-semibold text-red-700">{err.errorType || 'Validation'}</td>
+                            <td className="p-2 text-slate-700">{err.reason}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
               {/* Rich Upload Results View (Shown when upload finishes with duplicates or missing rows) */}
               {excelUploadResult ? (
                 <div className="space-y-4 animate-fadeIn">
+                  {/* Download Skipped / Error CSV Bar */}
+                  <div className="flex items-center justify-between bg-slate-50 border border-slate-200 p-3 rounded-2xl">
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 block">Processing Complete</span>
+                      <span className="text-[11px] text-slate-500">You can download a CSV report of any skipped/duplicate records</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const allErrors = [
+                          ...(excelUploadResult.duplicates || []).map((d) => ({
+                            row: d.row,
+                            receipt: d.receipt,
+                            warehouse: d.warehouse || excelUploadWarehouse,
+                            errorType: 'Duplicate Receipt',
+                            reason: d.reason,
+                          })),
+                          ...(excelUploadResult.missingDetails || []).map((m) => ({
+                            row: m.row,
+                            receipt: '',
+                            warehouse: excelUploadWarehouse,
+                            errorType: 'Missing Mandatory Field',
+                            reason: m.reason,
+                          })),
+                          ...uploadErrorDetails,
+                        ];
+                        downloadErrorReportCsv(allErrors, `Upload_Skipped_Report_${excelUploadWarehouse || 'China'}.csv`);
+                      }}
+                      className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-sm transition"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download Skipped (.CSV)</span>
+                    </button>
+                  </div>
+
                   {/* Results Summary Cards */}
                   <div className="grid grid-cols-3 gap-3">
                     <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl text-center">
