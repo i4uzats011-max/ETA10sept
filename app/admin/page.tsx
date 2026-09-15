@@ -48,6 +48,8 @@ import {
   Settings2,
   Table,
   Plus,
+  Lock,
+  Key,
 } from 'lucide-react';
 
 const SHIPPING_LINES = [
