@@ -78,6 +78,9 @@ export interface LoadingPlanItem {
   destinationDate?: string;
   etaBufferDays?: number;
   status?: string;
+  lastApiSync?: string | Date | null;
+  apiCallCount?: number;
+  apiCalled?: boolean;
   shipmentCount?: number;
   totalQuantity?: number;
   totalWeight?: string;
