@@ -154,13 +154,22 @@ async function handleSync(req: NextRequest) {
             status: 'Synced',
           });
         } catch (err: any) {
+          let cleanErr = err?.message;
+          if (typeof cleanErr !== 'string' || cleanErr.includes('[object Object]')) {
+            try {
+              cleanErr = typeof err === 'object' ? JSON.stringify(err) : String(err);
+            } catch {
+              cleanErr = 'API sync failed during cron';
+            }
+          }
+
           // Log failed sync to SyncError collection
           try {
             await SyncError.create({
               container: containerAlias || 'N/A',
               containerNumber,
               shippingLine,
-              errorMessage: err?.message || 'API sync failed during cron',
+              errorMessage: cleanErr,
               source: 'cron',
             });
           } catch (logErr) {
@@ -172,7 +181,7 @@ async function handleSync(req: NextRequest) {
             shippingLine,
             previousEta: eta,
             status: 'Failed',
-            error: err?.message || 'API sync failed',
+            error: cleanErr,
           });
         }
       } else {

@@ -183,6 +183,12 @@ export async function POST(req: NextRequest) {
       { upsert: true, new: true }
     );
 
+    let latestStats: any = null;
+    try {
+      const { fetchApiKeyStats } = await import('@/lib/jsoncargo');
+      latestStats = await fetchApiKeyStats();
+    } catch {}
+
     return NextResponse.json({
       success: true,
       message: `Successfully fetched live ETA & tracking via JSONCargo API for '${publicAlias}' (Actual: ${finalTrackingNumber}, Company: ${carrierCompany})`,
@@ -202,6 +208,7 @@ export async function POST(req: NextRequest) {
       lastApiSync: now,
       updatedCount: updateResult.modifiedCount,
       dataDetails: tracking.dataDetails,
+      apiStats: latestStats,
     });
   } catch (error: any) {
     let cleanErr = error?.message;

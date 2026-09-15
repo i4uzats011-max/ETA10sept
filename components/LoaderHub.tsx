@@ -2641,16 +2641,34 @@ export default function LoaderHub() {
             <div className="flex items-center space-x-2 flex-wrap sm:flex-nowrap gap-y-2">
               {apiStats && (
                 <div
-                  className="flex items-center space-x-1.5 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl text-xs whitespace-nowrap shadow-xs"
-                  title="Remaining JSONCargo API calls for tracking containers"
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs whitespace-nowrap shadow-xs border ${
+                    apiStats.status === 'invalid_key'
+                      ? 'bg-rose-50 border-rose-200 text-rose-800'
+                      : (apiStats.remainingCalls ?? apiStats.requests_available ?? 0) < 50
+                      ? 'bg-rose-50 border-rose-200 text-rose-800'
+                      : (apiStats.remainingCalls ?? apiStats.requests_available ?? 0) < 150
+                      ? 'bg-amber-50 border-amber-200 text-amber-900'
+                      : 'bg-emerald-50 border-emerald-200 text-slate-800'
+                  }`}
+                  title={
+                    apiStats.status === 'invalid_key'
+                      ? `JSONCargo API Key Error: ${apiStats.error || 'Key invalid or rejected by JSONCargo'}`
+                      : `Remaining JSONCargo API calls: ${apiStats.usedCalls ?? apiStats.requests_made ?? 0} used / ${apiStats.totalCalls ?? apiStats.requests_total ?? 1000} total (Plan: ${apiStats.plan || 'Standard'})`
+                  }
                 >
-                  <Zap className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                  <span className="text-slate-600 font-medium">
-                    API Syncs Left:
-                    <strong className="font-mono text-emerald-800 font-bold ml-1">
-                      {apiStats.calls_balance ?? apiStats.remaining_calls ?? (apiStats.limit ? apiStats.limit - (apiStats.used || 0) : '—')}
-                    </strong>
-                    {apiStats.limit ? <span className="text-slate-400 text-[10px]"> / {apiStats.limit}</span> : ''}
+                  <Zap className={`w-3.5 h-3.5 ${apiStats.status === 'invalid_key' ? 'text-rose-600' : 'text-amber-500 fill-amber-400'} shrink-0`} />
+                  <span className="font-medium">
+                    {apiStats.status === 'invalid_key' ? (
+                      <span className="text-rose-700 font-bold">API Key Rejected (0 Left)</span>
+                    ) : (
+                      <>
+                        API Syncs Left:
+                        <strong className="font-mono text-emerald-800 font-bold ml-1">
+                          {apiStats.remainingCalls ?? apiStats.requests_available ?? 0}
+                        </strong>
+                        <span className="text-slate-400 text-[10px]"> / {apiStats.totalCalls ?? apiStats.requests_total ?? 1000}</span>
+                      </>
+                    )}
                   </span>
                 </div>
               )}

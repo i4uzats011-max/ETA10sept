@@ -266,7 +266,11 @@ export default function CargoMasterTable({
       if (!res.ok) throw new Error(data.error || 'Failed to sync carrier status');
       alert(`Status updated successfully for '${containerAlias}' (${containerNumber}).\nStatus: ${data.status || 'In Transit'}\nETA: ${data.eta || 'Updated'}`);
       dispatch(fetchCargoFleet());
-      fetchTableApiStats();
+      if (data.apiStats) {
+        setApiStats(data.apiStats);
+      } else {
+        fetchTableApiStats();
+      }
     } catch (err: any) {
       alert(err.message || 'API sync failed');
     } finally {
@@ -837,22 +841,28 @@ export default function CargoMasterTable({
                 <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full font-bold text-[11px]">
                   {filteredData.length} records
                 </span>
-                {apiStats && apiStats.status === 'configured' && (
+                {apiStats && (
                   <span
                     className={`inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full font-bold text-[11px] border ${
-                      (apiStats.remainingCalls ?? 0) < 50
+                      apiStats.status === 'invalid_key'
                         ? 'bg-rose-50 text-rose-700 border-rose-200'
-                        : (apiStats.remainingCalls ?? 0) < 150
+                        : (apiStats.remainingCalls ?? apiStats.requests_available ?? 0) < 50
+                        ? 'bg-rose-50 text-rose-700 border-rose-200'
+                        : (apiStats.remainingCalls ?? apiStats.requests_available ?? 0) < 150
                         ? 'bg-amber-50 text-amber-700 border-amber-200'
                         : 'bg-emerald-50 text-emerald-700 border-emerald-200'
                     }`}
-                    title={`JSONCargo Carrier API Quota: ${apiStats.usedCalls ?? 0} used / ${apiStats.totalCalls ?? 1000} total (Limit: ${apiStats.monthlyLimit ?? 1000}/mo)`}
+                    title={
+                      apiStats.status === 'invalid_key'
+                        ? `JSONCargo API Key Error: ${apiStats.error || 'Key invalid or rejected by JSONCargo'}`
+                        : `JSONCargo Carrier API Quota: ${apiStats.usedCalls ?? apiStats.requests_made ?? 0} used / ${apiStats.totalCalls ?? apiStats.requests_total ?? 1000} total (Plan: ${apiStats.plan || 'Standard'})`
+                    }
                   >
-                    <Zap className="w-3 h-3 text-amber-500 fill-amber-400" />
+                    <Zap className={`w-3 h-3 ${apiStats.status === 'invalid_key' ? 'text-rose-500' : 'text-amber-500 fill-amber-400'}`} />
                     <span>
-                      {apiStats.remainingCalls !== undefined
-                        ? `${apiStats.remainingCalls} API Syncs Left`
-                        : 'Carrier API Active'}
+                      {apiStats.status === 'invalid_key'
+                        ? '0 API Syncs Left (Key Error)'
+                        : `${apiStats.remainingCalls ?? apiStats.requests_available ?? 0} API Syncs Left`}
                     </span>
                   </span>
                 )}
