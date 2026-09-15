@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { closeDeliveryModal, markContainerDelivered } from '@/store/cargoMasterSlice';
+import { closeDeliveryModal, markContainerDelivered, setStatusFilter } from '@/store/cargoMasterSlice';
 import { formatGlobalDate, calculateDaysBetween } from '@/lib/dateUtils';
 import { X, CheckCircle2, Calendar, Clock, AlertTriangle, Truck, RotateCcw } from 'lucide-react';
 
@@ -83,6 +83,7 @@ export default function MarkDeliveredModal() {
         excludedReceipts: Array.from(excludedReceipts),
       })
     );
+    dispatch(setStatusFilter('delivered'));
   };
 
   const handleRevert = () => {
@@ -94,6 +95,7 @@ export default function MarkDeliveredModal() {
           isDelivered: false,
         })
       );
+      dispatch(setStatusFilter('in-transit'));
     }
   };
 
