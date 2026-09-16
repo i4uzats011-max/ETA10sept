@@ -61,14 +61,85 @@ export async function GET(req: NextRequest) {
       .limit(limit)
       .lean();
 
+    // Attach active container allocations to each receipt
+    const receiptIds = receipts.map((r: any) => r._id);
+    const receiptNumbers = receipts.map((r: any) => r.receipt);
+
+    const activeShipments = await Shipment.find({
+      $or: [
+        { receiptId: { $in: receiptIds } },
+        { receipt: { $in: receiptNumbers } },
+      ],
+    })
+      .select('receipt receiptId container containerNumber shippingLine quantity')
+      .lean();
+
+    const containerMapById = new Map<string, Array<{ container: string; containerNumber?: string; shippingLine?: string; quantity: string | number }>>();
+    const containerMapByNum = new Map<string, Array<{ container: string; containerNumber?: string; shippingLine?: string; quantity: string | number }>>();
+
+    for (const s of activeShipments) {
+      const entry = {
+        container: s.container,
+        containerNumber: s.containerNumber || '',
+        shippingLine: s.shippingLine || 'MSC',
+        quantity: s.quantity || '0',
+      };
+      if (s.receiptId) {
+        const idKey = String(s.receiptId);
+        if (!containerMapById.has(idKey)) containerMapById.set(idKey, []);
+        containerMapById.get(idKey)!.push(entry);
+      }
+      if (s.receipt) {
+        const numKey = s.receipt.toUpperCase().trim();
+        if (!containerMapByNum.has(numKey)) containerMapByNum.set(numKey, []);
+        containerMapByNum.get(numKey)!.push(entry);
+      }
+    }
+
+    const enhancedReceipts = receipts.map((r: any) => {
+      const idKey = String(r._id);
+      const numKey = (r.receipt || '').toUpperCase().trim();
+      const containers = containerMapById.get(idKey) || containerMapByNum.get(numKey) || [];
+
+      // Calculate actual loaded cartons from active shipments
+      let actualLoaded = 0;
+      for (const c of containers) {
+        const q = parseInt(String(c.quantity || 0), 10);
+        if (!isNaN(q)) actualLoaded += q;
+      }
+
+      const totalQty = r.quantity || 0;
+      // Rule: Container must be attached to be Partially Loaded or Fully Loaded
+      const hasContainers = containers.length > 0 && actualLoaded > 0;
+      const loaded = hasContainers ? actualLoaded : 0;
+      const remaining = Math.max(0, totalQty - loaded);
+
+      let status = 'Received in Warehouse';
+      if (hasContainers) {
+        if (loaded >= totalQty && totalQty > 0) {
+          status = 'Fully Loaded';
+        } else {
+          status = 'Partially Loaded';
+        }
+      }
+
+      return {
+        ...r,
+        loadedQuantity: loaded,
+        remainingQuantity: remaining,
+        status,
+        containers,
+      };
+    });
+
     // Also get distinct warehouse list to populate dropdown
     const distinctWarehouses = await WarehouseReceipt.distinct('warehouse');
     distinctWarehouses.sort();
 
     return NextResponse.json({
       success: true,
-      count: receipts.length,
-      receipts,
+      count: enhancedReceipts.length,
+      receipts: enhancedReceipts,
       warehouses: distinctWarehouses.filter(Boolean),
     });
   } catch (error: any) {

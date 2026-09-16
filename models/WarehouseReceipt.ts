@@ -17,7 +17,7 @@ export interface IWarehouseReceipt extends Document {
   packaging?: string;           // Packaging type (Carton, Box, Pallet, etc.)
   mainMarka?: string;           // Main shipping mark
   subMarka?: string;            // Sub mark
-  status: 'Received' | 'Partially Loaded' | 'Fully Loaded' | 'Delivered'; // Loading status
+  status: 'Received in Warehouse' | 'Received' | 'Partially Loaded' | 'Fully Loaded' | 'Delivered'; // Loading status: Received in Warehouse, Partially Loaded, Fully Loaded
   stockstatus?: string;         // 'In Stock' | 'Partially Dispatched' | 'Dispatched' | 'Delivered'
   deliveryDate?: string;        // Final delivery date
   isDelivered?: boolean;        // Delivery status
@@ -48,8 +48,8 @@ const WarehouseReceiptSchema = new Schema<IWarehouseReceipt>(
     subMarka: { type: String, default: '' },
     status: {
       type: String,
-      enum: ['Received', 'Partially Loaded', 'Fully Loaded', 'Delivered'],
-      default: 'Received',
+      enum: ['Received in Warehouse', 'Received', 'Partially Loaded', 'Fully Loaded', 'Delivered'],
+      default: 'Received in Warehouse',
       index: true,
     },
     stockstatus: { type: String, default: 'In Stock' },
@@ -76,7 +76,7 @@ WarehouseReceiptSchema.pre('save', function (next) {
   if (this.quantity !== undefined && this.loadedQuantity !== undefined) {
     this.remainingQuantity = Math.max(0, this.quantity - this.loadedQuantity);
     if (this.loadedQuantity <= 0) {
-      this.status = 'Received';
+      this.status = 'Received in Warehouse';
       this.stockstatus = 'In Stock';
     } else if (this.loadedQuantity >= this.quantity) {
       this.status = 'Fully Loaded';

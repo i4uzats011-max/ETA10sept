@@ -179,6 +179,8 @@ export default function LoaderHub() {
   const [isContainerWiseLoadOpen, setIsContainerWiseLoadOpen] = useState(false);
   const [containerWisePlan, setContainerWisePlan] = useState<LoadingPlanItem | null>(null);
   const [containerWiseReceiptId, setContainerWiseReceiptId] = useState('');
+  const [containerWiseReceiptSearch, setContainerWiseReceiptSearch] = useState('');
+  const [isReceiptDropdownOpen, setIsReceiptDropdownOpen] = useState(false);
   const [containerWiseQuantity, setContainerWiseQuantity] = useState<number | ''>('');
   const [containerWiseWeight, setContainerWiseWeight] = useState('');
   const [containerWiseVolume, setContainerWiseVolume] = useState('');
@@ -830,9 +832,25 @@ export default function LoaderHub() {
     );
   }, [containerWiseReceiptId, availableReceiptsWithStock]);
 
+  // Filtered available receipts for container loading search combobox
+  const filteredAvailableReceipts = useMemo(() => {
+    if (!containerWiseReceiptSearch.trim()) return availableReceiptsWithStock;
+    const q = containerWiseReceiptSearch.toLowerCase().trim();
+    return availableReceiptsWithStock.filter(
+      (r) =>
+        r.receipt.toLowerCase().includes(q) ||
+        (r.party || '').toLowerCase().includes(q) ||
+        (r.english || r.commodity || '').toLowerCase().includes(q) ||
+        (r.chinese || '').toLowerCase().includes(q) ||
+        (r.warehouse || '').toLowerCase().includes(q)
+    );
+  }, [availableReceiptsWithStock, containerWiseReceiptSearch]);
+
   // Open Container-Wise Load Modal
   const handleOpenContainerWiseLoad = (plan: LoadingPlanItem) => {
     setContainerWisePlan(plan);
+    setContainerWiseReceiptSearch('');
+    setIsReceiptDropdownOpen(false);
     const firstStock = availableReceiptsWithStock[0];
     if (firstStock) {
       setContainerWiseReceiptId(firstStock._id || firstStock.receipt);
@@ -949,19 +967,27 @@ export default function LoaderHub() {
         return false;
       }
       // Status filter
-      if (statusFilter !== 'all' && r.status !== statusFilter) {
-        return false;
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'Received' || statusFilter === 'Received in Warehouse') {
+          if (r.status !== 'Received' && r.status !== 'Received in Warehouse') return false;
+        } else if (r.status !== statusFilter) {
+          return false;
+        }
       }
       // Search term
       if (searchTerm.trim()) {
         const s = searchTerm.toLowerCase();
         const matchReceipt = r.receipt?.toLowerCase().includes(s);
+        const matchParty = r.party?.toLowerCase().includes(s);
         const matchCommodity = r.commodity?.toLowerCase().includes(s);
         const matchChinese = r.chinese?.toLowerCase().includes(s);
         const matchEnglish = r.english?.toLowerCase().includes(s);
         const matchMainMark = r.mainMarka?.toLowerCase().includes(s);
         const matchSubMark = r.subMarka?.toLowerCase().includes(s);
-        if (!matchReceipt && !matchCommodity && !matchChinese && !matchEnglish && !matchMainMark && !matchSubMark) {
+        const matchContainer = (r.containers || []).some(
+          (c) => c.container?.toLowerCase().includes(s) || (c.containerNumber || '').toLowerCase().includes(s)
+        );
+        if (!matchReceipt && !matchParty && !matchCommodity && !matchChinese && !matchEnglish && !matchMainMark && !matchSubMark && !matchContainer) {
           return false;
         }
       }
@@ -1013,13 +1039,21 @@ export default function LoaderHub() {
     }
 
     if (planSearchQuery.trim()) {
-      const q = planSearchQuery.toLowerCase();
+      const q = planSearchQuery.toLowerCase().trim();
       list = list.filter(
         (p) =>
           p.container.toLowerCase().includes(q) ||
           (p.containerNumber || '').toLowerCase().includes(q) ||
           (p.warehouse || '').toLowerCase().includes(q) ||
-          (p.shippingLine || '').toLowerCase().includes(q)
+          (p.shippingLine || '').toLowerCase().includes(q) ||
+          (p.items &&
+            p.items.some(
+              (item) =>
+                (item.receipt || '').toLowerCase().includes(q) ||
+                (item.party || '').toLowerCase().includes(q) ||
+                (item.commodity || '').toLowerCase().includes(q) ||
+                (item.english || '').toLowerCase().includes(q)
+            ))
       );
     }
     return list;
@@ -1936,23 +1970,98 @@ export default function LoaderHub() {
       },
       {
         accessorKey: 'status',
-        header: 'Status',
+        header: 'Goods Status',
         cell: ({ row }) => {
           const r = row.original;
+          const isFullyLoaded = r.status === 'Fully Loaded';
+          const isPartiallyLoaded = r.status === 'Partially Loaded';
+
           return (
             <span
-              className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${
-                r.status === 'Fully Loaded'
-                  ? 'bg-emerald-100 text-emerald-800'
-                  : r.status === 'Partially Loaded'
-                  ? 'bg-blue-100 text-blue-800'
-                  : 'bg-amber-50 text-amber-800 border border-amber-200'
+              className={`inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-bold tracking-tight shadow-xs whitespace-nowrap ${
+                isFullyLoaded
+                  ? 'bg-emerald-100 text-emerald-900 border border-emerald-300 font-black'
+                  : isPartiallyLoaded
+                  ? 'bg-blue-100 text-blue-900 border border-blue-300 font-black'
+                  : 'bg-amber-100 text-amber-900 border border-amber-300 font-bold'
               }`}
             >
-              {r.status === 'Fully Loaded' && <CheckCircle2 className="w-2.5 h-2.5" />}
-              {r.status === 'Partially Loaded' && <Split className="w-2.5 h-2.5" />}
-              {r.status === 'Received' && <Clock className="w-2.5 h-2.5" />}
-              <span>{r.status}</span>
+              {isFullyLoaded && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />}
+              {isPartiallyLoaded && <Split className="w-3.5 h-3.5 text-blue-700 shrink-0" />}
+              {!isFullyLoaded && !isPartiallyLoaded && <Clock className="w-3.5 h-3.5 text-amber-700 shrink-0" />}
+              <span>
+                {isFullyLoaded
+                  ? 'Fully Loaded'
+                  : isPartiallyLoaded
+                  ? `Partially Loaded (${r.loadedQuantity || 0}/${r.quantity} CTN)`
+                  : 'Received in Warehouse'}
+              </span>
+            </span>
+          );
+        },
+      },
+      {
+        id: 'containerAllocation',
+        header: 'Loaded Container / Status',
+        cell: ({ row }) => {
+          const r = row.original;
+          const containersFromReceipt = r.containers && r.containers.length > 0 ? r.containers : [];
+
+          // Dynamic lookup from loadingPlans state in Redux as well
+          let resolvedContainers = [...containersFromReceipt];
+          if (resolvedContainers.length === 0) {
+            const rKey = (r.receipt || '').toUpperCase().trim();
+            for (const p of loadingPlans) {
+              for (const item of p.items || []) {
+                if ((item.receipt || '').toUpperCase().trim() === rKey) {
+                  resolvedContainers.push({
+                    container: p.container,
+                    containerNumber: p.containerNumber || '',
+                    shippingLine: p.shippingLine || 'MSC',
+                    quantity: item.quantity,
+                  });
+                }
+              }
+            }
+          }
+
+          if (resolvedContainers.length > 0) {
+            return (
+              <div className="flex flex-col gap-1 py-0.5">
+                {resolvedContainers.map((c, idx) => (
+                  <button
+                    key={`${c.container}-${idx}`}
+                    type="button"
+                    onClick={() => {
+                      const targetPlan = loadingPlans.find(
+                        (p) => p.container.toUpperCase() === c.container.toUpperCase()
+                      );
+                      if (targetPlan) {
+                        dispatch(setActivePlan(targetPlan));
+                        setActiveSubTab('plans');
+                      }
+                    }}
+                    title={`Click to view loading plan for ${c.container}`}
+                    className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-900 hover:bg-red-600 text-white transition shadow-xs text-left max-w-fit cursor-pointer group"
+                  >
+                    <Boxes className="w-3 h-3 text-red-400 group-hover:text-white shrink-0" />
+                    <span className="font-mono font-black">{c.container}</span>
+                    {c.containerNumber ? (
+                      <span className="text-[11px] text-amber-300 font-mono">({c.containerNumber})</span>
+                    ) : null}
+                    <span className="text-[10px] bg-white/20 text-white px-1.5 py-0.5 rounded-full font-sans ml-1">
+                      {c.quantity} CTN
+                    </span>
+                  </button>
+                ))}
+              </div>
+            );
+          }
+
+          return (
+            <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+              <span>Available (To Load)</span>
             </span>
           );
         },
@@ -2405,29 +2514,35 @@ export default function LoaderHub() {
               </div>
 
               {/* Status Filter */}
-              <div className="flex items-center space-x-1">
-                {(['all', 'Received', 'Partially Loaded', 'Fully Loaded'] as const).map((st) => (
+              <div className="flex items-center space-x-1 overflow-x-auto">
+                {[
+                  { id: 'all', label: 'All Status' },
+                  { id: 'Received', label: 'Received in Warehouse' },
+                  { id: 'Partially Loaded', label: 'Partially Loaded' },
+                  { id: 'Fully Loaded', label: 'Fully Loaded' },
+                ].map((st) => (
                   <button
-                    key={st}
-                    onClick={() => dispatch(setStatusFilter(st))}
-                    className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
-                      statusFilter === st
-                        ? 'bg-slate-900 text-white shadow-sm'
+                    key={st.id}
+                    type="button"
+                    onClick={() => dispatch(setStatusFilter(st.id as any))}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition whitespace-nowrap ${
+                      statusFilter === st.id || (st.id === 'Received' && statusFilter === 'Received in Warehouse')
+                        ? 'bg-slate-900 text-white shadow-sm font-black'
                         : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                     }`}
                   >
-                    {st === 'all' ? 'All Status' : st}
+                    {st.label}
                   </button>
                 ))}
               </div>
             </div>
 
             {/* Search Box */}
-            <div className="relative min-w-[240px]">
+            <div className="relative min-w-[260px]">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
               <input
                 type="text"
-                placeholder="Search Receipt, Commodity, Marka..."
+                placeholder="Search Receipt #, Container #, Party, Marka..."
                 value={searchTerm}
                 onChange={(e) => dispatch(setSearchTerm(e.target.value))}
                 className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 bg-slate-50 focus:bg-white"
@@ -2679,7 +2794,7 @@ export default function LoaderHub() {
                   type="text"
                   value={planSearchQuery}
                   onChange={(e) => setPlanSearchQuery(e.target.value)}
-                  placeholder="Search plan / container..."
+                  placeholder="Search plan, container #, or receipt #..."
                   className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500"
                 />
               </div>
@@ -2732,6 +2847,32 @@ export default function LoaderHub() {
                         {plan.isDelivered ? 'Delivered' : isArrived ? 'Arrived' : plan.isFinalized ? 'Finalized' : 'Planning'}
                       </span>
                     </div>
+
+                    {/* Matched Receipt Search Highlight Banner */}
+                    {planSearchQuery.trim() &&
+                      plan.items &&
+                      plan.items.some(
+                        (item) =>
+                          (item.receipt || '').toLowerCase().includes(planSearchQuery.toLowerCase().trim()) ||
+                          (item.party || '').toLowerCase().includes(planSearchQuery.toLowerCase().trim())
+                      ) && (
+                        <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded-xl flex items-center space-x-1.5 text-xs text-red-900 font-bold animate-fadeIn">
+                          <Package className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                          <span className="truncate">
+                            Matched Receipt:{' '}
+                            <strong className="font-mono text-red-700 font-black">
+                              {plan.items
+                                .filter(
+                                  (item) =>
+                                    (item.receipt || '').toLowerCase().includes(planSearchQuery.toLowerCase().trim()) ||
+                                    (item.party || '').toLowerCase().includes(planSearchQuery.toLowerCase().trim())
+                                )
+                                .map((item) => `#${item.receipt} (${item.quantity} CTN)`)
+                                .join(', ')}
+                            </strong>
+                          </span>
+                        </div>
+                      )}
 
                     <div className="space-y-2 text-xs border-t border-slate-100 pt-3 text-slate-600">
                       <div className="flex justify-between">
@@ -6252,35 +6393,152 @@ export default function LoaderHub() {
                 </div>
               ) : (
                 <>
-                  {/* Select Received Warehouse Stock */}
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                      Select Received Goods from Warehouse Stock *
+                  {/* Searchable Receipt Picker for Container Cargo Loading */}
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center justify-between">
+                      <span>Search &amp; Select Receipt No. (From Warehouse Stock) *</span>
+                      <span className="text-[11px] font-bold text-emerald-700">
+                        {availableReceiptsWithStock.length} receipt(s) available
+                      </span>
                     </label>
-                    <select
-                      value={containerWiseReceiptId}
-                      onChange={(e) => {
-                        const rId = e.target.value;
-                        setContainerWiseReceiptId(rId);
-                        const r = availableReceiptsWithStock.find((x) => (x._id || x.receipt) === rId);
-                        if (r) {
-                          const rem = r.remainingQuantity !== undefined ? r.remainingQuantity : r.quantity - (r.loadedQuantity || 0);
-                          setContainerWiseQuantity(rem > 0 ? rem : '');
-                          setContainerWiseWeight(r.weight || '');
-                          setContainerWiseVolume(r.volume || '');
-                        }
-                      }}
-                      className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-emerald-500"
-                    >
-                      {availableReceiptsWithStock.map((r) => {
-                        const rem = r.remainingQuantity !== undefined ? r.remainingQuantity : r.quantity - (r.loadedQuantity || 0);
-                        return (
-                          <option key={r._id || r.receipt} value={r._id || r.receipt}>
-                            Receipt #{r.receipt} | {r.party || 'General'} | {r.english || r.commodity || 'Goods'} ({rem} CTN available in {r.warehouse})
-                          </option>
-                        );
-                      })}
-                    </select>
+
+                    <div className="relative">
+                      <div className="relative flex items-center">
+                        <Search className="w-4 h-4 absolute left-3.5 text-slate-400 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={containerWiseReceiptSearch}
+                          onChange={(e) => {
+                            setContainerWiseReceiptSearch(e.target.value);
+                            setIsReceiptDropdownOpen(true);
+                          }}
+                          onFocus={() => setIsReceiptDropdownOpen(true)}
+                          placeholder="Type receipt # to search &amp; select (e.g. 260902006)..."
+                          className="w-full pl-10 pr-9 py-2 text-xs font-bold rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 shadow-xs font-mono"
+                        />
+                        {containerWiseReceiptSearch ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setContainerWiseReceiptSearch('');
+                              setIsReceiptDropdownOpen(true);
+                            }}
+                            className="absolute right-3 text-slate-400 hover:text-slate-600 p-0.5"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        ) : null}
+                      </div>
+
+                      {/* Filtered Suggestion Dropdown */}
+                      {isReceiptDropdownOpen && (
+                        <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white border border-slate-200 rounded-2xl shadow-2xl max-h-56 overflow-y-auto divide-y divide-slate-100 animate-fadeIn">
+                          <div className="p-2 bg-slate-50 text-[10px] font-bold text-slate-500 flex justify-between items-center sticky top-0 border-b border-slate-200 z-10">
+                            <span>Found {filteredAvailableReceipts.length} matching receipt(s)</span>
+                            <button
+                              type="button"
+                              onClick={() => setIsReceiptDropdownOpen(false)}
+                              className="text-slate-500 hover:text-slate-800 text-[10px] uppercase font-bold"
+                            >
+                              Close ✕
+                            </button>
+                          </div>
+
+                          {filteredAvailableReceipts.length === 0 ? (
+                            <div className="p-4 text-center text-xs text-slate-400 italic">
+                              No received goods found matching &quot;{containerWiseReceiptSearch}&quot;
+                            </div>
+                          ) : (
+                            filteredAvailableReceipts.map((r) => {
+                              const rem =
+                                r.remainingQuantity !== undefined
+                                  ? r.remainingQuantity
+                                  : r.quantity - (r.loadedQuantity || 0);
+                              const isSelected = (r._id || r.receipt) === containerWiseReceiptId;
+                              return (
+                                <button
+                                  key={r._id || r.receipt}
+                                  type="button"
+                                  onClick={() => {
+                                    setContainerWiseReceiptId(r._id || r.receipt);
+                                    setContainerWiseQuantity(rem > 0 ? rem : '');
+                                    setContainerWiseWeight(r.weight || '');
+                                    setContainerWiseVolume(r.volume || '');
+                                    setContainerWiseReceiptSearch(r.receipt);
+                                    setIsReceiptDropdownOpen(false);
+                                  }}
+                                  className={`w-full p-2.5 text-left hover:bg-emerald-50/70 transition flex items-center justify-between gap-2 ${
+                                    isSelected ? 'bg-emerald-50 ring-1 ring-emerald-400' : ''
+                                  }`}
+                                >
+                                  <div className="min-w-0">
+                                    <div className="flex items-center space-x-2">
+                                      <span className="font-mono font-black text-slate-900 text-xs">
+                                        #{r.receipt}
+                                      </span>
+                                      <span className="text-[11px] font-bold text-slate-700 truncate">
+                                        {r.party || 'General Party'}
+                                      </span>
+                                      <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded font-medium">
+                                        {r.warehouse || 'China Warehouse'}
+                                      </span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 truncate mt-0.5" title={r.english || r.commodity || ''}>
+                                      {r.english || r.commodity || 'General Goods'}
+                                    </p>
+                                  </div>
+
+                                  <div className="text-right shrink-0">
+                                    <span className="inline-block px-2 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                      {rem} CTN Available
+                                    </span>
+                                    <span className="block text-[10px] text-slate-400 mt-0.5">
+                                      (Total: {r.quantity} CTN)
+                                    </span>
+                                  </div>
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Quick Dropdown Fallback */}
+                    <div className="pt-1 flex items-center space-x-2">
+                      <span className="text-[11px] text-slate-400 font-semibold whitespace-nowrap">Or quick select:</span>
+                      <select
+                        value={containerWiseReceiptId}
+                        onChange={(e) => {
+                          const rId = e.target.value;
+                          setContainerWiseReceiptId(rId);
+                          const r = availableReceiptsWithStock.find((x) => (x._id || x.receipt) === rId);
+                          if (r) {
+                            const rem =
+                              r.remainingQuantity !== undefined
+                                ? r.remainingQuantity
+                                : r.quantity - (r.loadedQuantity || 0);
+                            setContainerWiseQuantity(rem > 0 ? rem : '');
+                            setContainerWiseWeight(r.weight || '');
+                            setContainerWiseVolume(r.volume || '');
+                            setContainerWiseReceiptSearch(r.receipt);
+                          }
+                        }}
+                        className="w-full px-2.5 py-1 text-xs font-semibold rounded-lg border border-slate-200 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-emerald-500"
+                      >
+                        {availableReceiptsWithStock.map((r) => {
+                          const rem =
+                            r.remainingQuantity !== undefined
+                              ? r.remainingQuantity
+                              : r.quantity - (r.loadedQuantity || 0);
+                          return (
+                            <option key={r._id || r.receipt} value={r._id || r.receipt}>
+                              #{r.receipt} - {r.party || 'General'} ({rem} CTN in {r.warehouse})
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
                   </div>
 
                   {/* Selected Receipt Stock Card */}

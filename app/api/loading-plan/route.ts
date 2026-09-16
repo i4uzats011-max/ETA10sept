@@ -348,6 +348,11 @@ export async function POST(req: NextRequest) {
         }
         whReceipt = await WarehouseReceipt.findOne(whFilter);
       }
+      if (!whReceipt) {
+        whReceipt = await WarehouseReceipt.findOne({
+          receipt: new RegExp(`^${receiptNum.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        });
+      }
 
       if (whReceipt) {
         whReceipt.loadedQuantity = Math.max(0, (whReceipt.loadedQuantity || 0) - qtyRestored);
@@ -413,6 +418,11 @@ export async function POST(req: NextRequest) {
             whFilter.warehouse = new RegExp(`^${s.warehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
           }
           whReceipt = await WarehouseReceipt.findOne(whFilter);
+        }
+        if (!whReceipt) {
+          whReceipt = await WarehouseReceipt.findOne({
+            receipt: new RegExp(`^${(s.receipt || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+          });
         }
         if (whReceipt) {
           whReceipt.loadedQuantity = Math.max(0, (whReceipt.loadedQuantity || 0) - qty);
@@ -1087,6 +1097,11 @@ export async function POST(req: NextRequest) {
             }
             whReceipt = await WarehouseReceipt.findOne(whFilter);
           }
+          if (!whReceipt) {
+            whReceipt = await WarehouseReceipt.findOne({
+              receipt: new RegExp(`^${(s.receipt || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+            });
+          }
           if (whReceipt) {
             whReceipt.loadedQuantity = Math.max(0, (whReceipt.loadedQuantity || 0) - qty);
             whReceipt.remainingQuantity = Math.max(0, whReceipt.quantity - whReceipt.loadedQuantity);
@@ -1198,6 +1213,11 @@ export async function DELETE(req: NextRequest) {
             whFilter.warehouse = new RegExp(`^${s.warehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
           }
           whReceipt = await WarehouseReceipt.findOne(whFilter);
+        }
+        if (!whReceipt) {
+          whReceipt = await WarehouseReceipt.findOne({
+            receipt: new RegExp(`^${(s.receipt || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+          });
         }
         if (whReceipt) {
           whReceipt.loadedQuantity = Math.max(0, (whReceipt.loadedQuantity || 0) - qty);
