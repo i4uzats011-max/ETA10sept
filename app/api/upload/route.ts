@@ -250,7 +250,6 @@ export async function POST(req: NextRequest) {
       // ── DUPLICATE & MANDATORY FIELD VALIDATION (PARTIAL SAVE UNIQUE RECORDS) ──
       const duplicatesList: Array<{ receipt: string; warehouse: string; row: number; reason: string }> = [];
       const missingDetails: Array<{ row: number; reason: string }> = [];
-      const seenInFile = new Set<string>();
 
       interface ValidCandidate {
         row: Record<string, any>;
@@ -258,8 +257,9 @@ export async function POST(req: NextRequest) {
         receiptVal: string;
         dateVal: string;
         warehouseVal: string;
+        extraRows: Array<{ row: Record<string, any>; index: number }>;
       }
-      const candidateRows: ValidCandidate[] = [];
+      const candidateMap = new Map<string, ValidCandidate>();
 
       for (let index = 0; index < records.length; index++) {
         const row = records[index];
@@ -287,27 +287,24 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        // 3. Intra-file Duplicate Check (First instance is candidate, subsequent instances are duplicate)
+        // 3. Check for multiple items under the same receipt within the file
         const fileKey = `${rawReceipt.toLowerCase()}___${fWh.toLowerCase()}`;
-        if (seenInFile.has(fileKey)) {
-          duplicatesList.push({
-            receipt: rawReceipt,
-            warehouse: fWh,
-            row: index + 2,
-            reason: `Duplicate receipt within file at Row ${index + 2}. Already included earlier in this file.`,
-          });
+        if (candidateMap.has(fileKey)) {
+          candidateMap.get(fileKey)!.extraRows.push({ row, index });
           continue;
         }
 
-        seenInFile.add(fileKey);
-        candidateRows.push({
+        candidateMap.set(fileKey, {
           row,
           index,
           receiptVal: rawReceipt,
           dateVal: formattedDate,
           warehouseVal: fWh,
+          extraRows: [],
         });
       }
+
+      const candidateRows = Array.from(candidateMap.values());
 
       // Check candidate records against Database for duplicates in the same warehouse
       const pairsToCheck = candidateRows.map((c) => ({
@@ -340,43 +337,71 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        // UNIQUE & VALID RECORD -> Prepare to save
-        const row = item.row;
-        const partyVal = partyHeader && row[partyHeader] !== undefined && String(row[partyHeader]).trim()
-          ? String(row[partyHeader]).trim()
+        // UNIQUE & VALID RECORD -> Prepare items and save
+        const allItemRows = [{ row: item.row, index: item.index }, ...item.extraRows];
+        const receiptItems: any[] = [];
+        let totalQty = 0;
+
+        for (const it of allItemRows) {
+          const r = it.row;
+          const rQty = quantityHeader && r[quantityHeader] !== undefined ? parseInt(String(r[quantityHeader]).trim(), 10) || 0 : 0;
+          totalQty += rQty;
+          const rCommodity = commodityHeader && r[commodityHeader] !== undefined ? String(r[commodityHeader]).trim() : '';
+          const rEnglish = englishHeader && r[englishHeader] !== undefined ? String(r[englishHeader]).trim() : '';
+
+          const { english: tEn, chinese: tCn } = translateCommodity(rCommodity);
+          const itEn = rEnglish ? (hasChineseCharacters(rEnglish) ? translateToEnglish(rEnglish) : rEnglish) : tEn;
+          const itCn = tCn || (hasChineseCharacters(rCommodity) ? rCommodity : '');
+          const itPkg = translatePackaging(packagingHeader && r[packagingHeader] !== undefined ? String(r[packagingHeader]).trim() : '');
+          const itWt = weightHeader && r[weightHeader] !== undefined ? String(r[weightHeader]).trim() : '';
+          const itVol = volumeHeader && r[volumeHeader] !== undefined ? String(r[volumeHeader]).trim() : '';
+
+          receiptItems.push({
+            itemName: itEn || rCommodity || 'General Goods',
+            english: itEn || rCommodity || 'General Goods',
+            chinese: itCn,
+            quantity: rQty,
+            packaging: itPkg || 'Carton',
+            weight: itWt,
+            volume: itVol,
+            mainMarka: translateMark(mainMarkHeader && r[mainMarkHeader] !== undefined ? String(r[mainMarkHeader]).trim() : ''),
+            subMarka: translateMark(subMarkHeader && r[subMarkHeader] !== undefined ? String(r[subMarkHeader]).trim() : ''),
+          });
+        }
+
+        const primaryRow = item.row;
+        const partyVal = partyHeader && primaryRow[partyHeader] !== undefined && String(primaryRow[partyHeader]).trim()
+          ? String(primaryRow[partyHeader]).trim()
           : 'General Party';
 
-        const rawQty = quantityHeader && row[quantityHeader] !== undefined ? String(row[quantityHeader]).trim() : '0';
-        const parsedQty = parseInt(rawQty, 10) || 0;
-        const rawCommodity = commodityHeader && row[commodityHeader] !== undefined ? String(row[commodityHeader]).trim() : '';
-        const rawEnglish = englishHeader && row[englishHeader] !== undefined ? String(row[englishHeader]).trim() : '';
+        const finalPackaging = translatePackaging(packagingHeader && primaryRow[packagingHeader] !== undefined ? String(primaryRow[packagingHeader]).trim() : '');
+        const finalMainMark = translateMark(mainMarkHeader && primaryRow[mainMarkHeader] !== undefined ? String(primaryRow[mainMarkHeader]).trim() : '');
+        const finalSubMark = translateMark(subMarkHeader && primaryRow[subMarkHeader] !== undefined ? String(primaryRow[subMarkHeader]).trim() : '');
 
-        // Chinese to English translation
-        const { english: translatedEnglish, chinese: translatedChinese } = translateCommodity(rawCommodity);
-        const finalEnglish = rawEnglish ? (hasChineseCharacters(rawEnglish) ? translateToEnglish(rawEnglish) : rawEnglish) : translatedEnglish;
-        const finalChinese = translatedChinese || (hasChineseCharacters(rawCommodity) ? rawCommodity : '');
-        const finalPackaging = translatePackaging(packagingHeader && row[packagingHeader] !== undefined ? String(row[packagingHeader]).trim() : '');
-        const finalMainMark = translateMark(mainMarkHeader && row[mainMarkHeader] !== undefined ? String(row[mainMarkHeader]).trim() : '');
-        const finalSubMark = translateMark(subMarkHeader && row[subMarkHeader] !== undefined ? String(row[subMarkHeader]).trim() : '');
+        const compositeCommodity = receiptItems.length > 1
+          ? receiptItems.map((ri) => `${ri.itemName}${ri.quantity ? ` (${ri.quantity} CTN)` : ''}`).join(', ')
+          : (receiptItems[0]?.itemName || 'General Goods');
+        const compositeChinese = receiptItems.map((ri) => ri.chinese).filter(Boolean).join(', ');
 
         const receiptDoc = {
           receipt: item.receiptVal,
           party: partyVal,
           warehouse: item.warehouseVal,
-          warehouseEntry: warehouseEntryHeader && row[warehouseEntryHeader] !== undefined ? String(row[warehouseEntryHeader]).trim() : '',
+          warehouseEntry: warehouseEntryHeader && primaryRow[warehouseEntryHeader] !== undefined ? String(primaryRow[warehouseEntryHeader]).trim() : '',
           date: item.dateVal,
-          quantity: parsedQty,
+          quantity: totalQty,
           loadedQuantity: 0,
-          remainingQuantity: parsedQty,
-          weight: weightHeader && row[weightHeader] !== undefined ? String(row[weightHeader]).trim() : '',
-          volume: volumeHeader && row[volumeHeader] !== undefined ? String(row[volumeHeader]).trim() : '',
-          commodity: finalEnglish,
-          chinese: finalChinese,
-          english: finalEnglish,
+          remainingQuantity: totalQty,
+          weight: weightHeader && primaryRow[weightHeader] !== undefined ? String(primaryRow[weightHeader]).trim() : '',
+          volume: volumeHeader && primaryRow[volumeHeader] !== undefined ? String(primaryRow[volumeHeader]).trim() : '',
+          commodity: compositeCommodity,
+          chinese: compositeChinese,
+          english: compositeCommodity,
           packaging: finalPackaging,
           subMarka: finalSubMark,
           mainMarka: finalMainMark,
-          status: 'Received',
+          items: receiptItems,
+          status: 'Received in Warehouse',
           stockstatus: 'In Stock',
           uploadBatchId,
           uploadedAt: new Date(),

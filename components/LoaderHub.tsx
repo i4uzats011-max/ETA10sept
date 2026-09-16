@@ -162,6 +162,43 @@ export default function LoaderHub() {
   const [receiveLoadingPlan, setReceiveLoadingPlan] = useState('');
   const [isReceivingGoods, setIsReceivingGoods] = useState(false);
 
+  // Multi-item inputs for Manual Goods Received Entry
+  const [receiveItems, setReceiveItems] = useState<Array<{
+    id: string;
+    itemName: string;
+    quantity: number | '';
+    packaging: string;
+    weight: string;
+    volume: string;
+  }>>([
+    { id: '1', itemName: '', quantity: '', packaging: 'Carton', weight: '', volume: '' },
+  ]);
+
+  const handleAddReceiveItem = () => {
+    setReceiveItems((prev) => [
+      ...prev,
+      { id: String(Date.now()), itemName: '', quantity: '', packaging: 'Carton', weight: '', volume: '' },
+    ]);
+  };
+
+  const handleRemoveReceiveItem = (id: string) => {
+    if (receiveItems.length <= 1) return;
+    setReceiveItems((prev) => prev.filter((it) => it.id !== id));
+  };
+
+  const handleUpdateReceiveItem = (id: string, field: string, value: any) => {
+    setReceiveItems((prev) =>
+      prev.map((it) => (it.id === id ? { ...it, [field]: value } : it))
+    );
+  };
+
+  const receiveItemsTotalQty = useMemo(() => {
+    return receiveItems.reduce((sum, it) => {
+      const q = typeof it.quantity === 'number' ? it.quantity : parseInt(String(it.quantity || 0), 10) || 0;
+      return sum + q;
+    }, 0);
+  }, [receiveItems]);
+
   // Local state for Alter / Rename Container Database-Wide
   const [isAlterContainerOpen, setIsAlterContainerOpen] = useState(false);
   const [containerToAlter, setContainerToAlter] = useState<LoadingPlanItem | null>(null);
@@ -329,6 +366,41 @@ export default function LoaderHub() {
   const [editWeight, setEditWeight] = useState('');
   const [editVolume, setEditVolume] = useState('');
   const [editNotes, setEditNotes] = useState('');
+
+  // Multi-item inputs for Single Edit Modal
+  const [editItems, setEditItems] = useState<Array<{
+    id: string;
+    itemName: string;
+    quantity: number | '';
+    packaging: string;
+    weight: string;
+    volume: string;
+  }>>([]);
+
+  const handleAddEditItem = () => {
+    setEditItems((prev) => [
+      ...prev,
+      { id: String(Date.now()), itemName: '', quantity: '', packaging: 'Carton', weight: '', volume: '' },
+    ]);
+  };
+
+  const handleRemoveEditItem = (id: string) => {
+    if (editItems.length <= 1) return;
+    setEditItems((prev) => prev.filter((it) => it.id !== id));
+  };
+
+  const handleUpdateEditItem = (id: string, field: string, value: any) => {
+    setEditItems((prev) =>
+      prev.map((it) => (it.id === id ? { ...it, [field]: value } : it))
+    );
+  };
+
+  const editItemsTotalQty = useMemo(() => {
+    return editItems.reduce((sum, it) => {
+      const q = typeof it.quantity === 'number' ? it.quantity : parseInt(String(it.quantity || 0), 10) || 0;
+      return sum + q;
+    }, 0);
+  }, [editItems]);
 
   // Dynamic China Warehouse Management
   const [dynamicWarehouses, setDynamicWarehouses] = useState<string[]>([]);
@@ -616,7 +688,16 @@ export default function LoaderHub() {
       alert('Please select a valid China warehouse.');
       return;
     }
-    const qtyNum = typeof receiveQuantity === 'number' ? receiveQuantity : parseInt(String(receiveQuantity || 0), 10);
+    // Multi-items calculation
+    const validItems = receiveItems.filter((it) => it.itemName.trim() || it.quantity !== '');
+    const itemsTotal = validItems.reduce(
+      (sum, it) => sum + (typeof it.quantity === 'number' ? it.quantity : parseInt(String(it.quantity || 0), 10) || 0),
+      0
+    );
+    const qtyNum = itemsTotal > 0
+      ? itemsTotal
+      : (typeof receiveQuantity === 'number' ? receiveQuantity : parseInt(String(receiveQuantity || 0), 10) || 0);
+
     if (isNaN(qtyNum) || qtyNum <= 0) {
       alert('Quantity must be a positive number greater than 0');
       return;
@@ -649,13 +730,20 @@ export default function LoaderHub() {
           date: receiveDate.trim(),
           warehouseEntry: receiveWarehouseEntry.trim(),
           quantity: qtyNum,
-          commodity: receiveCommodity.trim(),
+          commodity: receiveCommodity.trim() || (validItems.length > 0 ? validItems.map(it => `${it.itemName}${it.quantity ? ` (${it.quantity} CTN)` : ''}`).join(', ') : ''),
           packaging: receivePackaging.trim() || 'Carton',
           mainMarka: receiveMainMark.trim(),
           subMarka: receiveSubMark.trim(),
           weight: receiveWeight.trim(),
           volume: receiveVolume.trim(),
           notes: receiveNotes.trim(),
+          items: validItems.map((it) => ({
+            itemName: it.itemName.trim(),
+            quantity: typeof it.quantity === 'number' ? it.quantity : parseInt(String(it.quantity || 0), 10) || 0,
+            packaging: it.packaging.trim() || receivePackaging.trim() || 'Carton',
+            weight: it.weight.trim(),
+            volume: it.volume.trim(),
+          })),
           loadIntoPlan: receiveAssignToPlan,
           loadingPlan: receiveAssignToPlan ? receiveLoadingPlan.trim().toUpperCase() : '',
         }),
@@ -674,6 +762,7 @@ export default function LoaderHub() {
       setReceiveSubMark('');
       setReceiveWarehouseEntry('');
       setReceiveNotes('');
+      setReceiveItems([{ id: '1', itemName: '', quantity: '', packaging: 'Carton', weight: '', volume: '' }]);
       setReceiveAssignToPlan(false);
       setReceiveLoadingPlan('');
       dispatch(fetchWarehouseReceipts());
@@ -987,7 +1076,13 @@ export default function LoaderHub() {
         const matchContainer = (r.containers || []).some(
           (c) => c.container?.toLowerCase().includes(s) || (c.containerNumber || '').toLowerCase().includes(s)
         );
-        if (!matchReceipt && !matchParty && !matchCommodity && !matchChinese && !matchEnglish && !matchMainMark && !matchSubMark && !matchContainer) {
+        const matchItems = (r.items || []).some(
+          (it) =>
+            it.itemName?.toLowerCase().includes(s) ||
+            it.english?.toLowerCase().includes(s) ||
+            it.chinese?.toLowerCase().includes(s)
+        );
+        if (!matchReceipt && !matchParty && !matchCommodity && !matchChinese && !matchEnglish && !matchMainMark && !matchSubMark && !matchContainer && !matchItems) {
           return false;
         }
       }
@@ -1806,6 +1901,31 @@ export default function LoaderHub() {
     setEditWeight(r.weight || '');
     setEditVolume(r.volume || '');
     setEditNotes(r.notes || '');
+
+    if (r.items && r.items.length > 0) {
+      setEditItems(
+        r.items.map((it, idx) => ({
+          id: String(it._id || idx),
+          itemName: it.itemName || it.english || it.chinese || '',
+          quantity: it.quantity,
+          packaging: it.packaging || 'Carton',
+          weight: it.weight || '',
+          volume: it.volume || '',
+        }))
+      );
+    } else {
+      setEditItems([
+        {
+          id: '1',
+          itemName: r.chinese || r.english || r.commodity || '',
+          quantity: r.quantity,
+          packaging: r.packaging || 'Carton',
+          weight: r.weight || '',
+          volume: r.volume || '',
+        },
+      ]);
+    }
+
     setIsSingleEditOpen(true);
   };
 
@@ -1830,6 +1950,15 @@ export default function LoaderHub() {
       return;
     }
 
+    const validEditItems = editItems.filter((it) => it.itemName.trim() || it.quantity !== '');
+    const itemsTotal = validEditItems.reduce(
+      (sum, it) => sum + (typeof it.quantity === 'number' ? it.quantity : parseInt(String(it.quantity || 0), 10) || 0),
+      0
+    );
+    const finalEditQty = itemsTotal > 0
+      ? itemsTotal
+      : (typeof editQuantity === 'number' ? editQuantity : parseInt(String(editQuantity || 0), 10) || 0);
+
     const res = await dispatch(
       editSingleWarehouseReceipt({
         id: targetId,
@@ -1838,14 +1967,25 @@ export default function LoaderHub() {
         party: editParty.trim(),
         warehouse: singleEditWarehouse.trim(),
         date: editDate.trim(),
-        quantity: typeof editQuantity === 'number' ? editQuantity : parseInt(String(editQuantity || 0), 10),
-        commodity: editCommodity.trim(),
+        quantity: finalEditQty,
+        commodity:
+          editCommodity.trim() ||
+          (validEditItems.length > 0
+            ? validEditItems.map((it) => `${it.itemName}${it.quantity ? ` (${it.quantity} CTN)` : ''}`).join(', ')
+            : ''),
         packaging: editPackaging.trim(),
         mainMarka: editMainMark.trim(),
         subMarka: editSubMark.trim(),
         weight: editWeight.trim(),
         volume: editVolume.trim(),
         notes: editNotes.trim(),
+        items: validEditItems.map((it) => ({
+          itemName: it.itemName.trim(),
+          quantity: typeof it.quantity === 'number' ? it.quantity : parseInt(String(it.quantity || 0), 10) || 0,
+          packaging: it.packaging.trim() || editPackaging.trim() || 'Carton',
+          weight: it.weight.trim(),
+          volume: it.volume.trim(),
+        })),
       } as any)
     );
 
@@ -1853,6 +1993,7 @@ export default function LoaderHub() {
       alert(`Receipt #${editReceiptNumber.trim()} updated successfully.`);
       setIsSingleEditOpen(false);
       setEditingReceiptItem(null);
+      setEditItems([]);
       dispatch(fetchWarehouseReceipts());
     } else {
       alert((res.payload as string) || 'Failed to update warehouse receipt');
@@ -1932,11 +2073,20 @@ export default function LoaderHub() {
       {
         accessorKey: 'quantity',
         header: () => <div className="text-center">Total Inward</div>,
-        cell: ({ row }) => (
-          <div className="text-center font-bold text-slate-800">
-            {row.original.quantity} CTN
-          </div>
-        ),
+        cell: ({ row }) => {
+          const r = row.original;
+          const multiItems = r.items && r.items.length > 1;
+          return (
+            <div className="text-center">
+              <div className="font-bold text-slate-800">{r.quantity} CTN</div>
+              {multiItems && (
+                <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                  {r.items!.length} items
+                </span>
+              )}
+            </div>
+          );
+        },
       },
       {
         accessorKey: 'loadedQuantity',
@@ -2068,9 +2218,43 @@ export default function LoaderHub() {
       },
       {
         id: 'commodity',
-        header: 'Commodity / Chinese',
+        header: 'Commodity / Items',
         cell: ({ row }) => {
           const r = row.original;
+          const hasMultiItems = r.items && r.items.length > 1;
+
+          if (hasMultiItems) {
+            return (
+              <div className="text-slate-700 max-w-[260px] space-y-1 py-0.5">
+                <div className="flex items-center space-x-1.5">
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-indigo-600 text-white tracking-tight shrink-0">
+                    {r.items!.length} Items
+                  </span>
+                  <span className="truncate font-semibold text-xs text-slate-800" title={r.english || r.commodity || ''}>
+                    {r.items![0]?.itemName || r.english || r.commodity}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {r.items!.slice(0, 3).map((it, idx) => (
+                    <span
+                      key={idx}
+                      className="inline-flex items-center space-x-1 text-[10px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200 font-medium"
+                      title={`${it.itemName}: ${it.quantity} CTN`}
+                    >
+                      <span className="truncate max-w-[80px]">{it.itemName}</span>
+                      <strong className="text-slate-900 font-bold">{it.quantity} CTN</strong>
+                    </span>
+                  ))}
+                  {r.items!.length > 3 && (
+                    <span className="text-[10px] text-slate-500 font-bold self-center">
+                      +{r.items!.length - 3} more
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          }
+
           return (
             <div className="text-slate-700 max-w-[200px] truncate" title={r.english || r.commodity || ''}>
               <div className="truncate font-semibold">{r.english || r.commodity || 'General Goods'}</div>
@@ -3565,6 +3749,24 @@ export default function LoaderHub() {
                     {activeReceiptForSplit.english || activeReceiptForSplit.commodity}
                   </span>
                 </div>
+                {activeReceiptForSplit.items && activeReceiptForSplit.items.length > 1 && (
+                  <div className="bg-white p-2.5 rounded-xl border border-slate-200 text-xs space-y-1.5">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                      Items in this Receipt ({activeReceiptForSplit.items.length} items):
+                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      {activeReceiptForSplit.items.map((it, idx) => (
+                        <span
+                          key={idx}
+                          className="inline-flex items-center space-x-1 text-[11px] bg-slate-100 text-slate-800 px-2 py-0.5 rounded-md border border-slate-200 font-medium"
+                        >
+                          <span>{it.itemName}:</span>
+                          <strong className="text-slate-900 font-bold">{it.quantity} CTN</strong>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="border-t border-slate-200 pt-2 flex justify-between items-center text-xs">
                   <span className="text-slate-500 font-medium">Total Inward: <strong className="text-slate-900">{activeReceiptForSplit.quantity} CTN</strong></span>
                   <span className="text-emerald-600 font-bold">Remaining Available: {activeReceiptForSplit.remainingQuantity !== undefined ? activeReceiptForSplit.remainingQuantity : activeReceiptForSplit.quantity - (activeReceiptForSplit.loadedQuantity || 0)} CTN</span>
@@ -5295,16 +5497,127 @@ export default function LoaderHub() {
                   />
                 </div>
 
+                {/* Multi-Item Line Items Section for Edit */}
+                <div className="md:col-span-2 bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center space-x-1.5">
+                        <Package className="w-4 h-4 text-blue-600" />
+                        <span>Receipt Items & Quantities</span>
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        Manage item names and individual carton quantities for this receipt.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleAddEditItem}
+                      className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white transition shadow-sm"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>+ Add Item</span>
+                    </button>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    {editItems.map((it, idx) => (
+                      <div
+                        key={it.id}
+                        className="bg-white p-3 rounded-xl border border-slate-200 grid grid-cols-12 gap-2 items-end shadow-2xs"
+                      >
+                        <div className="col-span-12 sm:col-span-5">
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
+                            Item {idx + 1} Name / Description *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. 塑料玩具 / Plastic Toys / Bags"
+                            value={it.itemName}
+                            onChange={(e) => handleUpdateEditItem(it.id, 'itemName', e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500 text-slate-900 font-semibold"
+                          />
+                        </div>
+                        <div className="col-span-6 sm:col-span-3">
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
+                            Quantity (CTN) *
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            required
+                            placeholder="e.g. 50"
+                            value={it.quantity}
+                            onChange={(e) =>
+                              handleUpdateEditItem(
+                                it.id,
+                                'quantity',
+                                e.target.value === '' ? '' : parseInt(e.target.value, 10)
+                              )
+                            }
+                            className="w-full px-2.5 py-1.5 text-xs font-bold rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500 text-slate-900"
+                          />
+                        </div>
+                        <div className="col-span-5 sm:col-span-3">
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
+                            Packaging
+                          </label>
+                          <select
+                            value={it.packaging}
+                            onChange={(e) => handleUpdateEditItem(it.id, 'packaging', e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500 text-slate-900"
+                          >
+                            <option value="Carton">Carton (箱)</option>
+                            <option value="Wooden Box">Wooden Box (木箱)</option>
+                            <option value="Pallet">Pallet (托盘)</option>
+                            <option value="Bag">Bag (袋)</option>
+                            <option value="Roll">Roll (卷)</option>
+                            <option value="Bundle">Bundle (捆)</option>
+                            <option value="Drum">Drum (桶)</option>
+                          </select>
+                        </div>
+                        <div className="col-span-1 flex justify-center pb-1">
+                          {editItems.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveEditItem(it.id)}
+                              title="Remove item"
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Summary Total of Items */}
+                  <div className="flex justify-between items-center bg-blue-50/80 px-3.5 py-2 rounded-xl border border-blue-200 text-xs">
+                    <span className="text-blue-900 font-semibold">
+                      Total Calculated Inward Quantity:
+                    </span>
+                    <span className="font-mono font-black text-blue-800 text-sm">
+                      {editItemsTotalQty} CTN ({editItems.length} {editItems.length === 1 ? 'item' : 'items'})
+                    </span>
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
                     Total Inward Quantity (CTN)
                   </label>
                   <input
                     type="number"
-                    value={editQuantity}
+                    value={editItemsTotalQty > 0 ? editItemsTotalQty : editQuantity}
                     onChange={(e) => setEditQuantity(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 text-slate-900 font-bold focus:ring-2 focus:ring-blue-500"
                   />
+                  {editItemsTotalQty > 0 && (
+                    <span className="text-[10px] text-blue-700 font-bold mt-0.5 block">
+                      Auto-synced from {editItems.length} items above
+                    </span>
+                  )}
                 </div>
 
                 <div>
@@ -5845,6 +6158,112 @@ export default function LoaderHub() {
                   />
                 </div>
 
+                {/* Multi-Item Line Items Section */}
+                <div className="md:col-span-2 bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center space-x-1.5">
+                        <Package className="w-4 h-4 text-emerald-600" />
+                        <span>Receipt Items & Quantities</span>
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        Add one or multiple item names with their individual quantities for this receipt.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleAddReceiveItem}
+                      className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-sm"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>+ Add Item</span>
+                    </button>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    {receiveItems.map((it, idx) => (
+                      <div
+                        key={it.id}
+                        className="bg-white p-3 rounded-xl border border-slate-200 grid grid-cols-12 gap-2 items-end shadow-2xs"
+                      >
+                        <div className="col-span-12 sm:col-span-5">
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
+                            Item {idx + 1} Name / Description *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. 塑料玩具 / Plastic Toys / Bags"
+                            value={it.itemName}
+                            onChange={(e) => handleUpdateReceiveItem(it.id, 'itemName', e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 focus:ring-2 focus:ring-emerald-500 text-slate-900 font-semibold"
+                          />
+                        </div>
+                        <div className="col-span-6 sm:col-span-3">
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
+                            Quantity (CTN) *
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            required
+                            placeholder="e.g. 50"
+                            value={it.quantity}
+                            onChange={(e) =>
+                              handleUpdateReceiveItem(
+                                it.id,
+                                'quantity',
+                                e.target.value === '' ? '' : parseInt(e.target.value, 10)
+                              )
+                            }
+                            className="w-full px-2.5 py-1.5 text-xs font-bold rounded-lg border border-slate-200 focus:ring-2 focus:ring-emerald-500 text-slate-900"
+                          />
+                        </div>
+                        <div className="col-span-5 sm:col-span-3">
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
+                            Packaging
+                          </label>
+                          <select
+                            value={it.packaging}
+                            onChange={(e) => handleUpdateReceiveItem(it.id, 'packaging', e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 focus:ring-2 focus:ring-emerald-500 text-slate-900"
+                          >
+                            <option value="Carton">Carton (箱)</option>
+                            <option value="Wooden Box">Wooden Box (木箱)</option>
+                            <option value="Pallet">Pallet (托盘)</option>
+                            <option value="Bag">Bag (袋)</option>
+                            <option value="Roll">Roll (卷)</option>
+                            <option value="Bundle">Bundle (捆)</option>
+                            <option value="Drum">Drum (桶)</option>
+                          </select>
+                        </div>
+                        <div className="col-span-1 flex justify-center pb-1">
+                          {receiveItems.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveReceiveItem(it.id)}
+                              title="Remove item"
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Summary Total of Items */}
+                  <div className="flex justify-between items-center bg-emerald-50/80 px-3.5 py-2 rounded-xl border border-emerald-200 text-xs">
+                    <span className="text-emerald-900 font-semibold">
+                      Total Calculated Inward Quantity:
+                    </span>
+                    <span className="font-mono font-black text-emerald-800 text-sm">
+                      {receiveItemsTotalQty} CTN ({receiveItems.length} {receiveItems.length === 1 ? 'item' : 'items'})
+                    </span>
+                  </div>
+                </div>
+
                 {/* Total Quantity */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
@@ -5855,10 +6274,15 @@ export default function LoaderHub() {
                     min="1"
                     required
                     placeholder="e.g. 50"
-                    value={receiveQuantity}
+                    value={receiveItemsTotalQty > 0 ? receiveItemsTotalQty : receiveQuantity}
                     onChange={(e) => setReceiveQuantity(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
                     className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white text-slate-900"
                   />
+                  {receiveItemsTotalQty > 0 && (
+                    <span className="text-[10px] text-emerald-700 font-bold mt-0.5 block">
+                      Auto-synced from {receiveItems.length} items above
+                    </span>
+                  )}
                 </div>
 
                 {/* Packaging Type */}

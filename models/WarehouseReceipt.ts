@@ -1,5 +1,18 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
+export interface IReceiptItem {
+  _id?: any;
+  itemName: string;            // Commodity / Item Name / Description
+  chinese?: string;            // Chinese Commodity Name (中文品名)
+  english?: string;            // Detailed item description in English
+  quantity: number;            // Quantity / Cartons for this item
+  packaging?: string;          // Packaging type (Carton, Box, etc.)
+  weight?: string;             // Weight for this item
+  volume?: string;             // Volume (CBM) for this item
+  mainMarka?: string;          // Shipping mark
+  subMarka?: string;
+}
+
 export interface IWarehouseReceipt extends Document {
   receipt: string;              // Unique Bill / Receipt number (Enforced unique index)
   party?: string;               // Shipper / Party / Client name
@@ -17,6 +30,7 @@ export interface IWarehouseReceipt extends Document {
   packaging?: string;           // Packaging type (Carton, Box, Pallet, etc.)
   mainMarka?: string;           // Main shipping mark
   subMarka?: string;            // Sub mark
+  items?: IReceiptItem[];       // Multiple line items / commodities with individual quantities
   status: 'Received in Warehouse' | 'Received' | 'Partially Loaded' | 'Fully Loaded' | 'Delivered'; // Loading status: Received in Warehouse, Partially Loaded, Fully Loaded
   stockstatus?: string;         // 'In Stock' | 'Partially Dispatched' | 'Dispatched' | 'Delivered'
   deliveryDate?: string;        // Final delivery date
@@ -27,6 +41,21 @@ export interface IWarehouseReceipt extends Document {
   createdAt: Date;
   updatedAt: Date;
 }
+
+const ReceiptItemSchema = new Schema(
+  {
+    itemName: { type: String, default: '', trim: true },
+    chinese: { type: String, default: '', trim: true },
+    english: { type: String, default: '', trim: true },
+    quantity: { type: Number, default: 0 },
+    packaging: { type: String, default: 'Carton', trim: true },
+    weight: { type: String, default: '', trim: true },
+    volume: { type: String, default: '', trim: true },
+    mainMarka: { type: String, default: '', trim: true },
+    subMarka: { type: String, default: '', trim: true },
+  },
+  { _id: true }
+);
 
 const WarehouseReceiptSchema = new Schema<IWarehouseReceipt>(
   {
@@ -46,6 +75,7 @@ const WarehouseReceiptSchema = new Schema<IWarehouseReceipt>(
     packaging: { type: String, default: '' },
     mainMarka: { type: String, default: '' },
     subMarka: { type: String, default: '' },
+    items: { type: [ReceiptItemSchema], default: [] },
     status: {
       type: String,
       enum: ['Received in Warehouse', 'Received', 'Partially Loaded', 'Fully Loaded', 'Delivered'],
@@ -71,8 +101,22 @@ WarehouseReceiptSchema.index({ receipt: 1, warehouse: 1 }, { unique: true });
 // Fast search indexes for warehouse stock filtering and fast receipt search
 WarehouseReceiptSchema.index({ warehouse: 1, status: 1 });
 
-// Auto-calculate remainingQuantity and status before save
+// Auto-calculate remainingQuantity, item totals, and status before save
 WarehouseReceiptSchema.pre('save', function (next) {
+  // If multiple items exist and have quantities, auto-calculate total quantity
+  if (this.items && Array.isArray(this.items) && this.items.length > 0) {
+    const calculatedQty = this.items.reduce((sum, it) => sum + (Number(it.quantity) || 0), 0);
+    if (calculatedQty > 0) {
+      this.quantity = calculatedQty;
+    }
+    // If commodity/english is empty, compose from items
+    if (!this.commodity && !this.english) {
+      const names = this.items.map((it) => it.itemName || it.english).filter(Boolean);
+      this.commodity = names.join(', ');
+      this.english = names.join(', ');
+    }
+  }
+
   if (this.quantity !== undefined && this.loadedQuantity !== undefined) {
     this.remainingQuantity = Math.max(0, this.quantity - this.loadedQuantity);
     if (this.loadedQuantity <= 0) {

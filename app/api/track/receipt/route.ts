@@ -185,6 +185,7 @@ export async function GET(req: NextRequest) {
         packaging: shipment.packaging || 'N/A',
         mainMarka: shipment.mainMarka || '',
         subMarka: shipment.subMarka || '',
+        items: whItem?.items || [],
       };
     });
 

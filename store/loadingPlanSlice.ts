@@ -1,5 +1,18 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 
+export interface ReceiptItem {
+  _id?: string;
+  itemName: string;
+  chinese?: string;
+  english?: string;
+  quantity: number;
+  packaging?: string;
+  weight?: string;
+  volume?: string;
+  mainMarka?: string;
+  subMarka?: string;
+}
+
 export interface WarehouseReceiptItem {
   _id: string;
   receipt: string;
@@ -18,6 +31,7 @@ export interface WarehouseReceiptItem {
   packaging?: string;
   mainMarka?: string;
   subMarka?: string;
+  items?: ReceiptItem[];
   status: 'Received in Warehouse' | 'Received' | 'Partially Loaded' | 'Fully Loaded' | 'Delivered';
   stockstatus?: string;
   deliveryDate?: string;

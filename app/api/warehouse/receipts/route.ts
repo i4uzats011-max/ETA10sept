@@ -52,6 +52,9 @@ export async function GET(req: NextRequest) {
         { english: regex },
         { mainMarka: regex },
         { subMarka: regex },
+        { 'items.itemName': regex },
+        { 'items.english': regex },
+        { 'items.chinese': regex },
       ];
     }
 
@@ -214,6 +217,42 @@ export async function POST(req: NextRequest) {
     const finalMainMark = translateMark(mainMarka);
     const finalSubMark = translateMark(subMarka);
 
+    // Process multiple items if provided
+    const rawItems = Array.isArray(body.items) ? body.items : [];
+    const processedItems = rawItems
+      .filter((it: any) => it && (it.itemName || it.commodity || it.english || it.quantity))
+      .map((it: any) => {
+        const rawName = String(it.itemName || it.commodity || it.english || '').trim();
+        const { english: itEn, chinese: itCn } = translateCommodity(rawName);
+        return {
+          itemName: rawName,
+          english: it.english || itEn,
+          chinese: it.chinese || itCn,
+          quantity: parseInt(String(it.quantity || 0), 10) || 0,
+          packaging: translatePackaging(it.packaging || packaging || 'Carton'),
+          weight: it.weight ? String(it.weight).trim() : '',
+          volume: it.volume ? String(it.volume).trim() : '',
+          mainMarka: it.mainMarka ? translateMark(it.mainMarka) : finalMainMark,
+          subMarka: it.subMarka ? translateMark(it.subMarka) : finalSubMark,
+        };
+      });
+
+    // If multiple items provided, auto-calculate total quantity and composite commodity string
+    let effectiveQuantity = qtyNumber;
+    let effectiveCommodity = finalEnglish;
+    let effectiveChinese = finalChinese;
+
+    if (processedItems.length > 0) {
+      const itemsSum = processedItems.reduce((sum: number, it: any) => sum + (it.quantity || 0), 0);
+      if (itemsSum > 0) {
+        effectiveQuantity = itemsSum;
+      }
+      if (!rawCommodity || rawCommodity === 'General Goods') {
+        effectiveCommodity = processedItems.map((it: any) => `${it.itemName}${it.quantity ? ` (${it.quantity} CTN)` : ''}`).join(', ');
+        effectiveChinese = processedItems.map((it: any) => it.chinese).filter(Boolean).join(', ');
+      }
+    }
+
     const targetId = rest.id || rest._id || body.id || body._id;
     const isEditMode = Boolean(targetId);
 
@@ -243,18 +282,20 @@ export async function POST(req: NextRequest) {
 
         existing.receipt = cleanReceipt;
         existing.warehouse = cleanWarehouse;
-        if (quantity !== undefined) {
-          existing.quantity = qtyNumber;
-          existing.remainingQuantity = Math.max(0, qtyNumber - (existing.loadedQuantity || 0));
-        }
-        if (commodity !== undefined) {
-          existing.commodity = finalEnglish;
-          existing.english = finalEnglish;
-          existing.chinese = finalChinese;
+        existing.quantity = effectiveQuantity;
+        existing.remainingQuantity = Math.max(0, effectiveQuantity - (existing.loadedQuantity || 0));
+
+        if (effectiveCommodity) {
+          existing.commodity = effectiveCommodity;
+          existing.english = effectiveCommodity;
+          existing.chinese = effectiveChinese;
         }
         if (packaging !== undefined) existing.packaging = finalPackaging;
         if (mainMarka !== undefined) existing.mainMarka = finalMainMark;
         if (subMarka !== undefined) existing.subMarka = finalSubMark;
+        if (processedItems.length > 0 || Array.isArray(body.items)) {
+          existing.items = processedItems;
+        }
         Object.assign(existing, rest);
         await existing.save();
 
@@ -298,23 +339,24 @@ export async function POST(req: NextRequest) {
 
     // Create new
     const isPlanAllocation = Boolean(loadIntoPlan && cleanPlan);
-    const initialLoaded = isPlanAllocation ? qtyNumber : 0;
-    const initialRemaining = isPlanAllocation ? 0 : qtyNumber;
+    const initialLoaded = isPlanAllocation ? effectiveQuantity : 0;
+    const initialRemaining = isPlanAllocation ? 0 : effectiveQuantity;
     const initialStatus = isPlanAllocation ? 'Fully Loaded' : 'Received';
     const initialStockStatus = isPlanAllocation ? 'Dispatched' : 'In Stock';
 
     const newReceipt = await WarehouseReceipt.create({
       receipt: cleanReceipt,
       warehouse: cleanWarehouse,
-      quantity: qtyNumber,
+      quantity: effectiveQuantity,
       loadedQuantity: initialLoaded,
       remainingQuantity: initialRemaining,
-      commodity: finalEnglish,
-      chinese: finalChinese,
-      english: finalEnglish,
+      commodity: effectiveCommodity,
+      chinese: effectiveChinese,
+      english: effectiveCommodity,
       packaging: finalPackaging,
       mainMarka: finalMainMark,
       subMarka: finalSubMark,
+      items: processedItems,
       status: initialStatus,
       stockstatus: initialStockStatus,
       uploadedAt: new Date(),
