@@ -75,6 +75,7 @@ export async function GET(req: NextRequest) {
         items: items.map((i: any) => ({
           _id: i._id,
           receipt: i.receipt,
+          receiptId: i.receiptId,
           party: i.party || '',
           container: i.container,
           containerNumber: i.containerNumber,
@@ -158,12 +159,12 @@ export async function POST(req: NextRequest) {
         containerNumber: '',
         shippingLine: 'MSC',
         warehouse: cleanWarehouse,
-        planStatus: 'Planning',
+        planStatus: 'Loaded',
         isFinalized: false,
         shippedFrom: `${cleanWarehouse}, China`,
         shippedTo: 'Nhava Sheva / Mundra, India',
-        currentLocation: `Planned at ${cleanWarehouse}`,
-        status: 'Planning',
+        currentLocation: `Loaded at ${cleanWarehouse}`,
+        status: 'Loaded',
         eta: 'Pending',
         destinationDate: 'N/A',
         totalQuantity: 0,
@@ -181,7 +182,7 @@ export async function POST(req: NextRequest) {
     // Action 2: Split and Allocate Cargo into Container
     // ----------------------------------------------------
     if (action === 'allocate-split') {
-      const { receipt, container, quantityToLoad, weightToLoad, volumeToLoad } = body;
+      const { receipt, container, quantityToLoad, weightToLoad, volumeToLoad, receiptId, warehouse } = body;
       const cleanReceipt = (receipt || '').trim();
       const cleanContainer = (container || '').trim();
       const qtyToLoad = parseInt(String(quantityToLoad), 10);
@@ -203,17 +204,22 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: `Loading plan / container '${cleanContainer}' not found` }, { status: 404 });
       }
 
-      // 2. Fetch Warehouse Receipt Stock (Warehouse-First)
-      const targetWarehouse = (body.warehouse || targetContainer.warehouse || '').trim();
-      const whQuery: any = {
-        receipt: new RegExp(`^${cleanReceipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-      };
-      if (targetWarehouse && targetWarehouse !== 'ALL') {
-        whQuery.warehouse = new RegExp(`^${targetWarehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+      // 2. Fetch Warehouse Receipt Stock (ReceiptId-First, then Warehouse-Scoped)
+      let whReceipt: any = null;
+      if (receiptId) {
+        whReceipt = await WarehouseReceipt.findById(receiptId);
       }
-
-      let whReceipt = await WarehouseReceipt.findOne(whQuery);
-      if (!whReceipt && !body.warehouse) {
+      if (!whReceipt) {
+        const targetWarehouse = (warehouse || body.warehouse || targetContainer.warehouse || '').trim();
+        const whQuery: any = {
+          receipt: new RegExp(`^${cleanReceipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        };
+        if (targetWarehouse && targetWarehouse !== 'ALL') {
+          whQuery.warehouse = new RegExp(`^${targetWarehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+        }
+        whReceipt = await WarehouseReceipt.findOne(whQuery);
+      }
+      if (!whReceipt && !warehouse && !body.warehouse) {
         whReceipt = await WarehouseReceipt.findOne({
           receipt: new RegExp(`^${cleanReceipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
         });
@@ -222,7 +228,7 @@ export async function POST(req: NextRequest) {
       if (!whReceipt) {
         return NextResponse.json(
           {
-            error: `Receipt '${cleanReceipt}'${targetWarehouse ? ` for warehouse '${targetWarehouse}'` : ''} has not been received in China warehouse stock yet. Goods must be received in warehouse inventory before they can be loaded into a container plan.`,
+            error: `Receipt '${cleanReceipt}'${warehouse ? ` for warehouse '${warehouse}'` : ''} has not been received in China warehouse stock yet. Goods must be received in warehouse inventory before they can be loaded into a container plan.`,
           },
           { status: 400 }
         );
@@ -257,12 +263,25 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Count existing split items for this receipt
+      // Count existing split items for this specific warehouse receipt (Scoped to receiptId and warehouse)
       const existingSplitsCount = await Shipment.countDocuments({
-        receipt: new RegExp(`^${cleanReceipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        $or: [
+          { receiptId: whReceipt._id },
+          {
+            receipt: new RegExp(`^${cleanReceipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+            warehouse: new RegExp(`^${(whReceipt.warehouse || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+          },
+        ],
       });
 
       const isSplitOperation = qtyToLoad < whReceipt.quantity || existingSplitsCount > 0;
+
+      // Clean 4-status lifecycle: Goods assigned to container are 'Loaded' (or 'Delivered' / 'In Transit')
+      const initialShipmentStatus = targetContainer.isDelivered
+        ? 'Delivered'
+        : (targetContainer.status && targetContainer.status !== 'Planning' && targetContainer.status !== 'Pending'
+            ? targetContainer.status
+            : 'Loaded');
 
       // 3. Create Shipment allocation record
       const newShipment = await Shipment.create({
@@ -287,9 +306,15 @@ export async function POST(req: NextRequest) {
         warehouseEntry: whReceipt.warehouseEntry || '',
         date: whReceipt.date || '',
         eta: targetContainer.destinationDate || targetContainer.eta || 'Pending',
-        status: targetContainer.status || 'Planning',
+        status: initialShipmentStatus,
         uploadedAt: new Date(),
       });
+
+      // Ensure container status is updated to 'Loaded' if it was 'Planning' or 'Pending'
+      if (!targetContainer.status || targetContainer.status === 'Planning' || targetContainer.status === 'Pending') {
+        targetContainer.status = 'Loaded';
+        targetContainer.planStatus = 'Loaded';
+      }
 
       // 4. Update Warehouse Receipt loaded & remaining quantities
       whReceipt.loadedQuantity = (whReceipt.loadedQuantity || 0) + qtyToLoad;
@@ -358,7 +383,7 @@ export async function POST(req: NextRequest) {
         whReceipt.loadedQuantity = Math.max(0, (whReceipt.loadedQuantity || 0) - qtyRestored);
         whReceipt.remainingQuantity = Math.max(0, whReceipt.quantity - whReceipt.loadedQuantity);
         if (whReceipt.loadedQuantity <= 0) {
-          whReceipt.status = 'Received';
+          whReceipt.status = 'Received in Warehouse';
           whReceipt.stockstatus = 'In Stock';
         } else {
           whReceipt.status = 'Partially Loaded';
@@ -427,7 +452,7 @@ export async function POST(req: NextRequest) {
         if (whReceipt) {
           whReceipt.loadedQuantity = Math.max(0, (whReceipt.loadedQuantity || 0) - qty);
           whReceipt.remainingQuantity = Math.max(0, whReceipt.quantity - whReceipt.loadedQuantity);
-          whReceipt.status = whReceipt.loadedQuantity <= 0 ? 'Received' : 'Partially Loaded';
+          whReceipt.status = whReceipt.loadedQuantity <= 0 ? 'Received in Warehouse' : 'Partially Loaded';
           whReceipt.stockstatus = whReceipt.loadedQuantity <= 0 ? 'In Stock' : 'Partially Dispatched';
           await whReceipt.save();
         }

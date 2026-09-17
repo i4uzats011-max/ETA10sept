@@ -64,21 +64,27 @@ export async function GET(req: NextRequest) {
       .limit(limit)
       .lean();
 
-    // Attach active container allocations to each receipt
+    // Attach active container allocations to each receipt (Warehouse-Isolated)
     const receiptIds = receipts.map((r: any) => r._id);
-    const receiptNumbers = receipts.map((r: any) => r.receipt);
+    const receiptWarehousePairs = receipts.map((r: any) => ({
+      receipt: r.receipt,
+      warehouse: r.warehouse,
+    }));
 
     const activeShipments = await Shipment.find({
       $or: [
         { receiptId: { $in: receiptIds } },
-        { receipt: { $in: receiptNumbers } },
+        ...receiptWarehousePairs.map((p: any) => ({
+          receipt: new RegExp(`^${(p.receipt || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+          warehouse: new RegExp(`^${(p.warehouse || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        })),
       ],
     })
-      .select('receipt receiptId container containerNumber shippingLine quantity')
+      .select('receipt receiptId warehouse container containerNumber shippingLine quantity')
       .lean();
 
     const containerMapById = new Map<string, Array<{ container: string; containerNumber?: string; shippingLine?: string; quantity: string | number }>>();
-    const containerMapByNum = new Map<string, Array<{ container: string; containerNumber?: string; shippingLine?: string; quantity: string | number }>>();
+    const containerMapByWarehouseAndNum = new Map<string, Array<{ container: string; containerNumber?: string; shippingLine?: string; quantity: string | number }>>();
 
     for (const s of activeShipments) {
       const entry = {
@@ -92,17 +98,17 @@ export async function GET(req: NextRequest) {
         if (!containerMapById.has(idKey)) containerMapById.set(idKey, []);
         containerMapById.get(idKey)!.push(entry);
       }
-      if (s.receipt) {
-        const numKey = s.receipt.toUpperCase().trim();
-        if (!containerMapByNum.has(numKey)) containerMapByNum.set(numKey, []);
-        containerMapByNum.get(numKey)!.push(entry);
+      if (s.receipt && s.warehouse) {
+        const compositeKey = `${s.warehouse.trim().toLowerCase()}___${s.receipt.trim().toUpperCase()}`;
+        if (!containerMapByWarehouseAndNum.has(compositeKey)) containerMapByWarehouseAndNum.set(compositeKey, []);
+        containerMapByWarehouseAndNum.get(compositeKey)!.push(entry);
       }
     }
 
     const enhancedReceipts = receipts.map((r: any) => {
       const idKey = String(r._id);
-      const numKey = (r.receipt || '').toUpperCase().trim();
-      const containers = containerMapById.get(idKey) || containerMapByNum.get(numKey) || [];
+      const compositeKey = `${(r.warehouse || '').trim().toLowerCase()}___${(r.receipt || '').trim().toUpperCase()}`;
+      const containers = containerMapById.get(idKey) || containerMapByWarehouseAndNum.get(compositeKey) || [];
 
       // Calculate actual loaded cartons from active shipments
       let actualLoaded = 0;
@@ -453,6 +459,7 @@ export async function DELETE(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id')?.trim();
   const receipt = searchParams.get('receipt')?.trim();
+  const warehouse = searchParams.get('warehouse')?.trim();
   const unloadFirst = searchParams.get('unloadFirst') === 'true' || searchParams.get('force') === 'true';
 
   if (!id && !receipt) {
@@ -463,15 +470,24 @@ export async function DELETE(req: NextRequest) {
     await connectToDatabase();
 
     const query: Record<string, any> = id ? { _id: id } : { receipt: new RegExp(`^${receipt!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') };
+    if (!id && warehouse) {
+      query.warehouse = new RegExp(`^${warehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+    }
     const existing: any = await WarehouseReceipt.findOne(query);
 
     if (!existing) {
       return NextResponse.json({ error: 'Warehouse receipt not found' }, { status: 404 });
     }
 
-    // Check if any goods from this receipt have already been loaded and planned into containers
+    // Check if any goods from this receipt have already been loaded into containers (Scoped to this warehouse receipt)
     const loadedShipments = await Shipment.find({
-      receipt: new RegExp(`^${existing.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+      $or: [
+        { receiptId: existing._id },
+        {
+          receipt: new RegExp(`^${existing.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+          warehouse: new RegExp(`^${(existing.warehouse || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        },
+      ],
     }).lean();
 
     const isLoaded = (existing.loadedQuantity && existing.loadedQuantity > 0) || loadedShipments.length > 0;

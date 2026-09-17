@@ -992,6 +992,8 @@ export default function LoaderHub() {
       const res = await dispatch(
         allocateReceiptSplit({
           receipt: selectedContainerWiseReceipt.receipt,
+          receiptId: selectedContainerWiseReceipt._id,
+          warehouse: selectedContainerWiseReceipt.warehouse,
           container: containerWisePlan.container,
           quantityToLoad: qtyNum,
           weightToLoad: containerWiseWeight.trim(),
@@ -1171,7 +1173,11 @@ export default function LoaderHub() {
     if (receiptItem.loadedQuantity && receiptItem.loadedQuantity > 0) {
       const loadedContainers: Array<{ container: string; containerNumber?: string; quantity: number; shippingLine?: string }> = [];
       for (const plan of loadingPlans) {
-        const matching = plan.items?.filter((i) => i.receipt?.toLowerCase() === receiptItem.receipt.toLowerCase()) || [];
+        const matching = plan.items?.filter((i: any) =>
+          (i.receiptId && String(i.receiptId) === String(receiptItem._id)) ||
+          (i.receipt?.toLowerCase() === receiptItem.receipt.toLowerCase() &&
+           (!i.warehouse || !receiptItem.warehouse || i.warehouse.toLowerCase() === receiptItem.warehouse.toLowerCase()))
+        ) || [];
         for (const m of matching) {
           loadedContainers.push({
             container: plan.container,
@@ -1255,6 +1261,8 @@ export default function LoaderHub() {
     const res = await dispatch(
       allocateReceiptSplit({
         receipt: activeReceiptForSplit.receipt,
+        receiptId: activeReceiptForSplit._id,
+        warehouse: activeReceiptForSplit.warehouse,
         container: selectedPlanForAllocation,
         quantityToLoad: qty,
         weightToLoad: splitWeightInput,
@@ -2161,9 +2169,13 @@ export default function LoaderHub() {
           let resolvedContainers = [...containersFromReceipt];
           if (resolvedContainers.length === 0) {
             const rKey = (r.receipt || '').toUpperCase().trim();
+            const rWh = (r.warehouse || '').toUpperCase().trim();
             for (const p of loadingPlans) {
-              for (const item of p.items || []) {
-                if ((item.receipt || '').toUpperCase().trim() === rKey) {
+              for (const item of (p.items || []) as any[]) {
+                const isMatch = (item.receiptId && String(item.receiptId) === String(r._id)) ||
+                  ((item.receipt || '').toUpperCase().trim() === rKey &&
+                   (!item.warehouse || !rWh || item.warehouse.toUpperCase().trim() === rWh));
+                if (isMatch) {
                   resolvedContainers.push({
                     container: p.container,
                     containerNumber: p.containerNumber || '',

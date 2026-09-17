@@ -136,14 +136,26 @@ export async function POST(req: NextRequest) {
         await ship.save();
       }
 
-      // Also update WarehouseReceipt if exists
-      const whReceipt = await WarehouseReceipt.findOne({ receipt: recRegex });
-      if (whReceipt) {
-        whReceipt.isDelivered = true;
-        whReceipt.deliveryDate = formattedDate;
-        whReceipt.status = 'Delivered';
-        whReceipt.stockstatus = 'Delivered';
-        await whReceipt.save();
+      // Also update WarehouseReceipt if exists (Scoped by receiptId or warehouse)
+      for (const ship of shipments) {
+        let whReceipt: any = null;
+        if (ship.receiptId) {
+          whReceipt = await WarehouseReceipt.findById(ship.receiptId);
+        }
+        if (!whReceipt && ship.receipt) {
+          const filter: any = { receipt: recRegex };
+          if (ship.warehouse) {
+            filter.warehouse = new RegExp(`^${ship.warehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+          }
+          whReceipt = await WarehouseReceipt.findOne(filter);
+        }
+        if (whReceipt) {
+          whReceipt.isDelivered = true;
+          whReceipt.deliveryDate = formattedDate;
+          whReceipt.status = 'Delivered';
+          whReceipt.stockstatus = 'Delivered';
+          await whReceipt.save();
+        }
       }
     }
 

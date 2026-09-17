@@ -49,18 +49,29 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Check for allocated/loaded cargo in plans
-      const receiptNumbers = matchingReceipts.map((r) => r.receipt);
+      // Check for allocated/loaded cargo in plans (Warehouse-Scoped)
+      const matchingIds = matchingReceipts.map((r) => r._id);
+      const receiptWarehousePairs = matchingReceipts.map((r) => ({
+        receipt: r.receipt,
+        warehouse: r.warehouse,
+      }));
+
       const loadedShipments = await Shipment.find({
-        receipt: { $in: receiptNumbers },
+        $or: [
+          { receiptId: { $in: matchingIds } },
+          ...receiptWarehousePairs.map((p) => ({
+            receipt: new RegExp(`^${(p.receipt || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+            warehouse: new RegExp(`^${(p.warehouse || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+          })),
+        ],
       }).lean();
 
       const allocatedReceiptSet = new Set<string>();
       matchingReceipts.forEach((r) => {
-        if (r.loadedQuantity && r.loadedQuantity > 0) allocatedReceiptSet.add(r.receipt);
+        if (r.loadedQuantity && r.loadedQuantity > 0) allocatedReceiptSet.add(`${r.receipt} (${r.warehouse})`);
       });
       loadedShipments.forEach((s) => {
-        if (s.receipt) allocatedReceiptSet.add(s.receipt);
+        if (s.receipt) allocatedReceiptSet.add(`${s.receipt} (${s.warehouse || 'China Warehouse'})`);
       });
 
       if (allocatedReceiptSet.size > 0) {

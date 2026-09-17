@@ -122,14 +122,29 @@ export async function DELETE(req: NextRequest) {
 
     const qtyToRestore = parseInt(String(existingShipment.quantity || 0), 10) || 0;
     if (existingShipment.receipt) {
-      const whReceipt = await WarehouseReceipt.findOne({
-        receipt: new RegExp(`^${existingShipment.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-      });
+      let whReceipt: any = null;
+      if (existingShipment.receiptId) {
+        whReceipt = await WarehouseReceipt.findById(existingShipment.receiptId);
+      }
+      if (!whReceipt) {
+        const whFilter: any = {
+          receipt: new RegExp(`^${existingShipment.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        };
+        if (existingShipment.warehouse) {
+          whFilter.warehouse = new RegExp(`^${existingShipment.warehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+        }
+        whReceipt = await WarehouseReceipt.findOne(whFilter);
+      }
+      if (!whReceipt) {
+        whReceipt = await WarehouseReceipt.findOne({
+          receipt: new RegExp(`^${existingShipment.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        });
+      }
       if (whReceipt) {
         whReceipt.loadedQuantity = Math.max(0, (whReceipt.loadedQuantity || 0) - qtyToRestore);
         whReceipt.remainingQuantity = Math.max(0, whReceipt.quantity - whReceipt.loadedQuantity);
         if (whReceipt.loadedQuantity <= 0) {
-          whReceipt.status = 'Received';
+          whReceipt.status = 'Received in Warehouse';
           whReceipt.stockstatus = 'In Stock';
         } else {
           whReceipt.status = 'Partially Loaded';
@@ -202,14 +217,29 @@ export async function POST(req: NextRequest) {
       for (const s of matchingShipments) {
         const qtyToRestore = parseInt(String(s.quantity || 0), 10) || 0;
         if (s.receipt) {
-          const whReceipt = await WarehouseReceipt.findOne({
-            receipt: new RegExp(`^${s.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-          });
+          let whReceipt: any = null;
+          if (s.receiptId) {
+            whReceipt = await WarehouseReceipt.findById(s.receiptId);
+          }
+          if (!whReceipt) {
+            const whFilter: any = {
+              receipt: new RegExp(`^${s.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+            };
+            if (s.warehouse) {
+              whFilter.warehouse = new RegExp(`^${s.warehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+            }
+            whReceipt = await WarehouseReceipt.findOne(whFilter);
+          }
+          if (!whReceipt) {
+            whReceipt = await WarehouseReceipt.findOne({
+              receipt: new RegExp(`^${s.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+            });
+          }
           if (whReceipt) {
             whReceipt.loadedQuantity = Math.max(0, (whReceipt.loadedQuantity || 0) - qtyToRestore);
             whReceipt.remainingQuantity = Math.max(0, whReceipt.quantity - whReceipt.loadedQuantity);
             if (whReceipt.loadedQuantity <= 0) {
-              whReceipt.status = 'Received';
+              whReceipt.status = 'Received in Warehouse';
               whReceipt.stockstatus = 'In Stock';
             } else {
               whReceipt.status = 'Partially Loaded';

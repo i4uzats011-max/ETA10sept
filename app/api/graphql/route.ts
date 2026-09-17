@@ -983,8 +983,20 @@ function createRootResolver(req: NextRequest) {
       }
 
       const existingSplits = await Shipment.countDocuments({
-        receipt: new RegExp(`^${cleanReceipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        $or: [
+          { receiptId: whReceipt._id },
+          {
+            receipt: new RegExp(`^${cleanReceipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+            warehouse: new RegExp(`^${(whReceipt.warehouse || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+          },
+        ],
       });
+
+      const initialStatus = targetContainer.isDelivered
+        ? 'Delivered'
+        : (targetContainer.status && targetContainer.status !== 'Planning' && targetContainer.status !== 'Pending'
+            ? targetContainer.status
+            : 'Loaded');
 
       await Shipment.create({
         receipt: whReceipt.receipt,
@@ -1008,7 +1020,7 @@ function createRootResolver(req: NextRequest) {
         warehouseEntry: whReceipt.warehouseEntry || '',
         date: whReceipt.date || '',
         eta: targetContainer.destinationDate || targetContainer.eta || 'Pending',
-        status: targetContainer.status || 'Planning',
+        status: initialStatus,
         uploadedAt: new Date(),
       });
 

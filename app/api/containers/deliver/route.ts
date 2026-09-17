@@ -54,24 +54,33 @@ export async function POST(req: NextRequest) {
         }
       );
 
-      // Revert WarehouseReceipt status for receipts in this container
+      // Revert WarehouseReceipt status for receipts in this container (Scoped by receiptId and warehouse)
       const WarehouseReceipt = (await import('@/models/WarehouseReceipt')).default;
-      const affectedReceipts = Array.from(new Set(affectedShipments.map((s) => s.receipt).filter(Boolean)));
-      for (const r of affectedReceipts) {
-        const wh = await WarehouseReceipt.findOne({
-          receipt: new RegExp(`^${r.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-        });
+      for (const s of affectedShipments) {
+        let wh: any = null;
+        if (s.receiptId) {
+          wh = await WarehouseReceipt.findById(s.receiptId);
+        }
+        if (!wh && s.receipt) {
+          const filter: any = {
+            receipt: new RegExp(`^${s.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+          };
+          if (s.warehouse) {
+            filter.warehouse = new RegExp(`^${s.warehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+          }
+          wh = await WarehouseReceipt.findOne(filter);
+        }
         if (wh) {
           wh.deliveryDate = '';
           wh.isDelivered = false;
           if (wh.loadedQuantity >= wh.quantity) {
-            wh.status = 'Loaded';
+            wh.status = 'Fully Loaded';
             wh.stockstatus = 'Dispatched';
           } else if (wh.loadedQuantity > 0) {
             wh.status = 'Partially Loaded';
             wh.stockstatus = 'Partially Dispatched';
           } else {
-            wh.status = 'Received';
+            wh.status = 'Received in Warehouse';
             wh.stockstatus = 'In Stock';
           }
           await wh.save();
@@ -191,18 +200,36 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 7. Update WarehouseReceipt collection
+    // 7. Update WarehouseReceipt collection (Scoped by receiptId and warehouse)
     const WarehouseReceipt = (await import('@/models/WarehouseReceipt')).default;
-    const deliveredReceipts = Array.from(new Set(toDeliverShipments.map((s) => s.receipt).filter(Boolean)));
-    for (const r of deliveredReceipts) {
+    for (const s of toDeliverShipments) {
+      let whQuery: any = null;
+      if (s.receiptId) {
+        whQuery = { _id: s.receiptId };
+      } else if (s.receipt) {
+        whQuery = {
+          receipt: new RegExp(`^${s.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        };
+        if (s.warehouse) {
+          whQuery.warehouse = new RegExp(`^${s.warehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+        }
+      }
+      if (!whQuery) continue;
+
       const undeliveredCount = await Shipment.countDocuments({
-        receipt: new RegExp(`^${r.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        $or: [
+          ...(s.receiptId ? [{ receiptId: s.receiptId }] : []),
+          {
+            receipt: new RegExp(`^${(s.receipt || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+            warehouse: new RegExp(`^${(s.warehouse || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+          },
+        ],
         isDelivered: { $ne: true },
       });
 
       if (undeliveredCount === 0) {
         await WarehouseReceipt.findOneAndUpdate(
-          { receipt: new RegExp(`^${r.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+          whQuery,
           {
             $set: {
               deliveryDate: formattedDelivery,

@@ -939,9 +939,9 @@ export default function PublicTrackerPage() {
                     </div>
                   </div>
 
-                  <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-black bg-amber-100 text-amber-900 border border-amber-300">
-                    <Clock className="w-3.5 h-3.5 text-amber-700" />
-                    <span>Loading Plan In Progress</span>
+                  <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-black bg-blue-100 text-blue-900 border border-blue-300">
+                    <Package className="w-3.5 h-3.5 text-blue-700" />
+                    <span>Receipt in Warehouse</span>
                   </span>
                 </div>
 
@@ -977,7 +977,7 @@ export default function PublicTrackerPage() {
                 </div>
 
                 <p className="text-xs text-slate-600 bg-white/60 p-3 rounded-xl border border-blue-100/50">
-                  ℹ️ Your goods have been safely unloaded and verified at our China warehouse. Our logistics loaders are currently creating the loading plan and internal container allotment. Once container loading and customs filing are finalized, the sea transit ETA will be updated automatically.
+                  ℹ️ Your goods have been safely received and stored at our {receiptResult.warehouseReceipt.warehouse || 'China Warehouse'}. As soon as the container alias is assigned and cargo is loaded, the container details and delivery ETA will update here automatically.
                 </p>
               </div>
             </section>

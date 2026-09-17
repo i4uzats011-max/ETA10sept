@@ -85,15 +85,22 @@ export async function GET(req: NextRequest) {
       if (whItem) selectedWarehouse = whItem.warehouse;
     }
 
-    // Now query shipments for this specific warehouse / receipt
-    const shipmentQuery: any = {
-      receipt: { $regex: new RegExp(`^${receiptQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
-    };
-    if (selectedWarehouse && whItem) {
-      shipmentQuery.$or = [
-        { warehouse: new RegExp(`^${selectedWarehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
-        { receiptId: whItem._id },
-      ];
+    // Now query shipments strictly for this specific warehouse / receipt
+    let shipmentQuery: any;
+    if (whItem) {
+      shipmentQuery = {
+        $or: [
+          { receiptId: whItem._id },
+          {
+            receipt: { $regex: new RegExp(`^${receiptQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+            warehouse: new RegExp(`^${(selectedWarehouse || whItem.warehouse || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+          },
+        ],
+      };
+    } else {
+      shipmentQuery = {
+        receipt: { $regex: new RegExp(`^${receiptQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+      };
     }
 
     const rawShipments: any[] = await Shipment.find(shipmentQuery).sort({ uploadedAt: -1 }).lean();
@@ -112,7 +119,8 @@ export async function GET(req: NextRequest) {
         receipt: receiptQuery,
         warehouseReceipt: whItem,
         shipments: [],
-        message: `Goods received at ${whItem.warehouse || 'China Warehouse'}. Loading plan in progress.`,
+        status: 'Receipt in Warehouse',
+        message: `Goods safely received at ${whItem.warehouse || 'China Warehouse'}. Stored in warehouse.`,
       });
     }
 
@@ -166,6 +174,7 @@ export async function GET(req: NextRequest) {
         receipt: shipment.receipt,
         party: shipment.party || whItem?.party || 'General Party',
         container: shipment.container, // Internal Container Alias only (e.g. 'USI-01')
+        status: shipment.isDelivered ? 'Delivered' : (shipment.status && shipment.status !== 'Planning' ? shipment.status : 'Loaded'),
         dateOfDelivery: publicDeliveryDate,
         expectedDeliveryDate: publicDeliveryDate,
         eta: publicDeliveryDate, // For backwards compatibility with UI components expecting eta

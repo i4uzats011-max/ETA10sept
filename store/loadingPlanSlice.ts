@@ -240,6 +240,8 @@ export const allocateReceiptSplit = createAsyncThunk(
   async (
     payload: {
       receipt: string;
+      receiptId?: string;
+      warehouse?: string;
       container: string;
       quantityToLoad: number;
       weightToLoad?: string;
@@ -774,13 +776,16 @@ export const loadingPlanSlice = createSlice({
         type: 'success',
         text: action.payload.message || 'Cargo quantity allocated successfully',
       };
-      // Update receipt in local list
+      // Update receipt in local list (Scoped by _id and warehouse)
       if (action.payload.receipt) {
+        const targetRec = action.payload.receipt;
         const idx = state.warehouseReceipts.findIndex(
-          (r) => r.receipt.toUpperCase() === action.payload.receipt.receipt.toUpperCase()
+          (r) => (targetRec._id && r._id === targetRec._id) ||
+                 (r.receipt.toUpperCase() === targetRec.receipt.toUpperCase() &&
+                  (!r.warehouse || !targetRec.warehouse || r.warehouse.toUpperCase() === targetRec.warehouse.toUpperCase()))
         );
         if (idx !== -1) {
-          state.warehouseReceipts[idx] = action.payload.receipt;
+          state.warehouseReceipts[idx] = targetRec;
         }
       }
     });
@@ -909,9 +914,10 @@ export const loadingPlanSlice = createSlice({
       };
       const deletedIds = new Set(action.payload.ids);
       const deletedReceipts = new Set(action.payload.receipts);
-      state.warehouseReceipts = state.warehouseReceipts.filter(
-        (r) => !deletedIds.has(r._id) && !deletedReceipts.has(r.receipt)
-      );
+      state.warehouseReceipts = state.warehouseReceipts.filter((r) => {
+        if (deletedIds.size > 0) return !deletedIds.has(r._id);
+        return !deletedReceipts.has(r.receipt);
+      });
     });
     builder.addCase(bulkDeleteWarehouseReceipts.rejected, (state, action) => {
       state.actionLoading = false;

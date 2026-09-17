@@ -110,6 +110,9 @@ ShipmentSchema.index({ container: 1, containerNumber: 1 });
 ShipmentSchema.index({ containerNumber: 1, receipt: 1 });
 ShipmentSchema.index({ party: 1, receipt: 1 });
 ShipmentSchema.index({ warehouse: 1 });
+ShipmentSchema.index({ receipt: 1, warehouse: 1 });
+ShipmentSchema.index({ receipt: 1, warehouse: 1, container: 1 });
+ShipmentSchema.index({ receiptId: 1 });
 ShipmentSchema.index({ uploadBatchId: 1 });
 
 export default mongoose.models.Shipment || mongoose.model<IShipment>('Shipment', ShipmentSchema);
