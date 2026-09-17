@@ -906,16 +906,30 @@ export default function LoaderHub() {
   // Warehouse receipts that have remaining stock available to load container-wise
   const availableReceiptsWithStock = useMemo(() => {
     return warehouseReceipts.filter((r) => {
+      // If a container-wise plan is open with a specific warehouse, only show receipts from that warehouse
+      if (
+        containerWisePlan &&
+        containerWisePlan.warehouse &&
+        containerWisePlan.warehouse !== 'ALL' &&
+        containerWisePlan.warehouse !== 'China Warehouse'
+      ) {
+        if (
+          (r.warehouse || '').toUpperCase().trim() !==
+          containerWisePlan.warehouse.toUpperCase().trim()
+        ) {
+          return false;
+        }
+      }
       const remaining = r.remainingQuantity !== undefined ? r.remainingQuantity : r.quantity - (r.loadedQuantity || 0);
       return remaining > 0;
     });
-  }, [warehouseReceipts]);
+  }, [warehouseReceipts, containerWisePlan]);
 
   // Currently selected receipt in Container-Wise load modal
   const selectedContainerWiseReceipt = useMemo(() => {
     if (!containerWiseReceiptId) return availableReceiptsWithStock[0] || null;
     return (
-      availableReceiptsWithStock.find((r) => (r._id || r.receipt) === containerWiseReceiptId) ||
+      availableReceiptsWithStock.find((r) => String(r._id) === String(containerWiseReceiptId)) ||
       availableReceiptsWithStock[0] ||
       null
     );
@@ -940,9 +954,29 @@ export default function LoaderHub() {
     setContainerWisePlan(plan);
     setContainerWiseReceiptSearch('');
     setIsReceiptDropdownOpen(false);
-    const firstStock = availableReceiptsWithStock[0];
+    // Find available stock scoped strictly to this plan's warehouse
+    const matchingStock = warehouseReceipts.filter((r) => {
+      if (
+        plan.warehouse &&
+        plan.warehouse !== 'ALL' &&
+        plan.warehouse !== 'China Warehouse'
+      ) {
+        if (
+          (r.warehouse || '').toUpperCase().trim() !==
+          plan.warehouse.toUpperCase().trim()
+        ) {
+          return false;
+        }
+      }
+      const remaining =
+        r.remainingQuantity !== undefined
+          ? r.remainingQuantity
+          : r.quantity - (r.loadedQuantity || 0);
+      return remaining > 0;
+    });
+    const firstStock = matchingStock[0];
     if (firstStock) {
-      setContainerWiseReceiptId(firstStock._id || firstStock.receipt);
+      setContainerWiseReceiptId(String(firstStock._id));
       const rem =
         firstStock.remainingQuantity !== undefined
           ? firstStock.remainingQuantity
@@ -2171,10 +2205,13 @@ export default function LoaderHub() {
             const rKey = (r.receipt || '').toUpperCase().trim();
             const rWh = (r.warehouse || '').toUpperCase().trim();
             for (const p of loadingPlans) {
+              const planWh = (p.warehouse || '').toUpperCase().trim();
               for (const item of (p.items || []) as any[]) {
-                const isMatch = (item.receiptId && String(item.receiptId) === String(r._id)) ||
+                const itemWh = (item.warehouse || planWh || '').toUpperCase().trim();
+                const isMatch =
+                  (item.receiptId && String(item.receiptId) === String(r._id)) ||
                   ((item.receipt || '').toUpperCase().trim() === rKey &&
-                   (!item.warehouse || !rWh || item.warehouse.toUpperCase().trim() === rWh));
+                   Boolean(rWh && itemWh ? rWh === itemWh : true));
                 if (isMatch) {
                   resolvedContainers.push({
                     container: p.container,
@@ -6890,13 +6927,13 @@ export default function LoaderHub() {
                                 r.remainingQuantity !== undefined
                                   ? r.remainingQuantity
                                   : r.quantity - (r.loadedQuantity || 0);
-                              const isSelected = (r._id || r.receipt) === containerWiseReceiptId;
+                              const isSelected = String(r._id) === String(containerWiseReceiptId);
                               return (
                                 <button
-                                  key={r._id || r.receipt}
+                                  key={String(r._id)}
                                   type="button"
                                   onClick={() => {
-                                    setContainerWiseReceiptId(r._id || r.receipt);
+                                    setContainerWiseReceiptId(String(r._id));
                                     setContainerWiseQuantity(rem > 0 ? rem : '');
                                     setContainerWiseWeight(r.weight || '');
                                     setContainerWiseVolume(r.volume || '');
@@ -6948,7 +6985,7 @@ export default function LoaderHub() {
                         onChange={(e) => {
                           const rId = e.target.value;
                           setContainerWiseReceiptId(rId);
-                          const r = availableReceiptsWithStock.find((x) => (x._id || x.receipt) === rId);
+                          const r = availableReceiptsWithStock.find((x) => String(x._id) === rId);
                           if (r) {
                             const rem =
                               r.remainingQuantity !== undefined
@@ -6968,7 +7005,7 @@ export default function LoaderHub() {
                               ? r.remainingQuantity
                               : r.quantity - (r.loadedQuantity || 0);
                           return (
-                            <option key={r._id || r.receipt} value={r._id || r.receipt}>
+                            <option key={String(r._id)} value={String(r._id)}>
                               #{r.receipt} - {r.party || 'General'} ({rem} CTN in {r.warehouse})
                             </option>
                           );

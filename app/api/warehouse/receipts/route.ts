@@ -83,8 +83,8 @@ export async function GET(req: NextRequest) {
       .select('receipt receiptId warehouse container containerNumber shippingLine quantity')
       .lean();
 
-    const containerMapById = new Map<string, Array<{ container: string; containerNumber?: string; shippingLine?: string; quantity: string | number }>>();
-    const containerMapByWarehouseAndNum = new Map<string, Array<{ container: string; containerNumber?: string; shippingLine?: string; quantity: string | number }>>();
+    const containerMapById = new Map<string, Array<{ container: string; containerNumber?: string; shippingLine?: string; quantity: string | number; warehouse?: string }>>();
+    const containerMapByWarehouseAndNum = new Map<string, Array<{ container: string; containerNumber?: string; shippingLine?: string; quantity: string | number; warehouse?: string }>>();
 
     for (const s of activeShipments) {
       const entry = {
@@ -92,6 +92,7 @@ export async function GET(req: NextRequest) {
         containerNumber: s.containerNumber || '',
         shippingLine: s.shippingLine || 'MSC',
         quantity: s.quantity || '0',
+        warehouse: s.warehouse || '',
       };
       if (s.receiptId) {
         const idKey = String(s.receiptId);
@@ -107,8 +108,17 @@ export async function GET(req: NextRequest) {
 
     const enhancedReceipts = receipts.map((r: any) => {
       const idKey = String(r._id);
-      const compositeKey = `${(r.warehouse || '').trim().toLowerCase()}___${(r.receipt || '').trim().toUpperCase()}`;
-      const containers = containerMapById.get(idKey) || containerMapByWarehouseAndNum.get(compositeKey) || [];
+      const rWh = (r.warehouse || '').trim().toLowerCase();
+      const compositeKey = `${rWh}___${(r.receipt || '').trim().toUpperCase()}`;
+
+      let rawContainers = containerMapById.get(idKey);
+      // Filter out any cross-warehouse contamination if rawContainers has mismatching warehouse
+      if (rawContainers && rWh) {
+        rawContainers = rawContainers.filter((c) => !c.warehouse || c.warehouse.trim().toLowerCase() === rWh);
+      }
+      const containers = (rawContainers && rawContainers.length > 0)
+        ? rawContainers
+        : (containerMapByWarehouseAndNum.get(compositeKey) || []);
 
       // Calculate actual loaded cartons from active shipments
       let actualLoaded = 0;
@@ -322,11 +332,12 @@ export async function POST(req: NextRequest) {
         if (existing.volume !== undefined) shipmentUpdates.volume = existing.volume;
 
         const oldReceiptRegex = new RegExp(`^${oldReceipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+        const oldWhRegex = new RegExp(`^${oldWarehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
         const cascadeRes = await Shipment.updateMany(
           {
             $or: [
               { receiptId: existing._id },
-              { receipt: oldReceiptRegex },
+              { receipt: oldReceiptRegex, warehouse: oldWhRegex },
             ],
           },
           { $set: shipmentUpdates }
@@ -480,7 +491,7 @@ export async function DELETE(req: NextRequest) {
     }
 
     // Check if any goods from this receipt have already been loaded into containers (Scoped to this warehouse receipt)
-    const loadedShipments = await Shipment.find({
+    const rawLoadedShipments = await Shipment.find({
       $or: [
         { receiptId: existing._id },
         {
@@ -490,7 +501,14 @@ export async function DELETE(req: NextRequest) {
       ],
     }).lean();
 
-    const isLoaded = (existing.loadedQuantity && existing.loadedQuantity > 0) || loadedShipments.length > 0;
+    const loadedShipments = rawLoadedShipments.filter((s: any) => {
+      if (s.warehouse && existing.warehouse) {
+        return s.warehouse.trim().toLowerCase() === existing.warehouse.trim().toLowerCase();
+      }
+      return true;
+    });
+
+    const isLoaded = loadedShipments.length > 0;
 
     if (isLoaded && unloadFirst) {
       // Process Rule: Unmark and unload this receipt from all mapped container plans

@@ -24,9 +24,9 @@ async function rectify() {
   const receipts = await mongoose.connection.db.collection('warehousereceipts').find({}).toArray();
   const shipments = await mongoose.connection.db.collection('shipments').find({}).toArray();
 
-  // Map shipments by receiptId and by receipt string
+  // Map shipments strictly by receiptId and by warehouse composite key
   const shipmentsByReceiptId = new Map();
-  const shipmentsByReceiptNum = new Map();
+  const shipmentsByWhAndNum = new Map();
 
   for (const s of shipments) {
     if (!s.container || !s.container.trim()) continue; // Ignore if no container
@@ -36,6 +36,7 @@ async function rectify() {
       container: s.container.trim(),
       containerNumber: (s.containerNumber || '').trim(),
       quantity: qty,
+      warehouse: (s.warehouse || '').trim().toUpperCase(),
     };
 
     if (s.receiptId) {
@@ -43,10 +44,10 @@ async function rectify() {
       if (!shipmentsByReceiptId.has(idKey)) shipmentsByReceiptId.set(idKey, []);
       shipmentsByReceiptId.get(idKey).push(entry);
     }
-    if (s.receipt) {
-      const numKey = s.receipt.toUpperCase().trim();
-      if (!shipmentsByReceiptNum.has(numKey)) shipmentsByReceiptNum.set(numKey, []);
-      shipmentsByReceiptNum.get(numKey).push(entry);
+    if (s.receipt && s.warehouse) {
+      const compositeKey = `${s.warehouse.trim().toUpperCase()}___${s.receipt.trim().toUpperCase()}`;
+      if (!shipmentsByWhAndNum.has(compositeKey)) shipmentsByWhAndNum.set(compositeKey, []);
+      shipmentsByWhAndNum.get(compositeKey).push(entry);
     }
   }
 
@@ -55,10 +56,17 @@ async function rectify() {
 
   for (const r of receipts) {
     const idKey = String(r._id);
-    const numKey = (r.receipt || '').toUpperCase().trim();
+    const rWh = (r.warehouse || '').trim().toUpperCase();
+    const compositeKey = `${rWh}___${(r.receipt || '').trim().toUpperCase()}`;
 
-    // Valid attached containers
-    const attachedShipments = shipmentsByReceiptId.get(idKey) || shipmentsByReceiptNum.get(numKey) || [];
+    // Valid attached containers strictly scoped to this warehouse
+    let rawAttached = shipmentsByReceiptId.get(idKey);
+    if (rawAttached && rWh) {
+      rawAttached = rawAttached.filter((s) => !s.warehouse || s.warehouse === rWh);
+    }
+    const attachedShipments = (rawAttached && rawAttached.length > 0)
+      ? rawAttached
+      : (shipmentsByWhAndNum.get(compositeKey) || []);
 
     let totalLoadedWithContainer = 0;
     for (const item of attachedShipments) {

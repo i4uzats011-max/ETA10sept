@@ -24,19 +24,41 @@ async function reconcile() {
   const receipts = await mongoose.connection.db.collection('warehousereceipts').find({}).toArray();
   const shipments = await mongoose.connection.db.collection('shipments').find({}).toArray();
 
-  const shipmentSumByReceiptId = {};
+  const shipmentSumByReceiptIdAndWh = new Map();
+  const shipmentSumByWhAndReceipt = new Map();
+
   for (const s of shipments) {
+    if (!s.container || !s.container.trim()) continue; // Ignore if no container assigned
     const qty = parseInt(String(s.quantity || 0), 10) || 0;
+    const sWh = (s.warehouse || '').toUpperCase().trim();
+    const sRec = (s.receipt || '').toUpperCase().trim();
+
     if (s.receiptId) {
-      const idStr = String(s.receiptId);
-      shipmentSumByReceiptId[idStr] = (shipmentSumByReceiptId[idStr] || 0) + qty;
+      const idKey = String(s.receiptId);
+      const current = shipmentSumByReceiptIdAndWh.get(idKey) || { qty: 0, warehouse: sWh };
+      current.qty += qty;
+      if (!current.warehouse && sWh) current.warehouse = sWh;
+      shipmentSumByReceiptIdAndWh.set(idKey, current);
+    }
+    if (sRec && sWh) {
+      const compKey = `${sWh}___${sRec}`;
+      shipmentSumByWhAndReceipt.set(compKey, (shipmentSumByWhAndReceipt.get(compKey) || 0) + qty);
     }
   }
 
   let updatedCount = 0;
   for (const r of receipts) {
     const idStr = String(r._id);
-    const actualLoaded = shipmentSumByReceiptId[idStr] || 0;
+    const rWh = (r.warehouse || '').toUpperCase().trim();
+    const compKey = `${rWh}___${(r.receipt || '').toUpperCase().trim()}`;
+
+    let actualLoaded = 0;
+    const entryById = shipmentSumByReceiptIdAndWh.get(idStr);
+    if (entryById && (!entryById.warehouse || !rWh || entryById.warehouse === rWh)) {
+      actualLoaded = entryById.qty;
+    } else if (shipmentSumByWhAndReceipt.has(compKey)) {
+      actualLoaded = shipmentSumByWhAndReceipt.get(compKey);
+    }
     const currentLoaded = r.loadedQuantity || 0;
 
     if (actualLoaded !== currentLoaded) {

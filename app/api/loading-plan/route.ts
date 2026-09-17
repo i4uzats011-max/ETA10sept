@@ -219,16 +219,48 @@ export async function POST(req: NextRequest) {
         }
         whReceipt = await WarehouseReceipt.findOne(whQuery);
       }
+
+      // If still not found and warehouse was not explicitly specified, check if receipt exists in multiple warehouses
       if (!whReceipt && !warehouse && !body.warehouse) {
-        whReceipt = await WarehouseReceipt.findOne({
+        const candidates = await WarehouseReceipt.find({
           receipt: new RegExp(`^${cleanReceipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
         });
+        if (candidates.length === 1) {
+          whReceipt = candidates[0];
+        } else if (candidates.length > 1) {
+          const whNames = candidates.map((c) => c.warehouse).filter(Boolean).join(', ');
+          return NextResponse.json(
+            {
+              error: `Receipt '${cleanReceipt}' exists in multiple warehouses (${whNames}). Please specify the origin warehouse to allocate stock accurately.`,
+            },
+            { status: 400 }
+          );
+        }
       }
 
       if (!whReceipt) {
         return NextResponse.json(
           {
             error: `Receipt '${cleanReceipt}'${warehouse ? ` for warehouse '${warehouse}'` : ''} has not been received in China warehouse stock yet. Goods must be received in warehouse inventory before they can be loaded into a container plan.`,
+          },
+          { status: 400 }
+        );
+      }
+
+      // Strict Warehouse Isolation Rule: Container origin warehouse must match receipt origin warehouse
+      const containerWh = (targetContainer.warehouse || '').trim();
+      const receiptWh = (whReceipt.warehouse || '').trim();
+      if (
+        containerWh &&
+        receiptWh &&
+        containerWh !== 'ALL' &&
+        containerWh !== 'China Warehouse' &&
+        receiptWh !== 'China Warehouse' &&
+        containerWh.toLowerCase() !== receiptWh.toLowerCase()
+      ) {
+        return NextResponse.json(
+          {
+            error: `Warehouse Mismatch Error: Receipt #${whReceipt.receipt} is stored in '${receiptWh}' warehouse, but container '${targetContainer.container}' belongs to '${containerWh}' warehouse. Goods can only be loaded into a container originating from the same warehouse.`,
           },
           { status: 400 }
         );
@@ -243,12 +275,29 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const availableQty = whReceipt.remainingQuantity !== undefined ? whReceipt.remainingQuantity : (whReceipt.quantity - (whReceipt.loadedQuantity || 0));
+      // Self-heal and dynamically calculate actual loaded quantity strictly from shipments of THIS warehouse receipt
+      const activeShipmentsForReceipt = await Shipment.find({
+        $or: [
+          { receiptId: whReceipt._id },
+          {
+            receipt: new RegExp(`^${cleanReceipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+            warehouse: new RegExp(`^${(whReceipt.warehouse || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+          },
+        ],
+      }).lean();
+      const actualLoadedSoFar = activeShipmentsForReceipt.reduce(
+        (sum: number, s: any) => sum + (parseInt(String(s.quantity || 0), 10) || 0),
+        0
+      );
+      whReceipt.loadedQuantity = actualLoadedSoFar;
+      whReceipt.remainingQuantity = Math.max(0, whReceipt.quantity - actualLoadedSoFar);
+
+      const availableQty = whReceipt.remainingQuantity;
 
       if (availableQty <= 0) {
         return NextResponse.json(
           {
-            error: `Receipt '${cleanReceipt}' is already fully loaded (${whReceipt.loadedQuantity} of ${whReceipt.quantity} CTN loaded). No remaining stock in China warehouse to load.`,
+            error: `Receipt '${cleanReceipt}' in '${whReceipt.warehouse}' is already fully loaded (${whReceipt.loadedQuantity} of ${whReceipt.quantity} CTN loaded). No remaining stock in '${whReceipt.warehouse}' warehouse to load.`,
           },
           { status: 400 }
         );
@@ -257,23 +306,13 @@ export async function POST(req: NextRequest) {
       if (qtyToLoad > availableQty) {
         return NextResponse.json(
           {
-            error: `Strict Rule Violation: You cannot load more goods than received in China warehouse. Requested ${qtyToLoad} units, but only ${availableQty} units are remaining in stock for receipt '${cleanReceipt}' (Total received: ${whReceipt.quantity}, already loaded: ${whReceipt.loadedQuantity || 0}).`,
+            error: `Strict Rule Violation: You cannot load more goods than received in ${whReceipt.warehouse} warehouse. Requested ${qtyToLoad} units, but only ${availableQty} units are remaining in stock for receipt '${cleanReceipt}' (Total received: ${whReceipt.quantity}, already loaded: ${whReceipt.loadedQuantity || 0}).`,
           },
           { status: 400 }
         );
       }
 
-      // Count existing split items for this specific warehouse receipt (Scoped to receiptId and warehouse)
-      const existingSplitsCount = await Shipment.countDocuments({
-        $or: [
-          { receiptId: whReceipt._id },
-          {
-            receipt: new RegExp(`^${cleanReceipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-            warehouse: new RegExp(`^${(whReceipt.warehouse || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-          },
-        ],
-      });
-
+      const existingSplitsCount = activeShipmentsForReceipt.length;
       const isSplitOperation = qtyToLoad < whReceipt.quantity || existingSplitsCount > 0;
 
       // Clean 4-status lifecycle: Goods assigned to container are 'Loaded' (or 'Delivered' / 'In Transit')
@@ -283,7 +322,7 @@ export async function POST(req: NextRequest) {
             ? targetContainer.status
             : 'Loaded');
 
-      // 3. Create Shipment allocation record
+      // 3. Create Shipment allocation record (Strictly store whReceipt._id and whReceipt.warehouse)
       const newShipment = await Shipment.create({
         receipt: whReceipt.receipt,
         receiptId: whReceipt._id,
@@ -302,7 +341,7 @@ export async function POST(req: NextRequest) {
         packaging: whReceipt.packaging || '',
         mainMarka: whReceipt.mainMarka || '',
         subMarka: whReceipt.subMarka || '',
-        warehouse: whReceipt.warehouse || targetContainer.warehouse || 'China Warehouse',
+        warehouse: whReceipt.warehouse,
         warehouseEntry: whReceipt.warehouseEntry || '',
         date: whReceipt.date || '',
         eta: targetContainer.destinationDate || targetContainer.eta || 'Pending',
@@ -316,8 +355,8 @@ export async function POST(req: NextRequest) {
         targetContainer.planStatus = 'Loaded';
       }
 
-      // 4. Update Warehouse Receipt loaded & remaining quantities
-      whReceipt.loadedQuantity = (whReceipt.loadedQuantity || 0) + qtyToLoad;
+      // 4. Update Warehouse Receipt loaded & remaining quantities for this specific warehouse receipt
+      whReceipt.loadedQuantity = actualLoadedSoFar + qtyToLoad;
       whReceipt.remainingQuantity = Math.max(0, whReceipt.quantity - whReceipt.loadedQuantity);
       if (whReceipt.remainingQuantity === 0) {
         whReceipt.status = 'Fully Loaded';
@@ -335,7 +374,7 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: `Loaded ${qtyToLoad} units of receipt '${whReceipt.receipt}' into ${targetContainer.container}. (${whReceipt.remainingQuantity} remaining in warehouse)`,
+        message: `Loaded ${qtyToLoad} units of receipt '${whReceipt.receipt}' (${whReceipt.warehouse}) into ${targetContainer.container}. (${whReceipt.remainingQuantity} remaining in ${whReceipt.warehouse} warehouse)`,
         shipment: newShipment,
         receipt: whReceipt,
       });
@@ -359,12 +398,15 @@ export async function POST(req: NextRequest) {
       const receiptNum = shipment.receipt;
       const containerAlias = shipment.container;
 
-      // Restore quantity in Warehouse Receipt by receiptId or receipt + warehouse
+      // Delete the Shipment allocation record FIRST
+      await Shipment.findByIdAndDelete(shipmentId);
+
+      // Restore quantity in Warehouse Receipt strictly by receiptId or (receipt + warehouse)
       let whReceipt: any = null;
       if (shipment.receiptId) {
         whReceipt = await WarehouseReceipt.findById(shipment.receiptId);
       }
-      if (!whReceipt) {
+      if (!whReceipt && shipment.receipt) {
         const whFilter: any = {
           receipt: new RegExp(`^${receiptNum.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
         };
@@ -373,18 +415,31 @@ export async function POST(req: NextRequest) {
         }
         whReceipt = await WarehouseReceipt.findOne(whFilter);
       }
-      if (!whReceipt) {
-        whReceipt = await WarehouseReceipt.findOne({
-          receipt: new RegExp(`^${receiptNum.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-        });
-      }
 
       if (whReceipt) {
-        whReceipt.loadedQuantity = Math.max(0, (whReceipt.loadedQuantity || 0) - qtyRestored);
-        whReceipt.remainingQuantity = Math.max(0, whReceipt.quantity - whReceipt.loadedQuantity);
+        // Recalculate actual loaded quantity from remaining matching shipments for THIS warehouse receipt
+        const remainingShipments = await Shipment.find({
+          $or: [
+            { receiptId: whReceipt._id },
+            {
+              receipt: new RegExp(`^${whReceipt.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+              warehouse: new RegExp(`^${(whReceipt.warehouse || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+            },
+          ],
+        }).lean();
+        const actualLoaded = remainingShipments.reduce(
+          (sum: number, s: any) => sum + (parseInt(String(s.quantity || 0), 10) || 0),
+          0
+        );
+
+        whReceipt.loadedQuantity = actualLoaded;
+        whReceipt.remainingQuantity = Math.max(0, (whReceipt.quantity || 0) - actualLoaded);
         if (whReceipt.loadedQuantity <= 0) {
           whReceipt.status = 'Received in Warehouse';
           whReceipt.stockstatus = 'In Stock';
+        } else if (whReceipt.loadedQuantity >= (whReceipt.quantity || 0)) {
+          whReceipt.status = 'Fully Loaded';
+          whReceipt.stockstatus = 'Dispatched';
         } else {
           whReceipt.status = 'Partially Loaded';
           whReceipt.stockstatus = 'Partially Dispatched';
@@ -403,12 +458,9 @@ export async function POST(req: NextRequest) {
         }
       );
 
-      // Delete the Shipment allocation record
-      await Shipment.findByIdAndDelete(shipmentId);
-
       return NextResponse.json({
         success: true,
-        message: `Removed ${qtyRestored} units of '${receiptNum}' from ${containerAlias}. Restored to warehouse stock.`,
+        message: `Removed ${qtyRestored} units of '${receiptNum}' (${whReceipt?.warehouse || shipment.warehouse || 'WH'}) from ${containerAlias}. Restored to warehouse stock.`,
         receipt: whReceipt,
       });
     }
@@ -428,14 +480,17 @@ export async function POST(req: NextRequest) {
       });
 
       let totalRestored = 0;
+      const affectedReceiptIds = new Set<string>();
+
       for (const s of shipments) {
         const qty = parseInt(String(s.quantity || 0), 10) || 0;
         totalRestored += qty;
+
         let whReceipt: any = null;
         if (s.receiptId) {
           whReceipt = await WarehouseReceipt.findById(s.receiptId);
         }
-        if (!whReceipt) {
+        if (!whReceipt && s.receipt) {
           const whFilter: any = {
             receipt: new RegExp(`^${(s.receipt || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
           };
@@ -444,19 +499,44 @@ export async function POST(req: NextRequest) {
           }
           whReceipt = await WarehouseReceipt.findOne(whFilter);
         }
-        if (!whReceipt) {
-          whReceipt = await WarehouseReceipt.findOne({
-            receipt: new RegExp(`^${(s.receipt || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-          });
-        }
         if (whReceipt) {
-          whReceipt.loadedQuantity = Math.max(0, (whReceipt.loadedQuantity || 0) - qty);
-          whReceipt.remainingQuantity = Math.max(0, whReceipt.quantity - whReceipt.loadedQuantity);
-          whReceipt.status = whReceipt.loadedQuantity <= 0 ? 'Received in Warehouse' : 'Partially Loaded';
-          whReceipt.stockstatus = whReceipt.loadedQuantity <= 0 ? 'In Stock' : 'Partially Dispatched';
+          affectedReceiptIds.add(String(whReceipt._id));
+        }
+
+        await Shipment.findByIdAndDelete(s._id);
+      }
+
+      // Recalculate each affected warehouse receipt strictly from its remaining shipments
+      for (const rId of Array.from(affectedReceiptIds)) {
+        const whReceipt = await WarehouseReceipt.findById(rId);
+        if (whReceipt) {
+          const remainingShipments = await Shipment.find({
+            $or: [
+              { receiptId: whReceipt._id },
+              {
+                receipt: new RegExp(`^${whReceipt.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+                warehouse: new RegExp(`^${(whReceipt.warehouse || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+              },
+            ],
+          }).lean();
+          const actualLoaded = remainingShipments.reduce(
+            (sum: number, s: any) => sum + (parseInt(String(s.quantity || 0), 10) || 0),
+            0
+          );
+          whReceipt.loadedQuantity = actualLoaded;
+          whReceipt.remainingQuantity = Math.max(0, (whReceipt.quantity || 0) - actualLoaded);
+          if (whReceipt.loadedQuantity <= 0) {
+            whReceipt.status = 'Received in Warehouse';
+            whReceipt.stockstatus = 'In Stock';
+          } else if (whReceipt.loadedQuantity >= (whReceipt.quantity || 0)) {
+            whReceipt.status = 'Fully Loaded';
+            whReceipt.stockstatus = 'Dispatched';
+          } else {
+            whReceipt.status = 'Partially Loaded';
+            whReceipt.stockstatus = 'Partially Dispatched';
+          }
           await whReceipt.save();
         }
-        await Shipment.findByIdAndDelete(s._id);
       }
 
       await Container.findOneAndUpdate(
@@ -668,23 +748,61 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Revert WarehouseReceipt records for receipts under this container
-      const affectedReceipts = Array.from(new Set(containerShipments.map((s) => s.receipt).filter(Boolean)));
-      for (const r of affectedReceipts) {
-        const wh = await WarehouseReceipt.findOne({
-          receipt: new RegExp(`^${r.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-        });
+      // Revert WarehouseReceipt records for receipts under this container (Warehouse-Scoped)
+      const affectedReceiptMap = new Map<string, { receipt: string; warehouse: string; receiptId?: any }>();
+      for (const s of containerShipments) {
+        if (!s.receipt) continue;
+        const whKey = `${(s.warehouse || '').trim().toLowerCase()}___${s.receipt.trim().toUpperCase()}`;
+        if (!affectedReceiptMap.has(whKey)) {
+          affectedReceiptMap.set(whKey, {
+            receipt: s.receipt,
+            warehouse: s.warehouse || targetContainer.warehouse || '',
+            receiptId: s.receiptId,
+          });
+        }
+      }
+
+      for (const item of Array.from(affectedReceiptMap.values())) {
+        let wh: any = null;
+        if (item.receiptId) {
+          wh = await WarehouseReceipt.findById(item.receiptId);
+        }
+        if (!wh && item.receipt) {
+          const filter: any = {
+            receipt: new RegExp(`^${item.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+          };
+          if (item.warehouse) {
+            filter.warehouse = new RegExp(`^${item.warehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+          }
+          wh = await WarehouseReceipt.findOne(filter);
+        }
         if (wh) {
           wh.deliveryDate = '';
           wh.isDelivered = false;
+          // Recalculate actual loaded quantity strictly from shipments of this warehouse receipt
+          const activeShipments = await Shipment.find({
+            $or: [
+              { receiptId: wh._id },
+              {
+                receipt: new RegExp(`^${wh.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+                warehouse: new RegExp(`^${(wh.warehouse || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+              },
+            ],
+          }).lean();
+          const actualLoaded = activeShipments.reduce(
+            (sum: number, it: any) => sum + (parseInt(String(it.quantity || 0), 10) || 0),
+            0
+          );
+          wh.loadedQuantity = actualLoaded;
+          wh.remainingQuantity = Math.max(0, wh.quantity - actualLoaded);
           if (wh.loadedQuantity >= wh.quantity) {
-            wh.status = 'Loaded';
+            wh.status = 'Fully Loaded';
             wh.stockstatus = 'Dispatched';
           } else if (wh.loadedQuantity > 0) {
             wh.status = 'Partially Loaded';
             wh.stockstatus = 'Partially Dispatched';
           } else {
-            wh.status = 'Received';
+            wh.status = 'Received in Warehouse';
             wh.stockstatus = 'In Stock';
           }
           await wh.save();
@@ -810,37 +928,56 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Update WarehouseReceipt records for delivered receipts
-      const deliveredReceipts = Array.from(new Set(toDeliverShipments.map((s) => s.receipt).filter(Boolean)));
-      for (const r of deliveredReceipts) {
-        // Check if any split of this receipt is still undelivered
+      // Update WarehouseReceipt records for delivered receipts (Warehouse-Scoped)
+      const deliveredReceiptMap = new Map<string, { receipt: string; warehouse: string; receiptId?: any }>();
+      for (const s of toDeliverShipments) {
+        if (!s.receipt) continue;
+        const whKey = `${(s.warehouse || '').trim().toLowerCase()}___${s.receipt.trim().toUpperCase()}`;
+        if (!deliveredReceiptMap.has(whKey)) {
+          deliveredReceiptMap.set(whKey, {
+            receipt: s.receipt,
+            warehouse: s.warehouse || targetContainer.warehouse || '',
+            receiptId: s.receiptId,
+          });
+        }
+      }
+
+      for (const item of Array.from(deliveredReceiptMap.values())) {
+        // Check if any split of this receipt in THIS warehouse is still undelivered
         const undeliveredCount = await Shipment.countDocuments({
-          receipt: new RegExp(`^${r.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+          $or: [
+            ...(item.receiptId ? [{ receiptId: item.receiptId }] : []),
+            {
+              receipt: new RegExp(`^${item.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+              warehouse: new RegExp(`^${item.warehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+            },
+          ],
           isDelivered: { $ne: true },
         });
 
+        const whFilter: any = item.receiptId
+          ? { _id: item.receiptId }
+          : {
+              receipt: new RegExp(`^${item.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+              warehouse: new RegExp(`^${item.warehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+            };
+
         if (undeliveredCount === 0) {
-          await WarehouseReceipt.findOneAndUpdate(
-            { receipt: new RegExp(`^${r.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
-            {
-              $set: {
-                deliveryDate: cleanDeliveryDate,
-                isDelivered: true,
-                status: 'Delivered',
-                stockstatus: 'Delivered',
-              },
-            }
-          );
+          await WarehouseReceipt.findOneAndUpdate(whFilter, {
+            $set: {
+              deliveryDate: cleanDeliveryDate,
+              isDelivered: true,
+              status: 'Delivered',
+              stockstatus: 'Delivered',
+            },
+          });
         } else {
-          await WarehouseReceipt.findOneAndUpdate(
-            { receipt: new RegExp(`^${r.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
-            {
-              $set: {
-                status: 'Partially Delivered',
-                stockstatus: 'Partially Delivered',
-              },
-            }
-          );
+          await WarehouseReceipt.findOneAndUpdate(whFilter, {
+            $set: {
+              status: 'Partially Delivered',
+              stockstatus: 'Partially Delivered',
+            },
+          });
         }
       }
 
@@ -1105,7 +1242,8 @@ export async function POST(req: NextRequest) {
 
       let totalRestored = 0;
       if (shipmentsCount > 0 && unloadFirst) {
-        // Process Rule: Unload all cargo items back to China Warehouse stock
+        const affectedReceiptIds = new Set<string>();
+
         for (const s of shipments) {
           const qty = parseInt(String(s.quantity || 0), 10) || 0;
           totalRestored += qty;
@@ -1113,7 +1251,7 @@ export async function POST(req: NextRequest) {
           if (s.receiptId) {
             whReceipt = await WarehouseReceipt.findById(s.receiptId);
           }
-          if (!whReceipt) {
+          if (!whReceipt && s.receipt) {
             const whFilter: any = {
               receipt: new RegExp(`^${(s.receipt || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
             };
@@ -1122,24 +1260,43 @@ export async function POST(req: NextRequest) {
             }
             whReceipt = await WarehouseReceipt.findOne(whFilter);
           }
-          if (!whReceipt) {
-            whReceipt = await WarehouseReceipt.findOne({
-              receipt: new RegExp(`^${(s.receipt || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-            });
-          }
           if (whReceipt) {
-            whReceipt.loadedQuantity = Math.max(0, (whReceipt.loadedQuantity || 0) - qty);
-            whReceipt.remainingQuantity = Math.max(0, whReceipt.quantity - whReceipt.loadedQuantity);
+            affectedReceiptIds.add(String(whReceipt._id));
+          }
+          await Shipment.findByIdAndDelete(s._id);
+        }
+
+        // Recalculate each affected warehouse receipt strictly from its remaining shipments
+        for (const rId of Array.from(affectedReceiptIds)) {
+          const whReceipt = await WarehouseReceipt.findById(rId);
+          if (whReceipt) {
+            const remainingShipments = await Shipment.find({
+              $or: [
+                { receiptId: whReceipt._id },
+                {
+                  receipt: new RegExp(`^${whReceipt.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+                  warehouse: new RegExp(`^${(whReceipt.warehouse || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+                },
+              ],
+            }).lean();
+            const actualLoaded = remainingShipments.reduce(
+              (sum: number, s: any) => sum + (parseInt(String(s.quantity || 0), 10) || 0),
+              0
+            );
+            whReceipt.loadedQuantity = actualLoaded;
+            whReceipt.remainingQuantity = Math.max(0, (whReceipt.quantity || 0) - actualLoaded);
             if (whReceipt.loadedQuantity <= 0) {
-              whReceipt.status = 'Received';
+              whReceipt.status = 'Received in Warehouse';
               whReceipt.stockstatus = 'In Stock';
+            } else if (whReceipt.loadedQuantity >= (whReceipt.quantity || 0)) {
+              whReceipt.status = 'Fully Loaded';
+              whReceipt.stockstatus = 'Dispatched';
             } else {
               whReceipt.status = 'Partially Loaded';
               whReceipt.stockstatus = 'Partially Dispatched';
             }
             await whReceipt.save();
           }
-          await Shipment.findByIdAndDelete(s._id);
         }
       } else if (shipmentsCount > 0) {
         const totalQty = shipments.reduce((sum, s) => sum + (parseInt(String(s.quantity || 0), 10) || 0), 0);
@@ -1222,7 +1379,8 @@ export async function DELETE(req: NextRequest) {
 
     let totalRestored = 0;
     if (shipmentsCount > 0 && unloadFirst) {
-      // Process Rule: Unload all cargo items back to China Warehouse stock
+      const affectedReceiptIds = new Set<string>();
+
       for (const s of shipments) {
         const qty = parseInt(String(s.quantity || 0), 10) || 0;
         totalRestored += qty;
@@ -1230,7 +1388,7 @@ export async function DELETE(req: NextRequest) {
         if (s.receiptId) {
           whReceipt = await WarehouseReceipt.findById(s.receiptId);
         }
-        if (!whReceipt) {
+        if (!whReceipt && s.receipt) {
           const whFilter: any = {
             receipt: new RegExp(`^${(s.receipt || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
           };
@@ -1239,24 +1397,43 @@ export async function DELETE(req: NextRequest) {
           }
           whReceipt = await WarehouseReceipt.findOne(whFilter);
         }
-        if (!whReceipt) {
-          whReceipt = await WarehouseReceipt.findOne({
-            receipt: new RegExp(`^${(s.receipt || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-          });
-        }
         if (whReceipt) {
-          whReceipt.loadedQuantity = Math.max(0, (whReceipt.loadedQuantity || 0) - qty);
-          whReceipt.remainingQuantity = Math.max(0, whReceipt.quantity - whReceipt.loadedQuantity);
+          affectedReceiptIds.add(String(whReceipt._id));
+        }
+        await Shipment.findByIdAndDelete(s._id);
+      }
+
+      // Recalculate each affected warehouse receipt strictly from its remaining shipments
+      for (const rId of Array.from(affectedReceiptIds)) {
+        const whReceipt = await WarehouseReceipt.findById(rId);
+        if (whReceipt) {
+          const remainingShipments = await Shipment.find({
+            $or: [
+              { receiptId: whReceipt._id },
+              {
+                receipt: new RegExp(`^${whReceipt.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+                warehouse: new RegExp(`^${(whReceipt.warehouse || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+              },
+            ],
+          }).lean();
+          const actualLoaded = remainingShipments.reduce(
+            (sum: number, s: any) => sum + (parseInt(String(s.quantity || 0), 10) || 0),
+            0
+          );
+          whReceipt.loadedQuantity = actualLoaded;
+          whReceipt.remainingQuantity = Math.max(0, (whReceipt.quantity || 0) - actualLoaded);
           if (whReceipt.loadedQuantity <= 0) {
-            whReceipt.status = 'Received';
+            whReceipt.status = 'Received in Warehouse';
             whReceipt.stockstatus = 'In Stock';
+          } else if (whReceipt.loadedQuantity >= (whReceipt.quantity || 0)) {
+            whReceipt.status = 'Fully Loaded';
+            whReceipt.stockstatus = 'Dispatched';
           } else {
             whReceipt.status = 'Partially Loaded';
             whReceipt.stockstatus = 'Partially Dispatched';
           }
           await whReceipt.save();
         }
-        await Shipment.findByIdAndDelete(s._id);
       }
     } else if (shipmentsCount > 0) {
       const totalQty = shipments.reduce((sum, s) => sum + (parseInt(String(s.quantity || 0), 10) || 0), 0);

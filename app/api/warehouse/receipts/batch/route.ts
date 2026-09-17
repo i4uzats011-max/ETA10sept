@@ -223,9 +223,21 @@ export async function POST(req: NextRequest) {
       if (preparedUpdates.warehouse !== undefined) shipmentUpdates.warehouse = preparedUpdates.warehouse;
 
       if (Object.keys(shipmentUpdates).length > 0) {
-        const receiptNumbers = matchingReceipts.map((r) => r.receipt);
+        const receiptIds = matchingReceipts.map((r) => r._id);
+        const pairs = matchingReceipts.map((r) => ({
+          receipt: r.receipt,
+          warehouse: r.warehouse,
+        }));
         await Shipment.updateMany(
-          { receipt: { $in: receiptNumbers } },
+          {
+            $or: [
+              { receiptId: { $in: receiptIds } },
+              ...pairs.map((p) => ({
+                receipt: new RegExp(`^${p.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+                warehouse: new RegExp(`^${(p.warehouse || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+              })),
+            ],
+          },
           { $set: shipmentUpdates }
         );
       }

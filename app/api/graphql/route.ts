@@ -165,7 +165,7 @@ const schema = buildSchema(`
 
   type Mutation {
     createLoadingPlan(container: String!, warehouse: String, notes: String): MutationResult!
-    splitAndLoadReceipt(receipt: String!, container: String!, quantityToLoad: Int!, weightToLoad: String, volumeToLoad: String): MutationResult!
+    splitAndLoadReceipt(receipt: String!, container: String!, quantityToLoad: Int!, weightToLoad: String, volumeToLoad: String, warehouse: String, receiptId: ID): MutationResult!
     allotActualContainer(container: String!, containerNumber: String!, shippingLine: String!, autoSync: Boolean): MutationResult!
     finalizeLoadingPlan(container: String!, containerNumber: String, shippingLine: String): MutationResult!
     updateContainerMapping(container: String!, containerNumber: String!, shippingLine: String!): MutationResult!
@@ -223,11 +223,8 @@ function createRootResolver(req: NextRequest) {
       const shipmentQuery: any = {
         receipt: new RegExp(`^${cleanQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
       };
-      if (selectedWarehouse && whItem) {
-        shipmentQuery.$or = [
-          { warehouse: new RegExp(`^${selectedWarehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
-          { receiptId: whItem._id },
-        ];
+      if (selectedWarehouse) {
+        shipmentQuery.warehouse = new RegExp(`^${selectedWarehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
       }
 
       let rawShipments: any[] = await Shipment.find(shipmentQuery).sort({ uploadedAt: -1 }).lean();
@@ -930,12 +927,16 @@ function createRootResolver(req: NextRequest) {
       quantityToLoad,
       weightToLoad,
       volumeToLoad,
+      warehouse,
+      receiptId,
     }: {
       receipt: string;
       container: string;
       quantityToLoad: number;
       weightToLoad?: string;
       volumeToLoad?: string;
+      warehouse?: string;
+      receiptId?: string;
     }) => {
       if (!isAdminAuthenticated(req)) {
         throw new Error('Unauthorized');
@@ -961,13 +962,36 @@ function createRootResolver(req: NextRequest) {
         throw new Error(`Container '${cleanContainer}' not found`);
       }
 
-      let whReceipt = await WarehouseReceipt.findOne({
-        receipt: new RegExp(`^${cleanReceipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-      });
+      let whReceipt: any = null;
+      if (receiptId) {
+        whReceipt = await WarehouseReceipt.findById(receiptId);
+      }
+      if (!whReceipt) {
+        const whQuery: any = {
+          receipt: new RegExp(`^${cleanReceipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        };
+        const targetWh = warehouse || targetContainer.warehouse;
+        if (targetWh && targetWh !== 'ALL' && targetWh !== 'China Warehouse') {
+          whQuery.warehouse = new RegExp(`^${targetWh.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+        }
+        whReceipt = await WarehouseReceipt.findOne(whQuery);
+      }
 
       if (!whReceipt) {
         throw new Error(
           `Receipt '${cleanReceipt}' has not been received in China warehouse stock yet. Goods must be received first.`
+        );
+      }
+
+      if (
+        whReceipt.warehouse &&
+        targetContainer.warehouse &&
+        targetContainer.warehouse !== 'ALL' &&
+        targetContainer.warehouse !== 'China Warehouse' &&
+        whReceipt.warehouse.trim().toLowerCase() !== targetContainer.warehouse.trim().toLowerCase()
+      ) {
+        throw new Error(
+          `Warehouse Mismatch: Goods were received at warehouse '${whReceipt.warehouse}' but container plan '${targetContainer.container}' is assigned to '${targetContainer.warehouse}'. Goods must be loaded from the same warehouse.`
         );
       }
 
