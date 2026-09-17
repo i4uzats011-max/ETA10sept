@@ -4,13 +4,15 @@ import { NextRequest } from 'next/server';
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_jwt_secret_key_12345';
 const COOKIE_NAME = 'admin_token';
 
+export type UserRole = 'admin' | 'staff' | 'biller' | 'dispatcher';
+
 export interface AdminPayload {
-  role: 'admin' | 'staff';
+  role: UserRole;
   iat: number;
   exp: number;
 }
 
-export function signAdminToken(role: 'admin' | 'staff' = 'admin'): string {
+export function signAdminToken(role: UserRole = 'admin'): string {
   return jwt.sign({ role }, JWT_SECRET, { expiresIn: '7d' });
 }
 
@@ -45,6 +47,27 @@ export function isStaffOrAdminAuthenticated(req: NextRequest): boolean {
   return payload !== null && (payload.role === 'admin' || payload.role === 'staff');
 }
 
+export function isBillerAuthenticated(req: NextRequest): boolean {
+  const token = getAdminTokenFromRequest(req);
+  if (!token) return false;
+  const payload = verifyAdminToken(token);
+  return payload !== null && (payload.role === 'admin' || payload.role === 'biller' || payload.role === 'staff');
+}
+
+export function isDispatcherAuthenticated(req: NextRequest): boolean {
+  const token = getAdminTokenFromRequest(req);
+  if (!token) return false;
+  const payload = verifyAdminToken(token);
+  return payload !== null && (payload.role === 'admin' || payload.role === 'dispatcher' || payload.role === 'staff');
+}
+
+export function isAnyAuthenticated(req: NextRequest): boolean {
+  const token = getAdminTokenFromRequest(req);
+  if (!token) return false;
+  const payload = verifyAdminToken(token);
+  return payload !== null;
+}
+
 export function isSuperAdminAuthenticated(req: NextRequest): boolean {
   const token = getAdminTokenFromRequest(req);
   if (!token) return false;
@@ -55,3 +78,4 @@ export function isSuperAdminAuthenticated(req: NextRequest): boolean {
 export function isAdminAuthenticated(req: NextRequest): boolean {
   return isStaffOrAdminAuthenticated(req);
 }
+

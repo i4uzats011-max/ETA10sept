@@ -86,7 +86,15 @@ export default function AdminLoginPage() {
               </div>
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-400">
                 <span className="font-bold text-blue-400 block mb-0.5">Employee (EADMIN)</span>
-                <span>Read-Only Table & Multi-field search (`admin123`)</span>
+                <span>Read-Only Table & Search</span>
+              </div>
+              <div className="bg-slate-950 border border-amber-800/40 rounded-xl p-2.5 text-slate-400">
+                <span className="font-bold text-amber-400 block mb-0.5">Biller (बिलर)</span>
+                <span>Update HSN, IGST, Pcs, KG & Generate Bills</span>
+              </div>
+              <div className="bg-slate-950 border border-emerald-800/40 rounded-xl p-2.5 text-slate-400">
+                <span className="font-bold text-emerald-400 block mb-0.5">Dispatcher (डिस्पैचर)</span>
+                <span>Add Vehicle No & Mark Goods Dispatched</span>
               </div>
             </div>
           </div>

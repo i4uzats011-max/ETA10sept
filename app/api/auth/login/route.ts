@@ -8,10 +8,12 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { password } = body;
 
-    const expectedAdminPassword = process.env.ADMIN_PASSWORD || 'superadmin123';
-    const expectedEmployeePassword = process.env.EADMIN_PASSWORD || 'admin123';
+    const expectedAdminPassword = process.env.ADMIN_PASSWORD || 'Afsana1234';
+    const expectedEmployeePassword = process.env.EADMIN_PASSWORD || 'Afsana4321';
+    const expectedBillerPassword = process.env.BILLER_PASSWORD || 'biller123';
+    const expectedDispatcherPassword = process.env.DISPATCHER_PASSWORD || 'dispatch123';
 
-    let role: 'admin' | 'staff' | null = null;
+    let role: 'admin' | 'staff' | 'biller' | 'dispatcher' | null = null;
 
     if (password === expectedAdminPassword) {
       role = 'admin';
@@ -21,22 +23,37 @@ export async function POST(req: NextRequest) {
       password === process.env.ADMIN2_PASSWORD
     ) {
       role = 'staff';
+    } else if (password === expectedBillerPassword) {
+      role = 'biller';
+    } else if (password === expectedDispatcherPassword) {
+      role = 'dispatcher';
     }
 
     if (!role) {
       return NextResponse.json(
-        { error: 'Invalid password. Please enter valid Super Admin or Employee Admin credentials.' },
+        { error: 'Invalid password. Please enter valid Super Admin, Employee, Biller, or Dispatcher credentials.' },
         { status: 401 }
       );
     }
 
     const token = signAdminToken(role);
 
-    const redirectTo = role === 'admin' ? '/admin' : '/admin/view';
+    let redirectTo = '/admin';
+    let roleName = 'Super Admin';
+    if (role === 'staff') {
+      redirectTo = '/admin/view';
+      roleName = 'Internal Employee';
+    } else if (role === 'biller') {
+      redirectTo = '/biller';
+      roleName = 'Biller';
+    } else if (role === 'dispatcher') {
+      redirectTo = '/dispatcher';
+      roleName = 'Dispatcher';
+    }
 
     const response = NextResponse.json({
       success: true,
-      message: `Authenticated as ${role === 'admin' ? 'Super Admin' : 'Internal Employee (Admin 2)'}`,
+      message: `Authenticated as ${roleName}`,
       role,
       redirectTo,
     });

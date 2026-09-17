@@ -976,6 +976,20 @@ export default function InternalEmployeeViewPage() {
               </div>
             )}
 
+            <Link
+              href="/biller"
+              className="px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold transition"
+            >
+              Biller (बिलर)
+            </Link>
+
+            <Link
+              href="/dispatcher"
+              className="px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 text-xs font-bold transition"
+            >
+              Dispatcher (डिस्पैचर)
+            </Link>
+
             {userRole === 'admin' && (
               <Link
                 href="/admin"

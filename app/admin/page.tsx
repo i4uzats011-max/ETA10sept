@@ -1126,6 +1126,20 @@ export default function AdminDashboardPage() {
             </button>
 
             <Link
+              href="/biller"
+              className="px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold border border-amber-300 transition flex items-center space-x-1"
+            >
+              <span>Biller (बिलर)</span>
+            </Link>
+
+            <Link
+              href="/dispatcher"
+              className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-300 transition flex items-center space-x-1"
+            >
+              <span>Dispatcher (डिस्पैचर)</span>
+            </Link>
+
+            <Link
               href="/admin/view"
               className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold border border-slate-200 transition"
             >
