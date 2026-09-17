@@ -8,6 +8,7 @@ export interface ContainerMasterItem {
   shippedTo?: string;
   currentLocation?: string;
   startDate?: string;
+  loadingDate?: string;
   destinationDate?: string;
   eta?: string;
   status?: string;
@@ -15,6 +16,9 @@ export interface ContainerMasterItem {
   daysToDeliver?: number | null;
   isDelivered?: boolean;
   daysRemaining?: number | null;
+  actualDaysRemaining?: number | null;
+  etaBucket?: string;
+  etaBufferDays?: number;
   vesselName?: string;
   voyageNumber?: string;
   shipmentCount?: number;
@@ -26,12 +30,22 @@ export interface ContainerMasterItem {
   lastApiSync?: string | null;
 }
 
+export type StatusFilterType =
+  | 'all'
+  | 'within-2-days'
+  | '2-to-7-days'
+  | '7-to-15-days'
+  | 'more-than-15-days'
+  | 'late'
+  | 'delivered'
+  | 'in-transit';
+
 export interface CargoMasterState {
   items: ContainerMasterItem[];
   loading: boolean;
   error: string | null;
   searchTerm: string;
-  statusFilter: 'all' | 'in-transit' | 'delivered' | 'late';
+  statusFilter: StatusFilterType;
   carrierFilter: string;
   sortField: string;
   sortDirection: 'asc' | 'desc';
@@ -111,7 +125,7 @@ export const cargoMasterSlice = createSlice({
     setSearchTerm: (state, action: PayloadAction<string>) => {
       state.searchTerm = action.payload;
     },
-    setStatusFilter: (state, action: PayloadAction<'all' | 'in-transit' | 'delivered' | 'late'>) => {
+    setStatusFilter: (state, action: PayloadAction<StatusFilterType>) => {
       state.statusFilter = action.payload;
     },
     setCarrierFilter: (state, action: PayloadAction<string>) => {

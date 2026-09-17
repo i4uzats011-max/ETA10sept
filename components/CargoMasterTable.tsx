@@ -126,28 +126,66 @@ export default function CargoMasterTable({
     return Array.from(lines).sort();
   }, [items]);
 
+  // ETA Buckets dynamic counts
+  const bucketCounts = useMemo(() => {
+    let late = 0;
+    let within2Days = 0;
+    let twoToSeven = 0;
+    let sevenToFifteen = 0;
+    let moreThanFifteen = 0;
+    let delivered = 0;
+    const all = items.length;
+
+    items.forEach((c) => {
+      const isDelivered = Boolean(
+        c.isDelivered ||
+          (c.status &&
+            (c.status.toLowerCase().includes('deliver') ||
+              c.status.toLowerCase().includes('arrived') ||
+              c.status.toLowerCase().includes('reached')))
+      );
+      if (isDelivered) {
+        delivered++;
+      } else if (c.daysRemaining !== null && c.daysRemaining !== undefined) {
+        if (c.daysRemaining < 0) late++;
+        else if (c.daysRemaining <= 2) within2Days++;
+        else if (c.daysRemaining <= 7) twoToSeven++;
+        else if (c.daysRemaining <= 15) sevenToFifteen++;
+        else moreThanFifteen++;
+      }
+    });
+
+    return { late, within2Days, twoToSeven, sevenToFifteen, moreThanFifteen, delivered, all };
+  }, [items]);
+
   // Filtered dataset
   const filteredData = useMemo(() => {
     const list = items.filter((c) => {
-      // 1. Status Tab filter
-      const isDestinationReached = Boolean(
-        c.status &&
-          (c.status.toLowerCase().includes('destination') ||
-            c.status.toLowerCase().includes('arrived') ||
-            c.status.toLowerCase().includes('reached'))
-      );
+      // 1. Status Tab / ETA Bucket filter
       const isDelivered = Boolean(
         c.isDelivered ||
-          (c.status && c.status.toLowerCase().includes('deliver')) ||
-          isDestinationReached
+          (c.status &&
+            (c.status.toLowerCase().includes('deliver') ||
+              c.status.toLowerCase().includes('arrived') ||
+              c.status.toLowerCase().includes('reached')))
       );
-      const isLate = Boolean(
-        !isDelivered && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining < 0
-      );
+      const days = c.daysRemaining;
 
-      if (statusFilter === 'in-transit' && (isDelivered || isLate)) return false;
-      if (statusFilter === 'delivered' && !isDelivered) return false;
-      if (statusFilter === 'late' && !isLate) return false;
+      if (statusFilter === 'within-2-days') {
+        if (isDelivered || days === null || days === undefined || days < 0 || days > 2) return false;
+      } else if (statusFilter === '2-to-7-days') {
+        if (isDelivered || days === null || days === undefined || days <= 2 || days > 7) return false;
+      } else if (statusFilter === '7-to-15-days') {
+        if (isDelivered || days === null || days === undefined || days <= 7 || days > 15) return false;
+      } else if (statusFilter === 'more-than-15-days') {
+        if (isDelivered || days === null || days === undefined || days <= 15) return false;
+      } else if (statusFilter === 'late') {
+        if (isDelivered || days === null || days === undefined || days >= 0) return false;
+      } else if (statusFilter === 'delivered') {
+        if (!isDelivered) return false;
+      } else if (statusFilter === 'in-transit') {
+        if (isDelivered || (days !== null && days !== undefined && days < 0)) return false;
+      }
 
       // 2. Carrier filter
       if (carrierFilter !== 'ALL' && c.shippingLine?.toUpperCase() !== carrierFilter) {
@@ -161,7 +199,8 @@ export default function CargoMasterTable({
         const matchNo = (c.containerNumber || '').toLowerCase().includes(q);
         const matchLine = (c.shippingLine || '').toLowerCase().includes(q);
         const matchStatus = (c.status || '').toLowerCase().includes(q);
-        return matchAlias || matchNo || matchLine || matchStatus;
+        const matchPort = (c.shippedTo || '').toLowerCase().includes(q);
+        return matchAlias || matchNo || matchLine || matchStatus || matchPort;
       }
 
       return true;
@@ -454,21 +493,49 @@ export default function CargoMasterTable({
           if (daysRemaining !== null && daysRemaining !== undefined) {
             if (daysRemaining < 0) {
               return (
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-black bg-rose-100 text-rose-800 border border-rose-300">
-                  ⚠️ +{Math.abs(daysRemaining)}d Overdue
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-black bg-rose-100 text-rose-800 border border-rose-300">
+                  🚨 Late +{Math.abs(daysRemaining)}d
                 </span>
               );
             }
             if (daysRemaining === 0) {
               return (
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-black bg-amber-100 text-amber-800">
-                  Arriving Today
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-100 text-amber-900 border border-amber-300">
+                  ⚡ Arriving Today
+                </span>
+              );
+            }
+            if (daysRemaining === 1) {
+              return (
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-100 text-amber-900 border border-amber-300">
+                  ⚡ Tomorrow (1d)
+                </span>
+              );
+            }
+            if (daysRemaining === 2) {
+              return (
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-100 text-amber-900 border border-amber-300">
+                  ⚡ In 2 days
+                </span>
+              );
+            }
+            if (daysRemaining <= 7) {
+              return (
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-900 border border-blue-300">
+                  🚢 In {daysRemaining} days (2-7d)
+                </span>
+              );
+            }
+            if (daysRemaining <= 15) {
+              return (
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-100 text-indigo-900 border border-indigo-300">
+                  🌊 In {daysRemaining} days (7-15d)
                 </span>
               );
             }
             return (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200">
-                {daysRemaining}d to ETA
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-900 border border-purple-300">
+                🌐 In {daysRemaining} days (&gt;15d)
               </span>
             );
           }
@@ -500,12 +567,10 @@ export default function CargoMasterTable({
 
           return (
             <span
-              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
+              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${
                 isDelivered
-                  ? 'bg-emerald-600 text-white shadow-sm'
-                  : status.toLowerCase().includes('custom')
-                  ? 'bg-purple-100 text-purple-800 border border-purple-300'
-                  : 'bg-amber-100 text-amber-900 border border-amber-300'
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : 'bg-blue-100 text-blue-800'
               }`}
             >
               {isDelivered ? 'Delivered' : status}
@@ -515,7 +580,7 @@ export default function CargoMasterTable({
       },
       {
         accessorKey: 'shippedFrom',
-        header: 'Source (Origin)',
+        header: 'Shipped From',
         cell: ({ row }) => (
           <span className="font-semibold text-xs text-slate-700 truncate max-w-[150px]" title={row.original.shippedFrom || 'China'}>
             {row.original.shippedFrom || 'China Port / WH'}
@@ -524,9 +589,9 @@ export default function CargoMasterTable({
       },
       {
         accessorKey: 'shippedTo',
-        header: 'Destination',
+        header: 'Destination Port',
         cell: ({ row }) => (
-          <span className="font-semibold text-xs text-slate-700 truncate max-w-[150px]" title={row.original.shippedTo || 'Nhava Sheva / Mundra, India'}>
+          <span className="font-bold text-xs text-blue-900 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded-md truncate max-w-[170px] inline-block" title={row.original.shippedTo || 'Nhava Sheva / Mundra, India'}>
             {row.original.shippedTo || 'Nhava Sheva / Mundra, India'}
           </span>
         ),
@@ -610,6 +675,19 @@ export default function CargoMasterTable({
 
           return (
             <div className="inline-flex items-center space-x-1.5 whitespace-nowrap">
+              {/* Edit Dates & Details / Correct Container */}
+              {onEditDates && (
+                <button
+                  type="button"
+                  onClick={() => onEditDates(c.container)}
+                  className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-xs font-bold transition flex items-center space-x-1 shadow-2xs"
+                  title="Manual Date Entry & Container Correction"
+                >
+                  <Calendar className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Edit Dates</span>
+                </button>
+              )}
+
               {/* Click to view full logistics details for this container */}
               <button
                 type="button"
@@ -761,27 +839,72 @@ export default function CargoMasterTable({
     },
   });
 
-  // Export Table Data to Excel (.xlsx)
-  const exportToExcel = () => {
-    const rows = filteredData.map((c) => ({
-      'Container Alias': c.container,
-      'Actual Container No': c.containerNumber || 'Unmapped',
-      'Shipping Line': c.shippingLine || 'MSC',
-      'Loading Date (China)': c.startDate ? formatGlobalDate(c.startDate) : '—',
-      'Actual Vessel ETA (Carrier)': c.rawEta ? formatGlobalDate(c.rawEta) : 'Pending',
-      'Clearance ETA (+10d)': c.eta ? formatGlobalDate(c.eta) : 'Pending',
-      'Delivery Date': c.deliveryDate ? formatGlobalDate(c.deliveryDate) : 'In Transit',
-      'Days to Deliver (Turnaround)': c.daysToDeliver !== null && c.daysToDeliver !== undefined ? `${c.daysToDeliver} days` : '—',
-      'Status': c.status || 'In Transit',
-      'Packages / Cartons': c.shipmentCount || 0,
-      'Shipped From': c.shippedFrom || 'China',
-      'Shipped To': c.shippedTo || 'India',
-    }));
-
-    const ws = XLSX.utils.json_to_sheet(rows);
+  // Export Table Data to Excel (.xlsx) - Supports active bucket or all buckets
+  const exportToExcel = (exportAllBuckets: boolean = false) => {
+    const today = new Date().toISOString().slice(0, 10);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Cargo Master Fleet');
-    XLSX.writeFile(wb, `Cargo_Master_Fleet_${new Date().toISOString().slice(0, 10)}.xlsx`);
+
+    const formatRow = (c: ContainerMasterItem) => {
+      const isDelivered = Boolean(
+        c.isDelivered ||
+          (c.status &&
+            (c.status.toLowerCase().includes('deliver') ||
+              c.status.toLowerCase().includes('arrived') ||
+              c.status.toLowerCase().includes('reached')))
+      );
+      let bucketLabel = 'Pending';
+      if (isDelivered) bucketLabel = 'Delivered';
+      else if (c.daysRemaining !== null && c.daysRemaining !== undefined) {
+        if (c.daysRemaining < 0) bucketLabel = `Late (${Math.abs(c.daysRemaining)}d ago)`;
+        else if (c.daysRemaining <= 2) bucketLabel = `Within 2 Days (${c.daysRemaining}d)`;
+        else if (c.daysRemaining <= 7) bucketLabel = `2 to 7 Days (${c.daysRemaining}d)`;
+        else if (c.daysRemaining <= 15) bucketLabel = `7 to 15 Days (${c.daysRemaining}d)`;
+        else bucketLabel = `> 15 Days (${c.daysRemaining}d)`;
+      }
+
+      return {
+        'Container Alias': c.container,
+        'Actual Container No': c.containerNumber || 'Unmapped',
+        'Shipping Line': c.shippingLine || 'MSC',
+        'Destination Port': c.shippedTo || 'India Port',
+        'Origin Port': c.shippedFrom || 'China Port',
+        'Loading Date (China)': c.startDate || c.loadingDate ? formatGlobalDate(c.startDate || c.loadingDate) : '—',
+        'Actual Port Arrival Date (Actual ETA)': c.rawEta ? formatGlobalDate(c.rawEta) : 'Pending',
+        'Grace / Clearance Delivery Date': c.destinationDate || c.eta ? formatGlobalDate(c.destinationDate || c.eta) : 'Pending',
+        'Days Remaining (Countdown)': c.daysRemaining !== null && c.daysRemaining !== undefined ? (c.daysRemaining < 0 ? `Late by ${Math.abs(c.daysRemaining)} days` : `${c.daysRemaining} days`) : '—',
+        'ETA Bucket Category': bucketLabel,
+        'Delivery Date': c.deliveryDate ? formatGlobalDate(c.deliveryDate) : (isDelivered ? 'Delivered' : 'In Transit'),
+        'Cargo Status': c.status || 'In Transit',
+        'Packages / Cartons': c.shipmentCount || 0,
+      };
+    };
+
+    if (exportAllBuckets) {
+      // Create separate sheet for each bucket
+      const bucketDefinitions = [
+        { name: '1-2 Days (Today)', filter: (c: ContainerMasterItem) => !c.isDelivered && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining >= 0 && c.daysRemaining <= 2 },
+        { name: '2 to 7 Days', filter: (c: ContainerMasterItem) => !c.isDelivered && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining > 2 && c.daysRemaining <= 7 },
+        { name: '7 to 15 Days', filter: (c: ContainerMasterItem) => !c.isDelivered && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining > 7 && c.daysRemaining <= 15 },
+        { name: 'More Than 15 Days', filter: (c: ContainerMasterItem) => !c.isDelivered && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining > 15 },
+        { name: 'Late Containers', filter: (c: ContainerMasterItem) => !c.isDelivered && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining < 0 },
+        { name: 'Delivered', filter: (c: ContainerMasterItem) => Boolean(c.isDelivered || (c.status && c.status.toLowerCase().includes('deliver'))) },
+        { name: 'All Containers', filter: () => true },
+      ];
+
+      bucketDefinitions.forEach((b) => {
+        const rows = items.filter(b.filter).map(formatRow);
+        const ws = XLSX.utils.json_to_sheet(rows.length > 0 ? rows : [{ 'No Containers': 'No containers in this category' }]);
+        XLSX.utils.book_append_sheet(wb, ws, b.name);
+      });
+
+      XLSX.writeFile(wb, `All_ETA_Buckets_Fleet_${today}.xlsx`);
+    } else {
+      const rows = filteredData.map(formatRow);
+      const ws = XLSX.utils.json_to_sheet(rows.length > 0 ? rows : [{ 'No Containers': 'No containers found matching active filter' }]);
+      const sheetName = String(statusFilter).replace(/[^a-zA-Z0-9]/g, '_').slice(0, 31) || 'Filtered_Fleet';
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+      XLSX.writeFile(wb, `ETA_${sheetName}_${today}.xlsx`);
+    }
   };
 
   return (
@@ -897,14 +1020,27 @@ export default function CargoMasterTable({
                 )}
               </button>
 
-              <button
-                type="button"
-                onClick={exportToExcel}
-                className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl font-bold text-xs transition flex items-center space-x-1.5 shadow-xs"
-              >
-                <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-                <span>Export Excel</span>
-              </button>
+              {/* Dual Download Buttons */}
+              <div className="flex items-center space-x-1.5">
+                <button
+                  type="button"
+                  onClick={() => exportToExcel(false)}
+                  className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl font-bold text-xs transition flex items-center space-x-1 shadow-xs"
+                  title="Download active container list matching current filter"
+                >
+                  <Download className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Download Active List</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => exportToExcel(true)}
+                  className="px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-300 rounded-xl font-bold text-xs transition flex items-center space-x-1 shadow-xs"
+                  title="Download all ETA bucket lists in separate Excel sheets (Within 2 Days, 2-7d, 7-15d, >15d, Late, Delivered)"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Download All Buckets (.xlsx)</span>
+                </button>
+              </div>
 
               <button
                 type="button"
@@ -918,26 +1054,32 @@ export default function CargoMasterTable({
             </div>
           </div>
 
-          {/* Filter Bar: Status Tabs + Search + Carrier Dropdown */}
-          <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 pt-2">
-            {/* Status Tabs */}
-            <div className="flex items-center p-1 bg-slate-200/80 rounded-2xl text-xs font-bold text-slate-600 overflow-x-auto">
+          {/* Filter Bar: 5 ETA Tracking Buckets + Carrier Dropdown + Search */}
+          <div className="flex flex-col gap-3 pt-2">
+            {/* ETA Tracking Buckets Console */}
+            <div className="flex items-center gap-1.5 p-1.5 bg-slate-100 rounded-2xl text-xs font-bold text-slate-600 overflow-x-auto border border-slate-200 shadow-2xs">
               {[
-                { id: 'all', label: 'All Fleet' },
-                { id: 'in-transit', label: 'In Transit' },
-                { id: 'delivered', label: 'Delivered / Reached Destination' },
-                { id: 'late', label: 'Delayed (>35d)' },
+                { id: 'all', label: 'All Containers', count: bucketCounts.all, badgeClass: 'bg-slate-200 text-slate-800' },
+                { id: 'within-2-days', label: '⚡ 1 to 2 Days (Today)', count: bucketCounts.within2Days, badgeClass: 'bg-amber-200 text-amber-900' },
+                { id: '2-to-7-days', label: '🚢 2 to 7 Days', count: bucketCounts.twoToSeven, badgeClass: 'bg-blue-200 text-blue-900' },
+                { id: '7-to-15-days', label: '🌊 7 to 15 Days', count: bucketCounts.sevenToFifteen, badgeClass: 'bg-indigo-200 text-indigo-900' },
+                { id: 'more-than-15-days', label: '🌐 > 15 Days', count: bucketCounts.moreThanFifteen, badgeClass: 'bg-purple-200 text-purple-900' },
+                { id: 'late', label: '🚨 Late Containers', count: bucketCounts.late, badgeClass: 'bg-rose-200 text-rose-900' },
+                { id: 'delivered', label: '✓ Delivered', count: bucketCounts.delivered, badgeClass: 'bg-emerald-200 text-emerald-900' },
               ].map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => dispatch(setStatusFilter(tab.id as any))}
-                  className={`px-3.5 py-1.5 rounded-xl whitespace-nowrap transition ${
+                  className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition flex items-center space-x-1.5 ${
                     statusFilter === tab.id
-                      ? 'bg-white text-slate-900 shadow-sm font-black'
-                      : 'hover:text-slate-900'
+                      ? 'bg-white text-slate-900 shadow-sm font-black ring-2 ring-blue-500'
+                      : 'hover:text-slate-900 hover:bg-slate-200/70'
                   }`}
                 >
-                  {tab.label}
+                  <span>{tab.label}</span>
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${tab.badgeClass}`}>
+                    {tab.count}
+                  </span>
                 </button>
               ))}
             </div>

@@ -222,4 +222,176 @@ export function calculatePublicDeliveryDate(
   return formatGlobalDate(deliveryDate);
 }
 
+export interface FlexibleDateResult {
+  iso: string;          // 'YYYY-MM-DD'
+  display: string;      // 'Wed, 12-10-26'
+  fullDisplay: string;  // 'Wednesday, 12-Oct-2026'
+  dayName: string;      // 'Wednesday'
+  date: Date;
+  rawMatched: string;
+}
+
+const MONTH_MAP: Record<string, number> = {
+  jan: 0, january: 0,
+  feb: 1, february: 1,
+  mar: 2, march: 2,
+  apr: 3, april: 3,
+  may: 4,
+  jun: 5, june: 5,
+  jul: 6, july: 6,
+  aug: 7, august: 7,
+  sep: 8, sept: 8, september: 8,
+  oct: 9, october: 9,
+  nov: 10, november: 10,
+  dec: 11, december: 11,
+};
+
+const FULL_DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const SHORT_MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * Universal Date Parser for Copy-Paste:
+ * Accepts ANY format (emails, WhatsApp, carrier tracking snippets, raw dates).
+ * Extracts, validates, and normalizes into YYYY-MM-DD + human readable formats.
+ */
+export function parseFlexibleDate(input?: string | number | null): FlexibleDateResult | null {
+  if (input === null || input === undefined) return null;
+  const rawStr = String(input).trim();
+  if (!rawStr || rawStr === 'N/A' || rawStr === 'Pending' || rawStr === '—') return null;
+
+  // 1. Excel Serial number
+  if (/^\d{5}$/.test(rawStr) && Number(rawStr) > 20000 && Number(rawStr) < 80000) {
+    const num = Number(rawStr);
+    const d = new Date((num - 25569) * 86400 * 1000);
+    if (!isNaN(d.getTime())) {
+      return buildDateResult(d, rawStr);
+    }
+  }
+
+  // Remove common prefix noise e.g. "ETA:", "Arrival:", "Date:", "Discharge:", "Estimated Arrival:"
+  const cleaned = rawStr.replace(/^(?:(?:estimated\s+)?(?:eta|arrival|discharge|destination|departure|loading|date)\s*[:=\-]\s*)/i, '').trim();
+
+  // 2. Pattern: YYYY-MM-DD or YYYY/MM/DD or YYYY.MM.DD (e.g. 2026-10-12, 2026/10/12, 2026.10.12)
+  const ymd = cleaned.match(/\b(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})\b/);
+  if (ymd) {
+    const year = parseInt(ymd[1], 10);
+    const month = parseInt(ymd[2], 10) - 1;
+    const day = parseInt(ymd[3], 10);
+    const d = new Date(Date.UTC(year, month, day));
+    if (!isNaN(d.getTime()) && month >= 0 && month <= 11 && day >= 1 && day <= 31) {
+      return buildDateResult(d, ymd[0]);
+    }
+  }
+
+  // 3. Pattern: DD-MMM-YYYY or DD MMM YYYY or DD-MMM-YY (e.g. 12-Oct-2026, 12 Oct 2026, 12-Oct-26, 12th October 2026)
+  const dMmmY = cleaned.match(/\b(\d{1,2})(?:st|nd|rd|th)?[-/\s,]+([A-Za-z]{3,9})[-/\s,]+(\d{2,4})\b/i);
+  if (dMmmY) {
+    const day = parseInt(dMmmY[1], 10);
+    const mKey = dMmmY[2].toLowerCase();
+    const month = MONTH_MAP[mKey] ?? MONTH_MAP[mKey.slice(0, 3)];
+    if (month !== undefined) {
+      let year = parseInt(dMmmY[3], 10);
+      if (year < 100) year += 2000;
+      const d = new Date(Date.UTC(year, month, day));
+      if (!isNaN(d.getTime())) {
+        return buildDateResult(d, dMmmY[0]);
+      }
+    }
+  }
+
+  // 4. Pattern: MMM DD, YYYY or Month DD, YYYY (e.g. Oct 12, 2026 or October 12, 2026)
+  const mmmDY = cleaned.match(/\b([A-Za-z]{3,9})[-/\s,]+(\d{1,2})(?:st|nd|rd|th)?(?:[-/\s,]+(\d{2,4}))?\b/i);
+  if (mmmDY) {
+    const mKey = mmmDY[1].toLowerCase();
+    const month = MONTH_MAP[mKey] ?? MONTH_MAP[mKey.slice(0, 3)];
+    if (month !== undefined) {
+      const day = parseInt(mmmDY[2], 10);
+      let year = mmmDY[3] ? parseInt(mmmDY[3], 10) : new Date().getUTCFullYear();
+      if (year < 100) year += 2000;
+      const d = new Date(Date.UTC(year, month, day));
+      if (!isNaN(d.getTime())) {
+        return buildDateResult(d, mmmDY[0]);
+      }
+    }
+  }
+
+  // 5. Pattern: DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY or DD/MM/YY (Standard Indian/UK logistics date)
+  const dmy = cleaned.match(/\b(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})\b/);
+  if (dmy) {
+    const part1 = parseInt(dmy[1], 10);
+    const part2 = parseInt(dmy[2], 10);
+    let year = parseInt(dmy[3], 10);
+    if (year < 100) year += 2000;
+
+    // Logic: In Indian/Chinese shipping logistics, DD-MM-YYYY is standard.
+    // If part1 > 12, it must be day. If part2 > 12 and part1 <= 12, part2 is day (US format fallback).
+    let day = part1;
+    let month = part2 - 1;
+    if (part1 <= 12 && part2 > 12) {
+      day = part2;
+      month = part1 - 1;
+    }
+
+    const d = new Date(Date.UTC(year, month, day));
+    if (!isNaN(d.getTime()) && month >= 0 && month <= 11 && day >= 1 && day <= 31) {
+      return buildDateResult(d, dmy[0]);
+    }
+  }
+
+  // 6. Generic JS Date fallback
+  const fallback = new Date(cleaned);
+  if (!isNaN(fallback.getTime())) {
+    return buildDateResult(fallback, cleaned);
+  }
+
+  return null;
+}
+
+function buildDateResult(d: Date, rawMatched: string): FlexibleDateResult {
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const iso = `${yyyy}-${mm}-${dd}`;
+  const dayName = FULL_DAY_NAMES[d.getUTCDay()];
+  const mmm = SHORT_MONTH_NAMES[d.getUTCMonth()];
+  const yy = String(yyyy).slice(-2);
+
+  return {
+    iso,
+    display: `${dayName.slice(0, 3)}, ${dd}-${mm}-${yy}`,
+    fullDisplay: `${dayName}, ${dd}-${mmm}-${yyyy}`,
+    dayName,
+    date: d,
+    rawMatched,
+  };
+}
+
+export type EtaBucketType =
+  | 'within-2-days'
+  | '2-to-7-days'
+  | '7-to-15-days'
+  | 'more-than-15-days'
+  | 'late'
+  | 'delivered'
+  | 'pending';
+
+/**
+ * Categorizes a container into ETA Buckets:
+ * 1. Within 2 Days / Today: 0 to 2 days remaining (Urgent arrival)
+ * 2. 2 to 7 Days: 2 to 7 days remaining (This week)
+ * 3. 7 to 15 Days: 7 to 15 days remaining (Next week / Fortnight)
+ * 4. More Than 15 Days: > 15 days remaining (In transit long haul)
+ * 5. Late / Overdue: ETA passed (< 0 days) and not marked delivered
+ */
+export function getEtaBucket(daysRemaining: number | null | undefined, isDelivered?: boolean): EtaBucketType {
+  if (isDelivered) return 'delivered';
+  if (daysRemaining === null || daysRemaining === undefined) return 'pending';
+  if (daysRemaining < 0) return 'late';
+  if (daysRemaining <= 2) return 'within-2-days';
+  if (daysRemaining <= 7) return '2-to-7-days';
+  if (daysRemaining <= 15) return '7-to-15-days';
+  return 'more-than-15-days';
+}
+
+
 

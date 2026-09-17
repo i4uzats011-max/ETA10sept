@@ -7,9 +7,12 @@ import {
   parseReceiptDate,
   formatReceiptDate,
   formatGlobalDate,
+  parseFlexibleDate,
+  FlexibleDateResult,
   isContainerLate,
   getDeliveryTurnaroundStatus,
 } from '@/lib/dateUtils';
+import { addFilingBufferDays } from '@/lib/jsoncargo';
 import CargoMasterTable from '@/components/CargoMasterTable';
 import LoaderHub from '@/components/LoaderHub';
 import { ReduxProvider } from '@/store/ReduxProvider';
@@ -50,6 +53,8 @@ import {
   Plus,
   Lock,
   Key,
+  Copy,
+  Boxes,
 } from 'lucide-react';
 
 const SHIPPING_LINES = [
@@ -228,10 +233,14 @@ export default function AdminDashboardPage() {
   const [isContainerFleetLoading, setIsContainerFleetLoading] = useState(false);
   const [containerFleetSearch, setContainerFleetSearch] = useState('');
 
-  // Manual ETA & Loading Date from China Tool state
+  // Manual ETA & Container Control Tool state (Zero API Dependency)
   const [manualEtaContainer, setManualEtaContainer] = useState('');
+  const [manualActualContainerNo, setManualActualContainerNo] = useState('');
   const [manualLoadingDate, setManualLoadingDate] = useState('');
+  const [manualActualEtaDate, setManualActualEtaDate] = useState('');
+  const [manualGraceEtaDate, setManualGraceEtaDate] = useState('');
   const [manualEtaDateInput, setManualEtaDateInput] = useState('');
+  const [manualBufferDays, setManualBufferDays] = useState(7);
   const [manualStatusInput, setManualStatusInput] = useState('In Transit');
   const [manualShippedFrom, setManualShippedFrom] = useState('Ningbo / Shanghai, China');
   const [manualShippedTo, setManualShippedTo] = useState('Nhava Sheva / Mundra, India');
@@ -239,6 +248,15 @@ export default function AdminDashboardPage() {
   const [applyFilingBuffer, setApplyFilingBuffer] = useState(true);
   const [isSettingManualEta, setIsSettingManualEta] = useState(false);
   const [manualEtaStatus, setManualEtaStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Correction & New Container Creation state
+  const [isNewContainerMode, setIsNewContainerMode] = useState(false);
+  const [newContainerInput, setNewContainerInput] = useState('');
+  const [isEditingContainerNumber, setIsEditingContainerNumber] = useState(false);
+  const [editedAliasInput, setEditedAliasInput] = useState('');
+  const [datePasteInput, setDatePasteInput] = useState('');
+  const [detectedPasteDate, setDetectedPasteDate] = useState<FlexibleDateResult | null>(null);
+  const [copiedActualNo, setCopiedActualNo] = useState(false);
 
   // JSONCargo API Key Stats state
   const [apiStats, setApiStats] = useState<any | null>(null);
@@ -479,6 +497,10 @@ export default function AdminDashboardPage() {
   const handleContainerSelectionChange = async (alias: string) => {
     setManualSyncContainer(alias);
     setManualEtaContainer(alias);
+    setEditedAliasInput(alias);
+    setIsEditingContainerNumber(false);
+    setDatePasteInput('');
+    setDetectedPasteDate(null);
     if (!alias) return;
 
     try {
@@ -486,13 +508,22 @@ export default function AdminDashboardPage() {
       const data = await res.json();
       if (res.ok) {
         setDetectedActualNo(data.containerNumber || alias);
+        setManualActualContainerNo(data.containerNumber || '');
         setManualSyncLine(data.shippingLine || 'MSC');
-        if (data.startDate) setManualLoadingDate(data.startDate);
-        if (data.eta && data.eta !== 'N/A') setManualEtaDateInput(data.eta);
+        if (data.startDate || data.loadingDate) setManualLoadingDate(data.startDate || data.loadingDate);
+        if (data.rawEta) setManualActualEtaDate(data.rawEta);
+        if (data.destinationDate) {
+          setManualGraceEtaDate(data.destinationDate);
+          setManualEtaDateInput(data.destinationDate);
+        } else if (data.eta && data.eta !== 'N/A') {
+          setManualGraceEtaDate(data.eta);
+          setManualEtaDateInput(data.eta);
+        }
         if (data.shippedFrom) setManualShippedFrom(data.shippedFrom);
         if (data.shippedTo) setManualShippedTo(data.shippedTo);
         if (data.shippingLine) setManualShippingCompany(data.shippingLine);
         if (data.status) setManualStatusInput(data.status);
+        if (data.etaBufferDays !== undefined) setManualBufferDays(data.etaBufferDays);
       }
     } catch {
       // Fallback
@@ -608,16 +639,40 @@ export default function AdminDashboardPage() {
     }
   };
 
-  // 4. Handle Manual ETA Date & China Loading Date Override
+  // Smart Date Copy-Paste Engine helpers
+  const handleDatePaste = (val: string) => {
+    setDatePasteInput(val);
+    const parsed = parseFlexibleDate(val);
+    setDetectedPasteDate(parsed);
+  };
+
+  const applyDetectedDate = (target: 'actual' | 'grace' | 'loading') => {
+    if (!detectedPasteDate) return;
+    if (target === 'actual') {
+      setManualActualEtaDate(detectedPasteDate.iso);
+      if (applyFilingBuffer && (!manualGraceEtaDate || manualGraceEtaDate === manualActualEtaDate)) {
+        setManualGraceEtaDate(addFilingBufferDays(detectedPasteDate.iso, manualBufferDays));
+      }
+    } else if (target === 'grace') {
+      setManualGraceEtaDate(detectedPasteDate.iso);
+      setManualEtaDateInput(detectedPasteDate.iso);
+    } else if (target === 'loading') {
+      setManualLoadingDate(detectedPasteDate.iso);
+    }
+  };
+
+  // 4. Handle Manual ETA Date & Container Update/Create Override (Zero API Dependency)
   const handleManualEtaOverrideSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!manualEtaContainer) {
-      setManualEtaStatus({ type: 'error', message: 'Please select a container identifier' });
+    const effectiveContainer = isNewContainerMode ? newContainerInput.trim() : manualEtaContainer.trim();
+
+    if (!effectiveContainer) {
+      setManualEtaStatus({ type: 'error', message: 'Please select or enter a container identifier' });
       return;
     }
 
-    if (!manualEtaDateInput && !manualLoadingDate && !manualStatusInput) {
-      setManualEtaStatus({ type: 'error', message: 'Please enter at least a Loading Date from China or ETA Date' });
+    if (!manualActualEtaDate && !manualGraceEtaDate && !manualLoadingDate && !manualStatusInput) {
+      setManualEtaStatus({ type: 'error', message: 'Please enter at least an Arrival ETA Date, Loading Date, or Status' });
       return;
     }
 
@@ -629,16 +684,21 @@ export default function AdminDashboardPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          container: manualEtaContainer,
+          container: effectiveContainer,
+          newContainerAlias: isEditingContainerNumber && editedAliasInput.trim() && editedAliasInput.trim() !== effectiveContainer ? editedAliasInput.trim() : undefined,
+          containerNumber: manualActualContainerNo.trim(),
           loadingDate: manualLoadingDate,
           startDate: manualLoadingDate,
-          manualEta: manualEtaDateInput,
-          destinationDate: manualEtaDateInput,
+          rawEta: manualActualEtaDate,
+          manualEta: manualGraceEtaDate,
+          destinationDate: manualGraceEtaDate,
+          etaBufferDays: manualBufferDays,
           status: manualStatusInput,
           shippedFrom: manualShippedFrom,
           shippedTo: manualShippedTo,
           shippingLine: manualShippingCompany,
           applyFilingBuffer,
+          isNewContainer: isNewContainerMode,
         }),
       });
 
@@ -646,12 +706,24 @@ export default function AdminDashboardPage() {
 
       if (!res.ok) throw new Error(data.error || 'Failed to update container dates');
 
+      const savedAlias = data.container || effectiveContainer;
+
       setManualEtaStatus({
         type: 'success',
-        message: data.message || `Successfully updated dates & details for container '${manualEtaContainer}'!`,
+        message: data.message || `Successfully updated dates & details for container '${savedAlias}'!`,
       });
 
+      if (isNewContainerMode) {
+        setIsNewContainerMode(false);
+        setNewContainerInput('');
+      }
+
+      setManualEtaContainer(savedAlias);
+      setSelectedContainer(savedAlias);
+      setIsEditingContainerNumber(false);
+
       fetchContainerFleet();
+      fetchDistinctContainers();
       if (searchQuery) handleSearch();
     } catch (err: any) {
       setManualEtaStatus({ type: 'error', message: err.message || 'Container date update failed' });
@@ -1231,12 +1303,12 @@ export default function AdminDashboardPage() {
               onClick={() => setActiveAdminTab('manual-eta')}
               className={`px-3 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 w-full ${
                 activeAdminTab === 'manual-eta'
-                  ? 'bg-blue-600 text-white shadow-sm'
+                  ? 'bg-amber-600 text-white shadow-sm'
                   : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
               }`}
             >
               <Calendar className="w-4 h-4 shrink-0" />
-              <span className="truncate">Set Loading Date</span>
+              <span className="truncate">Manual ETA Entry</span>
             </button>
 
             <button
@@ -1634,118 +1706,541 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
-        {/* ── TAB 3: SET LOADING DATE (CHINA) & ARRIVAL ETA ── */}
+        {/* ── TAB 3: MANUAL ETA & CONTAINER CONTROL (ZERO API DEPENDENCY) ── */}
         {activeAdminTab === 'manual-eta' && (
-          <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-md border border-slate-200 p-8 space-y-6 animate-fadeIn">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+          <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-md border border-slate-200 p-6 sm:p-8 space-y-6 animate-fadeIn">
+            {/* Header Banner */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-4 gap-3">
               <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-md">
-                  <Calendar className="w-5 h-5" />
+                <div className="w-11 h-11 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-md shrink-0">
+                  <Calendar className="w-6 h-6" />
                 </div>
                 <div>
-                  <h2 className="font-bold text-slate-900 text-lg">Set Loading Date (China) &amp; Arrival ETA</h2>
+                  <h2 className="font-black text-slate-900 text-lg sm:text-xl">
+                    Manual ETA &amp; Container Control (मैन्युअल ETA व कंटेनर नियंत्रण)
+                  </h2>
                   <p className="text-xs text-slate-500">
-                    Enter or update China loading date, destination ETA, ports, and carrier line for all receipts under this container.
+                    Set destination port, actual vessel ETA, and manual grace delivery date. Zero API calls consumed.
                   </p>
                 </div>
               </div>
-              <span className="text-xs font-bold text-amber-800 bg-amber-100 px-3 py-1 rounded-full border border-amber-300">
-                Direct DB Update
-              </span>
-            </div>
-
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 text-xs text-amber-900 flex items-start space-x-2.5">
-              <Clock className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <strong>Zero JSONCargo API Calls:</strong> Updating dates and details here modifies MongoDB directly across all receipts under this container without consuming API tracking credits.
+              <div className="flex items-center space-x-2 shrink-0">
+                <span className="text-[11px] font-black text-amber-800 bg-amber-100 px-3 py-1 rounded-full border border-amber-300">
+                  Zero API Calls Active
+                </span>
+                <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100 px-3 py-1 rounded-full border border-emerald-300">
+                  Direct DB Sync
+                </span>
               </div>
             </div>
 
+            {/* Zero API Notice */}
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 text-xs text-amber-950 flex items-start space-x-2.5">
+              <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <strong>Zero JSONCargo API Calls:</strong> API quota is exhausted. Updating dates, destination ports, and container numbers here directly modifies MongoDB across all receipts under this container without consuming any carrier API credits.
+              </div>
+            </div>
+
+            {/* Success / Error Notification */}
             {manualEtaStatus && (
               <div
-                className={`p-4 rounded-xl text-xs font-medium flex items-start space-x-2.5 ${
+                className={`p-4 rounded-xl text-xs font-bold flex items-start space-x-2.5 ${
                   manualEtaStatus.type === 'success'
                     ? 'bg-emerald-50 text-emerald-900 border border-emerald-300'
                     : 'bg-red-50 text-red-900 border border-red-300'
                 }`}
               >
                 {manualEtaStatus.type === 'success' ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                 ) : (
-                  <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                  <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
                 )}
                 <span>{manualEtaStatus.message}</span>
               </div>
             )}
 
             <form onSubmit={handleManualEtaOverrideSubmit} className="space-y-6">
-              {/* Container Selector */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                  1. Select Container Alias *
-                </label>
-                <select
-                  value={manualEtaContainer}
-                  onChange={(e) => {
-                    setManualEtaContainer(e.target.value);
-                    setSelectedContainer(e.target.value);
-                    handleContainerSelectionChange(e.target.value);
-                  }}
-                  className="w-full px-4 py-3 rounded-xl border border-slate-300 text-sm font-bold text-slate-900 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  required
-                >
-                  <option value="">-- Choose Container --</option>
-                  {distinctContainers.map((alias) => (
-                    <option key={alias} value={alias}>
-                      {alias}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Selecting a container automatically fills existing dates, status, and ports from the database.
-                </p>
+              {/* ── SECTION 1: CONTAINER SELECTION & CORRECTION / NEW ENTRY ── */}
+              <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 space-y-4">
+                {/* Mode Selector: Existing Container vs New Container */}
+                <div className="flex items-center space-x-2 p-1 bg-white rounded-xl border border-slate-200 w-fit">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsNewContainerMode(false);
+                      if (manualEtaContainer) handleContainerSelectionChange(manualEtaContainer);
+                    }}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 ${
+                      !isNewContainerMode
+                        ? 'bg-amber-500 text-white shadow-xs font-black'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Search className="w-3.5 h-3.5" />
+                    <span>Select Existing Container</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsNewContainerMode(true);
+                      setNewContainerInput('');
+                      setManualActualContainerNo('');
+                      setManualLoadingDate('');
+                      setManualActualEtaDate('');
+                      setManualGraceEtaDate('');
+                    }}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 ${
+                      isNewContainerMode
+                        ? 'bg-blue-600 text-white shadow-xs font-black'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Enter New Container (नया कंटेनर)</span>
+                  </button>
+                </div>
+
+                {!isNewContainerMode ? (
+                  /* Existing Container Picker */
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                        Select Container Alias *
+                      </label>
+                      <select
+                        value={manualEtaContainer}
+                        onChange={(e) => {
+                          setManualEtaContainer(e.target.value);
+                          setSelectedContainer(e.target.value);
+                          handleContainerSelectionChange(e.target.value);
+                        }}
+                        className="w-full px-4 py-3 rounded-xl border border-slate-300 text-sm font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-xs"
+                        required={!isNewContainerMode}
+                      >
+                        <option value="">-- Choose Container Alias --</option>
+                        {distinctContainers.map((alias) => (
+                          <option key={alias} value={alias}>
+                            {alias}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Selected Container Live Info & Correction Panel */}
+                    {manualEtaContainer && (
+                      <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-xs space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div>
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                              Selected Container:
+                            </span>
+                            <div className="flex items-center space-x-2 mt-0.5">
+                              <span className="text-sm font-black text-slate-900 font-mono">
+                                {manualEtaContainer}
+                              </span>
+                              <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-50 text-blue-800 border border-blue-200 rounded">
+                                {manualShippingCompany}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Actual Carrier Container Display */}
+                          <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 flex items-center space-x-3">
+                            <div>
+                              <span className="text-[10px] font-bold text-slate-500 uppercase">
+                                Actual Container No:
+                              </span>
+                              <div className="font-mono text-xs font-bold text-indigo-950">
+                                {manualActualContainerNo || (
+                                  <span className="text-slate-400 italic">Unallotted / Unmapped</span>
+                                )}
+                              </div>
+                            </div>
+                            {manualActualContainerNo && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(manualActualContainerNo);
+                                  setCopiedActualNo(true);
+                                  setTimeout(() => setCopiedActualNo(false), 1500);
+                                }}
+                                className="p-1 text-slate-400 hover:text-indigo-600 transition"
+                                title="Copy actual container number"
+                              >
+                                {copiedActualNo ? (
+                                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                ) : (
+                                  <Copy className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Toggle Edit / Correct Button */}
+                          <button
+                            type="button"
+                            onClick={() => setIsEditingContainerNumber(!isEditingContainerNumber)}
+                            className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 self-start sm:self-center"
+                            title="Correct wrong container number or fix alias spelling"
+                          >
+                            <Edit className="w-3.5 h-3.5 text-amber-600" />
+                            <span>{isEditingContainerNumber ? 'Cancel Edit' : '✏️ Correct Container No.'}</span>
+                          </button>
+                        </div>
+
+                        {/* Inline Correction Form if editing */}
+                        {isEditingContainerNumber && (
+                          <div className="p-3.5 bg-amber-50/70 border border-amber-300 rounded-xl space-y-2.5 animate-fadeIn">
+                            <div className="text-xs font-bold text-amber-950 flex items-center space-x-1.5">
+                              <Edit className="w-3.5 h-3.5 text-amber-700" />
+                              <span>Correct Container Details (कंटेनर नंबर सही करें)</span>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                                  Container Alias (e.g. USI-01)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={editedAliasInput}
+                                  onChange={(e) => setEditedAliasInput(e.target.value)}
+                                  className="w-full px-3 py-2 rounded-lg border border-amber-300 text-xs font-bold bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                                  placeholder="Container Alias"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                                  Actual Carrier Container No (e.g. MSCU1234567)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={manualActualContainerNo}
+                                  onChange={(e) => setManualActualContainerNo(e.target.value.toUpperCase())}
+                                  className="w-full px-3 py-2 rounded-lg border border-amber-300 text-xs font-bold bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                                  placeholder="Actual Container No (MSCU1234567)"
+                                />
+                              </div>
+                            </div>
+                            <p className="text-[10px] text-amber-800">
+                              * Saving updates both the Container fleet directory and all loaded shipment receipts with this corrected container number.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* New Container Entry Inputs */
+                  <div className="p-4 bg-blue-50/60 rounded-xl border border-blue-200 space-y-3 animate-fadeIn">
+                    <div className="text-xs font-bold text-blue-950 flex items-center space-x-1.5">
+                      <Boxes className="w-4 h-4 text-blue-700" />
+                      <span>Register New Container into Fleet (नया कंटेनर जोड़ें)</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                          New Container Alias * (e.g. USI-12)
+                        </label>
+                        <input
+                          type="text"
+                          value={newContainerInput}
+                          onChange={(e) => setNewContainerInput(e.target.value)}
+                          placeholder="e.g. USI-12, CONT-05"
+                          className="w-full px-3 py-2.5 rounded-lg border border-blue-300 text-xs font-bold bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                          required={isNewContainerMode}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                          Actual Carrier Container No (e.g. MSCU1234567)
+                        </label>
+                        <input
+                          type="text"
+                          value={manualActualContainerNo}
+                          onChange={(e) => setManualActualContainerNo(e.target.value.toUpperCase())}
+                          placeholder="e.g. MSCU1234567, MEDU9876543"
+                          className="w-full px-3 py-2.5 rounded-lg border border-blue-300 text-xs font-bold bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              {/* ── SECTION 2: SMART DATE COPY-PASTE ENGINE ── */}
+              <div className="bg-gradient-to-r from-amber-50 to-orange-50 p-5 rounded-2xl border-2 border-amber-200 shadow-xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black text-amber-950 uppercase tracking-wider flex items-center space-x-2">
+                    <Copy className="w-4 h-4 text-amber-600" />
+                    <span>Smart Date Copy-Paste (Just Copy Then Paste — Any Format!)</span>
+                  </label>
+                  <span className="text-[10px] font-bold text-amber-800 bg-amber-200/80 px-2.5 py-0.5 rounded-full border border-amber-300">
+                    Auto-Sync Enabled
+                  </span>
+                </div>
+                <p className="text-[11px] text-amber-900">
+                  Just copy and paste date from email, WhatsApp, tracking website, or Excel (e.g. <code>12-10-2026</code>, <code>12/10/2026</code>, <code>12 Oct 2026</code>, <code>2026-10-12</code>, <code>Wed, 12-Oct-26</code>, or <code>ETA Nhava Sheva 24/11/2026</code>). System will instantly detect &amp; sync it!
+                </p>
+
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={datePasteInput}
+                    onChange={(e) => handleDatePaste(e.target.value)}
+                    placeholder="👉 Paste any date here... (उदा. 12-10-2026, 12 Oct 2026, 2026-10-12)"
+                    className="w-full px-4 py-2.5 rounded-xl border border-amber-300 text-xs font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-xs"
+                  />
+                  {datePasteInput && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDatePasteInput('');
+                        setDetectedPasteDate(null);
+                      }}
+                      className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 font-bold text-xs"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* Real-time detection confirmation banner */}
+                {detectedPasteDate ? (
+                  <div className="p-3 bg-emerald-100 border border-emerald-300 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 animate-fadeIn">
+                    <div className="flex items-center space-x-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                      <div className="text-xs font-black text-emerald-950">
+                        ✓ Detected Date: <span className="underline decoration-emerald-500">{detectedPasteDate.fullDisplay}</span>
+                        <span className="ml-2 font-mono text-[11px] text-emerald-800 bg-emerald-200 px-2 py-0.5 rounded">
+                          {detectedPasteDate.iso}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => applyDetectedDate('actual')}
+                        className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold shadow-xs transition"
+                        title="Set as Actual Port Arrival Date (एक्चुअल डेट)"
+                      >
+                        👉 Set as Actual Port ETA
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyDetectedDate('grace')}
+                        className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-bold shadow-xs transition"
+                        title="Set as Grace Delivery Date (मैन्युअल ग्रेस डेट)"
+                      >
+                        👉 Set as Grace Delivery Date
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyDetectedDate('loading')}
+                        className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-[11px] font-bold shadow-xs transition"
+                        title="Set as Departure Date from China"
+                      >
+                        👉 Set as Loading Date
+                      </button>
+                    </div>
+                  </div>
+                ) : datePasteInput.trim().length > 0 ? (
+                  <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center space-x-2">
+                    <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" />
+                    <span>Could not recognize a valid date from pasted text. Try entering DD-MM-YYYY or YYYY-MM-DD.</span>
+                  </div>
+                ) : null}
+              </div>
+
+              {/* ── SECTION 3: DESTINATION PORT (WHERE CONTAINER WILL ARRIVE) ── */}
+              <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider">
+                    Destination Port in India (कंटेनर कहां पहुंचेगा) *
+                  </label>
+                  <span className="text-[10px] text-slate-500">Port of Discharge / Arrival</span>
+                </div>
+
+                {/* Quick Indian Port Preset Buttons */}
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    'Nhava Sheva / JNPT, Mumbai',
+                    'Mundra Port, Gujarat',
+                    'Hazira Port, Surat',
+                    'Chennai Port',
+                    'Kolkata Port',
+                    'Pipavav Port, Gujarat',
+                    'ICD Tughlakabad / Delhi',
+                  ].map((port) => (
+                    <button
+                      key={port}
+                      type="button"
+                      onClick={() => setManualShippedTo(port)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition border ${
+                        manualShippedTo === port
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                      }`}
+                    >
+                      {port}
+                    </button>
+                  ))}
+                </div>
+
+                <input
+                  type="text"
+                  value={manualShippedTo}
+                  onChange={(e) => setManualShippedTo(e.target.value)}
+                  placeholder="e.g. Nhava Sheva / Mundra, India"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-xs"
+                  required
+                />
+              </div>
+
+              {/* ── SECTION 4: ARRIVAL DATES (ACTUAL PORT ARRIVAL vs MANUAL GRACE DATE) ── */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {/* 1. ACTUAL DESTINATION PORT ARRIVAL DATE (एक्चुअल डेट) */}
+                <div className="bg-blue-50/70 p-5 rounded-2xl border-2 border-blue-200 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-black text-blue-950 uppercase tracking-wider flex items-center space-x-1.5">
+                      <Calendar className="w-4 h-4 text-blue-600" />
+                      <span>Actual Port Arrival Date (एक्चुअल डेट)</span>
+                    </label>
+                    <span className="text-[10px] font-bold text-blue-800 bg-blue-100 px-2 py-0.5 rounded">
+                      Carrier Raw ETA
+                    </span>
+                  </div>
+                  <input
+                    type="date"
+                    value={manualActualEtaDate}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setManualActualEtaDate(val);
+                      if (applyFilingBuffer && (!manualGraceEtaDate || manualGraceEtaDate === manualActualEtaDate)) {
+                        setManualGraceEtaDate(addFilingBufferDays(val, manualBufferDays));
+                      }
+                    }}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-blue-300 text-xs font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs"
+                  />
+                  <p className="text-[11px] text-blue-800">
+                    Physical arrival date of the carrier vessel at destination port in India.
+                  </p>
+                </div>
+
+                {/* 2. MANUAL GRACE DATE / FINAL CUSTOMER ETA (मैन्युअल ग्रेस डेट) */}
+                <div className="bg-amber-50/70 p-5 rounded-2xl border-2 border-amber-200 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-black text-amber-950 uppercase tracking-wider flex items-center space-x-1.5">
+                      <Calendar className="w-4 h-4 text-amber-600" />
+                      <span>Manual Grace Date (मैन्युअल ग्रेस डेट)</span>
+                    </label>
+                    <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded">
+                      Customer Delivery ETA
+                    </span>
+                  </div>
+                  <input
+                    type="date"
+                    value={manualGraceEtaDate}
+                    onChange={(e) => {
+                      setManualGraceEtaDate(e.target.value);
+                      setManualEtaDateInput(e.target.value);
+                    }}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-amber-300 text-xs font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-xs"
+                  />
+
+                  {/* Quick Buffer Helper Buttons */}
+                  <div className="flex items-center space-x-1.5 pt-1">
+                    <span className="text-[10px] font-bold text-slate-500">Quick Buffer:</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (manualActualEtaDate) {
+                          setManualBufferDays(7);
+                          const dateWith7 = addFilingBufferDays(manualActualEtaDate, 7);
+                          setManualGraceEtaDate(dateWith7);
+                          setManualEtaDateInput(dateWith7);
+                        }
+                      }}
+                      className="px-2 py-0.5 rounded bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold transition shadow-2xs"
+                    >
+                      +7 Days Buffer
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (manualActualEtaDate) {
+                          setManualBufferDays(10);
+                          const dateWith10 = addFilingBufferDays(manualActualEtaDate, 10);
+                          setManualGraceEtaDate(dateWith10);
+                          setManualEtaDateInput(dateWith10);
+                        }
+                      }}
+                      className="px-2 py-0.5 rounded bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold transition shadow-2xs"
+                    >
+                      +10 Days Buffer
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (manualActualEtaDate) {
+                          setManualBufferDays(0);
+                          setManualGraceEtaDate(manualActualEtaDate);
+                          setManualEtaDateInput(manualActualEtaDate);
+                        }
+                      }}
+                      className="px-2 py-0.5 rounded bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-[10px] font-bold transition shadow-2xs"
+                    >
+                      Same (0d)
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Live Date Calculation Summary Banner */}
+              {(manualActualEtaDate || manualGraceEtaDate) && (
+                <div className="p-3.5 bg-slate-900 text-white rounded-xl text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-xs">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-amber-400 font-bold">🚢 Vessel Port Arrival:</span>
+                    <span className="font-mono font-bold">
+                      {manualActualEtaDate ? formatGlobalDate(manualActualEtaDate) : 'Not Set'}
+                    </span>
+                  </div>
+                  <div className="text-slate-400 hidden sm:inline">➔</div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-emerald-400 font-bold">📦 Customer Grace Delivery:</span>
+                    <span className="font-mono font-bold">
+                      {manualGraceEtaDate ? formatGlobalDate(manualGraceEtaDate) : 'Not Set'}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* ── SECTION 5: DEPARTURE & CARRIER LINE & STATUS ── */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 {/* Loading Date from China */}
                 <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-200 space-y-1.5">
-                  <label className="block text-xs font-bold text-emerald-900 uppercase tracking-wider flex items-center space-x-1.5">
+                  <label className="block text-xs font-bold text-emerald-900 uppercase tracking-wider flex items-center space-x-1">
                     <Calendar className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Loading Date from China (Departure)</span>
+                    <span>Departure from China</span>
                   </label>
                   <input
                     type="date"
                     value={manualLoadingDate}
                     onChange={(e) => setManualLoadingDate(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-lg border border-emerald-300 text-xs font-bold bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    className="w-full px-3 py-2 rounded-lg border border-emerald-300 text-xs font-bold bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-xs"
                   />
-                  <p className="text-[10px] text-emerald-700">Date the container was loaded and dispatched from China</p>
+                  <p className="text-[10px] text-emerald-700">Loading date from China warehouse</p>
                 </div>
 
-                {/* Target Arrival ETA Date */}
-                <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-200 space-y-1.5">
-                  <label className="block text-xs font-bold text-blue-900 uppercase tracking-wider flex items-center space-x-1.5">
-                    <Calendar className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Destination Arrival ETA Date</span>
-                  </label>
-                  <input
-                    type="date"
-                    value={manualEtaDateInput}
-                    onChange={(e) => setManualEtaDateInput(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-lg border border-blue-300 text-xs font-bold bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <p className="text-[10px] text-blue-700">Expected arrival date at destination port in India</p>
-                </div>
-
-                {/* Shipping Line / Company Name */}
-                <div className="space-y-1.5">
+                {/* Shipping Line */}
+                <div className="space-y-1.5 p-4 bg-slate-50 rounded-xl border border-slate-200">
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Shipping Line / Carrier Company
+                    Shipping Carrier Line
                   </label>
                   <select
                     value={manualShippingCompany}
                     onChange={(e) => setManualShippingCompany(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-bold bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-xs"
                   >
                     {SHIPPING_LINES.map((line) => (
                       <option key={line} value={line}>{line}</option>
@@ -1753,84 +2248,47 @@ export default function AdminDashboardPage() {
                   </select>
                 </div>
 
-                {/* Current Status */}
-                <div className="space-y-1.5">
+                {/* Cargo Status */}
+                <div className="space-y-1.5 p-4 bg-slate-50 rounded-xl border border-slate-200">
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Current Container Status
+                    Cargo Status
                   </label>
                   <input
                     type="text"
                     value={manualStatusInput}
                     onChange={(e) => setManualStatusInput(e.target.value)}
-                    placeholder="e.g. In Transit, Customs Clearance, Arrived"
-                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs font-medium bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    placeholder="e.g. In Transit, Customs, Arrived"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-bold bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-xs"
                   />
                 </div>
-
-                {/* Origin Port China */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Shipped From (Origin Port China)
-                  </label>
-                  <input
-                    type="text"
-                    value={manualShippedFrom}
-                    onChange={(e) => setManualShippedFrom(e.target.value)}
-                    placeholder="e.g. Ningbo / Shanghai, China"
-                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs font-medium bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
-
-                {/* Destination Port India */}
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Shipped To (Destination Port India)
-                  </label>
-                  <input
-                    type="text"
-                    value={manualShippedTo}
-                    onChange={(e) => setManualShippedTo(e.target.value)}
-                    placeholder="e.g. Nhava Sheva / Mundra, India"
-                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs font-medium bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
-              </div>
-
-              {/* Filing Buffer Toggle */}
-              <div className="flex items-center space-x-2.5 text-xs font-medium text-slate-700 bg-amber-50/70 p-3.5 rounded-xl border border-amber-200">
-                <input
-                  type="checkbox"
-                  id="admin-filing-buffer-toggle"
-                  checked={applyFilingBuffer}
-                  onChange={(e) => setApplyFilingBuffer(e.target.checked)}
-                  className="rounded text-amber-600 focus:ring-amber-500 w-4 h-4"
-                />
-                <label htmlFor="admin-filing-buffer-toggle" className="cursor-pointer select-none">
-                  Automatically add <strong>+7 Days Filing Buffer</strong> to the destination ETA date
-                </label>
               </div>
 
               {/* Submit Button */}
               <button
                 type="submit"
-                disabled={isSettingManualEta || !manualEtaContainer}
-                className="w-full py-3.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-md transition flex items-center justify-center space-x-2 disabled:opacity-50"
+                disabled={isSettingManualEta || (!manualEtaContainer && !newContainerInput)}
+                className="w-full py-4 bg-amber-600 hover:bg-amber-700 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-md transition flex items-center justify-center space-x-2 disabled:opacity-50"
               >
                 {isSettingManualEta ? (
                   <>
                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    <span>Updating All Container Receipts &amp; Fleet...</span>
+                    <span>Saving to Database Across All Receipts &amp; Fleet...</span>
                   </>
                 ) : (
                   <>
                     <Check className="w-4 h-4" />
-                    <span>Save Loading Date &amp; ETA Across All Receipts for this Container</span>
+                    <span>
+                      {isNewContainerMode
+                        ? 'Register & Save New Container in Fleet'
+                        : 'Save Loading Date, Actual ETA & Grace Date (Direct DB Sync)'}
+                    </span>
                   </>
                 )}
               </button>
             </form>
           </div>
         )}
+
 
         {/* ── TAB 5: JSONCARGO API SYNC & 3-COLUMN MAPPING ── */}
         {activeAdminTab === 'api-sync' && (

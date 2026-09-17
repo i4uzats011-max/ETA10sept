@@ -3,14 +3,18 @@ import { connectToDatabase } from '@/lib/mongodb';
 import Container from '@/models/Container';
 import Shipment from '@/models/Shipment';
 import { isStaffOrAdminAuthenticated } from '@/lib/auth';
+import { parseReceiptDate, getEtaBucket } from '@/lib/dateUtils';
 
 export const dynamic = 'force-dynamic';
 
 function calculateDaysRemaining(dateStr?: string | null): number | null {
-  if (!dateStr || dateStr === 'N/A' || isNaN(new Date(dateStr).getTime())) {
+  if (!dateStr || dateStr === 'N/A' || dateStr === 'Pending' || dateStr === '—') {
     return null;
   }
-  const targetDate = new Date(dateStr);
+  const targetDate = parseReceiptDate(dateStr) || new Date(dateStr);
+  if (!targetDate || isNaN(targetDate.getTime())) {
+    return null;
+  }
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   targetDate.setHours(0, 0, 0, 0);
@@ -102,9 +106,26 @@ export async function GET(req: NextRequest) {
 
     // 3. Format clean output list with strict privacy enforcement for public visitors
     const containers = Array.from(containerMap.values()).map((c) => {
-      const isMappedWithActual = Boolean(c.containerNumber && c.containerNumber.trim().length > 0 && c.containerNumber.trim().toLowerCase() !== c.container.trim().toLowerCase());
-      const destinationDate = isMappedWithActual ? (c.destinationDate || c.eta || 'Pending') : 'Pending';
-      const daysRemaining = calculateDaysRemaining(destinationDate);
+      const isMappedWithActual = Boolean(
+        c.containerNumber &&
+          c.containerNumber.trim().length > 0 &&
+          c.containerNumber.trim().toLowerCase() !== c.container.trim().toLowerCase()
+      );
+
+      const effectiveGraceDate = c.destinationDate || c.eta || '';
+      const destinationDate = isStaffOrAdmin
+        ? (effectiveGraceDate || 'Pending')
+        : (isMappedWithActual ? (effectiveGraceDate || 'Pending') : 'Pending');
+
+      const isDelivered = Boolean(
+        c.isDelivered || (c.status && c.status.toLowerCase().includes('deliver'))
+      );
+
+      // Days remaining calculated based on destination ETA date, fallback to rawEta
+      const targetEtaForDays = effectiveGraceDate || c.rawEta || '';
+      const daysRemaining = calculateDaysRemaining(targetEtaForDays);
+      const actualDaysRemaining = calculateDaysRemaining(c.rawEta);
+      const etaBucket = getEtaBucket(daysRemaining, isDelivered);
 
       return {
         container: c.container, // Public alias (e.g. "USI-01")
@@ -115,15 +136,19 @@ export async function GET(req: NextRequest) {
         shippedFrom: c.shippedFrom || 'Ningbo / Shanghai, China',
         shippedTo: c.shippedTo || 'Nhava Sheva / Mundra, India',
         currentLocation: isStaffOrAdmin ? (c.currentLocation || c.status || 'In Transit') : 'Scheduled Delivery',
-        startDate: c.startDate || '',
+        startDate: c.startDate || c.loadingDate || '',
+        loadingDate: c.loadingDate || c.startDate || '',
         destinationDate: destinationDate,
         eta: destinationDate,
         rawEta: isStaffOrAdmin ? (c.rawEta || '') : undefined,
-        status: isStaffOrAdmin ? (c.status || 'In Transit') : (c.status === 'Delivered' ? 'Delivered' : 'In Transit'),
+        etaBufferDays: c.etaBufferDays ?? 7,
+        status: isStaffOrAdmin ? (c.status || 'In Transit') : (isDelivered ? 'Delivered' : 'In Transit'),
         deliveryDate: c.deliveryDate || '',
         daysToDeliver: c.daysToDeliver ?? null,
-        isDelivered: Boolean(c.isDelivered || (c.status && c.status.toLowerCase().includes('deliver'))),
-        daysRemaining: daysRemaining,
+        isDelivered,
+        daysRemaining,
+        actualDaysRemaining: isStaffOrAdmin ? actualDaysRemaining : undefined,
+        etaBucket,
         vesselName: isStaffOrAdmin ? (c.vesselName || '') : undefined,
         voyageNumber: isStaffOrAdmin ? (c.voyageNumber || '') : undefined,
         shipmentCount: c.shipmentCount || 0,
