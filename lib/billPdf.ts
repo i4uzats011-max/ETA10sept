@@ -1,4 +1,5 @@
 import jsPDF from 'jspdf';
+import { getStateCode, getStateName } from '@/lib/states';
 
 export interface BillLineItem {
   itemNo?: number;
@@ -23,6 +24,11 @@ export interface BillPdfData {
   billingUnit?: 'Pcs' | 'KG' | 'Cartons';
   taxableValue?: number;
   igstAmount?: number;
+  cgst?: number;
+  cgstAmount?: number;
+  sgst?: number;
+  sgstAmount?: number;
+  taxType?: 'INTRA_STATE' | 'INTER_STATE';
   totalAmount?: number;
   rate?: number;
 
@@ -245,8 +251,8 @@ export function generateBillPDF(bill: BillPdfData, autoDownload: boolean = true)
   const sName = (bill.sellerName || 'NORDEX INTERNATIONAL').trim();
   const sAddr = bill.sellerAddress || 'ground floor, house no. 371 plot no. 319\nBadli Road, Badli Sub Post Office, Badli,\nNew Delhi, North West Delhi, Delhi, 110042';
   const sGstin = bill.sellerGstin || '07AAIHH1727F1ZH';
-  const sState = bill.sellerState || 'Delhi';
-  const sStateCode = bill.sellerStateCode || '07';
+  const sStateCode = getStateCode(bill.sellerStateCode || '07') || '07';
+  const sState = getStateName(bill.sellerState || 'Delhi') || 'Delhi';
   const sEmail = bill.sellerEmail || 'NEWNORDEXINTERNATIONAL2025@GMAIL.COM';
 
   // Seller Details
@@ -272,8 +278,9 @@ export function generateBillPDF(bill: BillPdfData, autoDownload: boolean = true)
   const cName = (bill.consigneeName || bill.purchaserName || bill.party || '').trim();
   const cAddr = (bill.consigneeAddress || bill.deliveryAddress || bill.purchaserAddress || '').trim();
   const cGstin = (bill.consigneeGstin || bill.purchaserGstin || '').trim();
-  const cState = (bill.consigneeState || bill.purchaserState || bill.sellerState || 'Delhi').trim();
-  const cStateCode = (bill.consigneeStateCode || bill.purchaserStateCode || bill.sellerStateCode || '07').trim();
+  const rawCState = bill.consigneeState || bill.purchaserState || bill.sellerState || 'Delhi';
+  const cStateCode = getStateCode(bill.consigneeStateCode || bill.purchaserStateCode || rawCState) || '07';
+  const cState = getStateName(rawCState) || 'Delhi';
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
@@ -302,8 +309,9 @@ export function generateBillPDF(bill: BillPdfData, autoDownload: boolean = true)
   const bName = (bill.buyerName || bill.purchaserName || cName).trim();
   const bAddr = (bill.buyerAddress || bill.purchaserAddress || cAddr).trim();
   const bGstin = (bill.buyerGstin || bill.purchaserGstin || cGstin).trim();
-  const bState = (bill.buyerState || bill.purchaserState || cState).trim();
-  const bStateCode = (bill.buyerStateCode || bill.purchaserStateCode || cStateCode).trim();
+  const rawBState = bill.buyerState || bill.purchaserState || rawCState;
+  const bStateCode = getStateCode(bill.buyerStateCode || bill.purchaserStateCode || rawBState) || cStateCode;
+  const bState = getStateName(rawBState) || cState;
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
@@ -583,18 +591,59 @@ export function generateBillPDF(bill: BillPdfData, autoDownload: boolean = true)
   doc.setFontSize(7.5);
   doc.text(subtotalFormatted, 198, subtotalY, { align: 'right' });
 
-  // OUTPUT IGST Row
-  const igstPct = Number(bill.igst) || 18;
-  const igstAmt = Number((subtotalTaxable * (igstPct / 100)).toFixed(2));
-  const grandTotal = Number((subtotalTaxable + igstAmt).toFixed(2));
+  // Location-Wise Tax Determination (Delhi to Delhi -> CGST + SGST; Outside Delhi -> IGST)
+  const isIntraState =
+    cStateCode === '07' ||
+    bStateCode === '07' ||
+    cState.toLowerCase().includes('delhi') ||
+    bState.toLowerCase().includes('delhi');
 
-  const igstRowY = subtotalY + 5.5;
-  doc.setFont('helvetica', 'bold');
-  doc.text(`OUTPUT IGST ${igstPct}%`, 94, igstRowY, { align: 'right' });
-  doc.setFont('helvetica', 'normal');
-  doc.text(`${igstPct} %`, 168, igstRowY, { align: 'center' });
-  doc.setFont('helvetica', 'bold');
-  doc.text(formatIndianNumber(igstAmt, 2), 198, igstRowY, { align: 'right' });
+  const totalGstPct = Number(bill.igst) || 18;
+  const halfGstPct = Number((totalGstPct / 2).toFixed(2));
+
+  let cgstAmt = 0;
+  let sgstAmt = 0;
+  let igstAmt = 0;
+  let totalTaxAmt = 0;
+
+  if (isIntraState) {
+    cgstAmt = Number((subtotalTaxable * (halfGstPct / 100)).toFixed(2));
+    sgstAmt = Number((subtotalTaxable * (halfGstPct / 100)).toFixed(2));
+    totalTaxAmt = Number((cgstAmt + sgstAmt).toFixed(2));
+  } else {
+    igstAmt = Number((subtotalTaxable * (totalGstPct / 100)).toFixed(2));
+    totalTaxAmt = igstAmt;
+  }
+  const grandTotal = Number((subtotalTaxable + totalTaxAmt).toFixed(2));
+
+  if (isIntraState) {
+    // OUTPUT CGST Row
+    const cgstRowY = subtotalY + 5;
+    doc.setFont('helvetica', 'bold');
+    doc.text(`OUTPUT CGST ${halfGstPct}%`, 94, cgstRowY, { align: 'right' });
+    doc.setFont('helvetica', 'normal');
+    doc.text(`${halfGstPct} %`, 168, cgstRowY, { align: 'center' });
+    doc.setFont('helvetica', 'bold');
+    doc.text(formatIndianNumber(cgstAmt, 2), 198, cgstRowY, { align: 'right' });
+
+    // OUTPUT SGST Row
+    const sgstRowY = subtotalY + 10;
+    doc.setFont('helvetica', 'bold');
+    doc.text(`OUTPUT SGST ${halfGstPct}%`, 94, sgstRowY, { align: 'right' });
+    doc.setFont('helvetica', 'normal');
+    doc.text(`${halfGstPct} %`, 168, sgstRowY, { align: 'center' });
+    doc.setFont('helvetica', 'bold');
+    doc.text(formatIndianNumber(sgstAmt, 2), 198, sgstRowY, { align: 'right' });
+  } else {
+    // OUTPUT IGST Row
+    const igstRowY = subtotalY + 5.5;
+    doc.setFont('helvetica', 'bold');
+    doc.text(`OUTPUT IGST ${totalGstPct}%`, 94, igstRowY, { align: 'right' });
+    doc.setFont('helvetica', 'normal');
+    doc.text(`${totalGstPct} %`, 168, igstRowY, { align: 'center' });
+    doc.setFont('helvetica', 'bold');
+    doc.text(formatIndianNumber(igstAmt, 2), 198, igstRowY, { align: 'right' });
+  }
 
   // Line above Total row
   doc.line(xLeft, yTableBottom, xRight, yTableBottom);
@@ -638,38 +687,6 @@ export function generateBillPDF(bill: BillPdfData, autoDownload: boolean = true)
 
   doc.line(xLeft, yTaxRow1, xRight, yTaxRow1);
 
-  // Vertical Columns
-  const tCol = {
-    hsn: 10,
-    taxVal: 65,
-    igstRate: 110,
-    igstAmt: 135,
-    totalTax: 165,
-    right: 200,
-  };
-
-  doc.line(tCol.taxVal, yTaxHead, tCol.taxVal, yTaxEnd);
-  doc.line(tCol.igstRate, yTaxHead, tCol.igstRate, yTaxEnd);
-  doc.line(tCol.totalTax, yTaxHead, tCol.totalTax, yTaxEnd);
-
-  // Sub-header lines for IGST Rate & Amount
-  doc.line(tCol.igstRate, 185.5, tCol.totalTax, 185.5);
-  doc.line(tCol.igstAmt, 185.5, tCol.igstAmt, 197);
-
-  // Tax Headers
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7);
-  doc.text('HSN/SAC', 37.5, 185.5, { align: 'center' });
-  doc.text('Taxable', 87.5, 184.5, { align: 'center' });
-  doc.text('Value', 87.5, 187, { align: 'center' });
-
-  doc.text('IGST', 137.5, 184.5, { align: 'center' });
-  doc.text('Rate', 122.5, 187, { align: 'center' });
-  doc.text('Amount', 150, 187, { align: 'center' });
-
-  doc.text('Total', 182.5, 184.5, { align: 'center' });
-  doc.text('Tax Amount', 182.5, 187, { align: 'center' });
-
   // Group items by HSN/SAC
   const hsnMap = new Map<string, number>();
   lineItems.forEach((it) => {
@@ -678,24 +695,123 @@ export function generateBillPDF(bill: BillPdfData, autoDownload: boolean = true)
     hsnMap.set(h, (hsnMap.get(h) || 0) + amt);
   });
 
-  let curTaxY = 191.5;
-  hsnMap.forEach((taxVal, hsnCode) => {
-    const taxAmt = Number((taxVal * (igstPct / 100)).toFixed(2));
-    doc.text(hsnCode, 37.5, curTaxY, { align: 'center' });
-    doc.text(formatIndianNumber(taxVal, 2), 108, curTaxY, { align: 'right' });
-    doc.text(`${igstPct}%`, 122.5, curTaxY, { align: 'center' });
-    doc.text(formatIndianNumber(taxAmt, 2), 163, curTaxY, { align: 'right' });
-    doc.text(formatIndianNumber(taxAmt, 2), 198, curTaxY, { align: 'right' });
-    curTaxY += 4.5;
-  });
+  if (isIntraState) {
+    // Columns for Intra-State: HSN(10-45) | Taxable(45-80) | Central Tax(80-120) | State Tax(120-160) | Total Tax(160-200)
+    const tCol = {
+      hsn: 10,
+      taxVal: 45,
+      cgst: 80,
+      cgstAmt: 98,
+      sgst: 120,
+      sgstAmt: 138,
+      totalTax: 160,
+      right: 200,
+    };
 
-  // Tax Total Row
-  doc.line(xLeft, 197, xRight, 197);
-  doc.setFont('helvetica', 'bold');
-  doc.text('Total', 60, 200.5, { align: 'right' });
-  doc.text(formatIndianNumber(subtotalTaxable, 2), 108, 200.5, { align: 'right' });
-  doc.text(formatIndianNumber(igstAmt, 2), 163, 200.5, { align: 'right' });
-  doc.text(formatIndianNumber(igstAmt, 2), 198, 200.5, { align: 'right' });
+    doc.line(tCol.taxVal, yTaxHead, tCol.taxVal, yTaxEnd);
+    doc.line(tCol.cgst, yTaxHead, tCol.cgst, yTaxEnd);
+    doc.line(tCol.sgst, yTaxHead, tCol.sgst, yTaxEnd);
+    doc.line(tCol.totalTax, yTaxHead, tCol.totalTax, yTaxEnd);
+
+    // Sub-header lines for CGST & SGST Rate & Amount
+    doc.line(tCol.cgst, 185.5, tCol.totalTax, 185.5);
+    doc.line(tCol.cgstAmt, 185.5, tCol.cgstAmt, 197);
+    doc.line(tCol.sgstAmt, 185.5, tCol.sgstAmt, 197);
+
+    // Tax Headers
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.8);
+    doc.text('HSN/SAC', 27.5, 185.5, { align: 'center' });
+    doc.text('Taxable', 62.5, 184.5, { align: 'center' });
+    doc.text('Value', 62.5, 187, { align: 'center' });
+
+    doc.text('Central Tax', 100, 184.5, { align: 'center' });
+    doc.text('Rate', 89, 187, { align: 'center' });
+    doc.text('Amount', 109, 187, { align: 'center' });
+
+    doc.text('State Tax', 140, 184.5, { align: 'center' });
+    doc.text('Rate', 129, 187, { align: 'center' });
+    doc.text('Amount', 149, 187, { align: 'center' });
+
+    doc.text('Total', 180, 184.5, { align: 'center' });
+    doc.text('Tax Amount', 180, 187, { align: 'center' });
+
+    let curTaxY = 191.5;
+    hsnMap.forEach((taxVal, hsnCode) => {
+      const itemCgst = Number((taxVal * (halfGstPct / 100)).toFixed(2));
+      const itemSgst = Number((taxVal * (halfGstPct / 100)).toFixed(2));
+      const itemTot = Number((itemCgst + itemSgst).toFixed(2));
+
+      doc.text(hsnCode, 27.5, curTaxY, { align: 'center' });
+      doc.text(formatIndianNumber(taxVal, 2), 78, curTaxY, { align: 'right' });
+      doc.text(`${halfGstPct}%`, 89, curTaxY, { align: 'center' });
+      doc.text(formatIndianNumber(itemCgst, 2), 118, curTaxY, { align: 'right' });
+      doc.text(`${halfGstPct}%`, 129, curTaxY, { align: 'center' });
+      doc.text(formatIndianNumber(itemSgst, 2), 158, curTaxY, { align: 'right' });
+      doc.text(formatIndianNumber(itemTot, 2), 198, curTaxY, { align: 'right' });
+      curTaxY += 4.5;
+    });
+
+    // Tax Total Row
+    doc.line(xLeft, 197, xRight, 197);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Total', 40, 200.5, { align: 'right' });
+    doc.text(formatIndianNumber(subtotalTaxable, 2), 78, 200.5, { align: 'right' });
+    doc.text(formatIndianNumber(cgstAmt, 2), 118, 200.5, { align: 'right' });
+    doc.text(formatIndianNumber(sgstAmt, 2), 158, 200.5, { align: 'right' });
+    doc.text(formatIndianNumber(totalTaxAmt, 2), 198, 200.5, { align: 'right' });
+  } else {
+    // Columns for Inter-State: HSN(10-65) | Taxable(65-110) | IGST(110-165) | Total Tax(165-200)
+    const tCol = {
+      hsn: 10,
+      taxVal: 65,
+      igstRate: 110,
+      igstAmt: 135,
+      totalTax: 165,
+      right: 200,
+    };
+
+    doc.line(tCol.taxVal, yTaxHead, tCol.taxVal, yTaxEnd);
+    doc.line(tCol.igstRate, yTaxHead, tCol.igstRate, yTaxEnd);
+    doc.line(tCol.totalTax, yTaxHead, tCol.totalTax, yTaxEnd);
+
+    // Sub-header lines for IGST Rate & Amount
+    doc.line(tCol.igstRate, 185.5, tCol.totalTax, 185.5);
+    doc.line(tCol.igstAmt, 185.5, tCol.igstAmt, 197);
+
+    // Tax Headers
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.text('HSN/SAC', 37.5, 185.5, { align: 'center' });
+    doc.text('Taxable', 87.5, 184.5, { align: 'center' });
+    doc.text('Value', 87.5, 187, { align: 'center' });
+
+    doc.text('Integrated Tax', 137.5, 184.5, { align: 'center' });
+    doc.text('Rate', 122.5, 187, { align: 'center' });
+    doc.text('Amount', 150, 187, { align: 'center' });
+
+    doc.text('Total', 182.5, 184.5, { align: 'center' });
+    doc.text('Tax Amount', 182.5, 187, { align: 'center' });
+
+    let curTaxY = 191.5;
+    hsnMap.forEach((taxVal, hsnCode) => {
+      const taxAmt = Number((taxVal * (totalGstPct / 100)).toFixed(2));
+      doc.text(hsnCode, 37.5, curTaxY, { align: 'center' });
+      doc.text(formatIndianNumber(taxVal, 2), 108, curTaxY, { align: 'right' });
+      doc.text(`${totalGstPct}%`, 122.5, curTaxY, { align: 'center' });
+      doc.text(formatIndianNumber(taxAmt, 2), 163, curTaxY, { align: 'right' });
+      doc.text(formatIndianNumber(taxAmt, 2), 198, curTaxY, { align: 'right' });
+      curTaxY += 4.5;
+    });
+
+    // Tax Total Row
+    doc.line(xLeft, 197, xRight, 197);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Total', 60, 200.5, { align: 'right' });
+    doc.text(formatIndianNumber(subtotalTaxable, 2), 108, 200.5, { align: 'right' });
+    doc.text(formatIndianNumber(igstAmt, 2), 163, 200.5, { align: 'right' });
+    doc.text(formatIndianNumber(igstAmt, 2), 198, 200.5, { align: 'right' });
+  }
 
   // Line below Tax Total
   doc.line(xLeft, yTaxEnd, xRight, yTaxEnd);
@@ -705,7 +821,7 @@ export function generateBillPDF(bill: BillPdfData, autoDownload: boolean = true)
   // ==========================================
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.2);
-  const taxWords = convertNumberToIndianWords(igstAmt);
+  const taxWords = convertNumberToIndianWords(totalTaxAmt);
   doc.text(`Tax Amount (in words) : ${taxWords}`, 12, 206.5);
 
   // Horizontal line below Tax in Words

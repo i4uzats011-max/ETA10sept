@@ -14,7 +14,7 @@ export interface IItemHsn extends Document {
 
 const ItemHsnSchema = new Schema<IItemHsn>(
   {
-    itemName: { type: String, required: true, trim: true, uppercase: true, index: true },
+    itemName: { type: String, required: true, trim: true, uppercase: true, unique: true },
     hsnCode: { type: String, required: true, trim: true, index: true },
     description: { type: String, default: '', trim: true },
     category: { type: String, default: 'General Cargo', trim: true },
@@ -30,8 +30,5 @@ const ItemHsnSchema = new Schema<IItemHsn>(
     timestamps: true,
   }
 );
-
-// Unique compound index on itemName so one item maps to its preferred HSN code
-ItemHsnSchema.index({ itemName: 1 }, { unique: true });
 
 export default mongoose.models.ItemHsn || mongoose.model<IItemHsn>('ItemHsn', ItemHsnSchema);

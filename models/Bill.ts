@@ -23,7 +23,12 @@ export interface IBill extends Document {
   billingUnit?: 'Pcs' | 'KG' | 'Cartons'; // Decided by Biller: 'Pcs', 'KG', or 'Cartons'
   taxableValue: number;         // Taxable amount in INR
   igstAmount: number;           // IGST amount in INR (taxableValue * igst / 100)
-  totalAmount: number;          // Grand total amount in INR (taxableValue + igstAmount)
+  cgst?: number;                // CGST rate % (e.g. 9)
+  cgstAmount?: number;          // CGST amount in INR
+  sgst?: number;                // SGST rate % (e.g. 9)
+  sgstAmount?: number;          // SGST amount in INR
+  taxType?: 'INTRA_STATE' | 'INTER_STATE'; // Location-wise tax classification
+  totalAmount: number;          // Grand total amount in INR (taxableValue + tax)
 
   // Multiple items support
   items?: IBillItem[];
@@ -126,6 +131,11 @@ const BillSchema = new Schema<IBill>(
     },
     taxableValue: { type: Number, default: 0 },
     igstAmount: { type: Number, default: 0 },
+    cgst: { type: Number, default: 0 },
+    cgstAmount: { type: Number, default: 0 },
+    sgst: { type: Number, default: 0 },
+    sgstAmount: { type: Number, default: 0 },
+    taxType: { type: String, enum: ['INTRA_STATE', 'INTER_STATE'], default: 'INTER_STATE' },
     totalAmount: { type: Number, default: 0 },
 
     container: { type: String, default: '', index: true, trim: true },
