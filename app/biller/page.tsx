@@ -1485,11 +1485,17 @@ export default function BillerPortalPage() {
       return;
     }
 
+    const finalHsn = (lineHsn || hsnCode || '').trim();
+    if (!finalHsn || finalHsn.length < 4 || !/^\d+$/.test(finalHsn)) {
+      alert('कृपया एक मान्य HSN / SAC कोड (कम से कम 4 से 8 अंक) अवश्य दर्ज करें। GST नियमानुसार HSN कोड अनिवार्य (Mandatory) है।');
+      return;
+    }
+
     const amt = Number((qty * r).toFixed(2));
     const newItem: FormLineItem = {
       itemNo: invoiceItems.length + 1,
       description: lineDescription.trim(),
-      hsnCode: (lineHsn || hsnCode || '9997').trim(),
+      hsnCode: finalHsn,
       quantity: qty,
       unit: lineUnit.trim().toUpperCase() || 'PCS',
       rate: r,
@@ -1652,6 +1658,16 @@ export default function BillerPortalPage() {
     if (editBillData.items.length === 0) {
       alert('कम से कम एक आइटम होना अनिवार्य है।');
       return;
+    }
+
+    for (const it of editBillData.items) {
+      const itHsn = (it.hsnCode || '').trim();
+      if (!itHsn || itHsn.length < 4 || !/^\d+$/.test(itHsn)) {
+        alert(
+          `HSN / SAC कोड अनिवार्य (Mandatory) है!\n\nआइटम "${it.description || 'Item'}" के लिए मान्य 4 से 8 अंकों का HSN कोड अवश्य दर्ज करें।`
+        );
+        return;
+      }
     }
 
     const totalTaxable = editBillData.items.reduce(
@@ -2270,6 +2286,17 @@ export default function BillerPortalPage() {
     if (finalItems.length === 0 && (!taxableValue || parseFloat(taxableValue) <= 0)) {
       alert('कृपया कम से कम एक आइटम का नाम, क्वांटिटी (Quantity) और रेट (Rate) दर्ज करें।');
       return;
+    }
+
+    // 2b. Mandatory HSN Validation for All Items
+    for (const it of finalItems) {
+      const itHsn = (it.hsnCode || '').trim();
+      if (!itHsn || itHsn.length < 4 || !/^\d+$/.test(itHsn)) {
+        alert(
+          `HSN / SAC कोड अनिवार्य (Mandatory) है!\n\nआइटम "${it.description || 'Item'}" के लिए मान्य 4 से 8 अंकों का HSN कोड अवश्य दर्ज करें।`
+        );
+        return;
+      }
     }
 
     // 3. Taxable and Gross Total Calculations
