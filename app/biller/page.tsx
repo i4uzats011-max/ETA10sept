@@ -5455,6 +5455,180 @@ export default function BillerPortalPage() {
         </div>
       )}
 
+      {/* MODAL: EDIT SENDING LOCATION FOR MARKA */}
+      {showEditLocationModal && editingLocationData && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2">
+                <Edit3 className="w-5 h-5 text-amber-400" />
+                <div>
+                  <h3 className="text-sm font-black text-white">
+                    पता एडिट करें (Edit Sending Location)
+                  </h3>
+                  <p className="text-[11px] text-amber-300">
+                    मार्का: <strong>{editingLocationData.marka}</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowEditLocationModal(false);
+                  setEditingLocationData(null);
+                }}
+                className="p-1 text-slate-400 hover:text-white rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditedLocation} className="space-y-3 text-xs">
+              <div>
+                <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                  लोकेशन का नाम / पहचान (e.g. Godown 1, Shop 2) *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editingLocationData.title}
+                  onChange={(e) =>
+                    setEditingLocationData({ ...editingLocationData, title: e.target.value })
+                  }
+                  placeholder="e.g. Godown 2 - Sanjay Place"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                  पूरा डिलीवरी पता (Full Address) *
+                </label>
+                <textarea
+                  required
+                  rows={2}
+                  value={editingLocationData.address}
+                  onChange={(e) =>
+                    setEditingLocationData({ ...editingLocationData, address: e.target.value })
+                  }
+                  placeholder="Shop / Plot No, Street, Landmark..."
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-300 block mb-1">City / शहर</label>
+                  <input
+                    type="text"
+                    value={editingLocationData.city}
+                    onChange={(e) =>
+                      setEditingLocationData({ ...editingLocationData, city: e.target.value })
+                    }
+                    placeholder="e.g. Agra / Delhi"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-slate-300 block mb-1">Pincode</label>
+                  <input
+                    type="text"
+                    value={editingLocationData.pincode}
+                    onChange={(e) =>
+                      setEditingLocationData({ ...editingLocationData, pincode: e.target.value })
+                    }
+                    placeholder="e.g. 282002"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-300 block mb-1">State (राज्य)</label>
+                  <select
+                    value={editingLocationData.state}
+                    onChange={(e) => {
+                      const st = e.target.value;
+                      const code = getStateCode(st) || '07';
+                      setEditingLocationData({
+                        ...editingLocationData,
+                        state: st,
+                        stateCode: code,
+                      });
+                    }}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs"
+                  >
+                    {INDIAN_STATES.map((st) => (
+                      <option key={st.name} value={st.name}>
+                        {st.name} ({st.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-slate-300 block mb-1">State Code (ऑटोमैटिक)</label>
+                  <input
+                    type="text"
+                    value={editingLocationData.stateCode}
+                    onChange={(e) =>
+                      setEditingLocationData({ ...editingLocationData, stateCode: e.target.value })
+                    }
+                    placeholder="07"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-amber-300 font-mono font-bold"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-300 block mb-1">Contact Person</label>
+                  <input
+                    type="text"
+                    value={editingLocationData.contactPerson}
+                    onChange={(e) =>
+                      setEditingLocationData({ ...editingLocationData, contactPerson: e.target.value })
+                    }
+                    placeholder="Contact person name"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-slate-300 block mb-1">Phone / Mobile</label>
+                  <input
+                    type="text"
+                    value={editingLocationData.phone}
+                    onChange={(e) =>
+                      setEditingLocationData({ ...editingLocationData, phone: e.target.value })
+                    }
+                    placeholder="Phone number"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditLocationModal(false);
+                    setEditingLocationData(null);
+                  }}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white font-black rounded-xl text-xs transition flex items-center space-x-1.5 shadow"
+                >
+                  <span>Update Address</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* MODAL: HSN SEARCH & AUTO-SUGGESTION */}
       {showHsnSearchModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
