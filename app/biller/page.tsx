@@ -41,6 +41,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { generateBillPDF } from '@/lib/billPdf';
+import { INDIAN_STATES, getStateCodeByName, getStateByGstinOrCode } from '@/lib/states';
 
 export interface FormLineItem {
   itemNo: number;
@@ -53,6 +54,7 @@ export interface FormLineItem {
 }
 
 export interface MarkaCargoItem {
+  marka?: string;
   description: string;
   hsnCode?: string;
   cartons: number;
@@ -277,6 +279,8 @@ export default function BillerPortalPage() {
   const [newLocPincode, setNewLocPincode] = useState('');
   const [newLocContactPerson, setNewLocContactPerson] = useState('');
   const [newLocPhone, setNewLocPhone] = useState('');
+  const [newLocRegType, setNewLocRegType] = useState<'Registered' | 'Unregistered'>('Registered');
+  const [newLocGstin, setNewLocGstin] = useState('');
   const [isSavingNewLoc, setIsSavingNewLoc] = useState(false);
 
   // Quick Vehicle Number Update Modal (Bills Table)
@@ -295,6 +299,7 @@ export default function BillerPortalPage() {
   const [singleContainer, setSingleContainer] = useState<string>('');
   const [singleAvailableMarkas, setSingleAvailableMarkas] = useState<any[]>([]);
   const [singleSelectedMarka, setSingleSelectedMarka] = useState<string>('');
+  const [selectedMarkas, setSelectedMarkas] = useState<string[]>([]);
   const [singleAvailableReceipts, setSingleAvailableReceipts] = useState<any[]>([]);
   const [singleSelectedReceipt, setSingleSelectedReceipt] = useState<string>('');
   const [globalMarkasList, setGlobalMarkasList] = useState<string[]>([]);
@@ -662,6 +667,204 @@ export default function BillerPortalPage() {
     }
   };
 
+  // Toggle Marka for Multi-Marka Billing (Allows selecting multiple markas to make a consolidated bill)
+  const handleToggleMarka = async (mName: string) => {
+    const clean = mName.trim();
+    if (!clean) return;
+
+    let nextList: string[];
+    if (selectedMarkas.includes(clean)) {
+      nextList = selectedMarkas.filter((m) => m !== clean);
+    } else {
+      nextList = [...selectedMarkas, clean];
+    }
+    setSelectedMarkas(nextList);
+
+    if (nextList.length === 0) {
+      setSingleSelectedMarka('');
+      setMainMarka('');
+      setMarkaCargoItems([]);
+      setSingleAvailableReceipts([]);
+      setCurrentMarkaAddresses([]);
+      setSelectedDeliveryAddressId('');
+      setLookupMessage('कोई मार्का सेलेक्ट नहीं है।');
+      return;
+    }
+
+    const primaryMarka = nextList[0];
+    setSingleSelectedMarka(nextList[nextList.length - 1]);
+    setMainMarka(nextList.join(', '));
+    fetchMarkaDeliveryLocations(primaryMarka);
+
+    setIsLoadingCascade(true);
+    try {
+      const promises = nextList.map(async (m) => {
+        const queryParams = new URLSearchParams();
+        if (singleContainer && singleContainer !== 'all') {
+          queryParams.set('container', singleContainer);
+        }
+        queryParams.set('marka', m);
+        const res = await fetch(`/api/billing/lookup?${queryParams.toString()}`);
+        if (res.ok) {
+          const data = await res.json();
+          return { marka: m, shipments: data.shipments || [], markaAddress: data.markaAddress };
+        }
+        return { marka: m, shipments: [], markaAddress: null };
+      });
+
+      const results = await Promise.all(promises);
+      const combinedShipments: any[] = [];
+      const combinedItems: MarkaCargoItem[] = [];
+
+      results.forEach((r) => {
+        r.shipments.forEach((s: any) => {
+          combinedShipments.push(s);
+          const d = (s.commodity || s.english || 'COMMERCIAL GOODS').trim();
+          const c = Number(s.cartons || s.quantity) || 0;
+          const k = Number(s.weightKg || s.weight) || 0;
+          const p = c > 0 ? c * 10 : 0;
+          combinedItems.push({
+            marka: r.marka,
+            description: nextList.length > 1 ? `[${r.marka}] ${d}` : d,
+            hsnCode: s.hsnCode || '39269099',
+            cartons: c,
+            weightKg: k,
+            pcs: p,
+            receipt: s.receipt,
+          });
+        });
+      });
+
+      setSingleAvailableReceipts(combinedShipments);
+      setMarkaCargoItems(combinedItems);
+
+      // Apply address from first result that has one
+      const foundAddrResult = results.find((r) => r.markaAddress);
+      if (foundAddrResult?.markaAddress) {
+        applyShipmentToForm(foundAddrResult.shipments[0] || { mainMarka: nextList.join(', ') }, foundAddrResult.markaAddress);
+      } else if (combinedShipments.length > 0) {
+        applyShipmentToForm(combinedShipments[0]);
+      }
+
+      if (combinedItems.length > 0) {
+        const first = combinedItems[0];
+        setSelectedCargoDropdown(first.description);
+        setLineDescription(first.description);
+        setCommodity(first.description);
+        setLineHsn(first.hsnCode || '39269099');
+        setHsnCode(first.hsnCode || '39269099');
+        setCurrentBasePcs(first.pcs);
+        setCurrentBaseKg(first.weightKg);
+        setCurrentBaseCtn(first.cartons);
+        const u = lineUnit.toUpperCase();
+        if (u === 'PCS') setLineQuantity(first.pcs ? String(first.pcs) : '');
+        else if (u.includes('KG')) setLineQuantity(first.weightKg ? String(first.weightKg) : '');
+        else if (u.includes('CTN') || u.includes('CARTON')) setLineQuantity(first.cartons ? String(first.cartons) : '');
+        if (first.receipt) {
+          setReceiptNo(first.receipt);
+          setSingleSelectedReceipt(first.receipt);
+        }
+      }
+
+      setLookupMessage(
+        `✓ ${nextList.length} मार्का सेलेक्ट किए गए [${nextList.join(', ')}] | कुल ${combinedItems.length} कार्गो आइटम लोड हुए।`
+      );
+    } catch (err) {
+      console.error('Multi-marka error:', err);
+    } finally {
+      setIsLoadingCascade(false);
+    }
+  };
+
+  // State & GSTIN Change Handlers for Consignee and Buyer
+  const handleConsigneeStateChange = (st: string) => {
+    setConsigneeState(st);
+    const code = getStateCodeByName(st);
+    if (code) setConsigneeStateCode(code);
+  };
+
+  const handleConsigneeGstinChange = (gst: string) => {
+    const upper = gst.toUpperCase();
+    setPurchaserGstin(upper);
+    if (upper.length >= 2) {
+      const stObj = getStateByGstinOrCode(upper);
+      if (stObj) {
+        setConsigneeState(stObj.name);
+        setConsigneeStateCode(stObj.code);
+      }
+    }
+  };
+
+  const handleBuyerStateChange = (st: string) => {
+    setBuyerState(st);
+    const code = getStateCodeByName(st);
+    if (code) setBuyerStateCode(code);
+  };
+
+  const handleBuyerGstinChange = (gst: string) => {
+    const upper = gst.toUpperCase();
+    setBuyerGstin(upper);
+    if (upper.length >= 2) {
+      const stObj = getStateByGstinOrCode(upper);
+      if (stObj) {
+        setBuyerState(stObj.name);
+        setBuyerStateCode(stObj.code);
+      }
+    }
+  };
+
+  // Per-vehicle cumulative value check on the same date
+  const checkVehicleCumulativeLimit = (
+    vehicleNo: string,
+    newBillAmount: number,
+    isDelhi: boolean,
+    currentEWayBill: string,
+    targetBillDate?: string
+  ): { requiresConfirm: boolean; message?: string } => {
+    const cleanVeh = vehicleNo.trim().toUpperCase().replace(/\s+/g, '');
+    if (!cleanVeh) return { requiresConfirm: false };
+
+    // If E-Way bill number is provided, statutory rule is complied with
+    if (currentEWayBill.trim()) return { requiresConfirm: false };
+
+    const threshold = isDelhi ? 100000 : 50000;
+
+    // Check same date ("या बिल का डेट अलग हो तो ये वॉर्निंग न दिखाए")
+    const todayDateStr = targetBillDate || new Date().toISOString().split('T')[0];
+
+    const matchingBillsOnSameDate = bills.filter((b) => {
+      if (!b.vehicleNumber) return false;
+      const bVeh = b.vehicleNumber.trim().toUpperCase().replace(/\s+/g, '');
+      if (bVeh !== cleanVeh) return false;
+
+      // Extract date string YYYY-MM-DD
+      const bDate = b.createdAt ? new Date(b.createdAt).toISOString().split('T')[0] : '';
+      return bDate === todayDateStr;
+    });
+
+    const existingVehicleTotal = matchingBillsOnSameDate.reduce(
+      (sum, b) => sum + (Number(b.totalAmount) || 0),
+      0
+    );
+    const cumulativeTotal = existingVehicleTotal + newBillAmount;
+
+    if (cumulativeTotal > threshold) {
+      const msg =
+        `⚠️ गाड़ी दैनिक लिमिट चेतावनी (Vehicle Cumulative Limit Warning):\n\n` +
+        `गाड़ी नंबर: ${vehicleNo.trim().toUpperCase()}\n` +
+        `दिनांक (Date): ${todayDateStr}\n` +
+        `इस गाड़ी में आज पहले से अलॉट बिल: ${matchingBillsOnSameDate.length} बिल (कुल राशि: ₹${existingVehicleTotal.toLocaleString('en-IN')})\n` +
+        `वर्तमान बिल राशि: ₹${newBillAmount.toLocaleString('en-IN')}\n` +
+        `गाड़ी में कुल संचयी माल (Cumulative Total): ₹${cumulativeTotal.toLocaleString('en-IN')}\n\n` +
+        `यह राशि बिना E-Way Bill की निर्धारित सीमा (₹${threshold.toLocaleString('en-IN')} - ${isDelhi ? 'Intra-Delhi' : 'Inter-State'}) से अधिक है!\n\n` +
+        `क्या आप वाकई इस गाड़ी में बिना E-Way Bill के यह बिल प्रोसेस करना चाहते हैं?\n` +
+        `'OK' दबाकर पुष्टि (Confirm) करें, अथवा 'Cancel' करके पहले E-Way Bill No. दर्ज करें।`;
+      return { requiresConfirm: true, message: msg };
+    }
+
+    return { requiresConfirm: false };
+  };
+
   // Handle Receipt select in Single Entry
   const handleSingleReceiptSelect = async (rNo: string) => {
     setSingleSelectedReceipt(rNo);
@@ -673,6 +876,7 @@ export default function BillerPortalPage() {
   const handleResetCascade = () => {
     setSingleContainer('');
     setSingleSelectedMarka('');
+    setSelectedMarkas([]);
     setSingleSelectedReceipt('');
     setSingleAvailableReceipts([]);
     setSingleAvailableMarkas(globalMarkasList.map((m) => ({ marka: m })));
@@ -861,11 +1065,14 @@ export default function BillerPortalPage() {
 
     setIsSavingNewLoc(true);
     try {
+      const finalRegType = newLocRegType;
+      const finalGst = finalRegType === 'Registered' ? newLocGstin.trim().toUpperCase() : '';
+
       const payload = {
         marka: currentMarka,
         purchaserName: purchaserName.trim() || currentMarka,
-        registrationType,
-        gstin: registrationType === 'Registered' ? purchaserGstin.trim().toUpperCase() : '',
+        registrationType: finalRegType,
+        gstin: finalGst,
         address: {
           title: (newLocTitle.trim() || `Location ${currentMarkaAddresses.length + 1}`).trim(),
           address: newLocAddress.trim(),
@@ -897,6 +1104,8 @@ export default function BillerPortalPage() {
         if (newest.state) setConsigneeState(newest.state);
         if (newest.stateCode) setConsigneeStateCode(newest.stateCode);
         if (newest.phone) setPurchaserPhone(newest.phone);
+        setRegistrationType(finalRegType);
+        if (finalGst) setPurchaserGstin(finalGst);
       }
 
       setShowAddLocationModal(false);
@@ -908,6 +1117,8 @@ export default function BillerPortalPage() {
       setNewLocPincode('');
       setNewLocContactPerson('');
       setNewLocPhone('');
+      setNewLocRegType('Registered');
+      setNewLocGstin('');
       alert(`मार्का '${currentMarka}' के लिए नया सेंडिंग लोकेशन सेव हो गया!`);
     } catch (err: any) {
       alert(err.message || 'Error saving location');
@@ -980,6 +1191,22 @@ export default function BillerPortalPage() {
   const handleSaveQuickVehicle = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!targetBillForVehicle) return;
+
+    const targetState = (targetBillForVehicle.consigneeState || targetBillForVehicle.buyerState || '').toLowerCase();
+    const targetCode = (targetBillForVehicle.consigneeStateCode || targetBillForVehicle.buyerStateCode || '').trim();
+    const isDelhiTarget = targetState.includes('delhi') || targetCode === '07';
+    const vehCheck = checkVehicleCumulativeLimit(
+      quickVehicleInput,
+      Number(targetBillForVehicle.totalAmount) || 0,
+      isDelhiTarget,
+      targetBillForVehicle.eWayBillNo || '',
+      targetBillForVehicle.createdAt ? new Date(targetBillForVehicle.createdAt).toISOString().split('T')[0] : undefined
+    );
+    if (vehCheck.requiresConfirm) {
+      const proceed = window.confirm(vehCheck.message);
+      if (!proceed) return;
+    }
+
     setIsSavingQuickVehicle(true);
     try {
       const res = await fetch('/api/billing', {
@@ -1016,6 +1243,24 @@ export default function BillerPortalPage() {
     if (!bulkVehicleInput.trim()) {
       alert('कृपया गाड़ी नंबर (Vehicle Number) दर्ज करें।');
       return;
+    }
+
+    const selectedList = bills.filter((b) => selectedBillIds.has(b._id));
+    const batchTotal = selectedList.reduce((sum, b) => sum + (Number(b.totalAmount) || 0), 0);
+    const anyOutsideDelhi = selectedList.some((b) => {
+      const st = (b.consigneeState || b.buyerState || '').toLowerCase();
+      const cd = (b.consigneeStateCode || b.buyerStateCode || '').trim();
+      return !st.includes('delhi') && cd !== '07';
+    });
+    const vehCheck = checkVehicleCumulativeLimit(
+      bulkVehicleInput,
+      batchTotal,
+      !anyOutsideDelhi,
+      ''
+    );
+    if (vehCheck.requiresConfirm) {
+      const proceed = window.confirm(vehCheck.message);
+      if (!proceed) return;
     }
     setIsBulkUpdatingVehicle(true);
     try {
@@ -1477,6 +1722,22 @@ export default function BillerPortalPage() {
       return;
     }
 
+    // 4b. Vehicle Cumulative Limit Rule (एक गाड़ी में ₹1,00,000 दिल्ली में और ₹50,000 बाहर - Same Date)
+    if (formVehicleNumber.trim()) {
+      const vehCheck = checkVehicleCumulativeLimit(
+        formVehicleNumber,
+        finalTotalBillAmt,
+        isDestDelhi,
+        formEWayBillNo
+      );
+      if (vehCheck.requiresConfirm) {
+        const proceed = window.confirm(vehCheck.message);
+        if (!proceed) {
+          return;
+        }
+      }
+    }
+
     // 5. Party & Address details
     const currentMarka = (mainMarka || subMarka || singleSelectedMarka).trim();
     const finalPurchaser = (purchaserName || partyName || currentMarka || 'General Party').trim();
@@ -1566,6 +1827,8 @@ export default function BillerPortalPage() {
       setPartyName('');
       setMainMarka('');
       setSubMarka('');
+      setSelectedMarkas([]);
+      setSingleSelectedMarka('');
       setContainerAlias('');
       setCommodity('');
       setPurchaserName('');
@@ -2465,38 +2728,87 @@ export default function BillerPortalPage() {
                     </div>
                   </div>
 
-                  {/* Marka Selector */}
+                  {/* Marka Selector & Multi-Marka Picker */}
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
-                      <span>2. Marka (मार्का चुनें) *</span>
-                      {singleAvailableMarkas.length > 0 && (
-                        <span className="text-[10px] text-cyan-400">
-                          {singleAvailableMarkas.length} Markas available
-                        </span>
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-300 flex items-center space-x-1.5">
+                        <span>2. Marka (मार्का चुनें) *</span>
+                        {selectedMarkas.length > 1 && (
+                          <span className="px-1.5 py-0.2 bg-cyan-500/20 border border-cyan-400/50 text-cyan-300 font-bold rounded text-[10px]">
+                            {selectedMarkas.length} Multi-Selected
+                          </span>
+                        )}
+                      </label>
+                      {selectedMarkas.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedMarkas([]);
+                            setSingleSelectedMarka('');
+                            setMainMarka('');
+                            setMarkaCargoItems([]);
+                          }}
+                          className="text-[10px] text-slate-400 hover:text-red-400 underline"
+                        >
+                          Clear ({selectedMarkas.length})
+                        </button>
                       )}
-                    </label>
+                    </div>
+
                     <select
                       value={singleSelectedMarka}
-                      onChange={(e) => handleSingleMarkaChange(e.target.value)}
+                      onChange={(e) => {
+                        const m = e.target.value;
+                        if (m) handleToggleMarka(m);
+                      }}
                       disabled={isLoadingCascade}
                       className="w-full px-3 py-2 bg-slate-900 border border-cyan-500/50 rounded-xl text-xs font-bold text-cyan-300 focus:ring-2 focus:ring-cyan-500 outline-none"
                     >
-                      <option value="">-- मार्का चुनें (Choose Marka) --</option>
+                      <option value="">-- मार्का चुनें / जोड़ें (Choose or Add Marka) --</option>
                       {singleAvailableMarkas.map((m: any, idx: number) => {
                         const mName = typeof m === 'string' ? m : m.marka;
                         const countText = m.count ? ` (${m.count} shipments, ${m.totalCartons || 0} CTN)` : '';
+                        const isChosen = selectedMarkas.includes(mName);
                         return (
                           <option key={idx} value={mName}>
-                            {mName} {countText}
+                            {isChosen ? '✓ ' : ''}{mName} {countText}
                           </option>
                         );
                       })}
                     </select>
-                    <p className="text-[10px] text-slate-500">
-                      {singleContainer
-                        ? `Showing markas inside container ${singleContainer}`
-                        : 'Showing all markas in system'}
-                    </p>
+
+                    {/* Quick Multi-Marka Selection Chips */}
+                    {singleAvailableMarkas.length > 0 && (
+                      <div className="pt-1">
+                        <div className="text-[10px] text-slate-400 font-semibold mb-1 flex items-center justify-between">
+                          <span>मल्टीपल मार्का सेलेक्ट करें:</span>
+                          <span className="text-[10px] text-cyan-400">
+                            {selectedMarkas.length} मार्का चुने गए
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto pt-0.5 scrollbar-thin">
+                          {singleAvailableMarkas.map((m: any, idx: number) => {
+                            const mName = typeof m === 'string' ? m : m.marka;
+                            const isChosen = selectedMarkas.includes(mName);
+                            return (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => handleToggleMarka(mName)}
+                                className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition flex items-center space-x-1 border ${
+                                  isChosen
+                                    ? 'bg-cyan-500 text-slate-950 border-cyan-300 shadow-sm'
+                                    : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                                }`}
+                              >
+                                <span>{isChosen ? '✓' : '+'}</span>
+                                <span className="font-mono">{mName}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Receipt Selector */}
@@ -4342,6 +4654,68 @@ export default function BillerPortalPage() {
             </div>
 
             <form onSubmit={handleSaveNewLocation} className="space-y-3 text-xs">
+              {/* Registration Type & GSTIN right in the address modal */}
+              <div className="p-2.5 bg-slate-950/80 border border-slate-800 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold text-slate-300">
+                    पार्टी रजिस्ट्रेशन (Registration Type) *
+                  </label>
+                  <div className="flex bg-slate-900 border border-slate-700 rounded-lg p-0.5 text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => setNewLocRegType('Registered')}
+                      className={`px-2.5 py-1 rounded-md font-bold transition ${
+                        newLocRegType === 'Registered' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Registered (GSTIN)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewLocRegType('Unregistered');
+                        setNewLocGstin('');
+                      }}
+                      className={`px-2.5 py-1 rounded-md font-bold transition ${
+                        newLocRegType === 'Unregistered' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Unregistered (URP)
+                    </button>
+                  </div>
+                </div>
+
+                {newLocRegType === 'Registered' ? (
+                  <div>
+                    <label className="text-[10px] font-bold text-emerald-400 block mb-1">
+                      15-Digit GSTIN Number * (राज्य कोड स्वतः पहचानेगा)
+                    </label>
+                    <input
+                      type="text"
+                      required={newLocRegType === 'Registered'}
+                      value={newLocGstin}
+                      onChange={(e) => {
+                        const upper = e.target.value.toUpperCase();
+                        setNewLocGstin(upper);
+                        if (upper.length >= 2) {
+                          const stObj = getStateByGstinOrCode(upper);
+                          if (stObj) {
+                            setNewLocState(stObj.name);
+                            setNewLocStateCode(stObj.code);
+                          }
+                        }
+                      }}
+                      placeholder="e.g. 07AAAAA0000A1Z5"
+                      className="w-full px-3 py-1.5 bg-slate-900 border border-emerald-500/50 rounded-xl text-emerald-300 font-mono font-bold uppercase text-xs"
+                    />
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-amber-400/90 italic">
+                    ℹ गैर-पंजीकृत पार्टी (URP) - कोई GSTIN दर्ज करने की आवश्यकता नहीं है।
+                  </p>
+                )}
+              </div>
+
               <div>
                 <label className="text-[11px] font-bold text-slate-300 block mb-1">
                   लोकेशन का नाम / पहचान (e.g. Godown 1, Factory Agra) *
@@ -4395,23 +4769,32 @@ export default function BillerPortalPage() {
 
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
-                  <label className="text-[11px] font-bold text-slate-300 block mb-1">State</label>
-                  <input
-                    type="text"
+                  <label className="text-[11px] font-bold text-slate-300 block mb-1">State (राज्य)</label>
+                  <select
                     value={newLocState}
-                    onChange={(e) => setNewLocState(e.target.value)}
-                    placeholder="Delhi"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white"
-                  />
+                    onChange={(e) => {
+                      const st = e.target.value;
+                      setNewLocState(st);
+                      const code = getStateCodeByName(st);
+                      if (code) setNewLocStateCode(code);
+                    }}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs"
+                  >
+                    {INDIAN_STATES.map((st) => (
+                      <option key={st.name} value={st.name}>
+                        {st.name} ({st.code})
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
-                  <label className="text-[11px] font-bold text-slate-300 block mb-1">State Code</label>
+                  <label className="text-[11px] font-bold text-slate-300 block mb-1">State Code (ऑटोमैटिक)</label>
                   <input
                     type="text"
                     value={newLocStateCode}
                     onChange={(e) => setNewLocStateCode(e.target.value)}
                     placeholder="07"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-amber-300 font-mono font-bold"
                   />
                 </div>
               </div>
