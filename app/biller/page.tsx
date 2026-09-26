@@ -42,6 +42,7 @@ import {
 } from 'lucide-react';
 import { generateBillPDF } from '@/lib/billPdf';
 import { INDIAN_STATES, getStateCodeByName, getStateByGstinOrCode } from '@/lib/states';
+import { inferHsnByItemName, findHsnSuggestions, MASTER_HSN_CATALOG } from '@/lib/hsnCatalog';
 
 export interface FormLineItem {
   itemNo: number;
@@ -310,6 +311,40 @@ export default function BillerPortalPage() {
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
   const [manualSuccessMsg, setManualSuccessMsg] = useState<string | null>(null);
 
+  // HSN Search & Suggestion Modal State
+  const [showHsnSearchModal, setShowHsnSearchModal] = useState(false);
+  const [hsnSearchQuery, setHsnSearchQuery] = useState('');
+  const [hsnSearchResults, setHsnSearchResults] = useState<any[]>([]);
+  const [isLoadingHsn, setIsLoadingHsn] = useState(false);
+  const [targetHsnSetter, setTargetHsnSetter] = useState<((hsn: string, itemName?: string) => void) | null>(null);
+
+  // Edit Bill Modal State
+  const [editBillModalOpen, setEditBillModalOpen] = useState(false);
+  const [billToEdit, setBillToEdit] = useState<BillItem | null>(null);
+  const [editBillData, setEditBillData] = useState<any>({
+    billNumber: '',
+    receipt: '',
+    purchaserName: '',
+    purchaserRegistrationType: 'Registered' as 'Registered' | 'Unregistered',
+    purchaserGstin: '',
+    consigneeAddress: '',
+    consigneeState: 'Delhi',
+    consigneeStateCode: '07',
+    sameAsConsignee: true,
+    buyerName: '',
+    buyerGstin: '',
+    buyerAddress: '',
+    buyerState: 'Delhi',
+    buyerStateCode: '07',
+    vehicleNumber: '',
+    destination: '',
+    eWayBillNo: '',
+    billingUnit: 'PCS',
+    rate: 0,
+    items: [] as FormLineItem[],
+  });
+  const [isSavingEditBill, setIsSavingEditBill] = useState(false);
+
   // Excel Bulk Upload State
   const [excelRows, setExcelRows] = useState<any[]>([]);
   const [isParsingExcel, setIsParsingExcel] = useState(false);
@@ -511,15 +546,93 @@ export default function BillerPortalPage() {
     }
   };
 
+  // HSN Search & Suggestion Handlers
+  const handleSearchHsn = async (q: string) => {
+    setHsnSearchQuery(q);
+    setIsLoadingHsn(true);
+    try {
+      const res = await fetch(`/api/hsn?q=${encodeURIComponent(q.trim())}`);
+      if (res.ok) {
+        const data = await res.json();
+        setHsnSearchResults(data.suggestions || []);
+      }
+    } catch (err) {
+      console.error('HSN search error:', err);
+    } finally {
+      setIsLoadingHsn(false);
+    }
+  };
+
+  const openHsnModal = (initialQuery: string, onSelect: (hsn: string, itemName?: string) => void) => {
+    const q = initialQuery.trim();
+    setHsnSearchQuery(q);
+    setTargetHsnSetter(() => onSelect);
+    setShowHsnSearchModal(true);
+    handleSearchHsn(q);
+  };
+
+  const handleSelectHsnSuggestion = async (s: any) => {
+    if (targetHsnSetter) {
+      targetHsnSetter(s.hsnCode, s.itemName);
+    }
+
+    const itemToLink = lineDescription || hsnSearchQuery || s.itemName;
+    if (itemToLink && s.hsnCode) {
+      try {
+        await fetch('/api/hsn', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            itemName: itemToLink,
+            hsnCode: s.hsnCode,
+            description: s.description || s.itemName,
+            gstRate: s.gstRate || 18,
+            category: s.category || 'General Cargo',
+          }),
+        });
+      } catch (err) {
+        console.warn('Auto linking failed non-critically:', err);
+      }
+    }
+
+    setShowHsnSearchModal(false);
+  };
+
   // Item Selection Handler: Auto-fills name, HSN and quantities, while keeping name and HSN editable
-  const handleChooseCargoItem = (itemDesc: string, customHsn?: string) => {
+  const handleChooseCargoItem = async (itemDesc: string, customHsn?: string) => {
     setSelectedCargoDropdown(itemDesc);
     setLineDescription(itemDesc);
     setCommodity(itemDesc);
     if (customHsn) {
       setLineHsn(customHsn);
       setHsnCode(customHsn);
+    } else if (itemDesc.trim()) {
+      // Auto-fetch HSN based on nature of item or previously saved mappings!
+      try {
+        const res = await fetch(`/api/hsn?q=${encodeURIComponent(itemDesc.trim())}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.suggestions && data.suggestions.length > 0) {
+            const best = data.suggestions[0];
+            setLineHsn(best.hsnCode);
+            setHsnCode(best.hsnCode);
+          } else {
+            const inferred = inferHsnByItemName(itemDesc);
+            if (inferred) {
+              setLineHsn(inferred.hsnCode);
+              setHsnCode(inferred.hsnCode);
+            }
+          }
+        }
+      } catch (err) {
+        const inferred = inferHsnByItemName(itemDesc);
+        if (inferred) {
+          setLineHsn(inferred.hsnCode);
+          setHsnCode(inferred.hsnCode);
+        }
+      }
     }
+
     const found = markaCargoItems.find(
       (it) => it.description.trim().toLowerCase() === itemDesc.trim().toLowerCase()
     );
@@ -1164,6 +1277,20 @@ export default function BillerPortalPage() {
     if (!commodity.trim()) setCommodity(newItem.description);
     if (!hsnCode.trim() || hsnCode === '9997') setHsnCode(newItem.hsnCode);
 
+    // Auto-link item to HSN in persistent database
+    if (newItem.description && newItem.hsnCode) {
+      fetch('/api/hsn', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          itemName: newItem.description,
+          hsnCode: newItem.hsnCode,
+          description: newItem.description,
+          gstRate: igstRate || 18,
+        }),
+      }).catch((e) => console.warn('Background HSN link error:', e));
+    }
+
     setLineDescription('');
     setLineQuantity('');
     setLineRate('');
@@ -1176,6 +1303,227 @@ export default function BillerPortalPage() {
     if (updated.length > 0) {
       const totalTaxable = updated.reduce((acc, it) => acc + it.amount, 0);
       setTaxableValue(totalTaxable.toFixed(2));
+    }
+  };
+
+  // Open Edit Bill Modal with existing bill details
+  const handleOpenEditBillModal = (bill: BillItem) => {
+    setBillToEdit(bill);
+
+    let existingItems: FormLineItem[] = [];
+    if (Array.isArray(bill.items) && bill.items.length > 0) {
+      existingItems = bill.items.map((it: any, idx: number) => ({
+        itemNo: it.itemNo || idx + 1,
+        description: it.description || bill.commodity || 'Goods',
+        hsnCode: it.hsnCode || bill.hsnCode || '39269099',
+        quantity: Number(it.quantity) || bill.quantityPcs || bill.quantityKg || 1,
+        unit: it.unit || bill.billingUnit || 'PCS',
+        rate: Number(it.rate) || bill.rate || 0,
+        amount: Number(it.amount) || Number((it.quantity || 1) * (it.rate || 0)) || bill.taxableValue || 0,
+      }));
+    } else {
+      existingItems = [
+        {
+          itemNo: 1,
+          description: bill.commodity || 'Commercial Goods',
+          hsnCode: bill.hsnCode || '39269099',
+          quantity: bill.billingUnit === 'KG' ? (bill.quantityKg || 1) : (bill.quantityPcs || 1),
+          unit: bill.billingUnit || 'PCS',
+          rate: bill.rate || 0,
+          amount: bill.taxableValue || 0,
+        },
+      ];
+    }
+
+    const isConsigneeEqualBuyer =
+      Boolean((bill.consigneeAddress || bill.purchaserAddress) &&
+      (bill.consigneeAddress || bill.purchaserAddress) === bill.buyerAddress &&
+      bill.consigneeState === bill.buyerState);
+
+    setEditBillData({
+      billNumber: bill.billNumber || '',
+      receipt: bill.receipt || '',
+      purchaserName: bill.consigneeName || bill.purchaserName || bill.party || '',
+      purchaserRegistrationType: (bill.purchaserRegistrationType || (bill.consigneeGstin || bill.purchaserGstin ? 'Registered' : 'Unregistered')) as 'Registered' | 'Unregistered',
+      purchaserGstin: bill.consigneeGstin || bill.purchaserGstin || '',
+      consigneeAddress: bill.consigneeAddress || bill.purchaserAddress || '',
+      consigneeState: bill.consigneeState || bill.purchaserState || 'Delhi',
+      consigneeStateCode: bill.consigneeStateCode || bill.purchaserStateCode || '07',
+      sameAsConsignee: isConsigneeEqualBuyer,
+      buyerName: bill.buyerName || bill.consigneeName || bill.purchaserName || bill.party || '',
+      buyerGstin: bill.buyerGstin || bill.consigneeGstin || bill.purchaserGstin || '',
+      buyerAddress: bill.buyerAddress || bill.consigneeAddress || bill.purchaserAddress || '',
+      buyerState: bill.buyerState || bill.consigneeState || 'Delhi',
+      buyerStateCode: bill.buyerStateCode || bill.consigneeStateCode || '07',
+      vehicleNumber: bill.vehicleNumber || '',
+      destination: bill.destination || '',
+      eWayBillNo: bill.eWayBillNo || '',
+      billingUnit: bill.billingUnit || 'PCS',
+      rate: bill.rate || 0,
+      items: existingItems,
+    });
+    setEditBillModalOpen(true);
+  };
+
+  const handleEditBillAddItem = () => {
+    setEditBillData((prev: any) => ({
+      ...prev,
+      items: [
+        ...prev.items,
+        {
+          itemNo: prev.items.length + 1,
+          description: '',
+          hsnCode: '39269099',
+          quantity: 1,
+          unit: 'PCS',
+          rate: 0,
+          amount: 0,
+        },
+      ],
+    }));
+  };
+
+  const handleEditBillRemoveItem = (idx: number) => {
+    setEditBillData((prev: any) => {
+      const nextItems = prev.items.filter((_: any, i: number) => i !== idx).map((it: any, i: number) => ({
+        ...it,
+        itemNo: i + 1,
+      }));
+      return { ...prev, items: nextItems };
+    });
+  };
+
+  const handleEditBillUpdateItem = (idx: number, field: keyof FormLineItem, val: any) => {
+    setEditBillData((prev: any) => {
+      const nextItems = [...prev.items];
+      const cur = { ...nextItems[idx], [field]: val };
+      if (field === 'quantity' || field === 'rate') {
+        const q = field === 'quantity' ? parseFloat(val) || 0 : cur.quantity;
+        const r = field === 'rate' ? parseFloat(val) || 0 : cur.rate;
+        cur.amount = Number((q * r).toFixed(2));
+      }
+      nextItems[idx] = cur;
+      return { ...prev, items: nextItems };
+    });
+  };
+
+  const handleSaveEditedBill = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!billToEdit) return;
+
+    if (!editBillData.purchaserName.trim()) {
+      alert('कृपया पार्टी / कंसाइनी का नाम (Party Legal Name) दर्ज करें।');
+      return;
+    }
+
+    if (!editBillData.consigneeAddress.trim()) {
+      alert('कृपया डिलीवरी का पता (Delivery Address) दर्ज करें।');
+      return;
+    }
+
+    if (editBillData.items.length === 0) {
+      alert('कम से कम एक आइटम होना अनिवार्य है।');
+      return;
+    }
+
+    const totalTaxable = editBillData.items.reduce(
+      (sum: number, it: FormLineItem) => sum + (Number(it.amount) || 0),
+      0
+    );
+    const igstRate = billToEdit.igst || 18;
+    const igstAmt = Number(((totalTaxable * igstRate) / 100).toFixed(2));
+    const grandTotal = Number((totalTaxable + igstAmt).toFixed(2));
+
+    const finalDestState = (editBillData.consigneeState || editBillData.buyerState || '').toLowerCase();
+    const finalDestCode = (editBillData.consigneeStateCode || editBillData.buyerStateCode || '').trim();
+    const isDelhi = finalDestState.includes('delhi') || finalDestCode === '07';
+
+    if (isDelhi && grandTotal > 100000 && !editBillData.eWayBillNo.trim()) {
+      alert(
+        `⚠️ ई-वे बिल अनिवार्य है!\n\nदिल्ली के भीतर (Intra-Delhi) कुल राशि ₹${grandTotal.toLocaleString('en-IN')} (सीमा ₹1,00,000 से अधिक) होने पर E-Way Bill Number अनिवार्य है।\n\nकृपया E-Way Bill No. भरें।`
+      );
+      return;
+    }
+    if (!isDelhi && grandTotal > 50000 && !editBillData.eWayBillNo.trim()) {
+      alert(
+        `⚠️ ई-वे बिल अनिवार्य है!\n\nआउटसाइड दिल्ली (Inter-State) के लिए कुल राशि ₹${grandTotal.toLocaleString('en-IN')} (सीमा ₹50,000 से अधिक) होने पर E-Way Bill Number अनिवार्य है।\n\nकृपया E-Way Bill No. भरें।`
+      );
+      return;
+    }
+
+    if (editBillData.vehicleNumber.trim()) {
+      const vehCheck = checkVehicleCumulativeLimit(
+        editBillData.vehicleNumber,
+        grandTotal,
+        isDelhi,
+        editBillData.eWayBillNo,
+        billToEdit.createdAt ? new Date(billToEdit.createdAt).toISOString().split('T')[0] : undefined
+      );
+      if (vehCheck.requiresConfirm) {
+        const proceed = window.confirm(vehCheck.message);
+        if (!proceed) return;
+      }
+    }
+
+    setIsSavingEditBill(true);
+    try {
+      const finalBuyerAddr = editBillData.sameAsConsignee ? editBillData.consigneeAddress : editBillData.buyerAddress;
+      const finalBuyerName = editBillData.sameAsConsignee ? editBillData.purchaserName : editBillData.buyerName;
+      const finalBuyerGstin = editBillData.sameAsConsignee
+        ? editBillData.purchaserRegistrationType === 'Registered'
+          ? editBillData.purchaserGstin
+          : ''
+        : editBillData.buyerGstin;
+      const finalBuyerState = editBillData.sameAsConsignee ? editBillData.consigneeState : editBillData.buyerState;
+      const finalBuyerStateCode = editBillData.sameAsConsignee ? editBillData.consigneeStateCode : editBillData.buyerStateCode;
+
+      const payload = {
+        id: billToEdit._id,
+        billNumber: editBillData.billNumber.trim() || billToEdit.billNumber,
+        purchaserName: editBillData.purchaserName.trim(),
+        purchaserRegistrationType: editBillData.purchaserRegistrationType,
+        purchaserGstin: editBillData.purchaserRegistrationType === 'Registered' ? editBillData.purchaserGstin.trim().toUpperCase() : '',
+        purchaserAddress: editBillData.consigneeAddress.trim(),
+        consigneeName: editBillData.purchaserName.trim(),
+        consigneeAddress: editBillData.consigneeAddress.trim(),
+        consigneeGstin: editBillData.purchaserRegistrationType === 'Registered' ? editBillData.purchaserGstin.trim().toUpperCase() : '',
+        consigneeState: editBillData.consigneeState.trim(),
+        consigneeStateCode: editBillData.consigneeStateCode.trim(),
+        buyerName: finalBuyerName.trim(),
+        buyerGstin: finalBuyerGstin.trim().toUpperCase(),
+        buyerAddress: finalBuyerAddr.trim(),
+        buyerState: finalBuyerState.trim(),
+        buyerStateCode: finalBuyerStateCode.trim(),
+        vehicleNumber: editBillData.vehicleNumber.trim().toUpperCase(),
+        destination: editBillData.destination.trim().toUpperCase(),
+        eWayBillNo: editBillData.eWayBillNo.trim(),
+        items: editBillData.items,
+        hsnCode: editBillData.items[0]?.hsnCode || billToEdit.hsnCode || '',
+        commodity: editBillData.items[0]?.description || billToEdit.commodity || '',
+        taxableValue: totalTaxable,
+        igstAmount: igstAmt,
+        totalAmount: grandTotal,
+      };
+
+      const res = await fetch('/api/billing', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update bill');
+
+      const updatedBill = data.bill || { ...billToEdit, ...payload };
+      setBills((prev) => prev.map((b) => (b._id === billToEdit._id ? updatedBill : b)));
+      setEditBillModalOpen(false);
+      setBillToEdit(null);
+
+      generateBillPDF(updatedBill, true);
+      alert('✓ बिल सफलतापूर्वक अपडेट (संशोधित) कर दिया गया है और नया PDF डाउनलोड हो गया है!');
+    } catch (err: any) {
+      alert(err.message || 'Error updating bill');
+    } finally {
+      setIsSavingEditBill(false);
     }
   };
 
@@ -3421,13 +3769,13 @@ export default function BillerPortalPage() {
                     {registrationType === 'Registered' ? (
                       <div>
                         <label className="text-xs text-emerald-400 font-bold block mb-1">
-                          Consignee GSTIN (15-digit GST) *
+                          Consignee GSTIN (15-digit GST) * (राज्य स्वतः सेट होगा)
                         </label>
                         <input
                           type="text"
                           required={registrationType === 'Registered'}
                           value={purchaserGstin}
-                          onChange={(e) => setPurchaserGstin(e.target.value.toUpperCase())}
+                          onChange={(e) => handleConsigneeGstinChange(e.target.value)}
                           placeholder="07AAAAA0000A1Z5"
                           className="w-full px-3.5 py-2.5 bg-slate-900 border border-emerald-500/50 rounded-xl text-xs text-emerald-300 font-mono font-black uppercase focus:ring-2 focus:ring-emerald-500 outline-none"
                         />
@@ -3477,23 +3825,27 @@ export default function BillerPortalPage() {
 
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="text-xs text-slate-300 font-bold block mb-1">State</label>
-                        <input
-                          type="text"
+                        <label className="text-xs text-slate-300 font-bold block mb-1">State (राज्य)</label>
+                        <select
                           value={consigneeState}
-                          onChange={(e) => setConsigneeState(e.target.value)}
-                          placeholder="Uttar Pradesh"
+                          onChange={(e) => handleConsigneeStateChange(e.target.value)}
                           className="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white"
-                        />
+                        >
+                          {INDIAN_STATES.map((st) => (
+                            <option key={st.name} value={st.name}>
+                              {st.name} ({st.code})
+                            </option>
+                          ))}
+                        </select>
                       </div>
                       <div>
-                        <label className="text-xs text-slate-300 font-bold block mb-1">State Code</label>
+                        <label className="text-xs text-slate-300 font-bold block mb-1">State Code (ऑटो)</label>
                         <input
                           type="text"
                           value={consigneeStateCode}
                           onChange={(e) => setConsigneeStateCode(e.target.value)}
                           placeholder="09"
-                          className="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white font-mono"
+                          className="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-amber-300 font-mono font-bold"
                         />
                       </div>
                     </div>
@@ -3538,12 +3890,12 @@ export default function BillerPortalPage() {
                         </div>
                         <div>
                           <label className="text-xs text-slate-300 font-bold block mb-1">
-                            Buyer GSTIN / URP
+                            Buyer GSTIN / URP (राज्य स्वतः सेट होगा)
                           </label>
                           <input
                             type="text"
                             value={buyerGstin}
-                            onChange={(e) => setBuyerGstin(e.target.value.toUpperCase())}
+                            onChange={(e) => handleBuyerGstinChange(e.target.value)}
                             placeholder="Buyer 15-digit GSTIN"
                             className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white font-mono uppercase"
                           />
@@ -3565,23 +3917,27 @@ export default function BillerPortalPage() {
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <label className="text-xs text-slate-300 font-bold block mb-1">Buyer State</label>
-                            <input
-                              type="text"
+                            <label className="text-xs text-slate-300 font-bold block mb-1">Buyer State (राज्य)</label>
+                            <select
                               value={buyerState}
-                              onChange={(e) => setBuyerState(e.target.value)}
-                              placeholder="Uttar Pradesh"
+                              onChange={(e) => handleBuyerStateChange(e.target.value)}
                               className="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white"
-                            />
+                            >
+                              {INDIAN_STATES.map((st) => (
+                                <option key={st.name} value={st.name}>
+                                  {st.name} ({st.code})
+                                </option>
+                              ))}
+                            </select>
                           </div>
                           <div>
-                            <label className="text-xs text-slate-300 font-bold block mb-1">State Code</label>
+                            <label className="text-xs text-slate-300 font-bold block mb-1">State Code (ऑटो)</label>
                             <input
                               type="text"
                               value={buyerStateCode}
                               onChange={(e) => setBuyerStateCode(e.target.value)}
                               placeholder="09"
-                              className="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white font-mono"
+                              className="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-amber-300 font-mono font-bold"
                             />
                           </div>
                         </div>
@@ -4365,12 +4721,22 @@ export default function BillerPortalPage() {
 
                     <div>
                       <label className="text-[11px] font-bold text-slate-300 block mb-1">
-                        GSTIN {dirRegistrationType === 'Registered' ? '*' : '(Optional)'}
+                        GSTIN {dirRegistrationType === 'Registered' ? '*' : '(Optional)'} (राज्य स्वतः सेट होगा)
                       </label>
                       <input
                         type="text"
                         value={dirGstin}
-                        onChange={(e) => setDirGstin(e.target.value.toUpperCase())}
+                        onChange={(e) => {
+                          const upper = e.target.value.toUpperCase();
+                          setDirGstin(upper);
+                          if (upper.length >= 2) {
+                            const stObj = getStateByGstinOrCode(upper);
+                            if (stObj) {
+                              setDirState(stObj.name);
+                              setDirStateCode(stObj.code);
+                            }
+                          }
+                        }}
                         placeholder="07AAAAA0000A1Z5"
                         className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono uppercase"
                       />
@@ -4422,23 +4788,32 @@ export default function BillerPortalPage() {
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="text-[11px] font-bold text-slate-300 block mb-1">State</label>
-                      <input
-                        type="text"
+                      <label className="text-[11px] font-bold text-slate-300 block mb-1">State (राज्य)</label>
+                      <select
                         value={dirState}
-                        onChange={(e) => setDirState(e.target.value)}
-                        placeholder="Uttar Pradesh"
-                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white"
-                      />
+                        onChange={(e) => {
+                          const st = e.target.value;
+                          setDirState(st);
+                          const code = getStateCodeByName(st);
+                          if (code) setDirStateCode(code);
+                        }}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs"
+                      >
+                        {INDIAN_STATES.map((st) => (
+                          <option key={st.name} value={st.name}>
+                            {st.name} ({st.code})
+                          </option>
+                        ))}
+                      </select>
                     </div>
                     <div>
-                      <label className="text-[11px] font-bold text-slate-300 block mb-1">State Code</label>
+                      <label className="text-[11px] font-bold text-slate-300 block mb-1">State Code (ऑटो)</label>
                       <input
                         type="text"
                         value={dirStateCode}
                         onChange={(e) => setDirStateCode(e.target.value)}
                         placeholder="09"
-                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-amber-300 font-mono font-bold"
                       />
                     </div>
                   </div>
@@ -4471,11 +4846,21 @@ export default function BillerPortalPage() {
                             />
                           </div>
                           <div>
-                            <label className="text-[10px] font-bold text-slate-300 block mb-1">Buyer GSTIN</label>
+                            <label className="text-[10px] font-bold text-slate-300 block mb-1">Buyer GSTIN (राज्य स्वतः सेट होगा)</label>
                             <input
                               type="text"
                               value={dirBuyerGstin}
-                              onChange={(e) => setDirBuyerGstin(e.target.value.toUpperCase())}
+                              onChange={(e) => {
+                                const upper = e.target.value.toUpperCase();
+                                setDirBuyerGstin(upper);
+                                if (upper.length >= 2) {
+                                  const stObj = getStateByGstinOrCode(upper);
+                                  if (stObj) {
+                                    setDirBuyerState(stObj.name);
+                                    setDirBuyerStateCode(stObj.code);
+                                  }
+                                }
+                              }}
                               placeholder="Buyer GSTIN"
                               className="w-full px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-white font-mono uppercase text-xs"
                             />
@@ -4495,23 +4880,32 @@ export default function BillerPortalPage() {
 
                         <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <label className="text-[10px] font-bold text-slate-300 block mb-1">Buyer State</label>
-                            <input
-                              type="text"
+                            <label className="text-[10px] font-bold text-slate-300 block mb-1">Buyer State (राज्य)</label>
+                            <select
                               value={dirBuyerState}
-                              onChange={(e) => setDirBuyerState(e.target.value)}
-                              placeholder="Uttar Pradesh"
+                              onChange={(e) => {
+                                const st = e.target.value;
+                                setDirBuyerState(st);
+                                const code = getStateCodeByName(st);
+                                if (code) setDirBuyerStateCode(code);
+                              }}
                               className="w-full px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-white text-xs"
-                            />
+                            >
+                              {INDIAN_STATES.map((st) => (
+                                <option key={st.name} value={st.name}>
+                                  {st.name} ({st.code})
+                                </option>
+                              ))}
+                            </select>
                           </div>
                           <div>
-                            <label className="text-[10px] font-bold text-slate-300 block mb-1">Buyer State Code</label>
+                            <label className="text-[10px] font-bold text-slate-300 block mb-1">Buyer State Code (ऑटो)</label>
                             <input
                               type="text"
                               value={dirBuyerStateCode}
                               onChange={(e) => setDirBuyerStateCode(e.target.value)}
                               placeholder="09"
-                              className="w-full px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-white font-mono text-xs"
+                              className="w-full px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-amber-300 font-mono text-xs font-bold"
                             />
                           </div>
                         </div>

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import Bill from '@/models/Bill';
 import Shipment from '@/models/Shipment';
+import ItemHsn from '@/models/ItemHsn';
 import { isAnyAuthenticated } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -472,6 +473,51 @@ export async function POST(req: NextRequest) {
           termsOfDelivery,
         });
         results.push(newBill);
+
+        // Auto-save item name <-> HSN mapping for future automatic recall
+        try {
+          if (Array.isArray(parsedItems) && parsedItems.length > 0) {
+            for (const pi of parsedItems) {
+              if (pi.description && pi.hsnCode) {
+                const cleanName = String(pi.description).trim().toUpperCase();
+                const cleanHsn = String(pi.hsnCode).trim();
+                if (cleanName && cleanHsn) {
+                  await ItemHsn.findOneAndUpdate(
+                    { itemName: cleanName },
+                    {
+                      $set: {
+                        hsnCode: cleanHsn,
+                        gstRate: igst || 18,
+                        source: 'auto_learned',
+                      },
+                      $inc: { usageCount: 1 },
+                    },
+                    { upsert: true, new: true, setDefaultsOnInsert: true }
+                  );
+                }
+              }
+            }
+          } else if (commodity && hsnCode) {
+            const cleanName = String(commodity).trim().toUpperCase();
+            const cleanHsn = String(hsnCode).trim();
+            if (cleanName && cleanHsn) {
+              await ItemHsn.findOneAndUpdate(
+                { itemName: cleanName },
+                {
+                  $set: {
+                    hsnCode: cleanHsn,
+                    gstRate: igst || 18,
+                    source: 'auto_learned',
+                  },
+                  $inc: { usageCount: 1 },
+                },
+                { upsert: true, new: true, setDefaultsOnInsert: true }
+              );
+            }
+          }
+        } catch (hsnErr) {
+          console.warn('Auto-saving HSN failed non-critically:', hsnErr);
+        }
       }
     }
 
@@ -555,6 +601,100 @@ export async function PATCH(req: NextRequest) {
   } catch (error: any) {
     console.error('Error updating bills:', error);
     return NextResponse.json({ error: error?.message || 'Failed to update bills' }, { status: 500 });
+  }
+}
+
+export async function PUT(req: NextRequest) {
+  if (!isAnyAuthenticated(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  try {
+    await connectToDatabase();
+    const body = await req.json();
+    const { id, _id, ...updatePayload } = body;
+    const billId = id || _id;
+
+    if (!billId) {
+      return NextResponse.json({ error: 'Bill ID is required for editing' }, { status: 400 });
+    }
+
+    const existingBill = await Bill.findById(billId);
+    if (!existingBill) {
+      return NextResponse.json({ error: 'Bill not found' }, { status: 404 });
+    }
+
+    const updateFields: any = {};
+    const allowedKeys = [
+      'billNumber', 'receipt', 'hsnCode', 'igst', 'quantityPcs', 'quantityKg',
+      'totalCartons', 'dispatchedCartons', 'remainingCartons', 'billingUnit',
+      'taxableValue', 'igstAmount', 'totalAmount', 'rate',
+      'sellerId', 'sellerName', 'sellerGstin', 'sellerAddress', 'sellerCity',
+      'sellerPincode', 'sellerState', 'sellerStateCode', 'sellerPhone', 'sellerEmail',
+      'purchaserName', 'purchaserRegistrationType', 'purchaserGstin', 'purchaserAddress',
+      'purchaserState', 'purchaserStateCode',
+      'consigneeName', 'consigneeAddress', 'consigneeGstin', 'consigneeState', 'consigneeStateCode',
+      'buyerName', 'buyerAddress', 'buyerGstin', 'buyerState', 'buyerStateCode',
+      'vehicleNumber', 'destination', 'eWayBillNo', 'deliveryDate', 'deliveryTime',
+      'deliveryAddressTitle', 'deliveryAddress', 'deliveryPhone',
+      'modeOfPayment', 'referenceNo', 'otherReferences', 'buyerOrderNo', 'buyerOrderDate',
+      'dispatchDocNo', 'deliveryNote', 'deliveryNoteDate', 'termsOfDelivery',
+      'container', 'containerNumber', 'commodity', 'mainMarka', 'subMarka', 'party'
+    ];
+
+    allowedKeys.forEach((key) => {
+      if (updatePayload[key] !== undefined) {
+        updateFields[key] = updatePayload[key];
+      }
+    });
+
+    if (Array.isArray(updatePayload.items)) {
+      updateFields.items = updatePayload.items;
+
+      // Auto-save item name <-> HSN mapping for future automatic recall
+      try {
+        for (const it of updatePayload.items) {
+          if (it.description && it.hsnCode) {
+            const cleanName = String(it.description).trim().toUpperCase();
+            const cleanHsn = String(it.hsnCode).trim();
+            if (cleanName && cleanHsn) {
+              await ItemHsn.findOneAndUpdate(
+                { itemName: cleanName },
+                {
+                  $set: {
+                    hsnCode: cleanHsn,
+                    gstRate: typeof updatePayload.igst === 'number' ? updatePayload.igst : 18,
+                    source: 'auto_learned',
+                  },
+                  $inc: { usageCount: 1 },
+                },
+                { upsert: true, new: true, setDefaultsOnInsert: true }
+              );
+            }
+          }
+        }
+      } catch (hsnErr) {
+        console.warn('Auto-saving HSN in PUT failed non-critically:', hsnErr);
+      }
+    }
+
+    const updatedBill = await Bill.findByIdAndUpdate(
+      billId,
+      { $set: updateFields },
+      { new: true }
+    );
+
+    return NextResponse.json({
+      success: true,
+      message: 'Bill updated successfully',
+      bill: updatedBill,
+    });
+  } catch (error: any) {
+    console.error('Error editing bill:', error);
+    return NextResponse.json(
+      { error: error?.message || 'Failed to update bill' },
+      { status: 500 }
+    );
   }
 }
 
