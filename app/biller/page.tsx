@@ -41,7 +41,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { generateBillPDF } from '@/lib/billPdf';
-import { INDIAN_STATES, getStateCodeByName, getStateByGstinOrCode } from '@/lib/states';
+import { INDIAN_STATES, getStateCode, getStateName, getStateCodeByName, getStateByGstinOrCode } from '@/lib/states';
 import { inferHsnByItemName, findHsnSuggestions, MASTER_HSN_CATALOG } from '@/lib/hsnCatalog';
 
 export interface FormLineItem {
@@ -236,17 +236,33 @@ export default function BillerPortalPage() {
   const [purchaserGstin, setPurchaserGstin] = useState('');
   const [purchaserAddress, setPurchaserAddress] = useState('');
   const [consigneeAddress, setConsigneeAddress] = useState('');
-  const [consigneeState, setConsigneeState] = useState('Uttar Pradesh');
-  const [consigneeStateCode, setConsigneeStateCode] = useState('09');
+  const [consigneeState, setConsigneeState] = useState('Delhi');
+  const [consigneeStateCode, setConsigneeStateCode] = useState('07');
   const [buyerName, setBuyerName] = useState('');
   const [buyerAddress, setBuyerAddress] = useState('');
   const [buyerGstin, setBuyerGstin] = useState('');
-  const [buyerState, setBuyerState] = useState('Uttar Pradesh');
-  const [buyerStateCode, setBuyerStateCode] = useState('09');
+  const [buyerState, setBuyerState] = useState('Delhi');
+  const [buyerStateCode, setBuyerStateCode] = useState('07');
   const [sameAsConsignee, setSameAsConsignee] = useState(true);
   const [purchaserPhone, setPurchaserPhone] = useState('');
   const [isSavingMarkaDirect, setIsSavingMarkaDirect] = useState(false);
   const [markaSaveSuccess, setMarkaSaveSuccess] = useState<string | null>(null);
+
+  // Edit Specific Marka Address Modal state
+  const [showEditLocationModal, setShowEditLocationModal] = useState(false);
+  const [editingLocationData, setEditingLocationData] = useState<{
+    marka: string;
+    addressId: string;
+    title: string;
+    address: string;
+    city: string;
+    state: string;
+    stateCode: string;
+    pincode: string;
+    contactPerson: string;
+    phone: string;
+  } | null>(null);
+  const [isDeletingLocationId, setIsDeletingLocationId] = useState<string | null>(null);
 
   // Multi-Item Invoice Builder State
   const [invoiceItems, setInvoiceItems] = useState<FormLineItem[]>([]);
@@ -441,21 +457,37 @@ export default function BillerPortalPage() {
     return parseFloat(taxableValue) || 0;
   }, [invoiceItems, lineQuantity, lineRate, taxableValue]);
 
-  const calculatedIgstAmt = useMemo(() => {
-    const rate = Number(igstRate) || 18;
-    return Number((invoiceTaxableTotal * (rate / 100)).toFixed(2));
-  }, [invoiceTaxableTotal, igstRate]);
-
-  const calculatedTotalAmt = useMemo(() => {
-    return Number((invoiceTaxableTotal + calculatedIgstAmt).toFixed(2));
-  }, [invoiceTaxableTotal, calculatedIgstAmt]);
-
   // Destination State Check: Outside Delhi vs Delhi local
   const isDeliveryInDelhi = useMemo(() => {
     const state = (consigneeState || buyerState || '').toLowerCase();
     const code = (consigneeStateCode || buyerStateCode || '').trim();
     return state.includes('delhi') || code === '07';
   }, [consigneeState, buyerState, consigneeStateCode, buyerStateCode]);
+
+  const totalGstRate = useMemo(() => Number(igstRate) || 18, [igstRate]);
+  const halfGstRate = useMemo(() => Number((totalGstRate / 2).toFixed(2)), [totalGstRate]);
+
+  const calculatedCgstAmt = useMemo(() => {
+    if (!isDeliveryInDelhi) return 0;
+    return Number(((invoiceTaxableTotal * halfGstRate) / 100).toFixed(2));
+  }, [invoiceTaxableTotal, halfGstRate, isDeliveryInDelhi]);
+
+  const calculatedSgstAmt = useMemo(() => {
+    if (!isDeliveryInDelhi) return 0;
+    return Number(((invoiceTaxableTotal * halfGstRate) / 100).toFixed(2));
+  }, [invoiceTaxableTotal, halfGstRate, isDeliveryInDelhi]);
+
+  const calculatedIgstAmt = useMemo(() => {
+    if (isDeliveryInDelhi) return 0;
+    return Number(((invoiceTaxableTotal * totalGstRate) / 100).toFixed(2));
+  }, [invoiceTaxableTotal, totalGstRate, isDeliveryInDelhi]);
+
+  const calculatedTotalAmt = useMemo(() => {
+    if (isDeliveryInDelhi) {
+      return Number((invoiceTaxableTotal + calculatedCgstAmt + calculatedSgstAmt).toFixed(2));
+    }
+    return Number((invoiceTaxableTotal + calculatedIgstAmt).toFixed(2));
+  }, [invoiceTaxableTotal, calculatedCgstAmt, calculatedSgstAmt, calculatedIgstAmt, isDeliveryInDelhi]);
 
   // E-Way Bill Rule:
   // Outside Delhi: > ₹50,000 strictly requires E-Way Bill

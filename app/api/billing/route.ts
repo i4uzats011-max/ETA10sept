@@ -216,8 +216,8 @@ export async function POST(req: NextRequest) {
       }
 
       // Purchaser Resolution (Registered or Unregistered)
+      // Purchaser Resolution (Registered or Unregistered)
       const effectiveMarka = mainMarka || subMarka || '';
-      const MarkaAddress = (await import('@/models/MarkaAddress')).default;
       let existingMarkaRecord = effectiveMarka
         ? await MarkaAddress.findOne({
             marka: new RegExp(`^${effectiveMarka.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
@@ -225,38 +225,76 @@ export async function POST(req: NextRequest) {
         : null;
 
       const purchaserName = item.purchaserName || existingMarkaRecord?.purchaserName || party || 'General Party';
-      const purchaserRegistrationType = item.purchaserRegistrationType || existingMarkaRecord?.registrationType || 'Registered';
+      const purchaserRegistrationType = item.purchaserRegistrationType || existingMarkaRecord?.registrationType || (item.purchaserGstin ? 'Registered' : 'Unregistered');
       const purchaserGstin = (item.purchaserGstin !== undefined ? item.purchaserGstin : existingMarkaRecord?.gstin) || '';
       const purchaserAddress = item.purchaserAddress || existingMarkaRecord?.addresses?.[0]?.address || '';
-      const purchaserState = item.purchaserState || existingMarkaRecord?.state || 'Delhi';
-      const purchaserStateCode = item.purchaserStateCode || existingMarkaRecord?.stateCode || '07';
+
+      const rawPState = item.purchaserState || existingMarkaRecord?.state || 'Delhi';
+      const purchaserStateCode = getStateCode(item.purchaserStateCode || existingMarkaRecord?.stateCode || rawPState) || '07';
+      const purchaserState = getStateName(rawPState) || 'Delhi';
 
       // Consignee (Ship To) & Buyer (Bill To)
       const consigneeName = item.consigneeName || existingMarkaRecord?.purchaserName || purchaserName;
       const consigneeAddress = item.consigneeAddress || existingMarkaRecord?.addresses?.[0]?.address || purchaserAddress;
       const consigneeGstin = item.consigneeGstin || purchaserGstin;
-      const consigneeState = item.consigneeState || purchaserState;
-      const consigneeStateCode = item.consigneeStateCode || purchaserStateCode;
+
+      const rawCState = item.consigneeState || item.purchaserState || existingMarkaRecord?.state || 'Delhi';
+      const consigneeStateCode = getStateCode(item.consigneeStateCode || item.purchaserStateCode || existingMarkaRecord?.stateCode || rawCState) || '07';
+      const consigneeState = getStateName(rawCState) || 'Delhi';
 
       const buyerName = item.buyerName || existingMarkaRecord?.buyerName || consigneeName;
       const buyerAddress = item.buyerAddress || existingMarkaRecord?.buyerAddress || consigneeAddress;
       const buyerGstin = item.buyerGstin || existingMarkaRecord?.buyerGstin || consigneeGstin;
-      const buyerState = item.buyerState || existingMarkaRecord?.buyerState || consigneeState;
-      const buyerStateCode = item.buyerStateCode || existingMarkaRecord?.buyerStateCode || consigneeStateCode;
+
+      const rawBState = item.buyerState || existingMarkaRecord?.buyerState || rawCState;
+      const buyerStateCode = getStateCode(item.buyerStateCode || existingMarkaRecord?.buyerStateCode || rawBState) || consigneeStateCode;
+      const buyerState = getStateName(rawBState) || consigneeState;
 
       // Rate calculation
       const primaryQty = billingUnit === 'KG' ? (quantityKg || 1) : billingUnit === 'Cartons' ? (totalCartons || 1) : (quantityPcs || quantityKg || 1);
       const rate = Number(item.rate) || (taxableValue && primaryQty ? Number((taxableValue / primaryQty).toFixed(2)) : 0);
 
+      // Location-Wise Tax Determination (Delhi to Delhi -> CGST + SGST; Outside Delhi -> IGST)
+      const isConsigneeDelhi =
+        consigneeStateCode === '07' ||
+        buyerStateCode === '07' ||
+        consigneeState.toLowerCase().includes('delhi') ||
+        buyerState.toLowerCase().includes('delhi');
+
+      const totalGstRate = Number(item.igst || item.IGST || 18);
+      const halfGstRate = Number((totalGstRate / 2).toFixed(2));
+
+      let cgst = 0;
+      let cgstAmount = 0;
+      let sgst = 0;
+      let sgstAmount = 0;
+      let igst = 0;
+      let igstAmount = 0;
+      let taxType: 'INTRA_STATE' | 'INTER_STATE' = 'INTER_STATE';
+
+      if (isConsigneeDelhi) {
+        taxType = 'INTRA_STATE';
+        cgst = halfGstRate;
+        sgst = halfGstRate;
+        cgstAmount = Number(((taxableValue * halfGstRate) / 100).toFixed(2));
+        sgstAmount = Number(((taxableValue * halfGstRate) / 100).toFixed(2));
+        igst = totalGstRate;
+        igstAmount = 0;
+      } else {
+        taxType = 'INTER_STATE';
+        igst = totalGstRate;
+        igstAmount = Number(((taxableValue * totalGstRate) / 100).toFixed(2));
+        cgst = 0;
+        sgst = 0;
+        cgstAmount = 0;
+        sgstAmount = 0;
+      }
+
+      const totalAmount = Number((taxableValue + (isConsigneeDelhi ? (cgstAmount + sgstAmount) : igstAmount)).toFixed(2));
+
       // Statutory E-Way Bill Rule:
       // Outside Delhi (> ₹50,000): eWayBillNo is strictly required
       // Delhi Local / Intra-state (> ₹1,00,000): eWayBillNo is strictly required
-      const isConsigneeDelhi =
-        consigneeState?.toLowerCase().includes('delhi') ||
-        consigneeStateCode === '07' ||
-        buyerState?.toLowerCase().includes('delhi') ||
-        buyerStateCode === '07';
-
       if (!isConsigneeDelhi && totalAmount > 50000 && !eWayBillNo) {
         errors.push({
           receipt: rawReceipt,
@@ -275,58 +313,66 @@ export async function POST(req: NextRequest) {
 
       // Auto-save/sync Marka Purchaser directory if Marka is present
       if (effectiveMarka) {
-        if (!existingMarkaRecord) {
-          existingMarkaRecord = await MarkaAddress.create({
-            marka: effectiveMarka,
-            purchaserName,
-            registrationType: purchaserRegistrationType,
-            gstin: purchaserGstin,
-            state: purchaserState,
-            stateCode: purchaserStateCode,
-            buyerName,
-            buyerAddress,
-            buyerGstin,
-            buyerState,
-            buyerStateCode,
-            addresses: consigneeAddress
-              ? [
-                  {
-                    title: 'Primary Godown',
-                    address: consigneeAddress,
-                    state: consigneeState,
-                    isDefault: true,
-                  },
-                ]
-              : [],
+        try {
+          const cleanEffectiveMarka = effectiveMarka.trim();
+          let mRec = await MarkaAddress.findOne({
+            marka: new RegExp(`^${cleanEffectiveMarka.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
           });
-        } else {
-          let modified = false;
-          if (item.purchaserName && existingMarkaRecord.purchaserName !== item.purchaserName) {
-            existingMarkaRecord.purchaserName = item.purchaserName;
-            modified = true;
-          }
-          if (item.purchaserRegistrationType && existingMarkaRecord.registrationType !== item.purchaserRegistrationType) {
-            existingMarkaRecord.registrationType = item.purchaserRegistrationType;
-            modified = true;
-          }
-          if (item.purchaserGstin && existingMarkaRecord.gstin !== item.purchaserGstin) {
-            existingMarkaRecord.gstin = item.purchaserGstin;
-            modified = true;
-          }
-          if (item.buyerAddress && existingMarkaRecord.buyerAddress !== item.buyerAddress) {
-            existingMarkaRecord.buyerAddress = item.buyerAddress;
-            modified = true;
-          }
-          if (item.purchaserAddress && existingMarkaRecord.addresses.length === 0) {
-            existingMarkaRecord.addresses.push({
-              title: 'Primary Godown',
-              address: item.purchaserAddress,
-              state: purchaserState,
-              isDefault: true,
+
+          const contactPh = String(item.deliveryPhone || item.purchaserPhone || item.phone || (mRec?.phone) || '').trim();
+          if (!mRec) {
+            mRec = await MarkaAddress.create({
+              marka: cleanEffectiveMarka,
+              purchaserName,
+              registrationType: purchaserRegistrationType,
+              gstin: purchaserGstin,
+              state: consigneeState,
+              stateCode: consigneeStateCode,
+              phone: contactPh,
+              buyerName,
+              buyerAddress,
+              buyerGstin,
+              buyerState,
+              buyerStateCode,
+              addresses: consigneeAddress
+                ? [{ title: 'Primary Godown', address: consigneeAddress, state: consigneeState, phone: contactPh, isDefault: true }]
+                : [],
             });
-            modified = true;
+          } else {
+            mRec.purchaserName = purchaserName;
+            mRec.registrationType = purchaserRegistrationType;
+            if (purchaserGstin) mRec.gstin = purchaserGstin;
+            mRec.state = consigneeState;
+            mRec.stateCode = consigneeStateCode;
+            if (contactPh) mRec.phone = contactPh;
+            if (buyerName) mRec.buyerName = buyerName;
+            if (buyerAddress) mRec.buyerAddress = buyerAddress;
+            if (buyerGstin) mRec.buyerGstin = buyerGstin;
+            if (buyerState) mRec.buyerState = buyerState;
+            if (buyerStateCode) mRec.buyerStateCode = buyerStateCode;
+
+            if (consigneeAddress && consigneeAddress.trim()) {
+              const cleanAddr = consigneeAddress.trim();
+              const existingIdx = mRec.addresses.findIndex(
+                (a: any) => a.address.trim().toLowerCase() === cleanAddr.toLowerCase()
+              );
+              if (existingIdx !== -1) {
+                mRec.addresses[existingIdx].state = consigneeState;
+                if (contactPh) mRec.addresses[existingIdx].phone = contactPh;
+              } else {
+                mRec.addresses.push({
+                  title: mRec.addresses.length === 0 ? 'Primary Godown' : `Location ${mRec.addresses.length + 1}`,
+                  address: cleanAddr,
+                  state: consigneeState,
+                  phone: contactPh,
+                  isDefault: mRec.addresses.length === 0,
+                });
+              }
+            }
+            await mRec.save();
           }
-          if (modified) await existingMarkaRecord.save();
+        } catch (mErr) {
+          console.warn('Auto-saving Marka address failed non-critically:', mErr);
         }
       }
 
@@ -337,8 +383,14 @@ export async function POST(req: NextRequest) {
 
       if (existingBill) {
         existingBill.receipt = rawReceipt;
+        existingBill.billNumber = billNumber;
         existingBill.hsnCode = hsnCode || existingBill.hsnCode;
-        existingBill.igst = igst;
+        existingBill.igst = totalGstRate;
+        existingBill.cgst = cgst;
+        existingBill.cgstAmount = cgstAmount;
+        existingBill.sgst = sgst;
+        existingBill.sgstAmount = sgstAmount;
+        existingBill.taxType = taxType;
         existingBill.quantityPcs = quantityPcs || existingBill.quantityPcs;
         existingBill.quantityKg = quantityKg || existingBill.quantityKg;
         existingBill.taxableValue = taxableValue || existingBill.taxableValue;
@@ -412,7 +464,12 @@ export async function POST(req: NextRequest) {
           billNumber,
           receipt: rawReceipt,
           hsnCode,
-          igst,
+          igst: totalGstRate,
+          cgst,
+          cgstAmount,
+          sgst,
+          sgstAmount,
+          taxType,
           quantityPcs,
           quantityKg,
           totalCartons,
@@ -677,6 +734,109 @@ export async function PUT(req: NextRequest) {
         }
       } catch (hsnErr) {
         console.warn('Auto-saving HSN in PUT failed non-critically:', hsnErr);
+      }
+    }
+
+    // Location-wise tax recalculation for edited bill
+    const effConsigneeState = updateFields.consigneeState || existingBill.consigneeState || 'Delhi';
+    const effConsigneeCode = getStateCode(updateFields.consigneeStateCode || existingBill.consigneeStateCode || effConsigneeState) || '07';
+    const effBuyerState = updateFields.buyerState || existingBill.buyerState || effConsigneeState;
+    const effBuyerCode = getStateCode(updateFields.buyerStateCode || existingBill.buyerStateCode || effBuyerState) || effConsigneeCode;
+
+    const isIntraState =
+      effConsigneeCode === '07' ||
+      effBuyerCode === '07' ||
+      effConsigneeState.toLowerCase().includes('delhi') ||
+      effBuyerState.toLowerCase().includes('delhi');
+
+    const totalGstRate = typeof updatePayload.igst === 'number' ? updatePayload.igst : existingBill.igst || 18;
+    const halfGstRate = Number((totalGstRate / 2).toFixed(2));
+    const totalTaxable = typeof updateFields.taxableValue === 'number' ? updateFields.taxableValue : existingBill.taxableValue || 0;
+
+    if (isIntraState) {
+      updateFields.taxType = 'INTRA_STATE';
+      updateFields.cgst = halfGstRate;
+      updateFields.sgst = halfGstRate;
+      updateFields.cgstAmount = Number(((totalTaxable * halfGstRate) / 100).toFixed(2));
+      updateFields.sgstAmount = Number(((totalTaxable * halfGstRate) / 100).toFixed(2));
+      updateFields.igst = totalGstRate;
+      updateFields.igstAmount = 0;
+      updateFields.totalAmount = Number((totalTaxable + updateFields.cgstAmount + updateFields.sgstAmount).toFixed(2));
+    } else {
+      updateFields.taxType = 'INTER_STATE';
+      updateFields.igst = totalGstRate;
+      updateFields.igstAmount = Number(((totalTaxable * totalGstRate) / 100).toFixed(2));
+      updateFields.cgst = 0;
+      updateFields.sgst = 0;
+      updateFields.cgstAmount = 0;
+      updateFields.sgstAmount = 0;
+      updateFields.totalAmount = Number((totalTaxable + updateFields.igstAmount).toFixed(2));
+    }
+
+    // Auto-sync updated address details to Marka directory
+    const effMarka = (updateFields.mainMarka || existingBill.mainMarka || updateFields.subMarka || existingBill.subMarka || '').trim();
+    if (effMarka) {
+      try {
+        const pName = updateFields.consigneeName || updateFields.purchaserName || existingBill.consigneeName || existingBill.purchaserName || effMarka;
+        const cAddr = updateFields.consigneeAddress || updateFields.purchaserAddress || existingBill.consigneeAddress || existingBill.purchaserAddress || '';
+        const pPhone = updateFields.deliveryPhone || updateFields.purchaserPhone || existingBill.deliveryPhone || '';
+        const pGstin = updateFields.consigneeGstin || updateFields.purchaserGstin || existingBill.consigneeGstin || '';
+        const regType = updateFields.purchaserRegistrationType || (pGstin ? 'Registered' : 'Unregistered');
+
+        let mRecord = await MarkaAddress.findOne({
+          marka: new RegExp(`^${effMarka.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        });
+
+        if (!mRecord) {
+          mRecord = new MarkaAddress({
+            marka: effMarka,
+            purchaserName: pName,
+            registrationType: regType,
+            gstin: pGstin,
+            state: effConsigneeState,
+            stateCode: effConsigneeCode,
+            phone: pPhone,
+            buyerName: updateFields.buyerName || existingBill.buyerName || pName,
+            buyerAddress: updateFields.buyerAddress || existingBill.buyerAddress || cAddr,
+            buyerGstin: updateFields.buyerGstin || existingBill.buyerGstin || pGstin,
+            buyerState: effBuyerState,
+            buyerStateCode: effBuyerCode,
+            addresses: cAddr ? [{ title: 'Primary Godown', address: cAddr, state: effConsigneeState, phone: pPhone, isDefault: true }] : [],
+          });
+          await mRecord.save();
+        } else {
+          mRecord.purchaserName = pName;
+          mRecord.registrationType = regType;
+          if (pGstin) mRecord.gstin = pGstin;
+          mRecord.state = effConsigneeState;
+          mRecord.stateCode = effConsigneeCode;
+          if (pPhone) mRecord.phone = pPhone;
+          if (updateFields.buyerName) mRecord.buyerName = updateFields.buyerName;
+          if (updateFields.buyerAddress) mRecord.buyerAddress = updateFields.buyerAddress;
+          if (updateFields.buyerGstin) mRecord.buyerGstin = updateFields.buyerGstin;
+          if (updateFields.buyerState) mRecord.buyerState = updateFields.buyerState;
+          if (updateFields.buyerStateCode) mRecord.buyerStateCode = updateFields.buyerStateCode;
+
+          if (cAddr && cAddr.trim()) {
+            const cleanTarget = cAddr.trim();
+            const existingIdx = mRecord.addresses.findIndex((a: any) => a.address.trim().toLowerCase() === cleanTarget.toLowerCase());
+            if (existingIdx !== -1) {
+              mRecord.addresses[existingIdx].state = effConsigneeState;
+              if (pPhone) mRecord.addresses[existingIdx].phone = pPhone;
+            } else {
+              mRecord.addresses.push({
+                title: mRecord.addresses.length === 0 ? 'Primary Godown' : `Location ${mRecord.addresses.length + 1}`,
+                address: cleanTarget,
+                state: effConsigneeState,
+                phone: pPhone,
+                isDefault: mRecord.addresses.length === 0,
+              });
+            }
+          }
+          await mRecord.save();
+        }
+      } catch (mErr) {
+        console.warn('Auto-syncing Marka address in PUT failed non-critically:', mErr);
       }
     }
 
