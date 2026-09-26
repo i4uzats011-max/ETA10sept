@@ -39,9 +39,11 @@ import {
   CheckSquare,
   Square,
   AlertTriangle,
+  Scale,
+  Calculator,
 } from 'lucide-react';
 import { generateBillPDF } from '@/lib/billPdf';
-import { INDIAN_STATES, getStateCode, getStateName, getStateCodeByName, getStateByGstinOrCode } from '@/lib/states';
+import { INDIAN_STATES, getStateCode, getStateName, getStateCodeByName, getStateByGstinOrCode, detectStateFromAddress } from '@/lib/states';
 import { inferHsnByItemName, findHsnSuggestions, MASTER_HSN_CATALOG } from '@/lib/hsnCatalog';
 
 export interface FormLineItem {
@@ -278,6 +280,14 @@ export default function BillerPortalPage() {
   const [currentBasePcs, setCurrentBasePcs] = useState<number>(0);
   const [currentBaseKg, setCurrentBaseKg] = useState<number>(0);
   const [currentBaseCtn, setCurrentBaseCtn] = useState<number>(0);
+
+  // Item Proportionate (Optional Calculation Mode)
+  const [isProportionateEnabled, setIsProportionateEnabled] = useState<boolean>(false);
+  const [propBaseCartons, setPropBaseCartons] = useState<string>('');
+  const [propBaseWeightKg, setPropBaseWeightKg] = useState<string>('');
+  const [propBasePcs, setPropBasePcs] = useState<string>('');
+  const [propBasis, setPropBasis] = useState<'cartons' | 'weight' | 'pcs'>('cartons');
+  const [propInputValue, setPropInputValue] = useState<string>('');
 
   // Vehicle Number & Delivery details in manual form
   const [formVehicleNumber, setFormVehicleNumber] = useState('');
@@ -544,16 +554,21 @@ export default function BillerPortalPage() {
       setPurchaserGstin(markaAddress.gstin || '');
       const addr = markaAddress.addresses && markaAddress.addresses.length > 0 ? markaAddress.addresses[0].address : '';
       setPurchaserAddress(addr);
-      setConsigneeAddress(addr);
-      setConsigneeState(markaAddress.state || 'Uttar Pradesh');
-      setConsigneeStateCode(markaAddress.stateCode || '09');
+      const rawCState = markaAddress.state || 'Delhi';
+      const cStName = getStateName(rawCState) || 'Delhi';
+      const cStCode = getStateCode(markaAddress.stateCode || rawCState) || '07';
+      setConsigneeState(cStName);
+      setConsigneeStateCode(cStCode);
       setPurchaserPhone(markaAddress.phone || (markaAddress.addresses?.[0]?.phone || ''));
 
       setBuyerName(markaAddress.buyerName || pName);
       setBuyerAddress(markaAddress.buyerAddress || addr);
       setBuyerGstin(markaAddress.buyerGstin || markaAddress.gstin || '');
-      setBuyerState(markaAddress.buyerState || markaAddress.state || 'Uttar Pradesh');
-      setBuyerStateCode(markaAddress.buyerStateCode || markaAddress.stateCode || '09');
+      const rawBState = markaAddress.buyerState || rawCState;
+      const bStName = getStateName(rawBState) || cStName;
+      const bStCode = getStateCode(markaAddress.buyerStateCode || rawBState) || cStCode;
+      setBuyerState(bStName);
+      setBuyerStateCode(bStCode);
       setSameAsConsignee(!markaAddress.buyerAddress || markaAddress.buyerAddress === addr);
     } else {
       setPurchaserName(shipment.party || '');
@@ -924,9 +939,26 @@ export default function BillerPortalPage() {
   // State & GSTIN Change Handlers for Consignee and Buyer
   const handleConsigneeStateChange = (st: string) => {
     const name = getStateName(st) || st;
+    const code = getStateCode(st) || getStateCode(name) || '07';
     setConsigneeState(name);
-    const code = getStateCode(st);
-    if (code) setConsigneeStateCode(code);
+    setConsigneeStateCode(code);
+    if (sameAsConsignee) {
+      setBuyerState(name);
+      setBuyerStateCode(code);
+    }
+  };
+
+  const handleConsigneeStateCodeChange = (cd: string) => {
+    const clean = cd.trim();
+    setConsigneeStateCode(clean);
+    const name = getStateName(clean);
+    if (name && name !== clean) {
+      setConsigneeState(name);
+      if (sameAsConsignee) {
+        setBuyerState(name);
+        setBuyerStateCode(clean);
+      }
+    }
   };
 
   const handleConsigneeGstinChange = (gst: string) => {
@@ -937,15 +969,28 @@ export default function BillerPortalPage() {
       if (stObj) {
         setConsigneeState(stObj.name);
         setConsigneeStateCode(stObj.code);
+        if (sameAsConsignee) {
+          setBuyerState(stObj.name);
+          setBuyerStateCode(stObj.code);
+        }
       }
     }
   };
 
   const handleBuyerStateChange = (st: string) => {
     const name = getStateName(st) || st;
+    const code = getStateCode(st) || getStateCode(name) || '07';
     setBuyerState(name);
-    const code = getStateCode(st);
-    if (code) setBuyerStateCode(code);
+    setBuyerStateCode(code);
+  };
+
+  const handleBuyerStateCodeChange = (cd: string) => {
+    const clean = cd.trim();
+    setBuyerStateCode(clean);
+    const name = getStateName(clean);
+    if (name && name !== clean) {
+      setBuyerState(name);
+    }
   };
 
   const handleBuyerGstinChange = (gst: string) => {
@@ -958,6 +1003,73 @@ export default function BillerPortalPage() {
         setBuyerStateCode(stObj.code);
       }
     }
+  };
+
+  // Item Proportionate Calculation Logic
+  const calculateProportionate = () => {
+    const baseCtn = parseFloat(propBaseCartons) || currentBaseCtn || parseFloat(totalCartons) || 0;
+    const baseKg = parseFloat(propBaseWeightKg) || currentBaseKg || parseFloat(quantityKg) || 0;
+    const basePcs = parseFloat(propBasePcs) || currentBasePcs || parseFloat(quantityPcs) || 0;
+
+    const inputNum = parseFloat(propInputValue) || 0;
+    if (inputNum <= 0) {
+      return { ratio: 0, ctn: 0, kg: 0, pcs: 0, targetQty: 0, baseCtn, baseKg, basePcs };
+    }
+
+    let ratio = 0;
+    if (propBasis === 'cartons') {
+      ratio = baseCtn > 0 ? inputNum / baseCtn : 0;
+    } else if (propBasis === 'weight') {
+      ratio = baseKg > 0 ? inputNum / baseKg : 0;
+    } else if (propBasis === 'pcs') {
+      ratio = basePcs > 0 ? inputNum / basePcs : 0;
+    }
+
+    const calcCtn = propBasis === 'cartons' ? inputNum : Number((ratio * baseCtn).toFixed(2));
+    const calcKg = propBasis === 'weight' ? inputNum : Number((ratio * baseKg).toFixed(2));
+    const calcPcs = propBasis === 'pcs' ? Math.round(inputNum) : Math.round(ratio * basePcs);
+
+    // Target Quantity for current active lineUnit
+    const u = lineUnit.toUpperCase();
+    let targetQty = 0;
+    if (u === 'PCS') {
+      targetQty = calcPcs > 0 ? calcPcs : calcKg;
+    } else if (u.includes('KG')) {
+      targetQty = calcKg > 0 ? calcKg : calcPcs;
+    } else if (u.includes('CTN') || u.includes('CARTON')) {
+      targetQty = calcCtn;
+    } else {
+      targetQty = calcPcs || calcKg || calcCtn;
+    }
+
+    return {
+      ratio,
+      ctn: calcCtn,
+      kg: calcKg,
+      pcs: calcPcs,
+      targetQty,
+      baseCtn,
+      baseKg,
+      basePcs,
+    };
+  };
+
+  const handleApplyProportionate = () => {
+    const res = calculateProportionate();
+    if (res.targetQty <= 0) {
+      alert('कृपया मान्य डिस्पैच संख्या दर्ज करें ताकि प्रोपोर्शनेट मान निकाला जा सके।');
+      return;
+    }
+
+    setLineQuantity(String(res.targetQty));
+    if (res.ctn > 0) setTotalCartons(String(res.ctn));
+    if (res.kg > 0) setQuantityKg(String(res.kg));
+    if (res.pcs > 0) setQuantityPcs(String(res.pcs));
+
+    setManualSuccessMsg(
+      `✓ प्रोपोर्शनेट वैल्यू लागू हो गई: ${res.ctn} कार्टन | ${res.kg} KG | ${res.pcs} PCS -> इनवॉइस क्वांटिटी: ${res.targetQty} ${lineUnit}`
+    );
+    setTimeout(() => setManualSuccessMsg(null), 4500);
   };
 
 
@@ -3695,6 +3807,204 @@ export default function BillerPortalPage() {
                     </div>
                   </div>
 
+                  {/* ITEM PROPORTIONATE (आइटम प्रोपोर्शनेट - ऑप्शनल मोड) */}
+                  <div className="pt-1">
+                    <div className="flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextState = !isProportionateEnabled;
+                          setIsProportionateEnabled(nextState);
+                          if (nextState) {
+                            if (!propBaseCartons) setPropBaseCartons(String(currentBaseCtn || parseFloat(totalCartons) || ''));
+                            if (!propBaseWeightKg) setPropBaseWeightKg(String(currentBaseKg || parseFloat(quantityKg) || ''));
+                            if (!propBasePcs) setPropBasePcs(String(currentBasePcs || parseFloat(quantityPcs) || ''));
+                          }
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-2 border shadow-sm ${
+                          isProportionateEnabled
+                            ? 'bg-amber-500 text-slate-950 border-amber-400 font-black'
+                            : 'bg-slate-900/90 text-amber-300 hover:text-white border-amber-500/40 hover:bg-slate-800'
+                        }`}
+                      >
+                        <Scale className="w-3.5 h-3.5" />
+                        <span>⚖️ {isProportionateEnabled ? 'आइटम प्रोपोर्शनेट सक्रिय (ON)' : 'आइटम प्रोपोर्शनेट करें (Item Proportionate)'}</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded font-mono bg-black/30">
+                          {isProportionateEnabled ? 'क्लिक करके बंद करें' : 'वैकल्पिक / Optional'}
+                        </span>
+                      </button>
+
+                      {isProportionateEnabled && (
+                        <span className="text-[11px] text-amber-300 font-bold hidden sm:inline-block">
+                          कार्टन, वजन या पीसेस के आधार पर स्वचालित अनुपात गणना
+                        </span>
+                      )}
+                    </div>
+
+                    {/* EXPANDABLE PROPORTIONATE CALCULATOR PANEL */}
+                    {isProportionateEnabled && (
+                      <div className="mt-2.5 p-3.5 bg-gradient-to-r from-amber-950/40 via-slate-900 to-cyan-950/40 border border-amber-500/50 rounded-2xl space-y-3 shadow-lg">
+                        <div className="flex items-center justify-between border-b border-amber-500/30 pb-2">
+                          <div className="flex items-center space-x-2">
+                            <Calculator className="w-4 h-4 text-amber-400" />
+                            <span className="text-xs font-black text-amber-300">
+                              आइटम प्रोपोर्शनेट कैलकुलेटर (Item Proportionate Calculator)
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-slate-400">
+                            प्राइमरी यूनिट: <strong className="text-cyan-300 font-bold font-mono">{lineUnit}</strong>
+                          </span>
+                        </div>
+
+                        {/* Base Totals of the Cargo / Marka */}
+                        <div>
+                          <span className="text-[10px] font-bold text-slate-400 block mb-1">
+                            1. माल का कुल बेस स्टॉक (Base Cargo Quantities):
+                          </span>
+                          <div className="grid grid-cols-3 gap-2">
+                            <div className="bg-slate-950 p-2 rounded-xl border border-slate-800">
+                              <label className="text-[10px] text-slate-400 block">कुल कार्टन (Total CTN)</label>
+                              <input
+                                type="number"
+                                step="any"
+                                value={propBaseCartons}
+                                onChange={(e) => setPropBaseCartons(e.target.value)}
+                                placeholder="e.g. 50"
+                                className="w-full bg-transparent text-white font-mono font-bold text-xs outline-none"
+                              />
+                            </div>
+                            <div className="bg-slate-950 p-2 rounded-xl border border-slate-800">
+                              <label className="text-[10px] text-slate-400 block">कुल वजन (Total KG)</label>
+                              <input
+                                type="number"
+                                step="any"
+                                value={propBaseWeightKg}
+                                onChange={(e) => setPropBaseWeightKg(e.target.value)}
+                                placeholder="e.g. 1000"
+                                className="w-full bg-transparent text-white font-mono font-bold text-xs outline-none"
+                              />
+                            </div>
+                            <div className="bg-slate-950 p-2 rounded-xl border border-slate-800">
+                              <label className="text-[10px] text-slate-400 block">कुल पीसेस (Total PCS)</label>
+                              <input
+                                type="number"
+                                step="any"
+                                value={propBasePcs}
+                                onChange={(e) => setPropBasePcs(e.target.value)}
+                                placeholder="e.g. 5000"
+                                className="w-full bg-transparent text-white font-mono font-bold text-xs outline-none"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Selection of Basis: By Cartons, By Pieces, By Weight */}
+                        <div>
+                          <span className="text-[10px] font-bold text-slate-400 block mb-1">
+                            2. किस आधार पर डिस्पैच कर रहे हैं? (Select Dispatch Basis):
+                          </span>
+                          <div className="grid grid-cols-3 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setPropBasis('cartons')}
+                              className={`py-1.5 px-2 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1 border ${
+                                propBasis === 'cartons'
+                                  ? 'bg-amber-500 text-slate-950 border-amber-400 font-black shadow'
+                                  : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                              }`}
+                            >
+                              <span>📦 कार्टन अनुसार</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setPropBasis('weight')}
+                              className={`py-1.5 px-2 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1 border ${
+                                propBasis === 'weight'
+                                  ? 'bg-amber-500 text-slate-950 border-amber-400 font-black shadow'
+                                  : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                              }`}
+                            >
+                              <span>⚖️ वजन (KG) अनुसार</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setPropBasis('pcs')}
+                              className={`py-1.5 px-2 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1 border ${
+                                propBasis === 'pcs'
+                                  ? 'bg-amber-500 text-slate-950 border-amber-400 font-black shadow'
+                                  : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                              }`}
+                            >
+                              <span>🔢 पीसेस (PCS) अनुसार</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Input for the selected basis and Live Result */}
+                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
+                          <div className="sm:col-span-5">
+                            <label className="text-[10px] font-bold text-amber-300 block mb-1">
+                              {propBasis === 'cartons'
+                                ? '👉 भेजे जाने वाले कार्टन (Enter Cartons sending):'
+                                : propBasis === 'weight'
+                                ? '👉 भेजा जाने वाला वजन KG (Enter Weight KG sending):'
+                                : '👉 भेजे जाने वाले पीसेस (Enter Pieces sending):'}
+                            </label>
+                            <input
+                              type="number"
+                              step="any"
+                              value={propInputValue}
+                              onChange={(e) => setPropInputValue(e.target.value)}
+                              placeholder={propBasis === 'cartons' ? 'e.g. 5' : propBasis === 'weight' ? 'e.g. 100' : 'e.g. 600'}
+                              className="w-full px-3 py-2 bg-slate-950 border border-amber-500/60 rounded-xl text-white font-mono font-bold text-sm focus:ring-2 focus:ring-amber-500 outline-none"
+                            />
+                          </div>
+
+                          {/* Calculation Preview Box */}
+                          {(() => {
+                            const calc = calculateProportionate();
+                            const pctStr = (calc.ratio * 100).toFixed(1);
+                            return (
+                              <div className="sm:col-span-7 bg-slate-950/90 border border-emerald-500/40 p-2.5 rounded-xl text-xs space-y-1">
+                                <div className="flex items-center justify-between text-[11px]">
+                                  <span className="text-slate-400">प्रोपोर्शनेट अनुपात:</span>
+                                  <strong className="text-emerald-400 font-mono">{pctStr}% of Total Cargo</strong>
+                                </div>
+                                <div className="grid grid-cols-3 gap-1 text-[11px] pt-0.5 border-t border-slate-800 font-mono">
+                                  <div>
+                                    <span className="text-slate-500 block text-[9px]">कार्टन:</span>
+                                    <strong className="text-cyan-300">{calc.ctn} CTN</strong>
+                                  </div>
+                                  <div>
+                                    <span className="text-slate-500 block text-[9px]">वजन:</span>
+                                    <strong className="text-cyan-300">{calc.kg} KG</strong>
+                                  </div>
+                                  <div>
+                                    <span className="text-slate-500 block text-[9px]">पीसेस:</span>
+                                    <strong className="text-cyan-300">{calc.pcs} PCS</strong>
+                                  </div>
+                                </div>
+                                <div className="flex items-center justify-between pt-1 border-t border-slate-800/80">
+                                  <span className="text-amber-300 font-bold text-[11px]">
+                                    इनवॉइस मात्रा ({lineUnit}): <strong className="text-white font-mono text-sm">{calc.targetQty} {lineUnit}</strong>
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={handleApplyProportionate}
+                                    disabled={calc.targetQty <= 0}
+                                    className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-black rounded-lg text-xs transition shadow flex items-center space-x-1"
+                                  >
+                                    <span>✓ लागू करें (Apply)</span>
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Add Button & Calculated Item Subtotal */}
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-1 border-t border-slate-800">
                     <div className="text-xs text-slate-400">
@@ -3890,8 +4200,8 @@ export default function BillerPortalPage() {
                                     </span>
                                     <div className="flex items-center space-x-1 shrink-0">
                                       {isSelected && (
-                                        <span className="px-1.5 py-0.2 bg-cyan-500 text-slate-950 font-black rounded text-[9px]">
-                                          SELECTED
+                                        <span className="px-1.5 py-0.5 bg-cyan-500 text-slate-950 font-black rounded text-[9px]">
+                                          चयनित
                                         </span>
                                       )}
                                       <button
@@ -3900,10 +4210,11 @@ export default function BillerPortalPage() {
                                           e.stopPropagation();
                                           handleOpenEditLocation(mainMarka || subMarka || singleSelectedMarka, addr);
                                         }}
-                                        className="p-1 hover:bg-cyan-500/20 text-cyan-300 rounded transition"
+                                        className="px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 font-bold rounded text-[10px] transition flex items-center space-x-1 border border-amber-500/30"
                                         title="एड्रेस एडिट करें (Edit Address)"
                                       >
-                                        <Edit3 className="w-3 h-3" />
+                                        <Edit3 className="w-2.5 h-2.5" />
+                                        <span>एडिट</span>
                                       </button>
                                       <button
                                         type="button"
@@ -3912,19 +4223,32 @@ export default function BillerPortalPage() {
                                           e.stopPropagation();
                                           handleDeleteLocation(mainMarka || subMarka || singleSelectedMarka, addr._id);
                                         }}
-                                        className="p-1 hover:bg-red-500/20 text-slate-500 hover:text-red-400 rounded transition"
+                                        className="px-2 py-0.5 bg-red-500/20 hover:bg-red-500 text-red-300 hover:text-white font-bold rounded text-[10px] transition flex items-center space-x-1 border border-red-500/30"
                                         title="एड्रेस डिलीट करें (Delete Address)"
                                       >
-                                        <Trash2 className="w-3 h-3" />
+                                        <Trash2 className="w-2.5 h-2.5" />
+                                        <span>डिलीट</span>
                                       </button>
                                     </div>
                                   </div>
                                   <p className="text-[11px] text-slate-200 line-clamp-2">{addr.address}</p>
                                 </div>
                                 <div className="text-[10px] text-slate-400 mt-1.5 flex items-center justify-between border-t border-slate-800/80 pt-1">
-                                  <span>{addr.city || addr.state || 'Delhi'}</span>
+                                  <span className="font-semibold text-slate-300">{addr.city || addr.state || 'Delhi'} ({getStateCode(addr.stateCode || addr.state) || '07'})</span>
                                   {addr.phone && <span>📞 {addr.phone}</span>}
                                 </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSelectDeliveryAddress(addr)}
+                                  className={`w-full mt-2 py-1 px-2 rounded-lg text-[10px] font-bold transition flex items-center justify-center space-x-1 ${
+                                    isSelected
+                                      ? 'bg-cyan-500 text-slate-950 font-black'
+                                      : 'bg-slate-900 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/30'
+                                  }`}
+                                >
+                                  <Check className="w-3 h-3" />
+                                  <span>{isSelected ? '✓ यह पता चुना हुआ है (Selected)' : 'इस पते पर डिस्पैच करें (Select)'}</span>
+                                </button>
                               </div>
                             );
                           })}
@@ -4001,8 +4325,13 @@ export default function BillerPortalPage() {
                         type="text"
                         value={consigneeAddress || purchaserAddress}
                         onChange={(e) => {
-                          setConsigneeAddress(e.target.value);
-                          setPurchaserAddress(e.target.value);
+                          const val = e.target.value;
+                          setConsigneeAddress(val);
+                          setPurchaserAddress(val);
+                          const detected = detectStateFromAddress(val);
+                          if (detected) {
+                            handleConsigneeStateChange(detected.name);
+                          }
                         }}
                         placeholder="e.g. Shop No 4, Main Bazar, Agra"
                         className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-sky-500 outline-none"
@@ -4029,13 +4358,76 @@ export default function BillerPortalPage() {
                         <input
                           type="text"
                           value={consigneeStateCode}
-                          onChange={(e) => setConsigneeStateCode(e.target.value)}
-                          placeholder="09"
+                          onChange={(e) => handleConsigneeStateCodeChange(e.target.value)}
+                          placeholder="07"
                           className="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-amber-300 font-mono font-bold"
                         />
                       </div>
                     </div>
                   </div>
+
+                  {/* MARKA ADDRESS CONTROLS TOOLBAR: ADD, CHANGE / UPDATE, DELETE */}
+                  {(mainMarka || subMarka || singleSelectedMarka) && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-slate-900/90 border border-cyan-500/30 rounded-2xl">
+                      <div className="flex items-center space-x-1.5">
+                        <MapPin className="w-4 h-4 text-cyan-400" />
+                        <span className="text-xs font-bold text-cyan-300">
+                          डिस्पैच पता प्रबंधन (Marka Delivery Actions):
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {/* 1. Add New Location */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNewLocTitle('');
+                            setNewLocAddress('');
+                            setNewLocCity('');
+                            setNewLocState(consigneeState || 'Delhi');
+                            setNewLocStateCode(consigneeStateCode || '07');
+                            setNewLocPincode('');
+                            setNewLocContactPerson(purchaserName || '');
+                            setNewLocPhone(purchaserPhone || '');
+                            setShowAddLocationModal(true);
+                          }}
+                          className="px-3 py-1.5 bg-cyan-600/30 hover:bg-cyan-600 text-cyan-300 hover:text-white rounded-xl text-xs font-bold transition flex items-center space-x-1 border border-cyan-500/40 shadow-sm"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>+ नया पता जोड़ें (Add Location)</span>
+                        </button>
+
+                        {/* 2. Change / Save / Update to Marka */}
+                        <button
+                          type="button"
+                          disabled={isSavingMarkaDirect}
+                          onClick={handleInstantSaveMarkaAddress}
+                          className="px-3 py-1.5 bg-emerald-600/30 hover:bg-emerald-600 text-emerald-300 hover:text-white rounded-xl text-xs font-bold transition flex items-center space-x-1 border border-emerald-500/40 shadow-sm"
+                          title="इस फॉर्म में भरे गए पते को मार्का में सुरक्षित / अपडेट करें"
+                        >
+                          <Save className="w-3.5 h-3.5" />
+                          <span>{isSavingMarkaDirect ? 'सेव हो रहा है...' : '💾 यह पता मार्का में सेव / बदलें (Update Address)'}</span>
+                        </button>
+
+                        {/* 3. Delete Selected Location */}
+                        {selectedDeliveryAddressId && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const m = mainMarka || subMarka || singleSelectedMarka;
+                              if (m && selectedDeliveryAddressId) {
+                                handleDeleteLocation(m, selectedDeliveryAddressId);
+                              }
+                            }}
+                            className="px-3 py-1.5 bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white rounded-xl text-xs font-bold transition flex items-center space-x-1 border border-red-500/30 shadow-sm"
+                            title="चयनित पते को इस मार्का से हटाएं"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>🗑️ यह पता हटाएं (Delete)</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Buyer (Bill to) Toggle & Fields */}

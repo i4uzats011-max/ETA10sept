@@ -177,33 +177,53 @@ export function detectStateFromAddress(address: string): IndianState | null {
   const text = address.toLowerCase();
 
   // Check Delhi pincodes (110xxx) or keywords
-  if (/\b110\d{3}\b/.test(text) || text.includes('delhi') || text.includes('badli') || text.includes('chandni chowk') || text.includes('karol bagh')) {
+  if (/\b110\d{3}\b/.test(text) || text.includes('delhi') || text.includes('badli') || text.includes('chandni chowk') || text.includes('karol bagh') || text.includes('bawana') || text.includes('narela')) {
     return { name: 'Delhi', code: '07' };
   }
 
-  // Check Uttar Pradesh pincodes (20xxxx) or keywords
-  if (/\b20\d{4}\b/.test(text) || text.includes('noida') || text.includes('ghaziabad') || text.includes('agra') || text.includes('lucknow') || text.includes('kanpur') || text.includes('meerut')) {
+  // Check Uttar Pradesh pincodes (20-28xxxx) or keywords
+  if (/\b(20|21|22|24|25|26|27|28)\d{4}\b/.test(text) || text.includes('noida') || text.includes('ghaziabad') || text.includes('agra') || text.includes('lucknow') || text.includes('kanpur') || text.includes('meerut') || text.includes('varanasi') || text.includes('aligarh') || text.includes('mathura')) {
     return { name: 'Uttar Pradesh', code: '09' };
   }
 
-  // Check Haryana pincodes (12xxxx) or keywords
-  if (/\b12\d{4}\b/.test(text) || text.includes('gurgaon') || text.includes('gurugram') || text.includes('faridabad') || text.includes('panipat') || text.includes('kundli') || text.includes('sonipat') || text.includes('rohtak') || text.includes('ambala')) {
+  // Check Haryana pincodes (12-13xxxx) or keywords
+  if (/\b(12|13)\d{4}\b/.test(text) || text.includes('gurgaon') || text.includes('gurugram') || text.includes('faridabad') || text.includes('panipat') || text.includes('kundli') || text.includes('sonipat') || text.includes('rohtak') || text.includes('ambala') || text.includes('hisar') || text.includes('karnal')) {
     return { name: 'Haryana', code: '06' };
   }
 
-  // Check Maharashtra (40xxxx)
-  if (/\b40\d{4}\b/.test(text) || text.includes('mumbai') || text.includes('pune') || text.includes('thane') || text.includes('nagpur') || text.includes('nashik')) {
+  // Check Maharashtra (40-44xxxx) or keywords
+  if (/\b(40|41|42|43|44)\d{4}\b/.test(text) || text.includes('mumbai') || text.includes('pune') || text.includes('thane') || text.includes('nagpur') || text.includes('nashik') || text.includes('bhiwandi')) {
     return { name: 'Maharashtra', code: '27' };
   }
 
-  // Check Rajasthan (30xxxx)
-  if (/\b30\d{4}\b/.test(text) || text.includes('jaipur') || text.includes('jodhpur') || text.includes('udaipur') || text.includes('kota')) {
+  // Check Rajasthan (30-34xxxx) or keywords
+  if (/\b(30|31|32|33|34)\d{4}\b/.test(text) || text.includes('jaipur') || text.includes('jodhpur') || text.includes('udaipur') || text.includes('kota') || text.includes('alwar') || text.includes('bhiwadi')) {
     return { name: 'Rajasthan', code: '08' };
   }
 
-  // Check Punjab (14xxxx)
-  if (/\b14\d{4}\b/.test(text) || text.includes('ludhiana') || text.includes('amritsar') || text.includes('jalandhar')) {
+  // Check Gujarat (36-39xxxx) or keywords
+  if (/\b(36|37|38|39)\d{4}\b/.test(text) || text.includes('ahmedabad') || text.includes('surat') || text.includes('vadodara') || text.includes('rajkot')) {
+    return { name: 'Gujarat', code: '24' };
+  }
+
+  // Check Punjab (14-16xxxx) or keywords
+  if (/\b(14|15|16)\d{4}\b/.test(text) || text.includes('ludhiana') || text.includes('amritsar') || text.includes('jalandhar') || text.includes('mohali') || text.includes('patiala')) {
     return { name: 'Punjab', code: '03' };
+  }
+
+  // Check West Bengal (70-74xxxx)
+  if (/\b(70|71|72|73|74)\d{4}\b/.test(text) || text.includes('kolkata') || text.includes('calcutta') || text.includes('howrah')) {
+    return { name: 'West Bengal', code: '19' };
+  }
+
+  // Check Bihar (80-85xxxx)
+  if (/\b(80|81|82|83|84|85)\d{4}\b/.test(text) || text.includes('patna') || text.includes('gaya') || text.includes('muzaffarpur')) {
+    return { name: 'Bihar', code: '10' };
+  }
+
+  // Check Madhya Pradesh (45-48xxxx)
+  if (/\b(45|46|47|48)\d{4}\b/.test(text) || text.includes('indore') || text.includes('bhopal') || text.includes('gwalior') || text.includes('jabalpur')) {
+    return { name: 'Madhya Pradesh', code: '23' };
   }
 
   // Check other states by name in text
