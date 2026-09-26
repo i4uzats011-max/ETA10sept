@@ -2281,7 +2281,7 @@ export default function BillerPortalPage() {
 
       // Auto-save address for Marka
       if (currentMarka && finalPurchaser) {
-        handleSaveMarkaAddressDirect().catch((e) => console.warn('Background marka save:', e));
+        handleInstantSaveMarkaAddress().catch((err: any) => console.warn('Background marka save:', err));
       }
 
       setManualSuccessMsg(`✓ बिल सफलतापूर्वक बन गया! Receipt #${finalReceiptNo}`);

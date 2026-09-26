@@ -127,7 +127,6 @@ export async function POST(req: NextRequest) {
       }
 
       const hsnCode = String(item.hsnCode || item['HSN Code'] || item.hsn || (parsedItems[0]?.hsnCode) || '').trim();
-      const igst = Number(item.igst || item.IGST || 18);
       let quantityPcs = Number(item.quantityPcs || item['Quantity pcs'] || item['Quntity pcs'] || item.pcs || 0);
       let quantityKg = Number(item.quantityKg || item['Quantity kg'] || item['Weight kg'] || item.kg || 0);
       let taxableValue = Number(item.taxableValue || item['Taxable'] || item.taxable || 0);
@@ -157,9 +156,6 @@ export async function POST(req: NextRequest) {
       const totalCartons = Number(item.totalCartons || item.cartons || item['Cartons'] || item['Cartons (CTN)'] || (shipment as any)?.quantity || 0);
       const rawUnit = String(item.billingUnit || item['Billing Unit'] || (parsedItems[0]?.unit) || 'Pcs').trim().toLowerCase();
       const billingUnit: 'Pcs' | 'KG' | 'Cartons' = rawUnit.includes('kg') ? 'KG' : rawUnit.includes('carton') || rawUnit.includes('ctn') ? 'Cartons' : 'Pcs';
-
-      const igstAmount = Number((taxableValue * (igst / 100)).toFixed(2));
-      const totalAmount = Number((taxableValue + igstAmount).toFixed(2));
 
       const container = item.container || (shipment as any)?.container || '';
       const containerNumber = item.containerNumber || (shipment as any)?.containerNumber || '';
