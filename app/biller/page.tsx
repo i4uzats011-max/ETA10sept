@@ -3461,10 +3461,25 @@ export default function BillerPortalPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end bg-slate-950/40 p-3 rounded-xl border border-slate-800">
                     {/* HSN / SAC Code */}
                     <div className="sm:col-span-3">
-                      <label className="text-[11px] font-bold text-amber-300 flex items-center justify-between mb-1">
-                        <span>HSN / SAC कोड *</span>
-                        <span className="text-[10px] text-slate-400">ऑल्टर करें</span>
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-[11px] font-bold text-amber-300">
+                          HSN / SAC कोड *
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openHsnModal(lineDescription || 'Goods', (hsn) => {
+                              setLineHsn(hsn);
+                              setHsnCode(hsn);
+                            })
+                          }
+                          className="px-1.5 py-0.5 bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 rounded text-[9px] font-black transition flex items-center space-x-1"
+                          title="आइटम के अनुसार HSN सर्च करें या सुझाव देखें"
+                        >
+                          <Search className="w-2.5 h-2.5" />
+                          <span>🔍 HSN सुझाव / सर्च</span>
+                        </button>
+                      </div>
                       <input
                         type="text"
                         value={lineHsn}
@@ -4294,6 +4309,13 @@ export default function BillerPortalPage() {
                       </td>
                       <td className="p-3.5 text-center">
                         <div className="flex items-center justify-center space-x-1.5">
+                          <button
+                            onClick={() => handleOpenEditBillModal(b)}
+                            title="बिल की जानकारी बदलें / एडिट करें (Edit Bill)"
+                            className="p-1.5 bg-slate-800 hover:bg-cyan-500/20 hover:text-cyan-400 text-slate-300 rounded-lg transition"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
                           <button
                             onClick={() => generateBillPDF(b, true)}
                             title="Download PDF Bill"
@@ -5230,6 +5252,630 @@ export default function BillerPortalPage() {
                   className="px-5 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white font-black rounded-xl text-xs transition flex items-center space-x-1.5 shadow"
                 >
                   {isSavingNewLoc ? <span>Saving...</span> : <span>Save Address to Marka</span>}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: HSN SEARCH & AUTO-SUGGESTION */}
+      {showHsnSearchModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-xl w-full p-5 space-y-3.5 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2">
+                <Search className="w-5 h-5 text-amber-400" />
+                <div>
+                  <h3 className="text-sm font-black text-white">
+                    HSN कोड खोजें व सुझाव चुनें (Search & Suggest HSN)
+                  </h3>
+                  <p className="text-[10px] text-slate-400">
+                    आइटम के नाम या कीवर्ड से HSN ढूँढें। चुनने पर वह इस आइटम के साथ हमेशा के लिए लिंक हो जाएगा।
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowHsnSearchModal(false)}
+                className="p-1 text-slate-400 hover:text-white rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Search Input */}
+            <div className="relative">
+              <input
+                type="text"
+                autoFocus
+                value={hsnSearchQuery}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setHsnSearchQuery(val);
+                  handleSearchHsn(val);
+                }}
+                placeholder="उदा. Baby bottle, Teether, Toy, Footwear, Bag, 39269099..."
+                className="w-full pl-9 pr-4 py-2.5 bg-slate-950 border border-amber-500/50 rounded-2xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+              />
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+            </div>
+
+            {/* Results List */}
+            <div className="max-h-72 overflow-y-auto space-y-1.5 pr-1 scrollbar-thin">
+              {isLoadingHsn ? (
+                <div className="py-8 text-center text-xs text-slate-400 animate-pulse">
+                  खोज रहे हैं... (Searching HSN Directory)...
+                </div>
+              ) : hsnSearchResults.length === 0 ? (
+                <div className="py-8 text-center text-xs text-slate-400">
+                  कोई सुझाव नहीं मिला। आप मैन्युअली HSN टाइप करके सेव कर सकते हैं।
+                </div>
+              ) : (
+                hsnSearchResults.map((s, idx) => (
+                  <div
+                    key={idx}
+                    onClick={() => handleSelectHsnSuggestion(s)}
+                    className="p-2.5 bg-slate-950/60 hover:bg-amber-950/40 border border-slate-800 hover:border-amber-500/60 rounded-xl cursor-pointer transition flex items-center justify-between group"
+                  >
+                    <div className="space-y-0.5">
+                      <div className="flex items-center space-x-2">
+                        <span className="font-mono font-black text-amber-300 text-xs px-2 py-0.5 bg-amber-500/10 rounded border border-amber-500/30">
+                          {s.hsnCode}
+                        </span>
+                        <span className="font-bold text-white text-xs">{s.itemName}</span>
+                        {s.isUserSaved && (
+                          <span className="text-[9px] px-1.5 py-0.2 bg-emerald-500/20 text-emerald-300 rounded font-bold">
+                            ★ आपका लिंक्ड
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-slate-400 line-clamp-1">{s.description}</p>
+                    </div>
+
+                    <div className="flex items-center space-x-2 text-right shrink-0">
+                      <span className="text-[10px] text-sky-400 font-mono font-bold">
+                        IGST {s.gstRate}%
+                      </span>
+                      <button
+                        type="button"
+                        className="px-2.5 py-1 bg-amber-500 group-hover:bg-amber-400 text-slate-950 font-black text-[10px] rounded-lg transition"
+                      >
+                        चुनें & लिंक करें
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-slate-800 text-[10px] text-slate-400">
+              <span>सुझाव: एक बार चुनने पर अगली बार यह HSN स्वतः लोड होगा।</span>
+              <button
+                type="button"
+                onClick={() => setShowHsnSearchModal(false)}
+                className="px-3 py-1 bg-slate-800 text-slate-300 hover:text-white rounded-lg font-bold"
+              >
+                बंद करें
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: EDIT BILL (बिल की जानकारी बदलें / संशोधित करें) */}
+      {editBillModalOpen && billToEdit && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-4xl w-full p-5 sm:p-6 space-y-4 shadow-2xl my-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2">
+                <Edit3 className="w-5 h-5 text-cyan-400" />
+                <div>
+                  <h3 className="text-sm sm:text-base font-black text-white flex items-center space-x-2">
+                    <span>बिल एडिट / संशोधन करें (Edit Invoice Bill)</span>
+                    <span className="font-mono text-cyan-400 text-xs px-2 py-0.5 bg-cyan-950 rounded border border-cyan-800">
+                      {editBillData.billNumber}
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    रसीद: <span className="font-mono text-slate-300">{billToEdit.receipt}</span> | 
+                    कंटेनर: <span className="font-mono text-slate-300">{billToEdit.container || 'N/A'}</span> | 
+                    मार्का: <span className="font-mono text-cyan-300">{billToEdit.mainMarka || 'N/A'}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditBillModalOpen(false);
+                  setBillToEdit(null);
+                }}
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditedBill} className="space-y-4 text-xs">
+              {/* Row 1: Bill Number, Vehicle Number, E-Way Bill Number, Destination */}
+              <div className="p-3.5 bg-slate-950/70 border border-slate-800 rounded-2xl space-y-3">
+                <div className="text-[11px] font-black text-slate-300 uppercase tracking-wider flex items-center space-x-1.5">
+                  <Truck className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>1. इनवॉइस व वाहन ट्रांसपोर्ट विवरण (Invoice & Transport Details)</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-300 block mb-1">
+                      Invoice Bill No. *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={editBillData.billNumber}
+                      onChange={(e) => setEditBillData({ ...editBillData, billNumber: e.target.value })}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-mono font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold text-emerald-400 block mb-1">
+                      गाड़ी नंबर (Vehicle No.)
+                    </label>
+                    <input
+                      type="text"
+                      value={editBillData.vehicleNumber}
+                      onChange={(e) => setEditBillData({ ...editBillData, vehicleNumber: e.target.value.toUpperCase() })}
+                      placeholder="e.g. DL 01 AB 1234"
+                      className="w-full px-3 py-2 bg-slate-900 border border-emerald-500/50 rounded-xl text-emerald-300 font-mono font-bold uppercase"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold text-amber-300 block mb-1">
+                      e-Way Bill No.
+                    </label>
+                    <input
+                      type="text"
+                      value={editBillData.eWayBillNo}
+                      onChange={(e) => setEditBillData({ ...editBillData, eWayBillNo: e.target.value })}
+                      placeholder="12-digit e-Way Bill"
+                      className="w-full px-3 py-2 bg-slate-900 border border-amber-500/50 rounded-xl text-amber-200 font-mono font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-300 block mb-1">
+                      Destination City
+                    </label>
+                    <input
+                      type="text"
+                      value={editBillData.destination}
+                      onChange={(e) => setEditBillData({ ...editBillData, destination: e.target.value.toUpperCase() })}
+                      placeholder="e.g. GUWAHATI"
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white uppercase font-bold"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Row 2: Consignee (Ship to) Party Details */}
+              <div className="p-3.5 bg-slate-950/70 border border-slate-800 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] font-black text-sky-400 uppercase tracking-wider flex items-center space-x-1.5">
+                    <Building2 className="w-3.5 h-3.5" />
+                    <span>2. Consignee / Shipped To (जिसके पते पर माल भेजा जा रहा है)</span>
+                  </div>
+
+                  {/* Registered vs Unregistered toggle */}
+                  <div className="flex bg-slate-900 border border-slate-700 rounded-lg p-0.5 text-[10px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setEditBillData({ ...editBillData, purchaserRegistrationType: 'Registered' })}
+                      className={`px-2.5 py-1 rounded transition ${
+                        editBillData.purchaserRegistrationType === 'Registered'
+                          ? 'bg-emerald-600 text-white'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Registered (GSTIN)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEditBillData({
+                          ...editBillData,
+                          purchaserRegistrationType: 'Unregistered',
+                          purchaserGstin: '',
+                        })
+                      }
+                      className={`px-2.5 py-1 rounded transition ${
+                        editBillData.purchaserRegistrationType === 'Unregistered'
+                          ? 'bg-amber-600 text-white'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Unregistered (URP)
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-300 block mb-1">
+                      Consignee / Party Legal Name *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={editBillData.purchaserName}
+                      onChange={(e) => setEditBillData({ ...editBillData, purchaserName: e.target.value })}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold text-emerald-400 block mb-1">
+                      Consignee GSTIN {editBillData.purchaserRegistrationType === 'Registered' ? '*' : '(URP)'} (राज्य स्वतः सेट होगा)
+                    </label>
+                    <input
+                      type="text"
+                      disabled={editBillData.purchaserRegistrationType === 'Unregistered'}
+                      value={editBillData.purchaserGstin}
+                      onChange={(e) => {
+                        const upper = e.target.value.toUpperCase();
+                        const next = { ...editBillData, purchaserGstin: upper };
+                        if (upper.length >= 2) {
+                          const stObj = getStateByGstinOrCode(upper);
+                          if (stObj) {
+                            next.consigneeState = stObj.name;
+                            next.consigneeStateCode = stObj.code;
+                          }
+                        }
+                        setEditBillData(next);
+                      }}
+                      placeholder="07AAAAA0000A1Z5"
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-emerald-300 font-mono font-bold uppercase disabled:opacity-50"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="text-[10px] font-bold text-slate-300 block mb-1">
+                      Delivery Address (Ship to Address) *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={editBillData.consigneeAddress}
+                      onChange={(e) => setEditBillData({ ...editBillData, consigneeAddress: e.target.value })}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-300 block mb-1">State (राज्य)</label>
+                      <select
+                        value={editBillData.consigneeState}
+                        onChange={(e) => {
+                          const st = e.target.value;
+                          const code = getStateCodeByName(st) || editBillData.consigneeStateCode;
+                          setEditBillData({ ...editBillData, consigneeState: st, consigneeStateCode: code });
+                        }}
+                        className="w-full px-2 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs"
+                      >
+                        {INDIAN_STATES.map((st) => (
+                          <option key={st.name} value={st.name}>
+                            {st.name} ({st.code})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-300 block mb-1">State Code</label>
+                      <input
+                        type="text"
+                        value={editBillData.consigneeStateCode}
+                        onChange={(e) => setEditBillData({ ...editBillData, consigneeStateCode: e.target.value })}
+                        className="w-full px-2 py-2 bg-slate-900 border border-slate-700 rounded-xl text-amber-300 font-mono font-bold text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Row 3: Buyer (Bill to) Party Details */}
+              <div className="p-3.5 bg-slate-950/70 border border-slate-800 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] font-black text-amber-400 uppercase tracking-wider flex items-center space-x-1.5">
+                    <Building2 className="w-3.5 h-3.5" />
+                    <span>3. Buyer / Billed To (जिसके नाम इनवॉइस बनेगा)</span>
+                  </div>
+
+                  <label className="flex items-center space-x-2 cursor-pointer bg-slate-900 border border-slate-700 px-2.5 py-1 rounded-lg">
+                    <input
+                      type="checkbox"
+                      checked={editBillData.sameAsConsignee}
+                      onChange={(e) => setEditBillData({ ...editBillData, sameAsConsignee: e.target.checked })}
+                      className="rounded bg-slate-950 border-slate-700 text-amber-500 focus:ring-amber-500"
+                    />
+                    <span className="text-[10px] font-bold text-slate-300">
+                      Same as Consignee / सेम खरीदार
+                    </span>
+                  </label>
+                </div>
+
+                {!editBillData.sameAsConsignee && (
+                  <div className="space-y-3 pt-1 border-t border-slate-800">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-300 block mb-1">Buyer Legal Name</label>
+                        <input
+                          type="text"
+                          value={editBillData.buyerName}
+                          onChange={(e) => setEditBillData({ ...editBillData, buyerName: e.target.value })}
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-300 block mb-1">Buyer GSTIN (राज्य स्वतः सेट होगा)</label>
+                        <input
+                          type="text"
+                          value={editBillData.buyerGstin}
+                          onChange={(e) => {
+                            const upper = e.target.value.toUpperCase();
+                            const next = { ...editBillData, buyerGstin: upper };
+                            if (upper.length >= 2) {
+                              const stObj = getStateByGstinOrCode(upper);
+                              if (stObj) {
+                                next.buyerState = stObj.name;
+                                next.buyerStateCode = stObj.code;
+                              }
+                            }
+                            setEditBillData(next);
+                          }}
+                          placeholder="Buyer GSTIN"
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-mono uppercase"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="sm:col-span-2">
+                        <label className="text-[10px] font-bold text-slate-300 block mb-1">Buyer Billing Address</label>
+                        <input
+                          type="text"
+                          value={editBillData.buyerAddress}
+                          onChange={(e) => setEditBillData({ ...editBillData, buyerAddress: e.target.value })}
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-300 block mb-1">Buyer State</label>
+                          <select
+                            value={editBillData.buyerState}
+                            onChange={(e) => {
+                              const st = e.target.value;
+                              const code = getStateCodeByName(st) || editBillData.buyerStateCode;
+                              setEditBillData({ ...editBillData, buyerState: st, buyerStateCode: code });
+                            }}
+                            className="w-full px-2 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs"
+                          >
+                            {INDIAN_STATES.map((st) => (
+                              <option key={st.name} value={st.name}>
+                                {st.name} ({st.code})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-300 block mb-1">State Code</label>
+                          <input
+                            type="text"
+                            value={editBillData.buyerStateCode}
+                            onChange={(e) => setEditBillData({ ...editBillData, buyerStateCode: e.target.value })}
+                            className="w-full px-2 py-2 bg-slate-900 border border-slate-700 rounded-xl text-amber-300 font-mono font-bold text-xs"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Row 4: Items Table (Add, Remove, Edit Description, HSN, Quantity, Unit, Rate) */}
+              <div className="p-3.5 bg-slate-950/70 border border-amber-500/40 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] font-black text-amber-300 uppercase tracking-wider flex items-center space-x-1.5">
+                    <ListPlus className="w-3.5 h-3.5 text-amber-400" />
+                    <span>4. इनवॉइस वस्तुएं (Invoice Items: HSN, Unit, Quantity, Rate)</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleEditBillAddItem}
+                    className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-[10px] transition flex items-center space-x-1"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>+ Add Item Row</span>
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto rounded-xl border border-slate-800">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-slate-900 text-slate-400 border-b border-slate-800 text-[10px]">
+                      <tr>
+                        <th className="p-2 text-center w-8">#</th>
+                        <th className="p-2">Description of Goods</th>
+                        <th className="p-2 w-44">HSN / SAC</th>
+                        <th className="p-2 w-24">Quantity</th>
+                        <th className="p-2 w-20">Unit</th>
+                        <th className="p-2 w-24">Rate (₹)</th>
+                        <th className="p-2 w-28 text-right">Amount (₹)</th>
+                        <th className="p-2 text-center w-8">Del</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/80 bg-slate-950/80 font-medium">
+                      {editBillData.items.map((it: FormLineItem, idx: number) => (
+                        <tr key={idx} className="hover:bg-slate-900/50">
+                          <td className="p-2 text-center font-mono text-slate-500">{idx + 1}</td>
+                          <td className="p-1.5">
+                            <input
+                              type="text"
+                              required
+                              value={it.description}
+                              onChange={(e) => handleEditBillUpdateItem(idx, 'description', e.target.value)}
+                              placeholder="Item Name"
+                              className="w-full px-2 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-bold text-xs"
+                            />
+                          </td>
+                          <td className="p-1.5">
+                            <div className="flex items-center space-x-1">
+                              <input
+                                type="text"
+                                required
+                                value={it.hsnCode}
+                                onChange={(e) => handleEditBillUpdateItem(idx, 'hsnCode', e.target.value)}
+                                placeholder="HSN"
+                                className="w-full px-2 py-1.5 bg-slate-900 border border-amber-500/50 rounded-lg text-amber-200 font-mono text-xs font-bold"
+                              />
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openHsnModal(it.description || 'Goods', (selectedHsn) => {
+                                    handleEditBillUpdateItem(idx, 'hsnCode', selectedHsn);
+                                  })
+                                }
+                                className="px-1.5 py-1.5 bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 rounded-lg text-[10px] font-bold transition shrink-0"
+                                title="HSN सुझाव / सर्च"
+                              >
+                                🔍
+                              </button>
+                            </div>
+                          </td>
+                          <td className="p-1.5">
+                            <input
+                              type="number"
+                              step="any"
+                              required
+                              value={it.quantity}
+                              onChange={(e) => handleEditBillUpdateItem(idx, 'quantity', e.target.value)}
+                              className="w-full px-2 py-1.5 bg-slate-900 border border-purple-500/40 rounded-lg text-purple-200 font-mono text-xs font-bold"
+                            />
+                          </td>
+                          <td className="p-1.5">
+                            <select
+                              value={it.unit}
+                              onChange={(e) => handleEditBillUpdateItem(idx, 'unit', e.target.value)}
+                              className="w-full px-1.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-xs font-bold"
+                            >
+                              <option value="PCS">PCS</option>
+                              <option value="KGS">KG</option>
+                              <option value="CTN">CTN</option>
+                            </select>
+                          </td>
+                          <td className="p-1.5">
+                            <input
+                              type="number"
+                              step="any"
+                              required
+                              value={it.rate}
+                              onChange={(e) => handleEditBillUpdateItem(idx, 'rate', e.target.value)}
+                              className="w-full px-2 py-1.5 bg-slate-900 border border-sky-500/40 rounded-lg text-sky-200 font-mono text-xs font-bold"
+                            />
+                          </td>
+                          <td className="p-2 text-right font-mono text-emerald-400 font-bold">
+                            ₹{(Number(it.amount) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="p-1.5 text-center">
+                            {editBillData.items.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => handleEditBillRemoveItem(idx)}
+                                className="p-1 text-slate-500 hover:text-red-400 rounded transition"
+                                title="हटाएं"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Totals Summary */}
+                <div className="flex flex-col sm:flex-row items-end sm:items-center justify-between gap-3 pt-2 border-t border-slate-800 text-xs">
+                  <span className="text-slate-400 text-[11px]">
+                    कुल आइटम्स: <strong className="text-white font-mono">{editBillData.items.length}</strong>
+                  </span>
+                  <div className="flex items-center space-x-4 bg-slate-900 px-3.5 py-2 rounded-xl border border-slate-800">
+                    <div>
+                      <span className="text-slate-400 text-[10px] block">Taxable Value</span>
+                      <strong className="text-white font-mono text-xs">
+                        ₹
+                        {editBillData.items
+                          .reduce((s: number, it: FormLineItem) => s + (Number(it.amount) || 0), 0)
+                          .toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 text-[10px] block">IGST 18%</span>
+                      <strong className="text-sky-400 font-mono text-xs">
+                        ₹
+                        {(
+                          (editBillData.items.reduce(
+                            (s: number, it: FormLineItem) => s + (Number(it.amount) || 0),
+                            0
+                          ) *
+                            18) /
+                          100
+                        ).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+                    <div className="border-l border-slate-700 pl-3">
+                      <span className="text-emerald-400 font-bold text-[10px] block">Grand Total</span>
+                      <strong className="text-emerald-300 font-mono text-sm font-black">
+                        ₹
+                        {(
+                          editBillData.items.reduce(
+                            (s: number, it: FormLineItem) => s + (Number(it.amount) || 0),
+                            0
+                          ) * 1.18
+                        ).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Submit Buttons */}
+              <div className="flex items-center justify-end space-x-3 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditBillModalOpen(false);
+                    setBillToEdit(null);
+                  }}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold transition"
+                >
+                  रद्द करें (Cancel)
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingEditBill}
+                  className="px-6 py-2.5 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white font-black rounded-xl text-xs transition flex items-center space-x-2 shadow-lg shadow-cyan-900/40"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>
+                    {isSavingEditBill
+                      ? 'अपडेट हो रहा है...'
+                      : '💾 संशोधन सेव करें और नया PDF डाउनलोड करें'}
+                  </span>
                 </button>
               </div>
             </form>

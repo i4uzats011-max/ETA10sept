@@ -36,6 +36,7 @@ import {
   X,
 } from 'lucide-react';
 import { generateBillPDF, generateConsolidatedMarkaPDF, BillPdfData } from '@/lib/billPdf';
+import { INDIAN_STATES, getStateCodeByName, getStateByGstinOrCode } from '@/lib/states';
 
 interface BillItem extends BillPdfData {
   _id: string;
@@ -103,6 +104,7 @@ interface DeliveryAddress {
   address: string;
   city?: string;
   state?: string;
+  stateCode?: string;
   pincode?: string;
   contactPerson?: string;
   phone?: string;
@@ -156,11 +158,14 @@ export default function DispatcherPortalPage() {
   // Add / Edit Address Modal State
   const [showAddressModal, setShowAddressModal] = useState(false);
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
+  const [addrRegType, setAddrRegType] = useState<'Registered' | 'Unregistered'>('Registered');
+  const [addrGstin, setAddrGstin] = useState('');
   const [addressForm, setAddressForm] = useState<DeliveryAddress>({
     title: '',
     address: '',
     city: 'Delhi',
     state: 'Delhi',
+    stateCode: '07',
     pincode: '',
     contactPerson: '',
     phone: '',
@@ -174,6 +179,54 @@ export default function DispatcherPortalPage() {
   const [quickVehicleInput, setQuickVehicleInput] = useState('');
   const [isSavingQuickVehicle, setIsSavingQuickVehicle] = useState(false);
 
+  // Per-vehicle cumulative value check on the same date
+  const checkVehicleCumulativeLimit = (
+    vehNo: string,
+    additionalAmount: number,
+    isDelhi: boolean,
+    currentEWayBill: string,
+    targetBillDate?: string
+  ): { requiresConfirm: boolean; message?: string } => {
+    const cleanVeh = vehNo.trim().toUpperCase().replace(/\s+/g, '');
+    if (!cleanVeh) return { requiresConfirm: false };
+
+    if (currentEWayBill.trim()) return { requiresConfirm: false };
+
+    const threshold = isDelhi ? 100000 : 50000;
+    const todayDateStr = targetBillDate || new Date().toISOString().split('T')[0];
+
+    const matchingBillsOnSameDate = bills.filter((b) => {
+      if (!b.vehicleNumber) return false;
+      const bVeh = b.vehicleNumber.trim().toUpperCase().replace(/\s+/g, '');
+      if (bVeh !== cleanVeh) return false;
+
+      const bDate = b.createdAt ? new Date(b.createdAt).toISOString().split('T')[0] : '';
+      return bDate === todayDateStr;
+    });
+
+    const existingVehicleTotal = matchingBillsOnSameDate.reduce(
+      (sum, b) => sum + (Number(b.totalAmount) || 0),
+      0
+    );
+    const cumulativeTotal = existingVehicleTotal + additionalAmount;
+
+    if (cumulativeTotal > threshold) {
+      const msg =
+        `⚠️ गाड़ी दैनिक लिमिट चेतावनी (Vehicle Cumulative Limit Warning):\n\n` +
+        `गाड़ी नंबर: ${vehNo.trim().toUpperCase()}\n` +
+        `दिनांक (Date): ${todayDateStr}\n` +
+        `इस गाड़ी में आज पहले से अलॉट बिल: ${matchingBillsOnSameDate.length} बिल (कुल राशि: ₹${existingVehicleTotal.toLocaleString('en-IN')})\n` +
+        `वर्तमान बिल / बैच राशि: ₹${additionalAmount.toLocaleString('en-IN')}\n` +
+        `गाड़ी में कुल संचयी माल (Cumulative Total): ₹${cumulativeTotal.toLocaleString('en-IN')}\n\n` +
+        `यह राशि बिना E-Way Bill की निर्धारित सीमा (₹${threshold.toLocaleString('en-IN')} - ${isDelhi ? 'Intra-Delhi' : 'Inter-State'}) से अधिक है!\n\n` +
+        `क्या आप वाकई इस गाड़ी में बिना E-Way Bill के यह प्रोसेस करना चाहते हैं?\n` +
+        `'OK' दबाकर पुष्टि (Confirm) करें, अथवा 'Cancel' करें।`;
+      return { requiresConfirm: true, message: msg };
+    }
+
+    return { requiresConfirm: false };
+  };
+
   const handleOpenVehicleModal = (b: BillItem) => {
     setTargetBillForVehicle(b);
     setQuickVehicleInput(b.vehicleNumber || '');
@@ -183,6 +236,22 @@ export default function DispatcherPortalPage() {
   const handleSaveQuickVehicle = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!targetBillForVehicle) return;
+
+    const targetState = (targetBillForVehicle.consigneeState || targetBillForVehicle.buyerState || '').toLowerCase();
+    const targetCode = (targetBillForVehicle.consigneeStateCode || targetBillForVehicle.buyerStateCode || '').trim();
+    const isDelhiTarget = targetState.includes('delhi') || targetCode === '07';
+    const vehCheck = checkVehicleCumulativeLimit(
+      quickVehicleInput,
+      Number(targetBillForVehicle.totalAmount) || 0,
+      isDelhiTarget,
+      targetBillForVehicle.eWayBillNo || '',
+      targetBillForVehicle.createdAt ? new Date(targetBillForVehicle.createdAt).toISOString().split('T')[0] : undefined
+    );
+    if (vehCheck.requiresConfirm) {
+      const proceed = window.confirm(vehCheck.message);
+      if (!proceed) return;
+    }
+
     setIsSavingQuickVehicle(true);
     try {
       const res = await fetch('/api/billing', {
@@ -463,6 +532,7 @@ export default function DispatcherPortalPage() {
 
     setIsSavingAddress(true);
     try {
+      const stCode = addressForm.stateCode || getStateCodeByName(addressForm.state || 'Delhi') || '07';
       if (editingAddressId) {
         // Edit existing address
         const res = await fetch('/api/marka-addresses', {
@@ -472,6 +542,7 @@ export default function DispatcherPortalPage() {
             marka: effectiveMarka,
             addressId: editingAddressId,
             ...addressForm,
+            stateCode: stCode,
           }),
         });
         const data = await res.json();
@@ -484,7 +555,14 @@ export default function DispatcherPortalPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             marka: effectiveMarka,
-            address: addressForm,
+            registrationType: addrRegType,
+            gstin: addrGstin.trim().toUpperCase(),
+            state: addressForm.state,
+            stateCode: stCode,
+            address: {
+              ...addressForm,
+              stateCode: stCode,
+            },
           }),
         });
         const data = await res.json();
@@ -498,11 +576,14 @@ export default function DispatcherPortalPage() {
 
       setShowAddressModal(false);
       setEditingAddressId(null);
+      setAddrRegType('Registered');
+      setAddrGstin('');
       setAddressForm({
         title: '',
         address: '',
         city: 'Delhi',
         state: 'Delhi',
+        stateCode: '07',
         pincode: '',
         contactPerson: '',
         phone: '',
@@ -541,11 +622,14 @@ export default function DispatcherPortalPage() {
   // Open Edit Modal
   const openEditModal = (addr: DeliveryAddress) => {
     setEditingAddressId(addr._id || null);
+    setAddrRegType(markaRecord?.registrationType || 'Registered');
+    setAddrGstin(markaRecord?.gstin || '');
     setAddressForm({
       title: addr.title || '',
       address: addr.address || '',
       city: addr.city || 'Delhi',
       state: addr.state || 'Delhi',
+      stateCode: addr.stateCode || getStateCodeByName(addr.state || 'Delhi') || '07',
       pincode: addr.pincode || '',
       contactPerson: addr.contactPerson || '',
       phone: addr.phone || '',
@@ -656,6 +740,27 @@ export default function DispatcherPortalPage() {
     if (targetIds.length === 0) {
       alert('कृपया जिन बिल्स का माल डिस्पैच करना है, उन्हें चेकबॉक्स से सेलेक्ट करें।');
       return;
+    }
+
+    // Vehicle Cumulative Limit Check
+    const targetBills = bills.filter((b) => targetIds.includes(b._id));
+    const batchTotal = targetBills.reduce((sum, b) => sum + (Number(b.totalAmount) || 0), 0);
+    const anyOutsideDelhi = targetBills.some((b) => {
+      const st = (b.consigneeState || b.buyerState || '').toLowerCase();
+      const cd = (b.consigneeStateCode || b.buyerStateCode || '').trim();
+      return !st.includes('delhi') && cd !== '07';
+    });
+    const hasAllEWay = targetBills.every((b) => Boolean(b.eWayBillNo?.trim()));
+    const vehCheck = checkVehicleCumulativeLimit(
+      vNo,
+      batchTotal,
+      !anyOutsideDelhi,
+      hasAllEWay ? 'YES' : '',
+      dispatchDate
+    );
+    if (vehCheck.requiresConfirm) {
+      const proceed = window.confirm(vehCheck.message);
+      if (!proceed) return;
     }
 
     setIsSubmittingDispatch(true);
@@ -1689,6 +1794,70 @@ export default function DispatcherPortalPage() {
             </div>
 
             <form onSubmit={handleSaveAddress} className="space-y-3.5 text-xs">
+              {/* Registration Type & GSTIN */}
+              <div className="p-2.5 bg-slate-950/80 border border-slate-800 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold text-slate-300">
+                    पार्टी रजिस्ट्रेशन (Registration Type)
+                  </label>
+                  <div className="flex bg-slate-900 border border-slate-700 rounded-lg p-0.5 text-[9px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setAddrRegType('Registered')}
+                      className={`px-2 py-0.5 rounded transition ${
+                        addrRegType === 'Registered' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Registered (GSTIN)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAddrRegType('Unregistered');
+                        setAddrGstin('');
+                      }}
+                      className={`px-2 py-0.5 rounded transition ${
+                        addrRegType === 'Unregistered' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Unregistered (URP)
+                    </button>
+                  </div>
+                </div>
+
+                {addrRegType === 'Registered' ? (
+                  <div>
+                    <label className="text-[9px] font-bold text-emerald-400 block mb-1">
+                      15-Digit GSTIN Number (राज्य स्वतः सेट होगा)
+                    </label>
+                    <input
+                      type="text"
+                      value={addrGstin}
+                      onChange={(e) => {
+                        const upper = e.target.value.toUpperCase();
+                        setAddrGstin(upper);
+                        if (upper.length >= 2) {
+                          const stObj = getStateByGstinOrCode(upper);
+                          if (stObj) {
+                            setAddressForm({
+                              ...addressForm,
+                              state: stObj.name,
+                              stateCode: stObj.code,
+                            });
+                          }
+                        }
+                      }}
+                      placeholder="e.g. 07AAAAA0000A1Z5"
+                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-emerald-500/50 rounded-xl text-emerald-300 font-mono font-bold uppercase text-xs"
+                    />
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-amber-400/90 italic">
+                    ℹ गैर-पंजीकृत पार्टी (URP) - कोई GSTIN दर्ज करने की आवश्यकता नहीं है।
+                  </p>
+                )}
+              </div>
+
               <div className="space-y-1">
                 <label className="text-slate-300 font-bold uppercase text-[10px]">
                   Address Title / Godown Name *
@@ -1727,14 +1896,22 @@ export default function DispatcherPortalPage() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-slate-300 font-bold uppercase text-[10px]">State</label>
-                  <input
-                    type="text"
+                  <label className="text-slate-300 font-bold uppercase text-[10px]">State (राज्य)</label>
+                  <select
                     value={addressForm.state}
-                    onChange={(e) => setAddressForm({ ...addressForm, state: e.target.value })}
-                    placeholder="Delhi"
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
-                  />
+                    onChange={(e) => {
+                      const st = e.target.value;
+                      const code = getStateCodeByName(st) || addressForm.stateCode;
+                      setAddressForm({ ...addressForm, state: st, stateCode: code });
+                    }}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-xs"
+                  >
+                    {INDIAN_STATES.map((st) => (
+                      <option key={st.name} value={st.name}>
+                        {st.name} ({st.code})
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
