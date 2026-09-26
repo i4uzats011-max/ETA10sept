@@ -14,22 +14,43 @@ export async function GET(req: NextRequest) {
     await connectToDatabase();
     let sellers = await Seller.find().sort({ isDefault: -1, createdAt: -1 }).lean();
 
-    // If no seller entities exist in DB, create initial default company
-    if (sellers.length === 0) {
-      const defaultSeller = await Seller.create({
-        name: 'US INTERNATIONAL LOGISTICS',
-        gstin: '07AAACU1234F1Z9',
-        pan: 'AAACU1234F',
-        address: 'B-45, Phase-1, Mayapuri Industrial Area',
-        city: 'New Delhi',
+    // Ensure NORDEX INTERNATIONAL exists as default seller option
+    const nordexIndex = sellers.findIndex((s) => s.name.toUpperCase().includes('NORDEX'));
+    if (nordexIndex === -1) {
+      const nordex = await Seller.create({
+        name: 'NORDEX INTERNATIONAL',
+        gstin: '07AAIHH1727F1ZH',
+        pan: 'AAIHH1727F',
+        address: 'ground floor, house no. 371 plot no. 319, Badli Road, Badli Sub Post Office, Badli',
+        city: 'New Delhi, North West Delhi',
         state: 'Delhi',
         stateCode: '07',
-        pincode: '110064',
-        phone: '+91 9355456060',
-        email: 'info@usinternationallogistics.com',
+        pincode: '110042',
+        phone: '+91 9810000000',
+        email: 'NEWNORDEXINTERNATIONAL2025@GMAIL.COM',
         isDefault: true,
       });
-      sellers = [defaultSeller.toObject()];
+      sellers = [nordex.toObject(), ...sellers];
+    } else {
+      // Keep NORDEX synced with accurate reference details
+      const existing = sellers[nordexIndex];
+      if (existing.gstin !== '07AAIHH1727F1ZH' || existing.email !== 'NEWNORDEXINTERNATIONAL2025@GMAIL.COM') {
+        await Seller.findByIdAndUpdate(existing._id, {
+          gstin: '07AAIHH1727F1ZH',
+          pan: 'AAIHH1727F',
+          address: 'ground floor, house no. 371 plot no. 319, Badli Road, Badli Sub Post Office, Badli',
+          city: 'New Delhi, North West Delhi',
+          state: 'Delhi',
+          stateCode: '07',
+          pincode: '110042',
+          email: 'NEWNORDEXINTERNATIONAL2025@GMAIL.COM',
+        });
+        existing.gstin = '07AAIHH1727F1ZH';
+        existing.address = 'ground floor, house no. 371 plot no. 319, Badli Road, Badli Sub Post Office, Badli';
+        existing.city = 'New Delhi, North West Delhi';
+        existing.pincode = '110042';
+        existing.email = 'NEWNORDEXINTERNATIONAL2025@GMAIL.COM';
+      }
     }
 
     return NextResponse.json({ success: true, sellers });

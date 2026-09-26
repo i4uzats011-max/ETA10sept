@@ -20,7 +20,15 @@ export interface IMarkaAddress extends Document {
   pan?: string;              // PAN number
   state: string;             // State
   stateCode?: string;        // State code
-  addresses: IDeliveryAddress[]; // Multiple delivery addresses for this Marka
+  phone?: string;            // Primary contact phone / mobile
+  email?: string;            // Contact email
+  // Buyer (Bill to) fields if different from Consignee (Ship to)
+  buyerName?: string;        // Buyer legal name (defaults to purchaserName)
+  buyerAddress?: string;     // Buyer physical address
+  buyerGstin?: string;       // Buyer GSTIN
+  buyerState?: string;       // Buyer state
+  buyerStateCode?: string;   // Buyer state code
+  addresses: IDeliveryAddress[]; // Multiple delivery addresses for this Marka (Ship to / Consignee)
   createdAt: Date;
   updatedAt: Date;
 }
@@ -52,6 +60,13 @@ const MarkaAddressSchema = new Schema<IMarkaAddress>(
     pan: { type: String, default: '', trim: true, uppercase: true },
     state: { type: String, default: 'Delhi', trim: true },
     stateCode: { type: String, default: '07', trim: true },
+    phone: { type: String, default: '', trim: true },
+    email: { type: String, default: '', trim: true },
+    buyerName: { type: String, default: '', trim: true },
+    buyerAddress: { type: String, default: '', trim: true },
+    buyerGstin: { type: String, default: '', trim: true, uppercase: true },
+    buyerState: { type: String, default: '', trim: true },
+    buyerStateCode: { type: String, default: '', trim: true },
     addresses: { type: [DeliveryAddressSchema], default: [] },
   },
   {

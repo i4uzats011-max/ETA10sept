@@ -168,6 +168,48 @@ export default function DispatcherPortalPage() {
   });
   const [isSavingAddress, setIsSavingAddress] = useState(false);
 
+  // Quick Vehicle Update Modal State for Dispatcher
+  const [vehicleModalOpen, setVehicleModalOpen] = useState(false);
+  const [targetBillForVehicle, setTargetBillForVehicle] = useState<BillItem | null>(null);
+  const [quickVehicleInput, setQuickVehicleInput] = useState('');
+  const [isSavingQuickVehicle, setIsSavingQuickVehicle] = useState(false);
+
+  const handleOpenVehicleModal = (b: BillItem) => {
+    setTargetBillForVehicle(b);
+    setQuickVehicleInput(b.vehicleNumber || '');
+    setVehicleModalOpen(true);
+  };
+
+  const handleSaveQuickVehicle = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!targetBillForVehicle) return;
+    setIsSavingQuickVehicle(true);
+    try {
+      const res = await fetch('/api/billing', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: targetBillForVehicle._id,
+          vehicleNumber: quickVehicleInput.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update vehicle number');
+
+      setBills((prev) =>
+        prev.map((b) =>
+          b._id === targetBillForVehicle._id ? { ...b, vehicleNumber: quickVehicleInput.trim() } : b
+        )
+      );
+      setVehicleModalOpen(false);
+      setTargetBillForVehicle(null);
+    } catch (err: any) {
+      alert(err.message || 'Error updating vehicle number');
+    } finally {
+      setIsSavingQuickVehicle(false);
+    }
+  };
+
   // Fetch Containers
   const fetchContainers = async () => {
     try {
@@ -1564,16 +1606,26 @@ export default function DispatcherPortalPage() {
                         <td className="p-3.5 text-right text-emerald-400 font-semibold">
                           ₹{Number(b.taxableValue || 0).toLocaleString('en-IN')}
                         </td>
-                        <td className="p-3.5 text-center">
-                          {b.vehicleNumber ? (
-                            <span className="px-2.5 py-1 bg-emerald-950 border border-emerald-700 text-emerald-300 rounded-lg font-black text-xs">
-                              {b.vehicleNumber}
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 bg-amber-950/40 border border-amber-800/40 text-amber-400 rounded text-[10px]">
-                              Pending Vehicle
-                            </span>
-                          )}
+                        <td className="p-3.5 text-center" onClick={(e) => e.stopPropagation()}>
+                          <div className="inline-flex items-center justify-center space-x-1">
+                            {b.vehicleNumber ? (
+                              <span className="px-2.5 py-1 bg-emerald-950 border border-emerald-700 text-emerald-300 rounded-lg font-black text-xs font-mono">
+                                {b.vehicleNumber}
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 bg-amber-950/40 border border-amber-800/40 text-amber-400 rounded text-[10px]">
+                                Pending Vehicle
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleOpenVehicleModal(b)}
+                              title="गाड़ी नंबर अपडेट करें (Edit Vehicle No)"
+                              className="p-1 hover:bg-slate-800 text-slate-400 hover:text-amber-300 rounded-lg transition"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                         <td className="p-3.5 text-center">
                           {b.isDispatched ? (
@@ -1749,6 +1801,82 @@ export default function DispatcherPortalPage() {
                     <span>Saving...</span>
                   ) : (
                     <span>{editingAddressId ? 'Update Address' : 'Save Address'}</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Vehicle Edit Modal */}
+      {vehicleModalOpen && targetBillForVehicle && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2">
+                <Truck className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-base font-bold text-white">गाड़ी नंबर अपडेट करें (Update Vehicle)</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setVehicleModalOpen(false)}
+                className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800/80 text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Receipt No:</span>
+                <span className="font-bold text-emerald-400">{targetBillForVehicle.receipt}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Bill Number:</span>
+                <span className="font-bold text-white">{targetBillForVehicle.billNumber}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Marka / Party:</span>
+                <span className="font-bold text-slate-200">
+                  {targetBillForVehicle.mainMarka} / {targetBillForVehicle.party}
+                </span>
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveQuickVehicle} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-slate-300 font-bold uppercase text-[10px]">
+                  गाड़ी नंबर (Vehicle Number) *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={quickVehicleInput}
+                  onChange={(e) => setQuickVehicleInput(e.target.value.toUpperCase())}
+                  placeholder="e.g. DL 01 AB 1234"
+                  className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono font-bold tracking-wider uppercase text-sm"
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setVehicleModalOpen(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingQuickVehicle}
+                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm transition flex items-center space-x-1.5 disabled:opacity-50"
+                >
+                  {isSavingQuickVehicle ? (
+                    <span>Saving...</span>
+                  ) : (
+                    <span>Save Vehicle No</span>
                   )}
                 </button>
               </div>

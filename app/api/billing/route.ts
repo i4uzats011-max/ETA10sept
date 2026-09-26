@@ -101,11 +101,49 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      const hsnCode = String(item.hsnCode || item['HSN Code'] || item.hsn || '').trim();
+      const rawItemsList = Array.isArray(item.items) ? item.items : [];
+      let parsedItems: any[] = [];
+      if (rawItemsList.length > 0) {
+        parsedItems = rawItemsList.map((it: any, idx: number) => {
+          const desc = String(it.description || it.commodity || it['Item Name'] || it.english || 'Goods').trim();
+          const h = String(it.hsnCode || it.hsn || item.hsnCode || '9997').trim();
+          const q = Number(it.quantity || it.quantityPcs || it.qty || 0);
+          const u = String(it.unit || it.billingUnit || 'PCS').trim().toUpperCase();
+          const r = Number(it.rate || 0);
+          const a = Number(it.amount || (q * r).toFixed(2));
+          return {
+            itemNo: idx + 1,
+            description: desc,
+            hsnCode: h,
+            quantity: q,
+            unit: u,
+            rate: r,
+            amount: a,
+          };
+        });
+      }
+
+      const hsnCode = String(item.hsnCode || item['HSN Code'] || item.hsn || (parsedItems[0]?.hsnCode) || '').trim();
       const igst = Number(item.igst || item.IGST || 18);
-      const quantityPcs = Number(item.quantityPcs || item['Quantity pcs'] || item['Quntity pcs'] || item.pcs || 0);
-      const quantityKg = Number(item.quantityKg || item['Quantity kg'] || item['Weight kg'] || item.kg || 0);
-      const taxableValue = Number(item.taxableValue || item['Taxable'] || item.taxable || 0);
+      let quantityPcs = Number(item.quantityPcs || item['Quantity pcs'] || item['Quntity pcs'] || item.pcs || 0);
+      let quantityKg = Number(item.quantityKg || item['Quantity kg'] || item['Weight kg'] || item.kg || 0);
+      let taxableValue = Number(item.taxableValue || item['Taxable'] || item.taxable || 0);
+
+      if (parsedItems.length > 0) {
+        if (!taxableValue) {
+          taxableValue = Number(parsedItems.reduce((acc, it) => acc + (it.amount || 0), 0).toFixed(2));
+        }
+        if (!quantityPcs) {
+          quantityPcs = parsedItems
+            .filter((it) => it.unit.toUpperCase().includes('PC'))
+            .reduce((acc, it) => acc + (it.quantity || 0), 0);
+        }
+        if (!quantityKg) {
+          quantityKg = parsedItems
+            .filter((it) => it.unit.toUpperCase().includes('KG'))
+            .reduce((acc, it) => acc + (it.quantity || 0), 0);
+        }
+      }
 
       // Attempt to look up existing shipment details by receipt
       const shipment = await Shipment.findOne({
@@ -114,7 +152,7 @@ export async function POST(req: NextRequest) {
 
       // Cartons and billing unit
       const totalCartons = Number(item.totalCartons || item.cartons || item['Cartons'] || item['Cartons (CTN)'] || (shipment as any)?.quantity || 0);
-      const rawUnit = String(item.billingUnit || item['Billing Unit'] || 'Pcs').trim().toLowerCase();
+      const rawUnit = String(item.billingUnit || item['Billing Unit'] || (parsedItems[0]?.unit) || 'Pcs').trim().toLowerCase();
       const billingUnit: 'Pcs' | 'KG' | 'Cartons' = rawUnit.includes('kg') ? 'KG' : rawUnit.includes('carton') || rawUnit.includes('ctn') ? 'Cartons' : 'Pcs';
 
       const igstAmount = Number((taxableValue * (igst / 100)).toFixed(2));
@@ -125,10 +163,23 @@ export async function POST(req: NextRequest) {
       const party = item.party || (shipment as any)?.party || 'General Party';
       const mainMarka = item.mainMarka || (shipment as any)?.mainMarka || '';
       const subMarka = item.subMarka || (shipment as any)?.subMarka || '';
-      const commodity = item.commodity || (shipment as any)?.commodity || (shipment as any)?.english || 'Commercial Cargo';
+      const commodity = item.commodity || (parsedItems[0]?.description) || (shipment as any)?.commodity || (shipment as any)?.english || 'Commercial Cargo';
       const warehouse = item.warehouse || (shipment as any)?.warehouse || '';
       const loadingDate = item.loadingDate || (shipment as any)?.loadingDate || '';
       const eta = item.eta || (shipment as any)?.eta || '';
+
+      const vehicleNumber = String(item.vehicleNumber || item['Vehicle Number'] || item['गाड़ी नंबर'] || '').trim();
+      const eWayBillNo = String(item.eWayBillNo || item['e-Way Bill No.'] || item['eWayBillNo'] || '').trim();
+      const deliveryNote = String(item.deliveryNote || item['Delivery Note'] || '').trim();
+      const modeOfPayment = String(item.modeOfPayment || item['Mode/Terms of Payment'] || '').trim();
+      const referenceNo = String(item.referenceNo || item['Reference No. & Date.'] || '').trim();
+      const otherReferences = String(item.otherReferences || item['Other References'] || '').trim();
+      const buyerOrderNo = String(item.buyerOrderNo || item["Buyer's Order No."] || '').trim();
+      const buyerOrderDate = String(item.buyerOrderDate || '').trim();
+      const dispatchDocNo = String(item.dispatchDocNo || item['Dispatch Doc No.'] || '').trim();
+      const deliveryNoteDate = String(item.deliveryNoteDate || item['Delivery Note Date'] || '').trim();
+      const destination = String(item.destination || item['Destination'] || '').trim();
+      const termsOfDelivery = String(item.termsOfDelivery || item['Terms of Delivery'] || '').trim();
 
       const billNumber = item.billNumber || `BILL-${rawReceipt}`;
 
@@ -137,19 +188,27 @@ export async function POST(req: NextRequest) {
       let sellerName = item.sellerName || '';
       let sellerGstin = item.sellerGstin || '';
       let sellerAddress = item.sellerAddress || '';
+      let sellerCity = item.sellerCity || '';
+      let sellerPincode = item.sellerPincode || '';
       let sellerState = item.sellerState || '';
       let sellerStateCode = item.sellerStateCode || '';
+      let sellerPhone = item.sellerPhone || '';
+      let sellerEmail = item.sellerEmail || '';
       let sellerId = item.sellerId || '';
 
-      if (!sellerName) {
+      if (!sellerName || !sellerPhone || !sellerEmail) {
         const defSeller: any = (await Seller.findOne({ isDefault: true }).lean()) || (await Seller.findOne().lean());
         if (defSeller) {
-          sellerId = defSeller._id.toString();
-          sellerName = defSeller.name;
-          sellerGstin = defSeller.gstin || '';
-          sellerAddress = defSeller.address;
-          sellerState = defSeller.state;
-          sellerStateCode = defSeller.stateCode || '';
+          sellerId = sellerId || defSeller._id.toString();
+          sellerName = sellerName || defSeller.name;
+          sellerGstin = sellerGstin || defSeller.gstin || '';
+          sellerAddress = sellerAddress || defSeller.address;
+          sellerCity = sellerCity || defSeller.city || '';
+          sellerPincode = sellerPincode || defSeller.pincode || '';
+          sellerState = sellerState || defSeller.state || 'Delhi';
+          sellerStateCode = sellerStateCode || defSeller.stateCode || '07';
+          sellerPhone = sellerPhone || defSeller.phone || '';
+          sellerEmail = sellerEmail || defSeller.email || '';
         }
       }
 
@@ -166,6 +225,50 @@ export async function POST(req: NextRequest) {
       const purchaserRegistrationType = item.purchaserRegistrationType || existingMarkaRecord?.registrationType || 'Registered';
       const purchaserGstin = (item.purchaserGstin !== undefined ? item.purchaserGstin : existingMarkaRecord?.gstin) || '';
       const purchaserAddress = item.purchaserAddress || existingMarkaRecord?.addresses?.[0]?.address || '';
+      const purchaserState = item.purchaserState || existingMarkaRecord?.state || 'Delhi';
+      const purchaserStateCode = item.purchaserStateCode || existingMarkaRecord?.stateCode || '07';
+
+      // Consignee (Ship To) & Buyer (Bill To)
+      const consigneeName = item.consigneeName || existingMarkaRecord?.purchaserName || purchaserName;
+      const consigneeAddress = item.consigneeAddress || existingMarkaRecord?.addresses?.[0]?.address || purchaserAddress;
+      const consigneeGstin = item.consigneeGstin || purchaserGstin;
+      const consigneeState = item.consigneeState || purchaserState;
+      const consigneeStateCode = item.consigneeStateCode || purchaserStateCode;
+
+      const buyerName = item.buyerName || existingMarkaRecord?.buyerName || consigneeName;
+      const buyerAddress = item.buyerAddress || existingMarkaRecord?.buyerAddress || consigneeAddress;
+      const buyerGstin = item.buyerGstin || existingMarkaRecord?.buyerGstin || consigneeGstin;
+      const buyerState = item.buyerState || existingMarkaRecord?.buyerState || consigneeState;
+      const buyerStateCode = item.buyerStateCode || existingMarkaRecord?.buyerStateCode || consigneeStateCode;
+
+      // Rate calculation
+      const primaryQty = billingUnit === 'KG' ? (quantityKg || 1) : billingUnit === 'Cartons' ? (totalCartons || 1) : (quantityPcs || quantityKg || 1);
+      const rate = Number(item.rate) || (taxableValue && primaryQty ? Number((taxableValue / primaryQty).toFixed(2)) : 0);
+
+      // Statutory E-Way Bill Rule:
+      // Outside Delhi (> ₹50,000): eWayBillNo is strictly required
+      // Delhi Local / Intra-state (> ₹1,00,000): eWayBillNo is strictly required
+      const isConsigneeDelhi =
+        consigneeState?.toLowerCase().includes('delhi') ||
+        consigneeStateCode === '07' ||
+        buyerState?.toLowerCase().includes('delhi') ||
+        buyerStateCode === '07';
+
+      if (!isConsigneeDelhi && totalAmount > 50000 && !eWayBillNo) {
+        errors.push({
+          receipt: rawReceipt,
+          error: `आउटसाइड दिल्ली (${consigneeState || buyerState || 'Other State'}) के लिए ₹50,000 से अधिक राशि (₹${totalAmount.toLocaleString('en-IN')}) के बिल के लिए E-Way Bill No. अनिवार्य है।`,
+        });
+        continue;
+      }
+
+      if (isConsigneeDelhi && totalAmount > 100000 && !eWayBillNo) {
+        errors.push({
+          receipt: rawReceipt,
+          error: `दिल्ली के भीतर (Intra-Delhi) ₹1,00,000 से अधिक राशि (₹${totalAmount.toLocaleString('en-IN')}) के बिल के लिए E-Way Bill No. अनिवार्य है।`,
+        });
+        continue;
+      }
 
       // Auto-save/sync Marka Purchaser directory if Marka is present
       if (effectiveMarka) {
@@ -175,13 +278,19 @@ export async function POST(req: NextRequest) {
             purchaserName,
             registrationType: purchaserRegistrationType,
             gstin: purchaserGstin,
-            state: 'Delhi',
-            addresses: purchaserAddress
+            state: purchaserState,
+            stateCode: purchaserStateCode,
+            buyerName,
+            buyerAddress,
+            buyerGstin,
+            buyerState,
+            buyerStateCode,
+            addresses: consigneeAddress
               ? [
                   {
                     title: 'Primary Godown',
-                    address: purchaserAddress,
-                    state: 'Delhi',
+                    address: consigneeAddress,
+                    state: consigneeState,
                     isDefault: true,
                   },
                 ]
@@ -201,11 +310,15 @@ export async function POST(req: NextRequest) {
             existingMarkaRecord.gstin = item.purchaserGstin;
             modified = true;
           }
+          if (item.buyerAddress && existingMarkaRecord.buyerAddress !== item.buyerAddress) {
+            existingMarkaRecord.buyerAddress = item.buyerAddress;
+            modified = true;
+          }
           if (item.purchaserAddress && existingMarkaRecord.addresses.length === 0) {
             existingMarkaRecord.addresses.push({
               title: 'Primary Godown',
               address: item.purchaserAddress,
-              state: 'Delhi',
+              state: purchaserState,
               isDefault: true,
             });
             modified = true;
@@ -228,6 +341,7 @@ export async function POST(req: NextRequest) {
         existingBill.taxableValue = taxableValue || existingBill.taxableValue;
         existingBill.igstAmount = igstAmount;
         existingBill.totalAmount = totalAmount;
+        existingBill.rate = rate;
 
         if (container) existingBill.container = container;
         if (containerNumber) existingBill.containerNumber = containerNumber;
@@ -247,14 +361,46 @@ export async function POST(req: NextRequest) {
         existingBill.sellerName = sellerName;
         existingBill.sellerGstin = sellerGstin;
         existingBill.sellerAddress = sellerAddress;
+        existingBill.sellerCity = sellerCity;
+        existingBill.sellerPincode = sellerPincode;
         existingBill.sellerState = sellerState;
         existingBill.sellerStateCode = sellerStateCode;
+        existingBill.sellerPhone = sellerPhone;
+        existingBill.sellerEmail = sellerEmail;
 
-        // Purchaser
+        // Purchaser & Consignee / Buyer
         existingBill.purchaserName = purchaserName;
         existingBill.purchaserRegistrationType = purchaserRegistrationType;
         existingBill.purchaserGstin = purchaserGstin;
         existingBill.purchaserAddress = purchaserAddress;
+        existingBill.purchaserState = purchaserState;
+        existingBill.purchaserStateCode = purchaserStateCode;
+
+        existingBill.consigneeName = consigneeName;
+        existingBill.consigneeAddress = consigneeAddress;
+        existingBill.consigneeGstin = consigneeGstin;
+        existingBill.consigneeState = consigneeState;
+        existingBill.consigneeStateCode = consigneeStateCode;
+
+        existingBill.buyerName = buyerName;
+        existingBill.buyerAddress = buyerAddress;
+        existingBill.buyerGstin = buyerGstin;
+        existingBill.buyerState = buyerState;
+        existingBill.buyerStateCode = buyerStateCode;
+
+        if (parsedItems.length > 0) existingBill.items = parsedItems;
+        if (vehicleNumber) existingBill.vehicleNumber = vehicleNumber;
+        if (eWayBillNo) existingBill.eWayBillNo = eWayBillNo;
+        if (deliveryNote) existingBill.deliveryNote = deliveryNote;
+        if (modeOfPayment) existingBill.modeOfPayment = modeOfPayment;
+        if (referenceNo) existingBill.referenceNo = referenceNo;
+        if (otherReferences) existingBill.otherReferences = otherReferences;
+        if (buyerOrderNo) existingBill.buyerOrderNo = buyerOrderNo;
+        if (buyerOrderDate) existingBill.buyerOrderDate = buyerOrderDate;
+        if (dispatchDocNo) existingBill.dispatchDocNo = dispatchDocNo;
+        if (deliveryNoteDate) existingBill.deliveryNoteDate = deliveryNoteDate;
+        if (destination) existingBill.destination = destination;
+        if (termsOfDelivery) existingBill.termsOfDelivery = termsOfDelivery;
 
         await existingBill.save();
         results.push(existingBill);
@@ -273,6 +419,8 @@ export async function POST(req: NextRequest) {
           taxableValue,
           igstAmount,
           totalAmount,
+          rate,
+          items: parsedItems.length > 0 ? parsedItems : undefined,
           container,
           containerNumber,
           party,
@@ -286,18 +434,56 @@ export async function POST(req: NextRequest) {
           sellerName,
           sellerGstin,
           sellerAddress,
+          sellerCity,
+          sellerPincode,
           sellerState,
           sellerStateCode,
+          sellerPhone,
+          sellerEmail,
           purchaserName,
           purchaserRegistrationType,
           purchaserGstin,
           purchaserAddress,
-          vehicleNumber: '', // initially without vehicle number as requested
+          purchaserState,
+          purchaserStateCode,
+          consigneeName,
+          consigneeAddress,
+          consigneeGstin,
+          consigneeState,
+          consigneeStateCode,
+          buyerName,
+          buyerAddress,
+          buyerGstin,
+          buyerState,
+          buyerStateCode,
+          vehicleNumber: vehicleNumber || '',
           isDispatched: false,
           dispatchStatus: 'Pending Dispatch',
+          eWayBillNo,
+          deliveryNote,
+          modeOfPayment,
+          referenceNo,
+          otherReferences,
+          buyerOrderNo,
+          buyerOrderDate,
+          dispatchDocNo,
+          deliveryNoteDate,
+          destination,
+          termsOfDelivery,
         });
         results.push(newBill);
       }
+    }
+
+    if (results.length === 0 && errors.length > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: errors[0].error || 'Failed to process bill',
+          errors,
+        },
+        { status: 400 }
+      );
     }
 
     return NextResponse.json({
@@ -311,6 +497,64 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error('Error creating bills:', error);
     return NextResponse.json({ error: error?.message || 'Failed to generate bills' }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  if (!isAnyAuthenticated(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  try {
+    await connectToDatabase();
+    const body = await req.json();
+    const { id, billIds, vehicleNumber, destination, deliveryAddress, deliveryAddressTitle, deliveryPhone, isDispatched } = body;
+
+    const idsToUpdate: string[] = [];
+    if (id) idsToUpdate.push(id);
+    if (Array.isArray(billIds)) idsToUpdate.push(...billIds);
+
+    if (idsToUpdate.length === 0) {
+      return NextResponse.json({ error: 'Bill ID or billIds array is required' }, { status: 400 });
+    }
+
+    const updateData: any = {};
+    if (vehicleNumber !== undefined) {
+      updateData.vehicleNumber = String(vehicleNumber).trim();
+    }
+    if (destination !== undefined) {
+      updateData.destination = String(destination).trim();
+    }
+    if (deliveryAddress !== undefined) {
+      updateData.deliveryAddress = String(deliveryAddress).trim();
+    }
+    if (deliveryAddressTitle !== undefined) {
+      updateData.deliveryAddressTitle = String(deliveryAddressTitle).trim();
+    }
+    if (deliveryPhone !== undefined) {
+      updateData.deliveryPhone = String(deliveryPhone).trim();
+    }
+    if (isDispatched !== undefined) {
+      updateData.isDispatched = Boolean(isDispatched);
+      if (isDispatched && !updateData.dispatchStatus) {
+        updateData.dispatchStatus = 'Dispatched';
+        updateData.dispatchedAt = new Date();
+      }
+    }
+
+    const res = await Bill.updateMany(
+      { _id: { $in: idsToUpdate } },
+      { $set: updateData }
+    );
+
+    return NextResponse.json({
+      success: true,
+      message: `Successfully updated ${res.modifiedCount} bills`,
+      modifiedCount: res.modifiedCount,
+    });
+  } catch (error: any) {
+    console.error('Error updating bills:', error);
+    return NextResponse.json({ error: error?.message || 'Failed to update bills' }, { status: 500 });
   }
 }
 

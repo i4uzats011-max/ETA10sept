@@ -39,7 +39,24 @@ export async function POST(req: NextRequest) {
   try {
     await connectToDatabase();
     const body = await req.json();
-    const { marka, purchaserName, registrationType, gstin, pan, state, stateCode, address } = body;
+    const {
+      marka,
+      purchaserName,
+      registrationType,
+      gstin,
+      pan,
+      state,
+      stateCode,
+      phone,
+      email,
+      buyerName,
+      buyerAddress,
+      buyerGstin,
+      buyerState,
+      buyerStateCode,
+      address,
+      consigneeAddress,
+    } = body;
 
     const cleanMarka = String(marka || '').trim();
     if (!cleanMarka) {
@@ -59,34 +76,95 @@ export async function POST(req: NextRequest) {
         pan: (pan || '').trim().toUpperCase(),
         state: (state || 'Delhi').trim(),
         stateCode: (stateCode || '07').trim(),
+        phone: (phone || '').trim(),
+        email: (email || '').trim(),
+        buyerName: (buyerName || purchaserName || cleanMarka).trim(),
+        buyerAddress: (buyerAddress || '').trim(),
+        buyerGstin: (buyerGstin || gstin || '').trim().toUpperCase(),
+        buyerState: (buyerState || state || 'Delhi').trim(),
+        buyerStateCode: (buyerStateCode || stateCode || '07').trim(),
         addresses: [],
       });
     } else {
-      if (purchaserName) record.purchaserName = purchaserName.trim();
-      if (registrationType) record.registrationType = registrationType;
+      if (purchaserName !== undefined) record.purchaserName = purchaserName.trim();
+      if (registrationType !== undefined) record.registrationType = registrationType;
       if (gstin !== undefined) record.gstin = (gstin || '').trim().toUpperCase();
       if (pan !== undefined) record.pan = (pan || '').trim().toUpperCase();
-      if (state) record.state = state.trim();
-      if (stateCode) record.stateCode = stateCode.trim();
+      if (state !== undefined) record.state = state.trim();
+      if (stateCode !== undefined) record.stateCode = stateCode.trim();
+      if (phone !== undefined) record.phone = phone.trim();
+      if (email !== undefined) record.email = email.trim();
+      if (buyerName !== undefined) record.buyerName = buyerName.trim();
+      if (buyerAddress !== undefined) record.buyerAddress = buyerAddress.trim();
+      if (buyerGstin !== undefined) record.buyerGstin = (buyerGstin || '').trim().toUpperCase();
+      if (buyerState !== undefined) record.buyerState = buyerState.trim();
+      if (buyerStateCode !== undefined) record.buyerStateCode = buyerStateCode.trim();
     }
 
-    // If adding a new address to this marka
-    if (address && address.address) {
+    // Support multiple addresses per Marka (Sending / Dispatch Locations)
+    if (Array.isArray(body.addresses)) {
+      record.addresses = body.addresses;
+    } else if (address && typeof address === 'object' && address.address) {
+      const addrStr = String(address.address || '').trim();
+      const existingIdx = record.addresses.findIndex(
+        (a: any) => a.address.trim().toLowerCase() === addrStr.toLowerCase()
+      );
+
       const isDefault = Boolean(address.isDefault || record.addresses.length === 0);
       if (isDefault) {
         record.addresses.forEach((a: any) => (a.isDefault = false));
       }
 
-      record.addresses.push({
-        title: (address.title || `Address ${record.addresses.length + 1}`).trim(),
-        address: address.address.trim(),
-        city: (address.city || '').trim(),
-        state: (address.state || record.state || 'Delhi').trim(),
-        pincode: (address.pincode || '').trim(),
-        contactPerson: (address.contactPerson || '').trim(),
-        phone: (address.phone || '').trim(),
-        isDefault,
-      });
+      if (existingIdx !== -1) {
+        // Update existing address
+        const target = record.addresses[existingIdx];
+        if (address.title) target.title = address.title.trim();
+        target.address = addrStr;
+        if (address.city !== undefined) target.city = address.city.trim();
+        if (address.state !== undefined) target.state = address.state.trim();
+        if (address.pincode !== undefined) target.pincode = address.pincode.trim();
+        if (address.contactPerson !== undefined) target.contactPerson = address.contactPerson.trim();
+        if (address.phone !== undefined) target.phone = address.phone.trim();
+        target.isDefault = isDefault;
+      } else {
+        // Append new location / address
+        record.addresses.push({
+          title: (address.title || `Location ${record.addresses.length + 1}`).trim(),
+          address: addrStr,
+          city: (address.city || '').trim(),
+          state: (address.state || record.state || 'Delhi').trim(),
+          pincode: (address.pincode || '').trim(),
+          contactPerson: (address.contactPerson || '').trim(),
+          phone: (address.phone || record.phone || '').trim(),
+          isDefault,
+        });
+      }
+    } else {
+      const targetAddrStr = typeof consigneeAddress === 'string' ? consigneeAddress : typeof address === 'string' ? address : '';
+      if (targetAddrStr.trim()) {
+        const cleanTarget = targetAddrStr.trim();
+        const existingIdx = record.addresses.findIndex(
+          (a: any) => a.address.trim().toLowerCase() === cleanTarget.toLowerCase()
+        );
+
+        if (existingIdx !== -1) {
+          if (body.title || body.addressTitle) {
+            record.addresses[existingIdx].title = (body.title || body.addressTitle).trim();
+          }
+          if (state) record.addresses[existingIdx].state = state.trim();
+          if (phone) record.addresses[existingIdx].phone = phone.trim();
+        } else {
+          // Add as new sending/dispatch location if it's not already in list
+          const locTitle = (body.title || body.addressTitle || (record.addresses.length === 0 ? 'Primary Godown' : `Location ${record.addresses.length + 1}`)).trim();
+          record.addresses.push({
+            title: locTitle,
+            address: cleanTarget,
+            state: (state || record.state || 'Delhi').trim(),
+            phone: (phone || record.phone || '').trim(),
+            isDefault: record.addresses.length === 0,
+          });
+        }
+      }
     }
 
     await record.save();
@@ -168,8 +246,8 @@ export async function DELETE(req: NextRequest) {
     const marka = searchParams.get('marka')?.trim();
     const addressId = searchParams.get('addressId')?.trim();
 
-    if (!marka || !addressId) {
-      return NextResponse.json({ error: 'Marka and addressId are required' }, { status: 400 });
+    if (!marka) {
+      return NextResponse.json({ error: 'Marka is required' }, { status: 400 });
     }
 
     const record = await MarkaAddress.findOne({
@@ -180,14 +258,22 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Marka not found' }, { status: 404 });
     }
 
-    record.addresses.pull({ _id: addressId });
-    await record.save();
-
-    return NextResponse.json({
-      success: true,
-      message: 'Address deleted successfully',
-      markaAddress: record,
-    });
+    // If addressId is provided, remove only that address. Otherwise, delete the entire Marka record!
+    if (addressId) {
+      record.addresses.pull({ _id: addressId });
+      await record.save();
+      return NextResponse.json({
+        success: true,
+        message: 'Address deleted successfully',
+        markaAddress: record,
+      });
+    } else {
+      await MarkaAddress.deleteOne({ _id: record._id });
+      return NextResponse.json({
+        success: true,
+        message: `Marka '${marka}' deleted from directory successfully`,
+      });
+    }
   } catch (error: any) {
     console.error('Error deleting address:', error);
     return NextResponse.json({ error: error?.message || 'Failed to delete address' }, { status: 500 });
