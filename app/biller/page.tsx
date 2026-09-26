@@ -923,8 +923,9 @@ export default function BillerPortalPage() {
 
   // State & GSTIN Change Handlers for Consignee and Buyer
   const handleConsigneeStateChange = (st: string) => {
-    setConsigneeState(st);
-    const code = getStateCodeByName(st);
+    const name = getStateName(st) || st;
+    setConsigneeState(name);
+    const code = getStateCode(st);
     if (code) setConsigneeStateCode(code);
   };
 
@@ -941,8 +942,9 @@ export default function BillerPortalPage() {
   };
 
   const handleBuyerStateChange = (st: string) => {
-    setBuyerState(st);
-    const code = getStateCodeByName(st);
+    const name = getStateName(st) || st;
+    setBuyerState(name);
+    const code = getStateCode(st);
     if (code) setBuyerStateCode(code);
   };
 
@@ -957,6 +959,8 @@ export default function BillerPortalPage() {
       }
     }
   };
+
+
 
   // Per-vehicle cumulative value check on the same date
   const checkVehicleCumulativeLimit = (
@@ -1269,6 +1273,86 @@ export default function BillerPortalPage() {
       alert(err.message || 'Error saving location');
     } finally {
       setIsSavingNewLoc(false);
+    }
+  };
+
+  // Delete a specific location from a Marka
+  const handleDeleteLocation = async (marka: string, addressId: string) => {
+    if (!confirm('क्या आप वाकई इस सहेजे गए पते को हटाना चाहते हैं?')) return;
+    setIsDeletingLocationId(addressId);
+    try {
+      const res = await fetch(`/api/marka-addresses?marka=${encodeURIComponent(marka)}&addressId=${encodeURIComponent(addressId)}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete address');
+
+      await fetchMarkaDeliveryLocations(marka);
+      setMarkaSaveSuccess('✓ पता सफलतापूर्वक हटा दिया गया!');
+      setTimeout(() => setMarkaSaveSuccess(null), 3000);
+    } catch (err: any) {
+      alert(err.message || 'Error deleting address');
+    } finally {
+      setIsDeletingLocationId(null);
+    }
+  };
+
+  // Open Edit Location Modal
+  const handleOpenEditLocation = (marka: string, addr: any) => {
+    const stName = getStateName(addr.state || consigneeState) || 'Delhi';
+    const stCode = getStateCode(addr.stateCode || consigneeStateCode || stName) || '07';
+    setEditingLocationData({
+      marka,
+      addressId: addr._id,
+      title: addr.title || 'Godown',
+      address: addr.address || '',
+      city: addr.city || '',
+      state: stName,
+      stateCode: stCode,
+      pincode: addr.pincode || '',
+      contactPerson: addr.contactPerson || purchaserName || '',
+      phone: addr.phone || purchaserPhone || '',
+    });
+    setShowEditLocationModal(true);
+  };
+
+  // Save Edited Location
+  const handleSaveEditedLocation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingLocationData) return;
+    try {
+      const payload = {
+        marka: editingLocationData.marka,
+        addressId: editingLocationData.addressId,
+        title: editingLocationData.title.trim(),
+        address: editingLocationData.address.trim(),
+        city: editingLocationData.city.trim(),
+        state: editingLocationData.state.trim(),
+        pincode: editingLocationData.pincode.trim(),
+        contactPerson: editingLocationData.contactPerson.trim(),
+        phone: editingLocationData.phone.trim(),
+      };
+
+      const res = await fetch('/api/marka-addresses', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update address');
+
+      setShowEditLocationModal(false);
+      setEditingLocationData(null);
+      await fetchMarkaDeliveryLocations(editingLocationData.marka);
+      setConsigneeAddress(payload.address);
+      setConsigneeState(payload.state);
+      setConsigneeStateCode(getStateCode(payload.state) || '07');
+      if (payload.phone) setPurchaserPhone(payload.phone);
+      setMarkaSaveSuccess('✓ पता सफलतापूर्वक अपडेट हो गया!');
+      setTimeout(() => setMarkaSaveSuccess(null), 3000);
+    } catch (err: any) {
+      alert(err.message || 'Error updating address');
     }
   };
 
@@ -2165,15 +2249,15 @@ export default function BillerPortalPage() {
         consigneeName: finalPurchaser,
         consigneeAddress: finalConsigneeAddr,
         consigneeGstin: registrationType === 'Registered' ? purchaserGstin.trim().toUpperCase() : '',
-        consigneeState: consigneeState.trim() || 'Uttar Pradesh',
-        consigneeStateCode: consigneeStateCode.trim() || '09',
+        consigneeState: consigneeState.trim() || 'Delhi',
+        consigneeStateCode: consigneeStateCode.trim() || '07',
 
         // Buyer (Bill to)
         buyerName: finalBuyerName,
         buyerAddress: finalBuyerAddr,
         buyerGstin: finalBuyerGstin,
-        buyerState: (sameAsConsignee ? consigneeState : buyerState || consigneeState).trim() || 'Uttar Pradesh',
-        buyerStateCode: (sameAsConsignee ? consigneeStateCode : buyerStateCode || consigneeStateCode).trim() || '09',
+        buyerState: (sameAsConsignee ? consigneeState : buyerState || consigneeState).trim() || 'Delhi',
+        buyerStateCode: (sameAsConsignee ? consigneeStateCode : buyerStateCode || consigneeStateCode).trim() || '07',
 
         rate: finalItems[0]?.rate || parseFloat(itemRate) || 0,
 
@@ -2194,6 +2278,11 @@ export default function BillerPortalPage() {
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to create bill');
+
+      // Auto-save address for Marka
+      if (currentMarka && finalPurchaser) {
+        handleSaveMarkaAddressDirect().catch((e) => console.warn('Background marka save:', e));
+      }
 
       setManualSuccessMsg(`✓ बिल सफलतापूर्वक बन गया! Receipt #${finalReceiptNo}`);
       // Reset form
@@ -3522,6 +3611,31 @@ export default function BillerPortalPage() {
                         placeholder="e.g. 39269099"
                         className="w-full px-3 py-2 bg-slate-900 border border-amber-500/50 rounded-xl text-xs text-amber-200 font-mono font-bold focus:outline-none focus:ring-2 focus:ring-amber-500"
                       />
+                      {/* Live HSN Suggestion Chips */}
+                      {lineDescription.trim() && (
+                        <div className="flex items-center space-x-1 overflow-x-auto pt-1.5 scrollbar-thin">
+                          <span className="text-[9px] text-amber-400 font-bold shrink-0">सुझाव:</span>
+                          {findHsnSuggestions(lineDescription).slice(0, 3).map((sug, sIdx) => (
+                            <button
+                              key={`sug-${sIdx}`}
+                              type="button"
+                              onClick={() => {
+                                setLineHsn(sug.hsnCode);
+                                setHsnCode(sug.hsnCode);
+                                if (sug.gstRate) setIgstRate(sug.gstRate);
+                              }}
+                              className={`px-1.5 py-0.5 rounded text-[9px] border font-mono transition shrink-0 ${
+                                lineHsn === sug.hsnCode
+                                  ? 'bg-amber-500 text-slate-950 font-bold border-amber-400'
+                                  : 'bg-slate-950 border-amber-500/30 text-amber-300 hover:bg-amber-500/20'
+                              }`}
+                              title={sug.description}
+                            >
+                              {sug.hsnCode} ({sug.gstRate}%)
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {/* Unit Selector Pills (PCS / KG / CTN) */}
@@ -3774,11 +3888,36 @@ export default function BillerPortalPage() {
                                     <span className="font-bold text-cyan-300 text-[11px] truncate">
                                       {addr.title || `Location ${idx + 1}`}
                                     </span>
-                                    {isSelected && (
-                                      <span className="px-1.5 py-0.2 bg-cyan-500 text-slate-950 font-black rounded text-[9px]">
-                                        SELECTED
-                                      </span>
-                                    )}
+                                    <div className="flex items-center space-x-1 shrink-0">
+                                      {isSelected && (
+                                        <span className="px-1.5 py-0.2 bg-cyan-500 text-slate-950 font-black rounded text-[9px]">
+                                          SELECTED
+                                        </span>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleOpenEditLocation(mainMarka || subMarka || singleSelectedMarka, addr);
+                                        }}
+                                        className="p-1 hover:bg-cyan-500/20 text-cyan-300 rounded transition"
+                                        title="एड्रेस एडिट करें (Edit Address)"
+                                      >
+                                        <Edit3 className="w-3 h-3" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={isDeletingLocationId === addr._id}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleDeleteLocation(mainMarka || subMarka || singleSelectedMarka, addr._id);
+                                        }}
+                                        className="p-1 hover:bg-red-500/20 text-slate-500 hover:text-red-400 rounded transition"
+                                        title="एड्रेस डिलीट करें (Delete Address)"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </div>
                                   </div>
                                   <p className="text-[11px] text-slate-200 line-clamp-2">{addr.address}</p>
                                 </div>
@@ -4063,12 +4202,37 @@ export default function BillerPortalPage() {
                         ₹{invoiceTaxableTotal.toLocaleString('en-IN')}
                       </span>
                     </div>
-                    <div>
-                      <span className="text-slate-400 block text-[11px]">IGST ({igstRate}%):</span>
-                      <span className="font-black text-amber-400 text-base">
-                        ₹{calculatedIgstAmt.toLocaleString('en-IN')}
-                      </span>
-                    </div>
+                    {isDeliveryInDelhi ? (
+                      <div className="flex items-center space-x-3 bg-slate-900/90 px-3 py-1.5 rounded-xl border border-sky-500/30">
+                        <div>
+                          <span className="text-sky-300 block text-[10px] font-bold">CGST ({halfGstRate}%):</span>
+                          <span className="font-black text-sky-400 text-sm">
+                            ₹{calculatedCgstAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                        <div className="border-l border-slate-700 pl-3">
+                          <span className="text-sky-300 block text-[10px] font-bold">SGST ({halfGstRate}%):</span>
+                          <span className="font-black text-sky-400 text-sm">
+                            ₹{calculatedSgstAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                        <span className="text-[9px] bg-sky-500/20 text-sky-300 px-1.5 py-0.5 rounded font-bold self-center">
+                          Intra-Delhi
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="bg-slate-900/90 px-3 py-1.5 rounded-xl border border-amber-500/30">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-amber-300 block text-[10px] font-bold">IGST ({totalGstRate}%):</span>
+                          <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-bold">
+                            Outside Delhi
+                          </span>
+                        </div>
+                        <span className="font-black text-amber-400 text-sm">
+                          ₹{calculatedIgstAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    )}
                     <div className="border-l border-slate-800 pl-4">
                       <span className="text-slate-400 block text-[11px]">Total Invoice Amount:</span>
                       <span className="font-black text-emerald-400 text-lg">
@@ -5841,48 +6005,76 @@ export default function BillerPortalPage() {
                 </div>
 
                 {/* Totals Summary */}
-                <div className="flex flex-col sm:flex-row items-end sm:items-center justify-between gap-3 pt-2 border-t border-slate-800 text-xs">
-                  <span className="text-slate-400 text-[11px]">
-                    कुल आइटम्स: <strong className="text-white font-mono">{editBillData.items.length}</strong>
-                  </span>
-                  <div className="flex items-center space-x-4 bg-slate-900 px-3.5 py-2 rounded-xl border border-slate-800">
-                    <div>
-                      <span className="text-slate-400 text-[10px] block">Taxable Value</span>
-                      <strong className="text-white font-mono text-xs">
-                        ₹
-                        {editBillData.items
-                          .reduce((s: number, it: FormLineItem) => s + (Number(it.amount) || 0), 0)
-                          .toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </strong>
+                {(() => {
+                  const editTaxable = editBillData.items.reduce((s: number, it: FormLineItem) => s + (Number(it.amount) || 0), 0);
+                  const isEditDelhi =
+                    editBillData.consigneeStateCode === '07' ||
+                    editBillData.buyerStateCode === '07' ||
+                    (editBillData.consigneeState || '').toLowerCase().includes('delhi') ||
+                    (editBillData.buyerState || '').toLowerCase().includes('delhi');
+                  const editGstRate = Number(billToEdit?.igst) || 18;
+                  const editHalfRate = Number((editGstRate / 2).toFixed(2));
+                  const editCgst = isEditDelhi ? Number(((editTaxable * editHalfRate) / 100).toFixed(2)) : 0;
+                  const editSgst = isEditDelhi ? Number(((editTaxable * editHalfRate) / 100).toFixed(2)) : 0;
+                  const editIgst = !isEditDelhi ? Number(((editTaxable * editGstRate) / 100).toFixed(2)) : 0;
+                  const editTotal = isEditDelhi ? Number((editTaxable + editCgst + editSgst).toFixed(2)) : Number((editTaxable + editIgst).toFixed(2));
+
+                  return (
+                    <div className="flex flex-col sm:flex-row items-end sm:items-center justify-between gap-3 pt-2 border-t border-slate-800 text-xs">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-slate-400 text-[11px]">
+                          कुल आइटम्स: <strong className="text-white font-mono">{editBillData.items.length}</strong>
+                        </span>
+                        {isEditDelhi ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-950/80 border border-sky-500/40 text-sky-300">
+                            🔵 दिल्ली लोकल (CGST {editHalfRate}% + SGST {editHalfRate}%)
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-950/80 border border-amber-500/40 text-amber-300">
+                            🟠 आउटसाइड दिल्ली (IGST {editGstRate}%)
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center space-x-4 bg-slate-900 px-3.5 py-2 rounded-xl border border-slate-800">
+                        <div>
+                          <span className="text-slate-400 text-[10px] block">Taxable Value</span>
+                          <strong className="text-white font-mono text-xs">
+                            ₹{editTaxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </strong>
+                        </div>
+                        {isEditDelhi ? (
+                          <>
+                            <div>
+                              <span className="text-sky-400 text-[10px] block">CGST {editHalfRate}%</span>
+                              <strong className="text-sky-300 font-mono text-xs">
+                                ₹{editCgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              </strong>
+                            </div>
+                            <div>
+                              <span className="text-sky-400 text-[10px] block">SGST {editHalfRate}%</span>
+                              <strong className="text-sky-300 font-mono text-xs">
+                                ₹{editSgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              </strong>
+                            </div>
+                          </>
+                        ) : (
+                          <div>
+                            <span className="text-amber-400 text-[10px] block">IGST {editGstRate}%</span>
+                            <strong className="text-amber-300 font-mono text-xs">
+                              ₹{editIgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </strong>
+                          </div>
+                        )}
+                        <div className="border-l border-slate-700 pl-3">
+                          <span className="text-emerald-400 font-bold text-[10px] block">Grand Total</span>
+                          <strong className="text-emerald-300 font-mono text-sm font-black">
+                            ₹{editTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </strong>
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <span className="text-slate-400 text-[10px] block">IGST 18%</span>
-                      <strong className="text-sky-400 font-mono text-xs">
-                        ₹
-                        {(
-                          (editBillData.items.reduce(
-                            (s: number, it: FormLineItem) => s + (Number(it.amount) || 0),
-                            0
-                          ) *
-                            18) /
-                          100
-                        ).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </strong>
-                    </div>
-                    <div className="border-l border-slate-700 pl-3">
-                      <span className="text-emerald-400 font-bold text-[10px] block">Grand Total</span>
-                      <strong className="text-emerald-300 font-mono text-sm font-black">
-                        ₹
-                        {(
-                          editBillData.items.reduce(
-                            (s: number, it: FormLineItem) => s + (Number(it.amount) || 0),
-                            0
-                          ) * 1.18
-                        ).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </strong>
-                    </div>
-                  </div>
-                </div>
+                  );
+                })()}
               </div>
 
               {/* Submit Buttons */}
