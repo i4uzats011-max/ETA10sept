@@ -28,6 +28,7 @@ const schema = buildSchema(`
     dateOfDelivery: String
     status: String
     lastApiSync: String
+    etaUpdatedAt: String
     warehouseEntry: String
     commodity: String
     chinese: String
@@ -114,6 +115,7 @@ const schema = buildSchema(`
     container: String!
     eta: String
     dateOfDelivery: String
+    etaUpdatedAt: String
     status: String
     shippedFrom: String
     shippedTo: String
@@ -331,6 +333,15 @@ function createRootResolver(req: NextRequest) {
           publicDeliveryDate = formatGlobalDate(resolvedEta);
         }
 
+        const rawEtaUpdated =
+          fallbackDoc?.etaUpdatedAt ||
+          s.etaUpdatedAt ||
+          fallbackDoc?.lastApiSync ||
+          s.lastApiSync ||
+          (publicDeliveryDate !== 'Pending'
+            ? fallbackDoc?.updatedAt || s.updatedAt || s.uploadedAt
+            : null);
+
         return {
           id: String(s._id),
           receipt: s.receipt,
@@ -342,6 +353,7 @@ function createRootResolver(req: NextRequest) {
           dateOfDelivery: publicDeliveryDate,
           status: s.status || 'In Transit',
           lastApiSync: s.lastApiSync ? new Date(s.lastApiSync).toISOString() : null,
+          etaUpdatedAt: rawEtaUpdated ? new Date(rawEtaUpdated).toISOString() : null,
           warehouseEntry: s.warehouseEntry || 'N/A',
           commodity: translateToEnglish(s.commodity || s.chinese || s.english),
           chinese: translateToEnglish(s.chinese || s.commodity || s.english), // Enforce English translation ONLY
@@ -436,12 +448,18 @@ function createRootResolver(req: NextRequest) {
         }
       }
 
-      // STRICT PRIVACY: Return ONLY container alias and ETA date.
+      const rawEtaUpdated =
+        target.etaUpdatedAt ||
+        target.lastApiSync ||
+        (calculatedDeliveryDate !== 'Pending' ? target.updatedAt || target.uploadedAt : null);
+
+      // STRICT PRIVACY: Return ONLY container alias, ETA date, and when ETA was last updated.
       return {
         success: true,
         container: containerAlias,
         eta: calculatedDeliveryDate,
         dateOfDelivery: calculatedDeliveryDate,
+        etaUpdatedAt: rawEtaUpdated ? new Date(rawEtaUpdated).toISOString() : null,
         status: 'Scheduled',
         shippedFrom: null,
         shippedTo: null,
@@ -488,6 +506,7 @@ function createRootResolver(req: NextRequest) {
         eta: s.eta,
         status: s.status,
         lastApiSync: s.lastApiSync ? new Date(s.lastApiSync).toISOString() : null,
+        etaUpdatedAt: (s.etaUpdatedAt || s.lastApiSync) ? new Date(s.etaUpdatedAt || s.lastApiSync).toISOString() : null,
         warehouseEntry: s.warehouseEntry,
         commodity: s.commodity,
         quantity: s.quantity,
@@ -763,6 +782,7 @@ function createRootResolver(req: NextRequest) {
             voyageNumber: tracking.voyageNumber,
             jsonCargoData: tracking.dataDetails,
             lastApiSync: now,
+            etaUpdatedAt: now,
           },
         }
       );
@@ -787,6 +807,7 @@ function createRootResolver(req: NextRequest) {
             jsonCargoData: tracking.dataDetails,
             shipmentCount: updateResult.matchedCount,
             lastApiSync: now,
+            etaUpdatedAt: now,
           },
         },
         { upsert: true, new: true }
@@ -843,6 +864,7 @@ function createRootResolver(req: NextRequest) {
             destinationDate: finalEta,
             status: finalStatus,
             lastApiSync: now,
+            etaUpdatedAt: now,
           },
         }
       );
@@ -856,6 +878,7 @@ function createRootResolver(req: NextRequest) {
             destinationDate: finalEta,
             status: finalStatus,
             lastApiSync: now,
+            etaUpdatedAt: now,
           },
         }
       );
@@ -1044,6 +1067,7 @@ function createRootResolver(req: NextRequest) {
         warehouseEntry: whReceipt.warehouseEntry || '',
         date: whReceipt.date || '',
         eta: targetContainer.destinationDate || targetContainer.eta || 'Pending',
+        etaUpdatedAt: targetContainer.etaUpdatedAt || targetContainer.lastApiSync || null,
         status: initialStatus,
         uploadedAt: new Date(),
       });
@@ -1128,10 +1152,12 @@ function createRootResolver(req: NextRequest) {
       if (trackingEta && trackingEta !== 'Pending') {
         target.eta = trackingEta;
         target.destinationDate = trackingEta;
+        target.etaUpdatedAt = now;
       }
       if (trackingDetails) {
         target.jsonCargoData = trackingDetails;
         target.lastApiSync = now;
+        target.etaUpdatedAt = now;
       }
       await target.save();
 
@@ -1142,8 +1168,8 @@ function createRootResolver(req: NextRequest) {
             containerNumber: cleanNum,
             shippingLine: cleanCarrier,
             status: trackingStatus,
-            ...(trackingEta && trackingEta !== 'Pending' ? { eta: trackingEta, destinationDate: trackingEta } : {}),
-            ...(trackingDetails ? { jsonCargoData: trackingDetails, lastApiSync: now } : {}),
+            ...(trackingEta && trackingEta !== 'Pending' ? { eta: trackingEta, destinationDate: trackingEta, etaUpdatedAt: now } : {}),
+            ...(trackingDetails ? { jsonCargoData: trackingDetails, lastApiSync: now, etaUpdatedAt: now } : {}),
           },
         }
       );

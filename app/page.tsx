@@ -69,6 +69,30 @@ export default function PublicTrackerPage() {
   const [cartonInput, setCartonInput] = useState('');
   const [cartonVerificationError, setCartonVerificationError] = useState<string | null>(null);
 
+  // Public Container ETA Directory state
+  const [publicContainers, setPublicContainers] = useState<any[]>([]);
+  const [loadingContainers, setLoadingContainers] = useState(false);
+  const [containerListSearch, setContainerListSearch] = useState('');
+
+  const fetchPublicContainerList = async () => {
+    setLoadingContainers(true);
+    try {
+      const res = await fetch('/api/containers/list');
+      if (res.ok) {
+        const data = await res.json();
+        setPublicContainers(data.containers || []);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoadingContainers(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPublicContainerList();
+  }, []);
+
   // Download & Print Sanitized PDF Receipt (ZERO carrier details exposed)
   const downloadReceiptPDF = (receiptNumber: string, shipments: any[]) => {
     if (!shipments || shipments.length === 0) return;
@@ -140,10 +164,11 @@ export default function PublicTrackerPage() {
       doc.setFont('helvetica', 'normal');
       doc.text(String(primary.warehouse || 'China Warehouse'), 50, 77);
 
+      const primaryUpdated = primary.etaUpdatedAt || primary.lastApiSync;
       doc.setFont('helvetica', 'bold');
-      doc.text('Delivery Schedule:', 110, 77);
+      doc.text('ETA Updated On:', 110, 77);
       doc.setFont('helvetica', 'normal');
-      doc.text('Confirmed Route', 145, 77);
+      doc.text(primaryUpdated ? String(formatGlobalDate(primaryUpdated)) : 'Pending', 145, 77);
 
       doc.setFont('helvetica', 'bold');
       doc.text('Cargo Marks:', 18, 85);
@@ -152,17 +177,21 @@ export default function PublicTrackerPage() {
       doc.text(marksStr, 50, 85);
 
       // Manifest Table
-      const headers = ['#', 'Item / Commodity Name', 'Cargo Marks', 'Cartons (Qty)', 'Weight (KG)', 'Volume (CBM)', 'Container Alias', 'ETA'];
-      const body = shipments.map((s, idx) => [
-        idx + 1,
-        s.english || s.commodity || 'General Cargo',
-        [s.mainMarka ? `M:${s.mainMarka}` : '', (s.subMarka && s.subMarka !== '??') ? `S:${s.subMarka}` : ''].filter(Boolean).join(' ') || 'N/A',
-        `${s.quantity || s.cartons || '0'} CTN`,
-        s.weight ? `${s.weight} KG` : 'N/A',
-        formatCBM(s.volume),
-        s.container || 'Pending',
-        s.dateOfDelivery || formatGlobalDate(s.eta) || 'Pending',
-      ]);
+      const headers = ['#', 'Item / Commodity Name', 'Cargo Marks', 'Cartons (Qty)', 'Weight (KG)', 'Volume (CBM)', 'Container Alias', 'ETA (Last Updated)'];
+      const body = shipments.map((s, idx) => {
+        const etaStr = s.dateOfDelivery || formatGlobalDate(s.eta) || 'Pending';
+        const updStr = (s.etaUpdatedAt || s.lastApiSync) ? formatGlobalDate(s.etaUpdatedAt || s.lastApiSync) : '';
+        return [
+          idx + 1,
+          s.english || s.commodity || 'General Cargo',
+          [s.mainMarka ? `M:${s.mainMarka}` : '', (s.subMarka && s.subMarka !== '??') ? `S:${s.subMarka}` : ''].filter(Boolean).join(' ') || 'N/A',
+          `${s.quantity || s.cartons || '0'} CTN`,
+          s.weight ? `${s.weight} KG` : 'N/A',
+          formatCBM(s.volume),
+          s.container || 'Pending',
+          updStr && etaStr !== 'Pending' ? `${etaStr}\n(Upd: ${updStr})` : etaStr,
+        ];
+      });
 
       autoTable(doc, {
         head: [headers],
@@ -330,6 +359,7 @@ export default function PublicTrackerPage() {
                 status
                 eta
                 dateOfDelivery
+                etaUpdatedAt
                 isSplit
                 splitIndex
                 originalTotalQuantity
@@ -392,6 +422,7 @@ export default function PublicTrackerPage() {
               container
               eta
               dateOfDelivery
+              etaUpdatedAt
               status
               shippedFrom
               shippedTo
@@ -469,6 +500,7 @@ export default function PublicTrackerPage() {
     container: string;
     quantity: number;
     dateOfDelivery: string;
+    etaUpdatedAt?: string | null;
     items: any[];
     weight: number;
     volume: number;
@@ -483,6 +515,7 @@ export default function PublicTrackerPage() {
         container: c,
         quantity: 0,
         dateOfDelivery: s.dateOfDelivery || formatGlobalDate(s.eta) || 'Pending',
+        etaUpdatedAt: s.etaUpdatedAt || s.lastApiSync || null,
         items: [],
         weight: 0,
         volume: 0,
@@ -500,6 +533,9 @@ export default function PublicTrackerPage() {
     entry.items.push(s);
     if (s.dateOfDelivery && entry.dateOfDelivery === 'Pending') {
       entry.dateOfDelivery = s.dateOfDelivery;
+    }
+    if (!entry.etaUpdatedAt && (s.etaUpdatedAt || s.lastApiSync)) {
+      entry.etaUpdatedAt = s.etaUpdatedAt || s.lastApiSync;
     }
   }
 

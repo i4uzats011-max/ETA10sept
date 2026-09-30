@@ -28,6 +28,7 @@ export interface ContainerMasterItem {
   apiCallCount?: number;
   rawEta?: string;
   lastApiSync?: string | null;
+  etaUpdatedAt?: string | null;
 }
 
 export type StatusFilterType =

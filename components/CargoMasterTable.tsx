@@ -405,6 +405,7 @@ export default function CargoMasterTable({
         header: 'Actual Vessel ETA (Carrier)',
         cell: ({ row }) => {
           const rawEta = row.original.rawEta;
+          const updatedAt = row.original.etaUpdatedAt || row.original.lastApiSync;
           if (!rawEta || rawEta === 'N/A' || rawEta === 'Pending') {
             return (
               <span className="text-slate-400 text-xs italic">
@@ -413,10 +414,16 @@ export default function CargoMasterTable({
             );
           }
           return (
-            <div className="space-y-0.5">
-              <span className="font-bold font-mono text-xs text-sky-900 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded">
+            <div className="space-y-1">
+              <span className="font-bold font-mono text-xs text-sky-900 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded inline-block">
                 {formatGlobalDate(rawEta)}
               </span>
+              {updatedAt && (
+                <div className="text-[10px] font-semibold text-slate-500 flex items-center gap-1 whitespace-nowrap">
+                  <Clock className="w-2.5 h-2.5 text-sky-600 shrink-0" />
+                  <span>Updated: {formatGlobalDate(updatedAt)}</span>
+                </div>
+              )}
             </div>
           );
         },
@@ -426,6 +433,7 @@ export default function CargoMasterTable({
         header: 'Clearance ETA (+10d)',
         cell: ({ row }) => {
           const eta = row.original.eta;
+          const updatedAt = row.original.etaUpdatedAt || row.original.lastApiSync;
           if (!eta || eta === 'N/A' || eta === 'Pending') {
             return (
               <span className="text-amber-700 bg-amber-50 px-2 py-0.5 rounded text-xs font-medium border border-amber-200">
@@ -434,10 +442,16 @@ export default function CargoMasterTable({
             );
           }
           return (
-            <div className="space-y-0.5">
-              <span className="font-bold font-mono text-xs text-slate-950 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">
+            <div className="space-y-1">
+              <span className="font-bold font-mono text-xs text-slate-950 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded inline-block">
                 {formatGlobalDate(eta)}
               </span>
+              {updatedAt && (
+                <div className="text-[10px] font-semibold text-emerald-700 flex items-center gap-1 whitespace-nowrap">
+                  <Clock className="w-2.5 h-2.5 text-emerald-600 shrink-0" />
+                  <span>Updated: {formatGlobalDate(updatedAt)}</span>
+                </div>
+              )}
             </div>
           );
         },
@@ -631,13 +645,22 @@ export default function CargoMasterTable({
       },
       {
         accessorKey: 'lastApiSync',
-        header: 'Last API Call',
+        header: 'ETA Last Updated',
         cell: ({ row }) => {
-          const syncTime = row.original.lastApiSync;
-          if (!syncTime) return <span className="text-slate-400 text-xs italic">Never</span>;
+          const updatedTime = row.original.etaUpdatedAt || row.original.lastApiSync;
+          if (!updatedTime) return <span className="text-slate-400 text-xs italic">Not Updated</span>;
+          const isApi = Boolean(row.original.lastApiSync);
           return (
-            <div className="text-[11px] whitespace-nowrap text-slate-600 font-mono">
-              {new Date(syncTime).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}
+            <div className="space-y-0.5 whitespace-nowrap">
+              <div className="text-xs font-bold text-slate-800 font-mono">
+                {formatGlobalDate(updatedTime)}
+              </div>
+              <div className="text-[10px] text-slate-500 font-mono flex items-center gap-1">
+                <span>{new Date(updatedTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                <span className={`px-1 py-0.2 rounded text-[9px] font-bold ${isApi ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 'bg-amber-50 text-amber-800 border border-amber-200'}`}>
+                  {isApi ? 'API' : 'Manual'}
+                </span>
+              </div>
             </div>
           );
         },
@@ -692,6 +715,7 @@ export default function CargoMasterTable({
               <button
                 type="button"
                 onClick={() => {
+                  const etaLastUpdated = c.etaUpdatedAt || c.lastApiSync;
                   alert(
                     `Logistics Details for Container: ${c.container}\n\n` +
                     `• Actual Carrier Container No: ${c.containerNumber || 'Unmapped'}\n` +
@@ -705,6 +729,7 @@ export default function CargoMasterTable({
                     `• Loading Date: ${c.startDate ? formatGlobalDate(c.startDate) : 'Pending'}\n` +
                     `• Actual Vessel ETA (Carrier): ${c.rawEta ? formatGlobalDate(c.rawEta) : 'Pending API'}\n` +
                     `• Clearance ETA (+10d): ${c.eta ? formatGlobalDate(c.eta) : 'Pending'}\n` +
+                    `• ETA Last Updated Date: ${etaLastUpdated ? formatGlobalDate(etaLastUpdated) : 'Not Updated'}\n` +
                     `• Final Delivery Date: ${c.deliveryDate ? formatGlobalDate(c.deliveryDate) : 'In Transit'}\n` +
                     `• API Protection: ${isApiProtected ? 'Protected (Never Deleted)' : 'Normal'}`
                   );
@@ -862,6 +887,8 @@ export default function CargoMasterTable({
         else bucketLabel = `> 15 Days (${c.daysRemaining}d)`;
       }
 
+      const etaLastUpdated = c.etaUpdatedAt || c.lastApiSync;
+
       return {
         'Container Alias': c.container,
         'Actual Container No': c.containerNumber || 'Unmapped',
@@ -871,6 +898,7 @@ export default function CargoMasterTable({
         'Loading Date (China)': c.startDate || c.loadingDate ? formatGlobalDate(c.startDate || c.loadingDate) : '—',
         'Actual Port Arrival Date (Actual ETA)': c.rawEta ? formatGlobalDate(c.rawEta) : 'Pending',
         'Grace / Clearance Delivery Date': c.destinationDate || c.eta ? formatGlobalDate(c.destinationDate || c.eta) : 'Pending',
+        'ETA Last Updated Date': etaLastUpdated ? formatGlobalDate(etaLastUpdated) : '—',
         'Days Remaining (Countdown)': c.daysRemaining !== null && c.daysRemaining !== undefined ? (c.daysRemaining < 0 ? `Late by ${Math.abs(c.daysRemaining)} days` : `${c.daysRemaining} days`) : '—',
         'ETA Bucket Category': bucketLabel,
         'Delivery Date': c.deliveryDate ? formatGlobalDate(c.deliveryDate) : (isDelivered ? 'Delivered' : 'In Transit'),
