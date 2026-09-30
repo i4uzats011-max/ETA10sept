@@ -635,6 +635,10 @@ export default function PublicTrackerPage() {
 
           <nav className="hidden lg:flex items-center space-x-8 text-sm font-bold text-slate-700">
             <a href="#tracking" className="text-red-600 font-black hover:text-red-700 transition">Track Order</a>
+            <a href="#container-list" className="hover:text-red-600 transition flex items-center space-x-1">
+              <Calendar className="w-3.5 h-3.5 text-red-600" />
+              <span>Container ETA List</span>
+            </a>
             <a href="#services" className="hover:text-red-600 transition">Services</a>
             <a href="#process" className="hover:text-red-600 transition">Working Process</a>
             <a href="#reviews" className="hover:text-red-600 transition">Customer Reviews</a>
@@ -1239,23 +1243,36 @@ export default function PublicTrackerPage() {
                           </div>
                         </div>
 
-                        {/* ETA Date (Calculated with 10 days added) */}
-                        <div className="p-3 bg-red-950/40 rounded-xl border border-red-900/50 flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
-                            <Clock className="w-4 h-4 text-amber-400 shrink-0" />
-                            <div>
-                              <span className="text-[10px] uppercase font-bold text-red-300 block">
-                                ETA
+                        {/* ETA Date (Calculated with 10 days added) + Last Updated Date */}
+                        <div className="p-3 bg-red-950/40 rounded-xl border border-red-900/50 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <Clock className="w-4 h-4 text-amber-400 shrink-0" />
+                              <div>
+                                <span className="text-[10px] uppercase font-bold text-red-300 block">
+                                  ETA (Expected Arrival)
+                                </span>
+                                <span className="text-sm font-black font-mono text-white">
+                                  {item.dateOfDelivery}
+                                </span>
+                              </div>
+                            </div>
+                            {item.items.length > 1 && (
+                              <span className="text-[10px] font-bold text-slate-400 bg-slate-800 px-2 py-0.5 rounded">
+                                {item.items.length} items
                               </span>
-                              <span className="text-sm font-black font-mono text-white">
-                                {item.dateOfDelivery}
+                            )}
+                          </div>
+                          {item.etaUpdatedAt && (
+                            <div className="pt-1.5 border-t border-red-900/40 flex items-center justify-between text-[11px]">
+                              <span className="text-slate-400 font-semibold flex items-center space-x-1">
+                                <Calendar className="w-3 h-3 text-emerald-400" />
+                                <span>Last Updated Date:</span>
+                              </span>
+                              <span className="font-mono font-bold text-emerald-300 bg-emerald-950/60 border border-emerald-700/50 px-2 py-0.5 rounded">
+                                {formatGlobalDate(item.etaUpdatedAt)}
                               </span>
                             </div>
-                          </div>
-                          {item.items.length > 1 && (
-                            <span className="text-[10px] font-bold text-slate-400 bg-slate-800 px-2 py-0.5 rounded">
-                              {item.items.length} items
-                            </span>
                           )}
                         </div>
                       </div>
@@ -1346,15 +1363,20 @@ export default function PublicTrackerPage() {
                         </div>
 
                         <div className="flex items-center space-x-3">
-                          <div className="flex items-center space-x-2 text-white px-4 py-2 rounded-xl border shadow-sm bg-gradient-to-r from-red-600 to-rose-600 border-red-400/40">
-                            <Clock className="w-4 h-4 text-amber-300" />
+                          <div className="flex items-center space-x-2.5 text-white px-4 py-2 rounded-xl border shadow-sm bg-gradient-to-r from-red-600 to-rose-600 border-red-400/40">
+                            <Clock className="w-4 h-4 text-amber-300 shrink-0" />
                             <div>
                               <span className="text-[9px] uppercase font-bold text-rose-200 block">
                                 ETA
                               </span>
-                              <span className="text-sm font-black font-mono text-white">
+                              <span className="text-sm font-black font-mono text-white block">
                                 {item.dateOfDelivery || formatGlobalDate(item.eta) || 'Pending'}
                               </span>
+                              {(item.etaUpdatedAt || item.lastApiSync) && (
+                                <span className="text-[10px] font-semibold text-amber-200 block mt-0.5">
+                                  Updated: {formatGlobalDate(item.etaUpdatedAt || item.lastApiSync)}
+                                </span>
+                              )}
                             </div>
                           </div>
 
@@ -1431,7 +1453,7 @@ export default function PublicTrackerPage() {
           )}
 
 
-          {/* 6. Container Search Results (CONTAINER ALIAS AND DATE OF DELIVERY (ETA + 10 DAYS) ONLY) */}
+          {/* 6. Container Search Results (CONTAINER ALIAS, DATE OF DELIVERY (ETA + 10 DAYS), AND ETA LAST UPDATED DATE) */}
           {activeTab === 'container' && containerResult && (
             <section className="max-w-md mx-auto px-4 sm:px-6 space-y-4">
               <div className="bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden p-8 space-y-6 text-center animate-fadeIn">
@@ -1442,13 +1464,25 @@ export default function PublicTrackerPage() {
                   </div>
                 </div>
 
-                <div className="p-6 rounded-2xl bg-slate-900 text-white space-y-2 border border-slate-800">
+                <div className="p-6 rounded-2xl bg-slate-900 text-white space-y-3 border border-slate-800">
                   <span className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                    ETA
+                    Expected Arrival Date (ETA)
                   </span>
                   <div className="text-3xl sm:text-4xl font-black font-mono text-amber-300">
                     {containerResult.dateOfDelivery || formatGlobalDate(containerResult.eta) || 'Pending'}
                   </div>
+
+                  {(containerResult.etaUpdatedAt || containerResult.lastApiSync) && (
+                    <div className="pt-2 border-t border-slate-800 flex items-center justify-center">
+                      <span className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                        <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>
+                          ETA Last Updated: <strong className="font-mono text-white">{formatGlobalDate(containerResult.etaUpdatedAt || containerResult.lastApiSync)}</strong>
+                        </span>
+                      </span>
+                    </div>
+                  )}
+
                   <p className="text-[11px] text-slate-400">
                     Estimated arrival date for container {containerResult.container}.
                   </p>
@@ -1457,6 +1491,166 @@ export default function PublicTrackerPage() {
             </section>
           )}
         </div>
+
+        {/* 6B. Public Container ETA List (Shows Container ETA & When ETA Was Last Updated) */}
+        <section id="container-list" className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-md overflow-hidden">
+            {/* Header Banner */}
+            <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 p-6 sm:p-8 text-white flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800">
+              <div className="space-y-1.5">
+                <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-red-600/20 border border-red-500/30 text-red-300 text-[11px] font-bold uppercase tracking-wider">
+                  <Clock className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Live Container ETA Status &amp; Update History</span>
+                </div>
+                <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white">
+                  Container ETA Directory &amp; Latest Update Dates
+                </h2>
+                <p className="text-xs text-slate-400">
+                  Check the latest Expected Arrival Date (ETA) for all active containers along with the exact date when the ETA was last updated.
+                </p>
+              </div>
+
+              <div className="flex items-center space-x-3">
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={containerListSearch}
+                    onChange={(e) => setContainerListSearch(e.target.value)}
+                    placeholder="Filter container (e.g. USI-01)..."
+                    className="pl-9 pr-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs font-semibold text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-red-500 w-56 sm:w-64"
+                  />
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                </div>
+                <button
+                  type="button"
+                  onClick={fetchPublicContainerList}
+                  disabled={loadingContainers}
+                  className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-slate-200 transition flex items-center space-x-1.5"
+                >
+                  <Clock className={`w-3.5 h-3.5 text-amber-400 ${loadingContainers ? 'animate-spin' : ''}`} />
+                  <span>Refresh</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Table Content */}
+            <div className="overflow-x-auto max-h-[480px] overflow-y-auto">
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10 text-[11px] font-black uppercase tracking-wider text-slate-600">
+                  <tr>
+                    <th className="py-3.5 px-5">Container No.</th>
+                    <th className="py-3.5 px-5">Current Status</th>
+                    <th className="py-3.5 px-5">Expected Arrival Date (ETA)</th>
+                    <th className="py-3.5 px-5">ETA Last Updated On</th>
+                    <th className="py-3.5 px-5 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-xs">
+                  {loadingContainers ? (
+                    <tr>
+                      <td colSpan={5} className="py-10 text-center text-slate-400 font-semibold">
+                        Loading container ETA directory...
+                      </td>
+                    </tr>
+                  ) : (
+                    (() => {
+                      const filteredContainers = publicContainers.filter((c) => {
+                        if (!containerListSearch.trim()) return true;
+                        const q = containerListSearch.trim().toLowerCase();
+                        return (
+                          (c.container || '').toLowerCase().includes(q) ||
+                          (c.eta || '').toLowerCase().includes(q) ||
+                          (c.status || '').toLowerCase().includes(q)
+                        );
+                      });
+
+                      if (filteredContainers.length === 0) {
+                        return (
+                          <tr>
+                            <td colSpan={5} className="py-10 text-center text-slate-400 font-semibold">
+                              No containers found matching &ldquo;{containerListSearch}&rdquo;.
+                            </td>
+                          </tr>
+                        );
+                      }
+
+                      return filteredContainers.map((c) => {
+                        const etaVal = c.destinationDate || c.eta || 'Pending';
+                        const hasEta = etaVal && etaVal !== 'Pending' && etaVal !== 'N/A';
+                        const isDelivered = Boolean(c.isDelivered || (c.status && c.status.toLowerCase().includes('deliver')));
+                        const updatedDate = c.etaUpdatedAt ? formatGlobalDate(c.etaUpdatedAt) : null;
+
+                        return (
+                          <tr key={c.container} className="hover:bg-slate-50/80 transition">
+                            <td className="py-3.5 px-5">
+                              <div className="flex items-center space-x-2">
+                                <span
+                                  className={`w-2.5 h-2.5 rounded-full ${
+                                    isDelivered ? 'bg-emerald-500' : hasEta ? 'bg-blue-600' : 'bg-amber-400'
+                                  }`}
+                                ></span>
+                                <span className="font-mono font-black text-sm text-slate-900">{c.container}</span>
+                              </div>
+                            </td>
+
+                            <td className="py-3.5 px-5">
+                              {isDelivered ? (
+                                <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                  <span>Delivered {c.deliveryDate ? `(${formatGlobalDate(c.deliveryDate)})` : ''}</span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                                  {c.status || 'In Transit'}
+                                </span>
+                              )}
+                            </td>
+
+                            <td className="py-3.5 px-5">
+                              {hasEta ? (
+                                <span className="font-mono font-black text-xs text-slate-950 bg-amber-50 border border-amber-300 px-3 py-1 rounded-lg inline-block">
+                                  {formatGlobalDate(etaVal)}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 italic text-xs">Pending Update</span>
+                              )}
+                            </td>
+
+                            <td className="py-3.5 px-5">
+                              {updatedDate && updatedDate !== 'N/A' ? (
+                                <div className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 font-semibold text-xs">
+                                  <Clock className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                  <span>Updated on: <strong className="font-mono">{updatedDate}</strong></span>
+                                </div>
+                              ) : (
+                                <span className="text-slate-400 text-xs italic">—</span>
+                              )}
+                            </td>
+
+                            <td className="py-3.5 px-5 text-right">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveTab('container');
+                                  setSearchQuery(c.container);
+                                  performDirectSearch(c.container, 'container');
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-red-600 text-white font-bold text-xs transition inline-flex items-center space-x-1"
+                              >
+                                <span>View ETA</span>
+                                <ArrowRight className="w-3 h-3" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      });
+                    })()
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
 
         {/* 7. Image-Rich Core Services Section */}
         <section id="services" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-12">
