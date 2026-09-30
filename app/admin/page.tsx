@@ -248,6 +248,7 @@ export default function AdminDashboardPage() {
   const [applyFilingBuffer, setApplyFilingBuffer] = useState(true);
   const [isSettingManualEta, setIsSettingManualEta] = useState(false);
   const [manualEtaStatus, setManualEtaStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [manualEtaLastUpdated, setManualEtaLastUpdated] = useState<string | null>(null);
 
   // Correction & New Container Creation state
   const [isNewContainerMode, setIsNewContainerMode] = useState(false);
@@ -524,6 +525,7 @@ export default function AdminDashboardPage() {
         if (data.shippingLine) setManualShippingCompany(data.shippingLine);
         if (data.status) setManualStatusInput(data.status);
         if (data.etaBufferDays !== undefined) setManualBufferDays(data.etaBufferDays);
+        setManualEtaLastUpdated(data.etaUpdatedAt || data.lastApiSync || null);
       }
     } catch {
       // Fallback
@@ -1835,13 +1837,19 @@ export default function AdminDashboardPage() {
                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                               Selected Container:
                             </span>
-                            <div className="flex items-center space-x-2 mt-0.5">
+                            <div className="flex flex-wrap items-center gap-2 mt-0.5">
                               <span className="text-sm font-black text-slate-900 font-mono">
                                 {manualEtaContainer}
                               </span>
                               <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-50 text-blue-800 border border-blue-200 rounded">
                                 {manualShippingCompany}
                               </span>
+                              {manualEtaLastUpdated && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded inline-flex items-center space-x-1">
+                                  <Clock className="w-3 h-3 text-emerald-600" />
+                                  <span>Last Updated: {formatGlobalDate(manualEtaLastUpdated)}</span>
+                                </span>
+                              )}
                             </div>
                           </div>
 

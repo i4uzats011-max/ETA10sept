@@ -40,6 +40,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Container alias not found' }, { status: 404 });
     }
 
+    const effectiveEta = doc.destinationDate || doc.eta || 'N/A';
+    const hasValidEta = effectiveEta && effectiveEta !== 'N/A' && effectiveEta !== 'Pending';
+    const rawEtaUpdated = doc.etaUpdatedAt || doc.lastApiSync || (hasValidEta ? doc.updatedAt : null);
+
     return NextResponse.json({
       container: doc.container,
       containerNumber: doc.containerNumber || '',
@@ -50,8 +54,10 @@ export async function GET(req: NextRequest) {
       loadingDate: doc.loadingDate || doc.startDate || '',
       rawEta: doc.rawEta || '',
       destinationDate: doc.destinationDate || doc.eta || '',
-      eta: doc.destinationDate || doc.eta || 'N/A',
+      eta: effectiveEta,
       etaBufferDays: doc.etaBufferDays ?? 7,
+      etaUpdatedAt: rawEtaUpdated ? new Date(rawEtaUpdated).toISOString() : null,
+      lastApiSync: doc.lastApiSync ? new Date(doc.lastApiSync).toISOString() : null,
       status: doc.status || 'In Transit',
       isDelivered: Boolean(doc.isDelivered),
       shipmentCount: doc.shipmentCount || 0,
