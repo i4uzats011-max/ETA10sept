@@ -58,7 +58,7 @@ export async function GET(req: NextRequest) {
       ];
     }
 
-    const limit = limitParam ? Math.min(parseInt(limitParam, 10), 10000) : 500;
+    const limit = limitParam ? Math.min(parseInt(limitParam, 10), 50000) : 20000;
     const receipts = await WarehouseReceipt.find(query)
       .sort({ uploadedAt: -1 })
       .limit(limit)

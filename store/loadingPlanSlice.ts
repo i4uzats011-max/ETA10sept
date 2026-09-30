@@ -183,6 +183,7 @@ export const fetchWarehouseReceipts = createAsyncThunk(
       if (params?.warehouse && params.warehouse !== 'ALL') query.set('warehouse', params.warehouse);
       if (params?.status && params.status !== 'all') query.set('status', params.status);
       if (params?.search) query.set('search', params.search);
+      query.set('limit', '20000');
 
       const res = await fetch(`/api/warehouse/receipts?${query.toString()}`);
       const data = await res.json();

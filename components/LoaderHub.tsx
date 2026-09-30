@@ -162,6 +162,57 @@ export default function LoaderHub() {
   const [receiveLoadingPlan, setReceiveLoadingPlan] = useState('');
   const [isReceivingGoods, setIsReceivingGoods] = useState(false);
 
+  // Dedicated state for Quick Add Godown Stock modal (adding extra found pieces)
+  const [addStockReceipt, setAddStockReceipt] = useState<WarehouseReceiptItem | null>(null);
+  const [addStockQuantityInput, setAddStockQuantityInput] = useState<number | ''>('');
+  const [isSubmittingAddStock, setIsSubmittingAddStock] = useState(false);
+
+  const handleOpenAddStock = (r: WarehouseReceiptItem) => {
+    setAddStockReceipt(r);
+    setAddStockQuantityInput('');
+  };
+
+  const handleConfirmAddStock = async () => {
+    if (!addStockReceipt) return;
+    const added = Number(addStockQuantityInput);
+    if (isNaN(added) || added <= 0) {
+      alert('Please enter a valid positive quantity greater than 0.');
+      return;
+    }
+
+    setIsSubmittingAddStock(true);
+    try {
+      const res = await fetch('/api/warehouse/receipts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          receipt: addStockReceipt.receipt,
+          warehouse: addStockReceipt.warehouse,
+          quantity: added,
+          appendStock: true,
+          addFoundStock: true,
+          date: addStockReceipt.date || new Date().toISOString().split('T')[0],
+          commodity: addStockReceipt.commodity || addStockReceipt.english || addStockReceipt.chinese || '',
+          packaging: addStockReceipt.packaging || 'Carton',
+          mainMarka: addStockReceipt.mainMarka || '',
+          subMarka: addStockReceipt.subMarka || '',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to add stock');
+
+      alert(data.message || `Successfully added ${added} CTN to Receipt #${addStockReceipt.receipt}. Total is now ${(addStockReceipt.quantity || 0) + added} CTN.`);
+      setAddStockReceipt(null);
+      setAddStockQuantityInput('');
+      dispatch(fetchWarehouseReceipts());
+      dispatch(fetchLoadingPlans());
+    } catch (err: any) {
+      alert(err.message || 'Failed to add stock');
+    } finally {
+      setIsSubmittingAddStock(false);
+    }
+  };
+
   // Multi-item inputs for Manual Goods Received Entry
   const [receiveItems, setReceiveItems] = useState<Array<{
     id: string;
@@ -1120,23 +1171,25 @@ export default function LoaderHub() {
       // Search term
       if (searchTerm.trim()) {
         const s = searchTerm.toLowerCase();
-        const matchReceipt = r.receipt?.toLowerCase().includes(s);
-        const matchParty = r.party?.toLowerCase().includes(s);
-        const matchCommodity = r.commodity?.toLowerCase().includes(s);
-        const matchChinese = r.chinese?.toLowerCase().includes(s);
-        const matchEnglish = r.english?.toLowerCase().includes(s);
-        const matchMainMark = r.mainMarka?.toLowerCase().includes(s);
-        const matchSubMark = r.subMarka?.toLowerCase().includes(s);
+        const matchReceipt = String(r.receipt || '').toLowerCase().includes(s);
+        const matchParty = String(r.party || '').toLowerCase().includes(s);
+        const matchWarehouse = String(r.warehouse || '').toLowerCase().includes(s);
+        const matchEntry = String(r.warehouseEntry || '').toLowerCase().includes(s);
+        const matchCommodity = String(r.commodity || '').toLowerCase().includes(s);
+        const matchChinese = String(r.chinese || '').toLowerCase().includes(s);
+        const matchEnglish = String(r.english || '').toLowerCase().includes(s);
+        const matchMainMark = String(r.mainMarka || '').toLowerCase().includes(s);
+        const matchSubMark = String(r.subMarka || '').toLowerCase().includes(s);
         const matchContainer = (r.containers || []).some(
-          (c) => c.container?.toLowerCase().includes(s) || (c.containerNumber || '').toLowerCase().includes(s)
+          (c) => String(c.container || '').toLowerCase().includes(s) || String(c.containerNumber || '').toLowerCase().includes(s)
         );
         const matchItems = (r.items || []).some(
           (it) =>
-            it.itemName?.toLowerCase().includes(s) ||
-            it.english?.toLowerCase().includes(s) ||
-            it.chinese?.toLowerCase().includes(s)
+            String(it.itemName || '').toLowerCase().includes(s) ||
+            String(it.english || '').toLowerCase().includes(s) ||
+            String(it.chinese || '').toLowerCase().includes(s)
         );
-        if (!matchReceipt && !matchParty && !matchCommodity && !matchChinese && !matchEnglish && !matchMainMark && !matchSubMark && !matchContainer && !matchItems) {
+        if (!matchReceipt && !matchParty && !matchWarehouse && !matchEntry && !matchCommodity && !matchChinese && !matchEnglish && !matchMainMark && !matchSubMark && !matchContainer && !matchItems) {
           return false;
         }
       }
@@ -2386,6 +2439,16 @@ export default function LoaderHub() {
 
           return (
             <div className="inline-flex items-center space-x-1.5 justify-end w-full">
+              <button
+                type="button"
+                onClick={() => handleOpenAddStock(r)}
+                title="Found extra pieces in godown? Click to add stock to this receipt"
+                className="inline-flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 hover:border-emerald-300 transition shadow-2xs"
+              >
+                <Plus className="w-3.5 h-3.5 text-emerald-600" />
+                <span>+ Stock</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => handleOpenSingleEdit(r)}
@@ -6096,6 +6159,138 @@ export default function LoaderHub() {
                 </div>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: QUICK ADD GODOWN STOCK (FOUND EXTRA PIECES) ── */}
+      {addStockReceipt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200">
+            <div className="p-5 bg-gradient-to-r from-emerald-600 to-teal-700 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-white/20 rounded-xl text-white">
+                  <Package className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black tracking-tight text-white">
+                    Add Extra Godown Stock (अतिरिक्त माल जोड़ें)
+                  </h3>
+                  <span className="text-xs text-emerald-100 font-medium">
+                    Receipt #{addStockReceipt.receipt} &bull; Warehouse: {addStockReceipt.warehouse}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAddStockReceipt(null)}
+                className="text-white/80 hover:text-white transition p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {/* Receipt Summary Card */}
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2 text-xs">
+                <div className="flex justify-between items-center text-slate-600">
+                  <span>Currently Recorded Total:</span>
+                  <span className="font-bold text-slate-900 font-mono text-sm">{addStockReceipt.quantity} CTN</span>
+                </div>
+                <div className="flex justify-between items-center text-slate-600">
+                  <span>Loaded / Delivered in Containers:</span>
+                  <span className="font-bold text-blue-700 font-mono">{addStockReceipt.loadedQuantity || 0} CTN</span>
+                </div>
+                <div className="flex justify-between items-center text-slate-600">
+                  <span>Current Available in Warehouse:</span>
+                  <span className="font-bold text-emerald-700 font-mono">
+                    {addStockReceipt.remainingQuantity !== undefined ? addStockReceipt.remainingQuantity : (addStockReceipt.quantity - (addStockReceipt.loadedQuantity || 0))} CTN
+                  </span>
+                </div>
+                {addStockReceipt.commodity && (
+                  <div className="flex justify-between items-center text-slate-500 pt-1 border-t border-slate-200">
+                    <span>Commodity:</span>
+                    <span className="font-medium text-slate-800 truncate max-w-[220px]">{addStockReceipt.commodity}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Extra Stock Input */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center justify-between">
+                  <span>Extra / Remaining Pieces Found in Godown</span>
+                  <span className="text-emerald-700 font-bold">* Units (Cartons)</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    placeholder="Enter additional quantity found (e.g. 200)"
+                    value={addStockQuantityInput}
+                    onChange={(e) => setAddStockQuantityInput(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                    className="w-full px-3.5 py-2.5 text-sm font-mono font-bold rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-xs"
+                    autoFocus
+                  />
+                  <span className="absolute right-3.5 top-3 text-xs font-bold text-slate-400">CTN</span>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  जैसे ही आप यहाँ संख्या डालेंगे, यह माल वेयरहाउस स्टॉक में लोड करने के लिए तुरंत उपलब्ध हो जाएगा।
+                </p>
+              </div>
+
+              {/* Real-time Calculation Preview */}
+              {Number(addStockQuantityInput) > 0 && (
+                <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl text-xs space-y-1 text-emerald-950 animate-fadeIn">
+                  <div className="flex justify-between font-bold">
+                    <span>New Total Quantity:</span>
+                    <span className="font-mono">{(addStockReceipt.quantity || 0) + Number(addStockQuantityInput)} CTN</span>
+                  </div>
+                  <div className="flex justify-between font-bold text-emerald-700">
+                    <span>New Available to Load in Warehouse:</span>
+                    <span className="font-mono">
+                      {(addStockReceipt.remainingQuantity !== undefined ? addStockReceipt.remainingQuantity : (addStockReceipt.quantity - (addStockReceipt.loadedQuantity || 0))) + Number(addStockQuantityInput)} CTN
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-slate-500 text-[11px]">
+                    <span>Status will update to:</span>
+                    <span className="font-semibold text-emerald-800">
+                      {(addStockReceipt.loadedQuantity || 0) > 0 ? 'Partially Delivered (Ready to Load)' : 'Received in Warehouse'}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setAddStockReceipt(null)}
+                  disabled={isSubmittingAddStock}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmAddStock}
+                  disabled={isSubmittingAddStock || !addStockQuantityInput || Number(addStockQuantityInput) <= 0}
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center space-x-1.5 disabled:opacity-50"
+                >
+                  {isSubmittingAddStock ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Adding Stock...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Confirm &amp; Add Stock to Warehouse</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
