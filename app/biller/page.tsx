@@ -553,8 +553,30 @@ export default function BillerPortalPage() {
       setPurchaserName(pName);
       setRegistrationType(markaAddress.registrationType || 'Registered');
       setPurchaserGstin(markaAddress.gstin || '');
-      const addr = markaAddress.addresses && markaAddress.addresses.length > 0 ? markaAddress.addresses[0].address : '';
+      const addrs = markaAddress.addresses || [];
+      const addr = addrs.length > 0 ? addrs[0].address : (markaAddress.consigneeAddress || markaAddress.purchaserAddress || '');
       setPurchaserAddress(addr);
+      setConsigneeAddress(addr);
+
+      if (addrs.length > 0) {
+        setCurrentMarkaAddresses(addrs);
+        const def = addrs.find((a: any) => a.isDefault) || addrs[0];
+        setSelectedDeliveryAddressId(def._id || '');
+        setConsigneeAddress(def.address || addr);
+        setPurchaserAddress(def.address || addr);
+        setAddressMode('select');
+      } else if (addr) {
+        setCurrentMarkaAddresses([{
+          title: 'Primary Godown',
+          address: addr,
+          state: markaAddress.state || 'Delhi',
+          stateCode: markaAddress.stateCode || '07',
+          phone: markaAddress.phone || '',
+          isDefault: true,
+        }]);
+        setAddressMode('select');
+      }
+
       const rawCState = markaAddress.state || 'Delhi';
       const cStName = getStateName(rawCState) || 'Delhi';
       const cStCode = getStateCode(markaAddress.stateCode || rawCState) || '07';
@@ -706,14 +728,14 @@ export default function BillerPortalPage() {
   // Handle Container change in Single Entry
   const handleSingleContainerChange = async (cont: string) => {
     setSingleContainer(cont);
-    setSingleSelectedMarka('');
-    setSingleSelectedReceipt('');
-    setSingleAvailableReceipts([]);
     setContainerAlias(cont);
     setLookupMessage(null);
 
     if (!cont.trim() || cont === 'all') {
       setSingleAvailableMarkas(globalMarkasList.map((m) => ({ marka: m })));
+      if (singleSelectedMarka) {
+        handleSingleMarkaChange(singleSelectedMarka, '');
+      }
       return;
     }
 
@@ -723,7 +745,13 @@ export default function BillerPortalPage() {
       if (res.ok) {
         const data = await res.json();
         if (data.container) setContainerAlias(data.container);
-        setSingleAvailableMarkas(data.markas || []);
+        const avail = data.markas || [];
+        setSingleAvailableMarkas(avail);
+
+        // If a marka was already selected, immediately re-reflect item name and quantity for the new container!
+        if (singleSelectedMarka) {
+          handleSingleMarkaChange(singleSelectedMarka, cont);
+        }
       }
     } catch (err) {
       console.error('Cascade error:', err);
@@ -732,30 +760,35 @@ export default function BillerPortalPage() {
     }
   };
 
-  // Handle Marka change in Single Entry
-  const handleSingleMarkaChange = async (m: string) => {
-    setSingleSelectedMarka(m);
+  // Handle Marka change in Single Entry: Auto-reflects Item Name & Quantity from Container & Marka
+  const handleSingleMarkaChange = async (m: string, overrideContainer?: string) => {
+    const cleanMarka = m.trim();
+    setSingleSelectedMarka(cleanMarka);
     setSingleSelectedReceipt('');
     setSingleAvailableReceipts([]);
     setLookupMessage(null);
     setMarkaCargoItems([]);
 
-    if (!m.trim()) {
+    if (!cleanMarka) {
       setCurrentMarkaAddresses([]);
       setSelectedDeliveryAddressId('');
       return;
     }
 
-    setMainMarka(m.trim());
-    fetchMarkaDeliveryLocations(m.trim());
+    setMainMarka(cleanMarka);
+    setSelectedMarkas([cleanMarka]);
+
+    // 1. Fetch saved address for this Marka immediately so it is ready for billing
+    fetchMarkaDeliveryLocations(cleanMarka);
 
     setIsLoadingCascade(true);
     try {
       const queryParams = new URLSearchParams();
-      if (singleContainer && singleContainer !== 'all') {
-        queryParams.set('container', singleContainer);
+      const contToUse = overrideContainer !== undefined ? overrideContainer : singleContainer;
+      if (contToUse && contToUse !== 'all') {
+        queryParams.set('container', contToUse);
       }
-      queryParams.set('marka', m.trim());
+      queryParams.set('marka', cleanMarka);
 
       const res = await fetch(`/api/billing/lookup?${queryParams.toString()}`);
       if (res.ok) {
@@ -763,31 +796,56 @@ export default function BillerPortalPage() {
         const shipments = data.shipments || [];
         setSingleAvailableReceipts(shipments);
 
-        // Extract all cargo items for this Marka
-        const extractedItems: MarkaCargoItem[] = shipments.map((s: any) => {
+        // Group shipments by commodity so all cartons, weight and pcs in this container + marka are aggregated
+        const itemMap = new Map<string, MarkaCargoItem>();
+        let overallCtn = 0;
+        let overallKg = 0;
+        let overallReceipts: string[] = [];
+
+        shipments.forEach((s: any) => {
           const d = (s.commodity || s.english || 'COMMERCIAL GOODS').trim();
           const c = Number(s.cartons || s.quantity) || 0;
           const k = Number(s.weightKg || s.weight) || 0;
           const p = c > 0 ? c * 10 : 0;
-          return {
-            description: d,
-            hsnCode: '39269099',
-            cartons: c,
-            weightKg: k,
-            pcs: p,
-            receipt: s.receipt,
-          };
+          overallCtn += c;
+          overallKg += k;
+          if (s.receipt && !overallReceipts.includes(s.receipt)) {
+            overallReceipts.push(s.receipt);
+          }
+
+          const key = d.toLowerCase();
+          if (itemMap.has(key)) {
+            const existing = itemMap.get(key)!;
+            existing.cartons += c;
+            existing.weightKg = Number((existing.weightKg + k).toFixed(2));
+            existing.pcs += p;
+            if (s.receipt && !existing.receipt?.includes(s.receipt)) {
+              existing.receipt = existing.receipt ? `${existing.receipt}, ${s.receipt}` : s.receipt;
+            }
+          } else {
+            itemMap.set(key, {
+              marka: cleanMarka,
+              description: d,
+              hsnCode: s.hsnCode || '39269099',
+              cartons: c,
+              weightKg: k,
+              pcs: p,
+              receipt: s.receipt,
+            });
+          }
         });
+
+        const extractedItems = Array.from(itemMap.values());
         setMarkaCargoItems(extractedItems);
 
-        // Apply Marka delivery address
+        // Apply Marka saved address & party details
         if (data.markaAddress) {
-          applyShipmentToForm(shipments[0] || { mainMarka: m }, data.markaAddress);
+          applyShipmentToForm(shipments[0] || { mainMarka: cleanMarka }, data.markaAddress);
         } else if (shipments.length > 0) {
           applyShipmentToForm(shipments[0]);
         }
 
-        // Auto-select first item and auto-fill quantities
+        // Auto-select first item: Automatically reflect Item Name and Quantity!
         if (extractedItems.length > 0) {
           const first = extractedItems[0];
           setSelectedCargoDropdown(first.description);
@@ -795,11 +853,16 @@ export default function BillerPortalPage() {
           setCommodity(first.description);
           setLineHsn(first.hsnCode || '39269099');
           setHsnCode(first.hsnCode || '39269099');
+
+          // Base quantities
           setCurrentBasePcs(first.pcs);
           setCurrentBaseKg(first.weightKg);
           setCurrentBaseCtn(first.cartons);
+          setTotalCartons(first.cartons ? String(first.cartons) : '');
+          setQuantityKg(first.weightKg ? String(first.weightKg) : '');
+          setQuantityPcs(first.pcs ? String(first.pcs) : '');
 
-          // Auto-fill quantity according to active unit
+          // Automatically reflect quantity according to active unit (PCS, KGS, CTN)
           const u = lineUnit.toUpperCase();
           if (u === 'PCS') {
             setLineQuantity(first.pcs ? String(first.pcs) : '');
@@ -809,16 +872,19 @@ export default function BillerPortalPage() {
             setLineQuantity(first.cartons ? String(first.cartons) : '');
           }
 
-          if (first.receipt) {
-            setReceiptNo(first.receipt);
-            setSingleSelectedReceipt(first.receipt);
+          if (overallReceipts.length > 0) {
+            setReceiptNo(overallReceipts.join(', '));
+            setSingleSelectedReceipt(overallReceipts[0]);
           }
 
+          // Trigger HSN lookup / inference for the item automatically
+          handleChooseCargoItem(first.description, first.hsnCode);
+
           setLookupMessage(
-            `✓ Marka [${m}] चुनी गई: आइटम [${first.description}] और क्वांटिटी (${first.pcs} PCS / ${first.weightKg} KG) ऑटो-लोड हो गई है।`
+            `✓ Container [${contToUse || 'All'}] & Marka [${cleanMarka}]: Item "${first.description}" and Quantity (${first.cartons} CTN / ${first.weightKg} KG / ${first.pcs} PCS) automatically reflected!`
           );
         } else {
-          setLookupMessage(`Marka [${m}] के लिए कार्गो शिपमेंट मिला।`);
+          setLookupMessage(`Marka [${cleanMarka}] के लिए कार्गो लोड हुआ।`);
         }
       }
     } catch (err) {
@@ -1328,9 +1394,26 @@ export default function BillerPortalPage() {
             if (def.stateCode) setConsigneeStateCode(def.stateCode);
             if (def.phone) setPurchaserPhone(def.phone);
             setSameAsConsignee(!ma.buyerAddress || ma.buyerAddress === def.address);
+          } else if (ma.consigneeAddress || ma.purchaserAddress || ma.buyerAddress) {
+            const fallbackStr = (ma.consigneeAddress || ma.purchaserAddress || ma.buyerAddress || '').trim();
+            const fallbackObj = {
+              title: 'Primary Godown',
+              address: fallbackStr,
+              state: ma.state || 'Delhi',
+              stateCode: ma.stateCode || '07',
+              phone: ma.phone || '',
+              isDefault: true,
+            };
+            setCurrentMarkaAddresses([fallbackObj]);
+            setConsigneeAddress(fallbackStr);
+            setPurchaserAddress(fallbackStr);
+            setAddressMode('select');
+            setSameAsConsignee(!ma.buyerAddress || ma.buyerAddress === fallbackStr);
           } else {
+            setCurrentMarkaAddresses([]);
+            setSelectedDeliveryAddressId('');
             setAddressMode('new');
-            setSameAsConsignee(!ma.buyerAddress || ma.buyerAddress === (ma.purchaserAddress || ''));
+            setSameAsConsignee(!ma.buyerAddress);
           }
         } else {
           setCurrentMarkaAddresses([]);
@@ -3412,16 +3495,16 @@ export default function BillerPortalPage() {
                       value={singleSelectedMarka}
                       onChange={(e) => {
                         const m = e.target.value;
-                        if (m) handleToggleMarka(m);
+                        if (m) handleSingleMarkaChange(m);
                       }}
                       disabled={isLoadingCascade}
                       className="w-full px-3 py-2 bg-slate-900 border border-cyan-500/50 rounded-xl text-xs font-bold text-cyan-300 focus:ring-2 focus:ring-cyan-500 outline-none"
                     >
-                      <option value="">-- मार्का चुनें / जोड़ें (Choose or Add Marka) --</option>
+                      <option value="">-- मार्का चुनें (Choose Marka) --</option>
                       {singleAvailableMarkas.map((m: any, idx: number) => {
                         const mName = typeof m === 'string' ? m : m.marka;
                         const countText = m.count ? ` (${m.count} shipments, ${m.totalCartons || 0} CTN)` : '';
-                        const isChosen = selectedMarkas.includes(mName);
+                        const isChosen = singleSelectedMarka === mName || selectedMarkas.includes(mName);
                         return (
                           <option key={idx} value={mName}>
                             {isChosen ? '✓ ' : ''}{mName} {countText}
@@ -3430,27 +3513,29 @@ export default function BillerPortalPage() {
                       })}
                     </select>
 
-                    {/* Quick Multi-Marka Selection Chips */}
+                    {/* Quick Marka Selection Chips */}
                     {singleAvailableMarkas.length > 0 && (
                       <div className="pt-1">
                         <div className="text-[10px] text-slate-400 font-semibold mb-1 flex items-center justify-between">
-                          <span>मल्टीपल मार्का सेलेक्ट करें:</span>
-                          <span className="text-[10px] text-cyan-400">
-                            {selectedMarkas.length} मार्का चुने गए
-                          </span>
+                          <span>उपलब्ध मार्का (Quick Select):</span>
+                          {singleSelectedMarka && (
+                            <span className="text-[10px] text-cyan-400 font-mono font-bold">
+                              चयनित: {singleSelectedMarka}
+                            </span>
+                          )}
                         </div>
                         <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto pt-0.5 scrollbar-thin">
                           {singleAvailableMarkas.map((m: any, idx: number) => {
                             const mName = typeof m === 'string' ? m : m.marka;
-                            const isChosen = selectedMarkas.includes(mName);
+                            const isChosen = singleSelectedMarka === mName;
                             return (
                               <button
                                 key={idx}
                                 type="button"
-                                onClick={() => handleToggleMarka(mName)}
+                                onClick={() => handleSingleMarkaChange(mName)}
                                 className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition flex items-center space-x-1 border ${
                                   isChosen
-                                    ? 'bg-cyan-500 text-slate-950 border-cyan-300 shadow-sm'
+                                    ? 'bg-cyan-500 text-slate-950 border-cyan-300 shadow-sm font-black'
                                     : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
                                 }`}
                               >

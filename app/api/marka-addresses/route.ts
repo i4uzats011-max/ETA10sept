@@ -143,6 +143,9 @@ export async function POST(req: NextRequest) {
       const targetAddrStr = typeof consigneeAddress === 'string' ? consigneeAddress : typeof address === 'string' ? address : '';
       if (targetAddrStr.trim()) {
         const cleanTarget = targetAddrStr.trim();
+        // Set previous addresses to isDefault = false so the newly saved one is active default
+        record.addresses.forEach((a: any) => { a.isDefault = false; });
+
         const existingIdx = record.addresses.findIndex(
           (a: any) => a.address.trim().toLowerCase() === cleanTarget.toLowerCase()
         );
@@ -153,6 +156,7 @@ export async function POST(req: NextRequest) {
           }
           if (state) record.addresses[existingIdx].state = state.trim();
           if (phone) record.addresses[existingIdx].phone = phone.trim();
+          record.addresses[existingIdx].isDefault = true;
         } else {
           // Add as new sending/dispatch location if it's not already in list
           const locTitle = (body.title || body.addressTitle || (record.addresses.length === 0 ? 'Primary Godown' : `Location ${record.addresses.length + 1}`)).trim();
@@ -161,7 +165,7 @@ export async function POST(req: NextRequest) {
             address: cleanTarget,
             state: (state || record.state || 'Delhi').trim(),
             phone: (phone || record.phone || '').trim(),
-            isDefault: record.addresses.length === 0,
+            isDefault: true,
           });
         }
       }
