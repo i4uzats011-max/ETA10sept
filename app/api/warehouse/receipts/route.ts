@@ -354,6 +354,19 @@ export async function POST(req: NextRequest) {
         existingInSameWarehouse.stockstatus = deliveredShipments.length > 0 ? 'Partially Delivered' : (actualLoaded > 0 ? 'Partially Dispatched' : 'In Stock');
       }
 
+      // Add newly found extra weight (KG) and volume (CBM)
+      const addedWeightNum = parseFloat(String(body.addedWeight || body.weight || 0)) || 0;
+      const addedVolumeNum = parseFloat(String(body.addedVolume || body.volume || 0)) || 0;
+
+      if (addedWeightNum > 0) {
+        const curWeightNum = parseFloat(String(existingInSameWarehouse.weight || 0)) || 0;
+        existingInSameWarehouse.weight = String(Math.round((curWeightNum + addedWeightNum) * 1000) / 1000);
+      }
+      if (addedVolumeNum > 0) {
+        const curVolumeNum = parseFloat(String(existingInSameWarehouse.volume || 0)) || 0;
+        existingInSameWarehouse.volume = String(Math.round((curVolumeNum + addedVolumeNum) * 1000) / 1000);
+      }
+
       await existingInSameWarehouse.save();
 
       // Update all mapped shipments to isSplit: true and update originalTotalQuantity

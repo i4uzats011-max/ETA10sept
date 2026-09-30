@@ -165,11 +165,15 @@ export default function LoaderHub() {
   // Dedicated state for Quick Add Godown Stock modal (adding extra found pieces)
   const [addStockReceipt, setAddStockReceipt] = useState<WarehouseReceiptItem | null>(null);
   const [addStockQuantityInput, setAddStockQuantityInput] = useState<number | ''>('');
+  const [addStockWeightInput, setAddStockWeightInput] = useState<string>('');
+  const [addStockVolumeInput, setAddStockVolumeInput] = useState<string>('');
   const [isSubmittingAddStock, setIsSubmittingAddStock] = useState(false);
 
   const handleOpenAddStock = (r: WarehouseReceiptItem) => {
     setAddStockReceipt(r);
     setAddStockQuantityInput('');
+    setAddStockWeightInput('');
+    setAddStockVolumeInput('');
   };
 
   const handleConfirmAddStock = async () => {
@@ -182,6 +186,9 @@ export default function LoaderHub() {
 
     setIsSubmittingAddStock(true);
     try {
+      const addedWt = addStockWeightInput.trim() ? parseFloat(addStockWeightInput.trim()) : 0;
+      const addedVol = addStockVolumeInput.trim() ? parseFloat(addStockVolumeInput.trim()) : 0;
+
       const res = await fetch('/api/warehouse/receipts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -189,6 +196,8 @@ export default function LoaderHub() {
           receipt: addStockReceipt.receipt,
           warehouse: addStockReceipt.warehouse,
           quantity: added,
+          addedWeight: addedWt > 0 ? addedWt : undefined,
+          addedVolume: addedVol > 0 ? addedVol : undefined,
           appendStock: true,
           addFoundStock: true,
           date: addStockReceipt.date || new Date().toISOString().split('T')[0],
@@ -201,9 +210,12 @@ export default function LoaderHub() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to add stock');
 
-      alert(data.message || `Successfully added ${added} CTN to Receipt #${addStockReceipt.receipt}. Total is now ${(addStockReceipt.quantity || 0) + added} CTN.`);
+      const extraText = (addedWt > 0 ? `, ${addedWt} KG` : '') + (addedVol > 0 ? `, ${addedVol} CBM` : '');
+      alert(data.message || `Successfully added ${added} CTN${extraText} to Receipt #${addStockReceipt.receipt}. Total is now ${(addStockReceipt.quantity || 0) + added} CTN.`);
       setAddStockReceipt(null);
       setAddStockQuantityInput('');
+      setAddStockWeightInput('');
+      setAddStockVolumeInput('');
       dispatch(fetchWarehouseReceipts());
       dispatch(fetchLoadingPlans());
     } catch (err: any) {
@@ -6198,6 +6210,12 @@ export default function LoaderHub() {
                   <span className="font-bold text-slate-900 font-mono text-sm">{addStockReceipt.quantity} CTN</span>
                 </div>
                 <div className="flex justify-between items-center text-slate-600">
+                  <span>Current Weight &amp; Volume:</span>
+                  <span className="font-bold text-slate-800 font-mono">
+                    {addStockReceipt.weight ? `${addStockReceipt.weight} KG` : 'N/A'} &bull; {addStockReceipt.volume ? `${addStockReceipt.volume} CBM` : 'N/A'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-slate-600">
                   <span>Loaded / Delivered in Containers:</span>
                   <span className="font-bold text-blue-700 font-mono">{addStockReceipt.loadedQuantity || 0} CTN</span>
                 </div>
@@ -6215,27 +6233,68 @@ export default function LoaderHub() {
                 )}
               </div>
 
-              {/* Extra Stock Input */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center justify-between">
-                  <span>Extra / Remaining Pieces Found in Godown</span>
-                  <span className="text-emerald-700 font-bold">* Units (Cartons)</span>
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    placeholder="Enter additional quantity found (e.g. 200)"
-                    value={addStockQuantityInput}
-                    onChange={(e) => setAddStockQuantityInput(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
-                    className="w-full px-3.5 py-2.5 text-sm font-mono font-bold rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-xs"
-                    autoFocus
-                  />
-                  <span className="absolute right-3.5 top-3 text-xs font-bold text-slate-400">CTN</span>
+              {/* Extra Stock Inputs: CTN, KG, CBM */}
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center justify-between">
+                    <span>Extra / Remaining Pieces Found (CTN)</span>
+                    <span className="text-emerald-700 font-bold">* Units (Cartons)</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      placeholder="Enter additional quantity found (e.g. 200)"
+                      value={addStockQuantityInput}
+                      onChange={(e) => setAddStockQuantityInput(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                      className="w-full px-3.5 py-2.5 text-sm font-mono font-bold rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-xs"
+                      autoFocus
+                    />
+                    <span className="absolute right-3.5 top-3 text-xs font-bold text-slate-400">CTN</span>
+                  </div>
                 </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Extra Weight (KG) */}
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center justify-between">
+                      <span>Extra Weight (KG)</span>
+                      <span className="text-slate-400 text-[10px]">Optional</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="e.g. 350.5"
+                        value={addStockWeightInput}
+                        onChange={(e) => setAddStockWeightInput(e.target.value)}
+                        className="w-full px-3 py-2 text-xs font-mono font-bold rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-xs"
+                      />
+                      <span className="absolute right-3 top-2.5 text-[11px] font-bold text-slate-400">KG</span>
+                    </div>
+                  </div>
+
+                  {/* Extra Volume (CBM) */}
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center justify-between">
+                      <span>Extra Volume (CBM)</span>
+                      <span className="text-slate-400 text-[10px]">Optional</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="e.g. 2.75"
+                        value={addStockVolumeInput}
+                        onChange={(e) => setAddStockVolumeInput(e.target.value)}
+                        className="w-full px-3 py-2 text-xs font-mono font-bold rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-xs"
+                      />
+                      <span className="absolute right-3 top-2.5 text-[11px] font-bold text-slate-400">CBM</span>
+                    </div>
+                  </div>
+                </div>
+
                 <p className="text-[11px] text-slate-500">
-                  जैसे ही आप यहाँ संख्या डालेंगे, यह माल वेयरहाउस स्टॉक में लोड करने के लिए तुरंत उपलब्ध हो जाएगा।
+                  अतिरिक्त कार्टन, वज़न (KG) और क्यूबिक मीटर (CBM) डालते ही वेयरहाउस में यह नया स्टॉक तुरंत उपलब्ध हो जाएगा।
                 </p>
               </div>
 
@@ -6252,7 +6311,23 @@ export default function LoaderHub() {
                       {(addStockReceipt.remainingQuantity !== undefined ? addStockReceipt.remainingQuantity : (addStockReceipt.quantity - (addStockReceipt.loadedQuantity || 0))) + Number(addStockQuantityInput)} CTN
                     </span>
                   </div>
-                  <div className="flex justify-between text-slate-500 text-[11px]">
+                  {parseFloat(addStockWeightInput) > 0 && (
+                    <div className="flex justify-between font-bold text-blue-900">
+                      <span>New Total Weight:</span>
+                      <span className="font-mono">
+                        {(Math.round(((parseFloat(String(addStockReceipt.weight || 0)) || 0) + parseFloat(addStockWeightInput)) * 1000) / 1000)} KG
+                      </span>
+                    </div>
+                  )}
+                  {parseFloat(addStockVolumeInput) > 0 && (
+                    <div className="flex justify-between font-bold text-indigo-900">
+                      <span>New Total Volume:</span>
+                      <span className="font-mono">
+                        {(Math.round(((parseFloat(String(addStockReceipt.volume || 0)) || 0) + parseFloat(addStockVolumeInput)) * 1000) / 1000)} CBM
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-slate-500 text-[11px] pt-1 border-t border-emerald-200">
                     <span>Status will update to:</span>
                     <span className="font-semibold text-emerald-800">
                       {(addStockReceipt.loadedQuantity || 0) > 0 ? 'Partially Delivered (Ready to Load)' : 'Received in Warehouse'}
