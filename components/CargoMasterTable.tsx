@@ -80,6 +80,7 @@ export default function CargoMasterTable({
     startDate: true,
     rawEta: true,
     eta: true,
+    etaUpdatedAt: true,
     deliveryDate: true,
     daysToDeliver: true,
     status: true,
@@ -452,6 +453,31 @@ export default function CargoMasterTable({
                   <span>Updated: {formatGlobalDate(updatedAt)}</span>
                 </div>
               )}
+            </div>
+          );
+        },
+      },
+      {
+        accessorKey: 'etaUpdatedAt',
+        header: 'ETA Last Updated Date',
+        cell: ({ row }) => {
+          const updatedTime = row.original.etaUpdatedAt || row.original.lastApiSync;
+          if (!updatedTime) {
+            return <span className="text-slate-400 text-xs italic">Not Updated</span>;
+          }
+          const isApi = Boolean(row.original.lastApiSync);
+          return (
+            <div className="space-y-0.5 whitespace-nowrap">
+              <span className="inline-flex items-center space-x-1 font-mono font-bold text-xs text-emerald-900 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-md">
+                <Calendar className="w-3 h-3 text-emerald-600 shrink-0" />
+                <span>{formatGlobalDate(updatedTime)}</span>
+              </span>
+              <div className="text-[10px] text-slate-500 font-mono flex items-center gap-1 pl-0.5">
+                <span>{new Date(updatedTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                <span className={`px-1 py-0.2 rounded text-[9px] font-bold ${isApi ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 'bg-amber-50 text-amber-800 border border-amber-200'}`}>
+                  {isApi ? 'API' : 'Manual'}
+                </span>
+              </div>
             </div>
           );
         },
