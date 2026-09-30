@@ -107,6 +107,7 @@ export async function POST(req: NextRequest) {
       updateFields.voyageNumber = trackingInfo.voyageNumber;
       updateFields.jsonCargoData = trackingInfo.dataDetails;
       updateFields.lastApiSync = now;
+      updateFields.etaUpdatedAt = now;
       updateFields.apiCalled = true;
     }
 
@@ -174,6 +175,7 @@ export async function POST(req: NextRequest) {
             vesselName: trackingInfo.vesselName,
             voyageNumber: trackingInfo.voyageNumber,
             lastApiSync: now,
+            etaUpdatedAt: now,
           }
         : null,
     });

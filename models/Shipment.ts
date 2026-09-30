@@ -34,6 +34,7 @@ export interface IShipment extends Document {
   voyageNumber?: string;        // Current Voyage number
   jsonCargoData?: Record<string, any>; // Full JSONCargo tracking data payload
   lastApiSync?: Date | null;    // Timestamp of last JSONCargo API sync
+  etaUpdatedAt?: Date | null;   // Timestamp of when ETA was last updated (manual or API)
   deliveryDate?: string;        // Delivery date (when marked delivered)
   daysToDeliver?: number | null; // Calculated turnaround days
   isDelivered?: boolean;        // Delivery flag
@@ -95,6 +96,7 @@ const ShipmentSchema = new Schema<IShipment>({
   voyageNumber: { type: String, default: '' },
   jsonCargoData: { type: Schema.Types.Mixed, default: null },
   lastApiSync: { type: Date, default: null },
+  etaUpdatedAt: { type: Date, default: null },
   apiCalled: { type: Boolean, default: false, index: true },
   apiCallCount: { type: Number, default: 0 },
   uploadBatchId: { type: String, default: '', index: true },

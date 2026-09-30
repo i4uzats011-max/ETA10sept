@@ -60,8 +60,10 @@ export async function POST(req: NextRequest) {
 
     await connectToDatabase();
 
+    const now = new Date();
     const updateFields: any = {
       lastApiSync: null,
+      etaUpdatedAt: now,
     };
 
     if (finalAlias) {
@@ -167,6 +169,7 @@ export async function POST(req: NextRequest) {
       startDate: inputLoading || savedContainer?.startDate || undefined,
       shippedTo: updateFields.shippedTo || savedContainer?.shippedTo || undefined,
       status: updateFields.status || savedContainer?.status || 'In Transit',
+      etaUpdatedAt: now.toISOString(),
       updatedCount: updateResult.modifiedCount,
     });
   } catch (error: any) {

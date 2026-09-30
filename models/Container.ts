@@ -14,6 +14,7 @@ export interface IContainer extends Document {
   vesselName?: string;          // Vessel name
   voyageNumber?: string;        // Voyage number
   lastApiSync?: Date | null;    // Timestamp of last JSONCargo API sync
+  etaUpdatedAt?: Date | null;   // Timestamp of when ETA was last updated (manual or API)
   jsonCargoData?: Record<string, any>; // Full raw/structured payload from JSONCargo API
   deliveryDate?: string;        // Delivery date (when marked delivered by user/admin)
   daysToDeliver?: number | null; // Calculated turnaround days from loading/receipt to delivery
@@ -59,6 +60,7 @@ const ContainerSchema = new Schema<IContainer>(
     vesselName: { type: String, default: '' },
     voyageNumber: { type: String, default: '' },
     lastApiSync: { type: Date, default: null },
+    etaUpdatedAt: { type: Date, default: null },
     jsonCargoData: { type: Schema.Types.Mixed, default: null },
     apiCalled: { type: Boolean, default: false, index: true },
     apiCallCount: { type: Number, default: 0 },

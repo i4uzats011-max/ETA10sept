@@ -677,13 +677,16 @@ export async function POST(req: NextRequest) {
         targetContainer.destinationDate = trackingRawEta
           ? addFilingBufferDays(trackingRawEta, cleanBufferDays)
           : trackingEta;
+        targetContainer.etaUpdatedAt = now;
       }
       if (trackingRawEta) {
         targetContainer.rawEta = trackingRawEta;
+        targetContainer.etaUpdatedAt = now;
       }
       if (trackingDetails) {
         targetContainer.jsonCargoData = trackingDetails;
         targetContainer.lastApiSync = now;
+        targetContainer.etaUpdatedAt = now;
       }
       await targetContainer.save();
 
@@ -702,13 +705,16 @@ export async function POST(req: NextRequest) {
       if (trackingEta && trackingEta !== 'Pending') {
         updateShipmentPayload.eta = trackingEta;
         updateShipmentPayload.destinationDate = targetContainer.destinationDate || trackingEta;
+        updateShipmentPayload.etaUpdatedAt = now;
       }
       if (trackingRawEta) {
         updateShipmentPayload.rawEta = trackingRawEta;
+        updateShipmentPayload.etaUpdatedAt = now;
       }
       if (trackingDetails) {
         updateShipmentPayload.jsonCargoData = trackingDetails;
         updateShipmentPayload.lastApiSync = now;
+        updateShipmentPayload.etaUpdatedAt = now;
       }
 
       const updateResult = await Shipment.updateMany(
@@ -1147,6 +1153,7 @@ export async function POST(req: NextRequest) {
             cleanLoadingDate = tracking.loadingDate;
           }
           if (tracking.eta && tracking.eta !== 'N/A') {
+            const nowSync = new Date();
             targetContainer.eta = tracking.eta;
             targetContainer.rawEta = tracking.rawEta || '';
             targetContainer.destinationDate = tracking.rawEta
@@ -1157,12 +1164,13 @@ export async function POST(req: NextRequest) {
             targetContainer.vesselName = tracking.vesselName;
             targetContainer.voyageNumber = tracking.voyageNumber;
             targetContainer.jsonCargoData = tracking.dataDetails;
-            targetContainer.lastApiSync = new Date();
+            targetContainer.lastApiSync = nowSync;
+            targetContainer.etaUpdatedAt = nowSync;
             targetContainer.apiCalled = true;
             targetContainer.apiCallCount = (targetContainer.apiCallCount || 0) + 1;
             targetContainer.apiCallHistory = targetContainer.apiCallHistory || [];
             targetContainer.apiCallHistory.push({
-              timestamp: new Date(),
+              timestamp: nowSync,
               source: 'alter_container_sync',
               eta: tracking.eta,
               status: tracking.status,
@@ -1185,8 +1193,10 @@ export async function POST(req: NextRequest) {
       // If custom destination / public ETA date explicitly provided or offset recalculation needed
       if (destinationDate !== undefined && String(destinationDate).trim()) {
         targetContainer.destinationDate = String(destinationDate).trim();
+        targetContainer.etaUpdatedAt = new Date();
       } else if (targetContainer.rawEta) {
         targetContainer.destinationDate = addFilingBufferDays(targetContainer.rawEta, cleanBufferDays);
+        if (!targetContainer.etaUpdatedAt) targetContainer.etaUpdatedAt = new Date();
       }
 
       // Update Container document
@@ -1228,6 +1238,9 @@ export async function POST(req: NextRequest) {
       }
       if (targetContainer.destinationDate) {
         shipmentUpdatePayload.destinationDate = targetContainer.destinationDate;
+      }
+      if (targetContainer.etaUpdatedAt) {
+        shipmentUpdatePayload.etaUpdatedAt = targetContainer.etaUpdatedAt;
       }
       if (targetContainer.etaBufferDays !== undefined) {
         shipmentUpdatePayload.etaBufferDays = targetContainer.etaBufferDays;

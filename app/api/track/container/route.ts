@@ -81,13 +81,20 @@ export async function GET(req: NextRequest) {
       dateOfDelivery = formatGlobalDate(clearanceEta);
     }
 
+    const rawEtaUpdated =
+      target.etaUpdatedAt ||
+      target.lastApiSync ||
+      (dateOfDelivery !== 'Pending' ? target.updatedAt || target.uploadedAt : null);
+    const etaUpdatedAt = rawEtaUpdated ? new Date(rawEtaUpdated).toISOString() : null;
+
     // Public tracking security: Users cannot see actual container no., status, or destination.
-    // They can ONLY see date of delivery (ETA + 10 days) and internal container alias.
+    // They can ONLY see date of delivery (ETA + 10 days), internal container alias, and when ETA was last updated.
     return NextResponse.json({
       success: true,
       container: target.container,
       dateOfDelivery,
       eta: dateOfDelivery, // Backwards compatibility for UI fields
+      etaUpdatedAt,
     });
   } catch (error: any) {
     return NextResponse.json(

@@ -3,7 +3,7 @@ import { connectToDatabase } from '@/lib/mongodb';
 import Container from '@/models/Container';
 import Shipment from '@/models/Shipment';
 import { isStaffOrAdminAuthenticated } from '@/lib/auth';
-import { parseReceiptDate, getEtaBucket } from '@/lib/dateUtils';
+import { parseReceiptDate, getEtaBucket, calculatePublicDeliveryDate, formatGlobalDate } from '@/lib/dateUtils';
 
 export const dynamic = 'force-dynamic';
 
@@ -67,6 +67,8 @@ export async function GET(req: NextRequest) {
           vesselName: { $first: '$vesselName' },
           voyageNumber: { $first: '$voyageNumber' },
           lastApiSync: { $first: '$lastApiSync' },
+          etaUpdatedAt: { $first: '$etaUpdatedAt' },
+          updatedAt: { $first: '$updatedAt' },
           shipmentCount: { $sum: 1 },
         },
       },
@@ -91,6 +93,8 @@ export async function GET(req: NextRequest) {
           voyageNumber: sc.voyageNumber || '',
           shipmentCount: sc.shipmentCount || 0,
           lastApiSync: sc.lastApiSync || null,
+          etaUpdatedAt: sc.etaUpdatedAt || null,
+          updatedAt: sc.updatedAt || null,
         });
       } else {
         // Update shipmentCount from live shipments if zero
@@ -100,6 +104,9 @@ export async function GET(req: NextRequest) {
         }
         if (!existing.rawEta && sc.rawEta) {
           existing.rawEta = sc.rawEta;
+        }
+        if (!existing.etaUpdatedAt && sc.etaUpdatedAt) {
+          existing.etaUpdatedAt = sc.etaUpdatedAt;
         }
       }
     }
@@ -113,19 +120,30 @@ export async function GET(req: NextRequest) {
       );
 
       const effectiveGraceDate = c.destinationDate || c.eta || '';
+      let publicEtaDate = 'Pending';
+      if (c.rawEta && c.rawEta !== 'N/A' && c.rawEta !== 'Pending') {
+        publicEtaDate = calculatePublicDeliveryDate(c.rawEta, 10);
+      } else if (effectiveGraceDate && effectiveGraceDate !== 'N/A' && effectiveGraceDate !== 'Pending') {
+        publicEtaDate = formatGlobalDate(effectiveGraceDate);
+      }
+
       const destinationDate = isStaffOrAdmin
         ? (effectiveGraceDate || 'Pending')
-        : (isMappedWithActual ? (effectiveGraceDate || 'Pending') : 'Pending');
+        : publicEtaDate;
 
       const isDelivered = Boolean(
         c.isDelivered || (c.status && c.status.toLowerCase().includes('deliver'))
       );
 
       // Days remaining calculated based on destination ETA date, fallback to rawEta
-      const targetEtaForDays = effectiveGraceDate || c.rawEta || '';
+      const targetEtaForDays = (isStaffOrAdmin ? effectiveGraceDate : publicEtaDate) || c.rawEta || '';
       const daysRemaining = calculateDaysRemaining(targetEtaForDays);
       const actualDaysRemaining = calculateDaysRemaining(c.rawEta);
       const etaBucket = getEtaBucket(daysRemaining, isDelivered);
+
+      const hasValidEta = destinationDate && destinationDate !== 'N/A' && destinationDate !== 'Pending';
+      const rawEtaUpdated = c.etaUpdatedAt || c.lastApiSync || (hasValidEta ? c.updatedAt : null);
+      const etaUpdatedAt = rawEtaUpdated ? new Date(rawEtaUpdated).toISOString() : null;
 
       return {
         container: c.container, // Public alias (e.g. "USI-01")
@@ -155,6 +173,7 @@ export async function GET(req: NextRequest) {
         apiCalled: Boolean(c.apiCalled || c.lastApiSync),
         apiCallCount: c.apiCallCount || 0,
         lastApiSync: isStaffOrAdmin ? (c.lastApiSync ? new Date(c.lastApiSync).toISOString() : null) : undefined,
+        etaUpdatedAt,
       };
     });
 

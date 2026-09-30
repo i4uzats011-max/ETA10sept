@@ -169,6 +169,16 @@ export async function GET(req: NextRequest) {
         publicDeliveryDate = formatGlobalDate(resolvedEta);
       }
 
+      const rawEtaUpdated =
+        fallbackDoc?.etaUpdatedAt ||
+        shipment.etaUpdatedAt ||
+        fallbackDoc?.lastApiSync ||
+        shipment.lastApiSync ||
+        (publicDeliveryDate !== 'Pending'
+          ? fallbackDoc?.updatedAt || shipment.updatedAt || shipment.uploadedAt
+          : null);
+      const etaUpdatedAt = rawEtaUpdated ? new Date(rawEtaUpdated).toISOString() : null;
+
       return {
         id: shipment._id,
         receipt: shipment.receipt,
@@ -178,6 +188,7 @@ export async function GET(req: NextRequest) {
         dateOfDelivery: publicDeliveryDate,
         expectedDeliveryDate: publicDeliveryDate,
         eta: publicDeliveryDate, // For backwards compatibility with UI components expecting eta
+        etaUpdatedAt,
         english: translateToEnglish(shipment.english || shipment.commodity || shipment.chinese),
         commodity: translateToEnglish(shipment.commodity || shipment.english || shipment.chinese),
         quantity: shipment.quantity || '0',
