@@ -31,8 +31,8 @@ export interface IWarehouseReceipt extends Document {
   mainMarka?: string;           // Main shipping mark
   subMarka?: string;            // Sub mark
   items?: IReceiptItem[];       // Multiple line items / commodities with individual quantities
-  status: 'Received in Warehouse' | 'Received' | 'Partially Loaded' | 'Fully Loaded' | 'Delivered'; // Loading status: Received in Warehouse, Partially Loaded, Fully Loaded
-  stockstatus?: string;         // 'In Stock' | 'Partially Dispatched' | 'Dispatched' | 'Delivered'
+  status: 'Received in Warehouse' | 'Received' | 'Partially Loaded' | 'Fully Loaded' | 'Partially Delivered' | 'Delivered'; // Loading status: Received in Warehouse, Partially Loaded, Fully Loaded, Partially Delivered, Delivered
+  stockstatus?: string;         // 'In Stock' | 'Partially Dispatched' | 'Dispatched' | 'Partially Delivered' | 'Delivered'
   deliveryDate?: string;        // Final delivery date
   isDelivered?: boolean;        // Delivery status
   notes?: string;               // Optional notes or remarks from warehouse
@@ -78,7 +78,7 @@ const WarehouseReceiptSchema = new Schema<IWarehouseReceipt>(
     items: { type: [ReceiptItemSchema], default: [] },
     status: {
       type: String,
-      enum: ['Received in Warehouse', 'Received', 'Partially Loaded', 'Fully Loaded', 'Delivered'],
+      enum: ['Received in Warehouse', 'Received', 'Partially Loaded', 'Fully Loaded', 'Partially Delivered', 'Delivered'],
       default: 'Received in Warehouse',
       index: true,
     },
@@ -119,15 +119,35 @@ WarehouseReceiptSchema.pre('save', function (next) {
 
   if (this.quantity !== undefined && this.loadedQuantity !== undefined) {
     this.remainingQuantity = Math.max(0, this.quantity - this.loadedQuantity);
-    if (this.loadedQuantity <= 0) {
-      this.status = 'Received in Warehouse';
-      this.stockstatus = 'In Stock';
-    } else if (this.loadedQuantity >= this.quantity) {
-      this.status = 'Fully Loaded';
-      this.stockstatus = 'Dispatched';
+
+    // If remaining goods exist in warehouse stock, receipt CANNOT be fully delivered
+    if (this.remainingQuantity > 0) {
+      this.isDelivered = false;
+      if (this.loadedQuantity <= 0) {
+        this.status = 'Received in Warehouse';
+        this.stockstatus = 'In Stock';
+      } else if (this.status === 'Partially Delivered' || this.stockstatus === 'Partially Delivered') {
+        this.status = 'Partially Delivered';
+        this.stockstatus = 'Partially Delivered';
+      } else {
+        this.status = 'Partially Loaded';
+        this.stockstatus = 'Partially Dispatched';
+      }
     } else {
-      this.status = 'Partially Loaded';
-      this.stockstatus = 'Partially Dispatched';
+      // remainingQuantity === 0 (all received goods have been loaded)
+      if (this.isDelivered) {
+        this.status = 'Delivered';
+        this.stockstatus = 'Delivered';
+      } else if (this.status === 'Partially Delivered' || this.stockstatus === 'Partially Delivered') {
+        this.status = 'Partially Delivered';
+        this.stockstatus = 'Partially Delivered';
+      } else if (this.loadedQuantity <= 0) {
+        this.status = 'Received in Warehouse';
+        this.stockstatus = 'In Stock';
+      } else {
+        this.status = 'Fully Loaded';
+        this.stockstatus = 'Dispatched';
+      }
     }
   }
   next();

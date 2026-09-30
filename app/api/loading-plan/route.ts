@@ -356,9 +356,15 @@ export async function POST(req: NextRequest) {
       }
 
       // 4. Update Warehouse Receipt loaded & remaining quantities for this specific warehouse receipt
+      const hasDeliveredShipments = activeShipmentsForReceipt.some((s: any) => Boolean(s.isDelivered));
       whReceipt.loadedQuantity = actualLoadedSoFar + qtyToLoad;
       whReceipt.remainingQuantity = Math.max(0, whReceipt.quantity - whReceipt.loadedQuantity);
-      if (whReceipt.remainingQuantity === 0) {
+
+      if (hasDeliveredShipments) {
+        whReceipt.isDelivered = false;
+        whReceipt.status = 'Partially Delivered';
+        whReceipt.stockstatus = 'Partially Delivered';
+      } else if (whReceipt.remainingQuantity === 0) {
         whReceipt.status = 'Fully Loaded';
         whReceipt.stockstatus = 'Dispatched';
       } else {
@@ -366,6 +372,25 @@ export async function POST(req: NextRequest) {
         whReceipt.stockstatus = 'Partially Dispatched';
       }
       await whReceipt.save();
+
+      // Ensure all shipments for this receipt are marked as isSplit: true
+      await Shipment.updateMany(
+        {
+          $or: [
+            { receiptId: whReceipt._id },
+            {
+              receipt: new RegExp(`^${cleanReceipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+              warehouse: new RegExp(`^${(whReceipt.warehouse || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+            },
+          ],
+        },
+        {
+          $set: {
+            isSplit: true,
+            originalTotalQuantity: String(whReceipt.quantity),
+          },
+        }
+      );
 
       // 5. Update Container shipment count & total quantity
       targetContainer.shipmentCount = (targetContainer.shipmentCount || 0) + 1;
@@ -777,8 +802,6 @@ export async function POST(req: NextRequest) {
           wh = await WarehouseReceipt.findOne(filter);
         }
         if (wh) {
-          wh.deliveryDate = '';
-          wh.isDelivered = false;
           // Recalculate actual loaded quantity strictly from shipments of this warehouse receipt
           const activeShipments = await Shipment.find({
             $or: [
@@ -793,9 +816,18 @@ export async function POST(req: NextRequest) {
             (sum: number, it: any) => sum + (parseInt(String(it.quantity || 0), 10) || 0),
             0
           );
+          const deliveredShipments = activeShipments.filter((it: any) => Boolean(it.isDelivered));
+          const anyStillDelivered = deliveredShipments.length > 0;
+
           wh.loadedQuantity = actualLoaded;
           wh.remainingQuantity = Math.max(0, wh.quantity - actualLoaded);
-          if (wh.loadedQuantity >= wh.quantity) {
+          wh.isDelivered = false;
+          wh.deliveryDate = anyStillDelivered ? (deliveredShipments[0]?.deliveryDate || '') : '';
+
+          if (anyStillDelivered) {
+            wh.status = 'Partially Delivered';
+            wh.stockstatus = 'Partially Delivered';
+          } else if (wh.loadedQuantity >= wh.quantity) {
             wh.status = 'Fully Loaded';
             wh.stockstatus = 'Dispatched';
           } else if (wh.loadedQuantity > 0) {
@@ -943,18 +975,6 @@ export async function POST(req: NextRequest) {
       }
 
       for (const item of Array.from(deliveredReceiptMap.values())) {
-        // Check if any split of this receipt in THIS warehouse is still undelivered
-        const undeliveredCount = await Shipment.countDocuments({
-          $or: [
-            ...(item.receiptId ? [{ receiptId: item.receiptId }] : []),
-            {
-              receipt: new RegExp(`^${item.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-              warehouse: new RegExp(`^${item.warehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-            },
-          ],
-          isDelivered: { $ne: true },
-        });
-
         const whFilter: any = item.receiptId
           ? { _id: item.receiptId }
           : {
@@ -962,7 +982,30 @@ export async function POST(req: NextRequest) {
               warehouse: new RegExp(`^${item.warehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
             };
 
-        if (undeliveredCount === 0) {
+        const whDoc: any = await WarehouseReceipt.findOne(whFilter);
+
+        // Fetch all shipments for this receipt to evaluate full vs partial delivery
+        const allShipmentsForReceipt = await Shipment.find({
+          $or: [
+            ...(item.receiptId ? [{ receiptId: item.receiptId }] : []),
+            {
+              receipt: new RegExp(`^${item.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+              warehouse: new RegExp(`^${item.warehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+            },
+          ],
+        }).lean();
+
+        const deliveredShipments = allShipmentsForReceipt.filter((s: any) => Boolean(s.isDelivered));
+        const undeliveredShipments = allShipmentsForReceipt.filter((s: any) => !s.isDelivered);
+        const deliveredCartons = deliveredShipments.reduce((sum: number, s: any) => sum + (parseInt(String(s.quantity || 0), 10) || 0), 0);
+
+        const totalReceiptQty = whDoc ? Number(whDoc.quantity || 0) : deliveredCartons;
+        const remainingWarehouseStock = whDoc ? Math.max(0, totalReceiptQty - (whDoc.loadedQuantity || 0)) : 0;
+
+        // Fully Delivered ONLY if: no undelivered shipments, no remaining warehouse stock, and deliveredCartons >= totalReceiptQty
+        const isFullyDelivered = undeliveredShipments.length === 0 && remainingWarehouseStock === 0 && deliveredCartons >= totalReceiptQty && totalReceiptQty > 0;
+
+        if (isFullyDelivered) {
           await WarehouseReceipt.findOneAndUpdate(whFilter, {
             $set: {
               deliveryDate: cleanDeliveryDate,
@@ -974,6 +1017,8 @@ export async function POST(req: NextRequest) {
         } else {
           await WarehouseReceipt.findOneAndUpdate(whFilter, {
             $set: {
+              deliveryDate: cleanDeliveryDate,
+              isDelivered: false,
               status: 'Partially Delivered',
               stockstatus: 'Partially Delivered',
             },

@@ -710,12 +710,24 @@ export default function LoaderHub() {
 
     const cleanRec = receiveReceipt.trim().toLowerCase();
     const cleanWh = receiveWarehouse.trim().toLowerCase();
-    const isDup = warehouseReceipts.some(
+    const existingRec = warehouseReceipts.find(
       (r) => (r.receipt || '').trim().toLowerCase() === cleanRec && (r.warehouse || '').trim().toLowerCase() === cleanWh
     );
-    if (isDup) {
-      alert(`Duplicate Receipt Error: Receipt #${receiveReceipt.trim()} already exists in warehouse '${receiveWarehouse.trim()}'.\n\nEvery warehouse must have strictly unique receipt numbers. Duplicate entries are rejected.`);
-      return;
+    let appendStock = false;
+    if (existingRec) {
+      const confirmAdd = confirm(
+        `Receipt #${receiveReceipt.trim()} already exists in ${receiveWarehouse.trim()} warehouse!\n\n` +
+        `• Current Total: ${existingRec.quantity} CTN\n` +
+        `• Loaded / Delivered: ${existingRec.loadedQuantity || 0} CTN\n` +
+        `• Remaining in Stock: ${existingRec.remainingQuantity || 0} CTN\n\n` +
+        `Were ${qtyNum} additional / remaining pieces found in the godown?\n\n` +
+        `Click OK to ADD ${qtyNum} pieces to this receipt (New Total: ${(existingRec.quantity || 0) + qtyNum} CTN).\n` +
+        `Click Cancel to cancel and enter a different receipt number.`
+      );
+      if (!confirmAdd) {
+        return;
+      }
+      appendStock = true;
     }
 
     setIsReceivingGoods(true);
@@ -725,6 +737,8 @@ export default function LoaderHub() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           receipt: receiveReceipt.trim(),
+          appendStock,
+          addFoundStock: appendStock,
           party: receiveParty.trim(),
           warehouse: receiveWarehouse.trim(),
           date: receiveDate.trim(),
@@ -1095,6 +1109,10 @@ export default function LoaderHub() {
       if (statusFilter !== 'all') {
         if (statusFilter === 'Received' || statusFilter === 'Received in Warehouse') {
           if (r.status !== 'Received' && r.status !== 'Received in Warehouse') return false;
+        } else if (statusFilter === 'Delivered') {
+          if (r.status !== 'Delivered' && !r.isDelivered) return false;
+        } else if (statusFilter === 'Partially Delivered') {
+          if (r.status !== 'Partially Delivered') return false;
         } else if (r.status !== statusFilter) {
           return false;
         }
@@ -2165,24 +2183,36 @@ export default function LoaderHub() {
         header: 'Goods Status',
         cell: ({ row }) => {
           const r = row.original;
+          const isDelivered = r.status === 'Delivered';
+          const isPartiallyDelivered = r.status === 'Partially Delivered';
           const isFullyLoaded = r.status === 'Fully Loaded';
           const isPartiallyLoaded = r.status === 'Partially Loaded';
 
           return (
             <span
               className={`inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-bold tracking-tight shadow-xs whitespace-nowrap ${
-                isFullyLoaded
+                isDelivered
+                  ? 'bg-emerald-600 text-white border border-emerald-700 font-black'
+                  : isPartiallyDelivered
+                  ? 'bg-purple-100 text-purple-900 border border-purple-300 font-black'
+                  : isFullyLoaded
                   ? 'bg-emerald-100 text-emerald-900 border border-emerald-300 font-black'
                   : isPartiallyLoaded
                   ? 'bg-blue-100 text-blue-900 border border-blue-300 font-black'
                   : 'bg-amber-100 text-amber-900 border border-amber-300 font-bold'
               }`}
             >
+              {isDelivered && <CheckCircle2 className="w-3.5 h-3.5 text-white shrink-0" />}
+              {isPartiallyDelivered && <Truck className="w-3.5 h-3.5 text-purple-700 shrink-0" />}
               {isFullyLoaded && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />}
               {isPartiallyLoaded && <Split className="w-3.5 h-3.5 text-blue-700 shrink-0" />}
-              {!isFullyLoaded && !isPartiallyLoaded && <Clock className="w-3.5 h-3.5 text-amber-700 shrink-0" />}
+              {!isDelivered && !isPartiallyDelivered && !isFullyLoaded && !isPartiallyLoaded && <Clock className="w-3.5 h-3.5 text-amber-700 shrink-0" />}
               <span>
-                {isFullyLoaded
+                {isDelivered
+                  ? `Delivered (${r.quantity} CTN)`
+                  : isPartiallyDelivered
+                  ? `Partially Delivered (${(r as any).deliveredQuantity || r.loadedQuantity || 0}/${r.quantity} CTN)`
+                  : isFullyLoaded
                   ? 'Fully Loaded'
                   : isPartiallyLoaded
                   ? `Partially Loaded (${r.loadedQuantity || 0}/${r.quantity} CTN)`
@@ -2332,14 +2362,14 @@ export default function LoaderHub() {
         cell: ({ row }) => {
           const r = row.original;
           const avail = r.remainingQuantity !== undefined ? r.remainingQuantity : r.quantity - (r.loadedQuantity || 0);
-          const isComplete = avail === 0;
+          const isComplete = avail <= 0;
 
           return (
             <div className="inline-flex items-center space-x-1.5 justify-end w-full">
               <button
                 type="button"
                 onClick={() => handleOpenSingleEdit(r)}
-                title="Edit warehouse receipt details"
+                title="Edit warehouse receipt details (Change cartons, commodity, marks)"
                 className="inline-flex items-center p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 transition"
               >
                 <Pencil className="w-3.5 h-3.5" />
@@ -2348,7 +2378,7 @@ export default function LoaderHub() {
               <button
                 onClick={() => handleOpenSplit(r)}
                 disabled={isComplete}
-                title={isComplete ? 'Fully loaded into containers' : 'Split and allocate cargo into container plan'}
+                title={isComplete ? 'Fully loaded / delivered into containers' : `Split & load remaining ${avail} carton(s) into container plan`}
                 className={`inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-bold transition shadow-sm ${
                   isComplete
                     ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
@@ -2356,7 +2386,7 @@ export default function LoaderHub() {
                 }`}
               >
                 <Split className="w-3.5 h-3.5" />
-                <span>Split</span>
+                <span>{avail > 0 && (r.loadedQuantity || 0) > 0 ? `Load ${avail} CTN` : 'Split'}</span>
               </button>
 
               <button
@@ -2753,6 +2783,8 @@ export default function LoaderHub() {
                   { id: 'Received', label: 'Received in Warehouse' },
                   { id: 'Partially Loaded', label: 'Partially Loaded' },
                   { id: 'Fully Loaded', label: 'Fully Loaded' },
+                  { id: 'Partially Delivered', label: 'Partially Delivered' },
+                  { id: 'Delivered', label: 'Delivered' },
                 ].map((st) => (
                   <button
                     key={st.id}
@@ -6918,8 +6950,40 @@ export default function LoaderHub() {
                           </div>
 
                           {filteredAvailableReceipts.length === 0 ? (
-                            <div className="p-4 text-center text-xs text-slate-400 italic">
-                              No received goods found matching &quot;{containerWiseReceiptSearch}&quot;
+                            <div className="p-4 text-center text-xs space-y-2">
+                              <p className="text-slate-400 italic">No available stock found matching &quot;{containerWiseReceiptSearch}&quot;</p>
+                              {(() => {
+                                const q = containerWiseReceiptSearch.toLowerCase().trim();
+                                if (!q) return null;
+                                const matchedAny = warehouseReceipts.find(
+                                  (r) => (r.receipt || '').toLowerCase() === q
+                                );
+                                if (matchedAny) {
+                                  return (
+                                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-left text-xs space-y-1.5 mt-2">
+                                      <p className="font-bold text-amber-900">
+                                        Receipt #{matchedAny.receipt} is recorded with {matchedAny.quantity} CTN ({matchedAny.loadedQuantity || 0} loaded/delivered, 0 remaining in warehouse).
+                                      </p>
+                                      <p className="text-amber-800 text-[11px]">
+                                        Did you discover more / remaining pieces in the godown?
+                                      </p>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setIsReceiptDropdownOpen(false);
+                                          setIsContainerWiseLoadOpen(false);
+                                          handleOpenSingleEdit(matchedAny);
+                                        }}
+                                        className="inline-flex items-center space-x-1 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs transition shadow-xs"
+                                      >
+                                        <Pencil className="w-3.5 h-3.5" />
+                                        <span>Edit Quantity / Add Found Pieces</span>
+                                      </button>
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              })()}
                             </div>
                           ) : (
                             filteredAvailableReceipts.map((r) => {

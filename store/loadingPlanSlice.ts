@@ -32,7 +32,7 @@ export interface WarehouseReceiptItem {
   mainMarka?: string;
   subMarka?: string;
   items?: ReceiptItem[];
-  status: 'Received in Warehouse' | 'Received' | 'Partially Loaded' | 'Fully Loaded' | 'Delivered';
+  status: 'Received in Warehouse' | 'Received' | 'Partially Loaded' | 'Fully Loaded' | 'Partially Delivered' | 'Delivered';
   stockstatus?: string;
   deliveryDate?: string;
   isDelivered?: boolean;
@@ -133,7 +133,7 @@ export interface LoadingPlanState {
   loading: boolean;
   error: string | null;
   selectedWarehouse: string;
-  statusFilter: 'all' | 'Received' | 'Received in Warehouse' | 'Partially Loaded' | 'Fully Loaded';
+  statusFilter: 'all' | 'Received' | 'Received in Warehouse' | 'Partially Loaded' | 'Fully Loaded' | 'Partially Delivered' | 'Delivered';
   searchTerm: string;
   activePlan: LoadingPlanItem | null;
   // Split & Allocate Modal
@@ -668,7 +668,7 @@ export const loadingPlanSlice = createSlice({
     },
     setStatusFilter: (
       state,
-      action: PayloadAction<'all' | 'Received' | 'Received in Warehouse' | 'Partially Loaded' | 'Fully Loaded'>
+      action: PayloadAction<'all' | 'Received' | 'Received in Warehouse' | 'Partially Loaded' | 'Fully Loaded' | 'Partially Delivered' | 'Delivered'>
     ) => {
       state.statusFilter = action.payload;
     },

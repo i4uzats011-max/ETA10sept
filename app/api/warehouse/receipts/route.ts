@@ -80,11 +80,11 @@ export async function GET(req: NextRequest) {
         })),
       ],
     })
-      .select('receipt receiptId warehouse container containerNumber shippingLine quantity')
+      .select('receipt receiptId warehouse container containerNumber shippingLine quantity isDelivered deliveryDate status')
       .lean();
 
-    const containerMapById = new Map<string, Array<{ container: string; containerNumber?: string; shippingLine?: string; quantity: string | number; warehouse?: string }>>();
-    const containerMapByWarehouseAndNum = new Map<string, Array<{ container: string; containerNumber?: string; shippingLine?: string; quantity: string | number; warehouse?: string }>>();
+    const containerMapById = new Map<string, Array<{ container: string; containerNumber?: string; shippingLine?: string; quantity: string | number; warehouse?: string; isDelivered?: boolean; deliveryDate?: string; status?: string }>>();
+    const containerMapByWarehouseAndNum = new Map<string, Array<{ container: string; containerNumber?: string; shippingLine?: string; quantity: string | number; warehouse?: string; isDelivered?: boolean; deliveryDate?: string; status?: string }>>();
 
     for (const s of activeShipments) {
       const entry = {
@@ -93,6 +93,9 @@ export async function GET(req: NextRequest) {
         shippingLine: s.shippingLine || 'MSC',
         quantity: s.quantity || '0',
         warehouse: s.warehouse || '',
+        isDelivered: Boolean(s.isDelivered),
+        deliveryDate: s.deliveryDate || '',
+        status: s.status || '',
       };
       if (s.receiptId) {
         const idKey = String(s.receiptId);
@@ -120,21 +123,37 @@ export async function GET(req: NextRequest) {
         ? rawContainers
         : (containerMapByWarehouseAndNum.get(compositeKey) || []);
 
-      // Calculate actual loaded cartons from active shipments
+      // Calculate actual loaded and delivered cartons from active shipments
       let actualLoaded = 0;
+      let actualDelivered = 0;
       for (const c of containers) {
         const q = parseInt(String(c.quantity || 0), 10);
-        if (!isNaN(q)) actualLoaded += q;
+        if (!isNaN(q)) {
+          actualLoaded += q;
+          if (c.isDelivered) {
+            actualDelivered += q;
+          }
+        }
       }
 
       const totalQty = r.quantity || 0;
-      // Rule: Container must be attached to be Partially Loaded or Fully Loaded
       const hasContainers = containers.length > 0 && actualLoaded > 0;
       const loaded = hasContainers ? actualLoaded : 0;
       const remaining = Math.max(0, totalQty - loaded);
 
       let status = 'Received in Warehouse';
-      if (hasContainers) {
+      let isDelivered = false;
+
+      if (actualDelivered > 0) {
+        // Some or all goods were delivered
+        if (actualDelivered >= totalQty && totalQty > 0 && remaining === 0) {
+          status = 'Delivered';
+          isDelivered = true;
+        } else {
+          status = 'Partially Delivered';
+          isDelivered = false;
+        }
+      } else if (hasContainers) {
         if (loaded >= totalQty && totalQty > 0) {
           status = 'Fully Loaded';
         } else {
@@ -146,6 +165,8 @@ export async function GET(req: NextRequest) {
         ...r,
         loadedQuantity: loaded,
         remainingQuantity: remaining,
+        deliveredQuantity: actualDelivered,
+        isDelivered,
         status,
         containers,
       };
@@ -278,16 +299,160 @@ export async function POST(req: NextRequest) {
       warehouse: new RegExp(`^${cleanWarehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
     });
 
-    if (existingInSameWarehouse && (!isEditMode || String(existingInSameWarehouse._id) !== String(targetId))) {
+    const isExistingDifferentDoc = Boolean(existingInSameWarehouse && (!isEditMode || String(existingInSameWarehouse._id) !== String(targetId)));
+    const shouldAppendStock = Boolean(isExistingDifferentDoc && (body.appendStock || body.addFoundStock || body.allowAppend));
+
+    if (isExistingDifferentDoc && !shouldAppendStock) {
       return NextResponse.json(
         {
           error: `Duplicate Receipt Error: Receipt #${cleanReceipt} already exists in ${cleanWarehouse}. Every warehouse must have strictly unique receipt numbers.`,
           isDuplicate: true,
           receipt: cleanReceipt,
           warehouse: cleanWarehouse,
+          existingReceipt: {
+            _id: existingInSameWarehouse!._id,
+            receipt: existingInSameWarehouse!.receipt,
+            warehouse: existingInSameWarehouse!.warehouse,
+            quantity: existingInSameWarehouse!.quantity,
+            loadedQuantity: existingInSameWarehouse!.loadedQuantity || 0,
+            remainingQuantity: existingInSameWarehouse!.remainingQuantity || 0,
+            status: existingInSameWarehouse!.status,
+            isDelivered: Boolean(existingInSameWarehouse!.isDelivered),
+            party: existingInSameWarehouse!.party,
+          },
+          canAppend: true,
         },
         { status: 400 }
       );
+    }
+
+    if (shouldAppendStock && existingInSameWarehouse) {
+      // Staff found extra/remaining packages in godown and is adding them to the existing receipt entry
+      const addedQty = effectiveQuantity;
+      const newTotalQty = (existingInSameWarehouse.quantity || 0) + addedQty;
+
+      // Recalculate mapped shipments
+      const mappedShipments = await Shipment.find({
+        $or: [
+          { receiptId: existingInSameWarehouse._id },
+          {
+            receipt: new RegExp(`^${cleanReceipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+            warehouse: new RegExp(`^${cleanWarehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+          },
+        ],
+      });
+      const actualLoaded = mappedShipments.reduce((sum, s) => sum + (parseInt(String(s.quantity || 0), 10) || 0), 0);
+      const deliveredShipments = mappedShipments.filter((s) => Boolean(s.isDelivered));
+
+      existingInSameWarehouse.quantity = newTotalQty;
+      existingInSameWarehouse.loadedQuantity = actualLoaded;
+      existingInSameWarehouse.remainingQuantity = Math.max(0, newTotalQty - actualLoaded);
+
+      if (existingInSameWarehouse.remainingQuantity > 0) {
+        existingInSameWarehouse.isDelivered = false;
+        existingInSameWarehouse.status = deliveredShipments.length > 0 ? 'Partially Delivered' : (actualLoaded > 0 ? 'Partially Loaded' : 'Received in Warehouse');
+        existingInSameWarehouse.stockstatus = deliveredShipments.length > 0 ? 'Partially Delivered' : (actualLoaded > 0 ? 'Partially Dispatched' : 'In Stock');
+      }
+
+      await existingInSameWarehouse.save();
+
+      // Update all mapped shipments to isSplit: true and update originalTotalQuantity
+      await Shipment.updateMany(
+        {
+          $or: [
+            { receiptId: existingInSameWarehouse._id },
+            {
+              receipt: new RegExp(`^${cleanReceipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+              warehouse: new RegExp(`^${cleanWarehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+            },
+          ],
+        },
+        {
+          $set: {
+            isSplit: true,
+            originalTotalQuantity: String(newTotalQty),
+          },
+        }
+      );
+
+      // If user chose to immediately load the newly found packages into a container plan:
+      if (loadIntoPlan && cleanPlan) {
+        let containerDoc = await Container.findOne({ container: cleanPlan });
+        if (!containerDoc) {
+          containerDoc = await Container.create({
+            container: cleanPlan,
+            planNumber: cleanPlan,
+            containerNumber: '',
+            shippingLine: 'MSC',
+            warehouse: cleanWarehouse,
+            planStatus: 'Planning',
+            isFinalized: false,
+            shippedFrom: `${cleanWarehouse}, China`,
+            shippedTo: 'Nhava Sheva / Mundra, India',
+            status: 'Planning',
+            eta: 'Pending',
+            totalQuantity: 0,
+            shipmentCount: 0,
+          });
+        }
+
+        await Shipment.create({
+          receipt: cleanReceipt,
+          receiptId: existingInSameWarehouse._id,
+          party: existingInSameWarehouse.party || 'General Party',
+          container: cleanPlan,
+          containerNumber: containerDoc.containerNumber || '',
+          shippingLine: containerDoc.shippingLine || 'MSC',
+          stockstatus: 'Dispatched',
+          warehouse: cleanWarehouse,
+          date: existingInSameWarehouse.date || new Date().toISOString().split('T')[0],
+          quantity: String(addedQty),
+          originalTotalQuantity: String(newTotalQty),
+          isSplit: true,
+          splitIndex: mappedShipments.length + 1,
+          weight: rest.weight || existingInSameWarehouse.weight || '',
+          volume: rest.volume || existingInSameWarehouse.volume || '',
+          commodity: existingInSameWarehouse.commodity || finalEnglish,
+          chinese: existingInSameWarehouse.chinese || finalChinese,
+          english: existingInSameWarehouse.english || finalEnglish,
+          packaging: existingInSameWarehouse.packaging || finalPackaging,
+          subMarka: existingInSameWarehouse.subMarka || finalSubMark,
+          mainMarka: existingInSameWarehouse.mainMarka || finalMainMark,
+          shippedTo: 'Nhava Sheva / Mundra, India',
+          status: 'Loaded',
+          eta: containerDoc.eta || 'Pending',
+          uploadedAt: new Date(),
+        });
+
+        existingInSameWarehouse.loadedQuantity += addedQty;
+        existingInSameWarehouse.remainingQuantity = Math.max(0, newTotalQty - existingInSameWarehouse.loadedQuantity);
+        if (existingInSameWarehouse.remainingQuantity === 0) {
+          existingInSameWarehouse.status = deliveredShipments.length > 0 ? 'Partially Delivered' : 'Fully Loaded';
+          existingInSameWarehouse.stockstatus = deliveredShipments.length > 0 ? 'Partially Delivered' : 'Dispatched';
+        }
+        await existingInSameWarehouse.save();
+
+        const totalQty = await Shipment.aggregate([
+          { $match: { container: cleanPlan } },
+          { $group: { _id: null, total: { $sum: { $toDouble: { $ifNull: ['$quantity', '0'] } } }, count: { $sum: 1 } } },
+        ]);
+        if (totalQty.length > 0) {
+          await Container.updateOne(
+            { container: cleanPlan },
+            { $set: { totalQuantity: totalQty[0].total, shipmentCount: totalQty[0].count } }
+          );
+        }
+      }
+
+      indexSingleWarehouseReceipt(existingInSameWarehouse).catch(() => {});
+
+      return NextResponse.json({
+        success: true,
+        message: `Successfully added ${addedQty} newly found carton(s) to Receipt #${cleanReceipt} in ${cleanWarehouse}. Total quantity is now ${newTotalQty} CTN (${existingInSameWarehouse.remainingQuantity} CTN ready in stock).`,
+        receipt: existingInSameWarehouse,
+        addedQuantity: addedQty,
+        totalQuantity: newTotalQty,
+      });
     }
 
     if (isEditMode) {
@@ -296,10 +461,59 @@ export async function POST(req: NextRequest) {
         const oldReceipt = existing.receipt;
         const oldWarehouse = existing.warehouse;
 
+        // Fetch active mapped shipments to accurately recalculate actualLoaded and delivered quantity
+        const mappedShipments = await Shipment.find({
+          $or: [
+            { receiptId: existing._id },
+            {
+              receipt: new RegExp(`^${oldReceipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+              warehouse: new RegExp(`^${oldWarehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+            },
+          ],
+        });
+        const actualLoaded = mappedShipments.reduce((sum, s) => sum + (parseInt(String(s.quantity || 0), 10) || 0), 0);
+        const deliveredShipments = mappedShipments.filter((s) => Boolean(s.isDelivered));
+        const deliveredQty = deliveredShipments.reduce((sum, s) => sum + (parseInt(String(s.quantity || 0), 10) || 0), 0);
+
         existing.receipt = cleanReceipt;
         existing.warehouse = cleanWarehouse;
         existing.quantity = effectiveQuantity;
-        existing.remainingQuantity = Math.max(0, effectiveQuantity - (existing.loadedQuantity || 0));
+        existing.loadedQuantity = actualLoaded;
+        existing.remainingQuantity = Math.max(0, effectiveQuantity - actualLoaded);
+
+        // Lifecycle & Delivery Status Management:
+        if (existing.remainingQuantity > 0) {
+          existing.isDelivered = false;
+          if (deliveredShipments.length > 0) {
+            existing.status = 'Partially Delivered';
+            existing.stockstatus = 'Partially Delivered';
+          } else if (actualLoaded > 0) {
+            existing.status = 'Partially Loaded';
+            existing.stockstatus = 'Partially Dispatched';
+          } else {
+            existing.status = 'Received in Warehouse';
+            existing.stockstatus = 'In Stock';
+          }
+        } else {
+          // remainingQuantity === 0
+          if (mappedShipments.length > 0 && deliveredShipments.length === mappedShipments.length && deliveredQty >= effectiveQuantity) {
+            existing.isDelivered = true;
+            existing.status = 'Delivered';
+            existing.stockstatus = 'Delivered';
+          } else if (deliveredShipments.length > 0) {
+            existing.isDelivered = false;
+            existing.status = 'Partially Delivered';
+            existing.stockstatus = 'Partially Delivered';
+          } else if (actualLoaded > 0) {
+            existing.isDelivered = false;
+            existing.status = 'Fully Loaded';
+            existing.stockstatus = 'Dispatched';
+          } else {
+            existing.isDelivered = false;
+            existing.status = 'Received in Warehouse';
+            existing.stockstatus = 'In Stock';
+          }
+        }
 
         if (effectiveCommodity) {
           existing.commodity = effectiveCommodity;
@@ -316,6 +530,7 @@ export async function POST(req: NextRequest) {
         await existing.save();
 
         // Cascade update across all mapped Shipment records throughout the database
+        const isSplitNow = mappedShipments.length > 1 || effectiveQuantity > actualLoaded;
         const shipmentUpdates: Record<string, any> = {
           receipt: cleanReceipt,
           warehouse: cleanWarehouse,
@@ -325,9 +540,10 @@ export async function POST(req: NextRequest) {
           packaging: existing.packaging,
           mainMarka: existing.mainMarka,
           subMarka: existing.subMarka,
+          isSplit: isSplitNow,
+          originalTotalQuantity: String(effectiveQuantity),
         };
         if (existing.party !== undefined) shipmentUpdates.party = existing.party;
-        if (existing.quantity !== undefined) shipmentUpdates.originalTotalQuantity = String(existing.quantity);
         if (existing.weight !== undefined) shipmentUpdates.weight = existing.weight;
         if (existing.volume !== undefined) shipmentUpdates.volume = existing.volume;
 

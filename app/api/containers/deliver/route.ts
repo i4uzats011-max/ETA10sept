@@ -71,9 +71,24 @@ export async function POST(req: NextRequest) {
           wh = await WarehouseReceipt.findOne(filter);
         }
         if (wh) {
-          wh.deliveryDate = '';
+          const remainingShipments = await Shipment.find({
+            $or: [
+              ...(wh._id ? [{ receiptId: wh._id }] : []),
+              {
+                receipt: new RegExp(`^${wh.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+                warehouse: new RegExp(`^${(wh.warehouse || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+              },
+            ],
+          }).lean();
+          const deliveredShipments = remainingShipments.filter((it: any) => Boolean(it.isDelivered));
+          const anyStillDelivered = deliveredShipments.length > 0;
+
+          wh.deliveryDate = anyStillDelivered ? (deliveredShipments[0]?.deliveryDate || '') : '';
           wh.isDelivered = false;
-          if (wh.loadedQuantity >= wh.quantity) {
+          if (anyStillDelivered) {
+            wh.status = 'Partially Delivered';
+            wh.stockstatus = 'Partially Delivered';
+          } else if (wh.loadedQuantity >= wh.quantity) {
             wh.status = 'Fully Loaded';
             wh.stockstatus = 'Dispatched';
           } else if (wh.loadedQuantity > 0) {
@@ -216,7 +231,9 @@ export async function POST(req: NextRequest) {
       }
       if (!whQuery) continue;
 
-      const undeliveredCount = await Shipment.countDocuments({
+      const whDoc: any = await WarehouseReceipt.findOne(whQuery);
+
+      const allShipmentsForReceipt = await Shipment.find({
         $or: [
           ...(s.receiptId ? [{ receiptId: s.receiptId }] : []),
           {
@@ -224,10 +241,18 @@ export async function POST(req: NextRequest) {
             warehouse: new RegExp(`^${(s.warehouse || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
           },
         ],
-        isDelivered: { $ne: true },
-      });
+      }).lean();
 
-      if (undeliveredCount === 0) {
+      const deliveredShipments = allShipmentsForReceipt.filter((ship: any) => Boolean(ship.isDelivered));
+      const undeliveredShipments = allShipmentsForReceipt.filter((ship: any) => !ship.isDelivered);
+      const deliveredCartons = deliveredShipments.reduce((sum: number, ship: any) => sum + (parseInt(String(ship.quantity || 0), 10) || 0), 0);
+
+      const totalReceiptQty = whDoc ? Number(whDoc.quantity || 0) : deliveredCartons;
+      const remainingWarehouseStock = whDoc ? Math.max(0, totalReceiptQty - (whDoc.loadedQuantity || 0)) : 0;
+
+      const isFullyDelivered = undeliveredShipments.length === 0 && remainingWarehouseStock === 0 && deliveredCartons >= totalReceiptQty && totalReceiptQty > 0;
+
+      if (isFullyDelivered) {
         await WarehouseReceipt.findOneAndUpdate(
           whQuery,
           {
@@ -236,6 +261,18 @@ export async function POST(req: NextRequest) {
               isDelivered: true,
               status: 'Delivered',
               stockstatus: 'Delivered',
+            },
+          }
+        );
+      } else {
+        await WarehouseReceipt.findOneAndUpdate(
+          whQuery,
+          {
+            $set: {
+              deliveryDate: formattedDelivery,
+              isDelivered: false,
+              status: 'Partially Delivered',
+              stockstatus: 'Partially Delivered',
             },
           }
         );

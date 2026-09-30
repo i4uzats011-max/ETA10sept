@@ -837,8 +837,9 @@ export async function POST(req: NextRequest) {
       if (wh) {
         const newLoaded = (wh.loadedQuantity || 0) + loadedQty;
         const newRemaining = Math.max(0, wh.quantity - newLoaded);
-        const newStatus = newRemaining === 0 ? 'Fully Loaded' : 'Partially Loaded';
-        const newStockStatus = newRemaining === 0 ? 'Dispatched' : 'Partially Dispatched';
+        const hasDelivered = Boolean(wh.isDelivered || wh.status === 'Partially Delivered' || wh.status === 'Delivered');
+        const newStatus = hasDelivered ? 'Partially Delivered' : (newRemaining === 0 ? 'Fully Loaded' : 'Partially Loaded');
+        const newStockStatus = hasDelivered ? 'Partially Delivered' : (newRemaining === 0 ? 'Dispatched' : 'Partially Dispatched');
 
         await WarehouseReceipt.updateOne(
           { _id: wh._id },
@@ -848,6 +849,7 @@ export async function POST(req: NextRequest) {
               remainingQuantity: newRemaining,
               status: newStatus,
               stockstatus: newStockStatus,
+              isDelivered: false,
             },
           }
         );
