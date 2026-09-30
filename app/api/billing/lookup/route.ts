@@ -26,10 +26,11 @@ export async function GET(req: NextRequest) {
       const distinctContainers = await Shipment.distinct('container');
       const mainMarkas = await Shipment.distinct('mainMarka');
       const subMarkas = await Shipment.distinct('subMarka');
+      const savedMarkas = await MarkaAddress.distinct('marka');
 
       const allMarkas = Array.from(
         new Set(
-          [...mainMarkas, ...subMarkas]
+          [...mainMarkas, ...subMarkas, ...savedMarkas]
             .filter((m) => Boolean(m && typeof m === 'string' && m.trim()))
             .map((m) => m.trim())
         )

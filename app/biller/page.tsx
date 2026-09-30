@@ -1284,13 +1284,49 @@ export default function BillerPortalPage() {
           const ma = data.markaAddress;
           const addrs = ma.addresses || [];
           setCurrentMarkaAddresses(addrs);
+
+          // Auto-fill party name & registration details from Marka Directory
+          if (ma.purchaserName) {
+            setPurchaserName(ma.purchaserName);
+            setPartyName(ma.purchaserName);
+          }
+          if (ma.registrationType) {
+            setRegistrationType(ma.registrationType);
+          }
+          if (ma.gstin) {
+            setPurchaserGstin(ma.gstin);
+          }
+          if (ma.phone) {
+            setPurchaserPhone(ma.phone);
+          }
+          if (ma.buyerName) {
+            setBuyerName(ma.buyerName);
+          }
+          if (ma.buyerGstin) {
+            setBuyerGstin(ma.buyerGstin);
+          }
+          if (ma.buyerAddress) {
+            setBuyerAddress(ma.buyerAddress);
+          }
+          if (ma.buyerState) {
+            setBuyerState(ma.buyerState);
+          }
+          if (ma.buyerStateCode) {
+            setBuyerStateCode(ma.buyerStateCode);
+          }
+          if (ma.state) setConsigneeState(ma.state);
+          if (ma.stateCode) setConsigneeStateCode(ma.stateCode);
+
           if (addrs.length > 0) {
             const def = addrs.find((a: any) => a.isDefault) || addrs[0];
             setSelectedDeliveryAddressId(def._id || '');
             setConsigneeAddress(def.address || '');
-            if (def.state || ma.state) setConsigneeState(def.state || ma.state);
-            if (def.stateCode || ma.stateCode) setConsigneeStateCode(def.stateCode || ma.stateCode);
-            if (def.phone || ma.phone) setPurchaserPhone(def.phone || ma.phone);
+            if (def.state) setConsigneeState(def.state);
+            if (def.stateCode) setConsigneeStateCode(def.stateCode);
+            if (def.phone) setPurchaserPhone(def.phone);
+            setSameAsConsignee(!ma.buyerAddress || ma.buyerAddress === def.address);
+          } else {
+            setSameAsConsignee(!ma.buyerAddress || ma.buyerAddress === (ma.purchaserAddress || ''));
           }
         } else {
           setCurrentMarkaAddresses([]);
@@ -2114,15 +2150,16 @@ export default function BillerPortalPage() {
     }
   };
 
-  // Instant save current address for selected Marka directly from form
+  // Instant save current address and party name for selected Marka directly from form
   const handleInstantSaveMarkaAddress = async () => {
-    const currentMarka = (mainMarka || subMarka || singleSelectedMarka).trim();
+    const rawMarka = (mainMarka || subMarka || singleSelectedMarka).trim();
+    const currentMarka = rawMarka.split(',')[0].trim();
     if (!currentMarka) {
       alert('Please select or enter a Marka first in Step 1.');
       return;
     }
     if (!purchaserName.trim()) {
-      alert('Please enter Purchaser / Company name in Step 3.');
+      alert('Please enter Purchaser / Company party name in Step 3.');
       return;
     }
 
@@ -2156,12 +2193,13 @@ export default function BillerPortalPage() {
         body: JSON.stringify(payload),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to save address');
+      if (!res.ok) throw new Error(data.error || 'Failed to save party name');
 
-      setMarkaSaveSuccess(`✓ Address permanently saved for Marka "${currentMarka}"!`);
-      setTimeout(() => setMarkaSaveSuccess(null), 4000);
+      setMarkaSaveSuccess(`✓ Party "${purchaserName.trim()}" saved for Marka [${currentMarka}]!`);
+      loadMarkaAddresses();
+      setTimeout(() => setMarkaSaveSuccess(null), 5000);
     } catch (err: any) {
-      alert(err.message || 'Failed to save marka address');
+      alert(err.message || 'Failed to save marka party');
     } finally {
       setIsSavingMarkaDirect(false);
     }
@@ -3000,10 +3038,10 @@ export default function BillerPortalPage() {
               type="button"
               onClick={openMarkaModal}
               className="px-3.5 py-2 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 font-black rounded-xl text-xs transition flex items-center space-x-1.5 shadow-lg shadow-amber-950/40"
-              title="Manage saved Consignee and Buyer addresses for each Marka"
+              title="Manage saved Party Names, GSTIN, and Addresses for each Marka"
             >
-              <MapPin className="w-3.5 h-3.5" />
-              <span>मार्का एड्रेस डायरेक्टरी (Marka Addresses)</span>
+              <Building2 className="w-3.5 h-3.5" />
+              <span>मार्का व पार्टी डायरेक्टरी (Marka &amp; Party Directory)</span>
             </button>
           </div>
         </div>
@@ -4290,9 +4328,23 @@ export default function BillerPortalPage() {
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                     <div>
-                      <label className="text-xs text-slate-300 font-bold block mb-1">
-                        Consignee / Party Legal Name *
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs text-slate-300 font-bold block">
+                          Consignee / Party Legal Name *
+                        </label>
+                        {(mainMarka || subMarka || singleSelectedMarka) && (
+                          <button
+                            type="button"
+                            disabled={isSavingMarkaDirect || !purchaserName.trim()}
+                            onClick={handleInstantSaveMarkaAddress}
+                            className="inline-flex items-center space-x-1 px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 font-bold rounded-lg text-[10px] transition border border-amber-500/30 disabled:opacity-40 shadow-2xs"
+                            title="इस मार्का के लिए यह पार्टी नाम सुरक्षित करें (Save Party Name for this Marka)"
+                          >
+                            <Save className="w-3 h-3" />
+                            <span>{isSavingMarkaDirect ? 'सेव हो रहा...' : `💾 Save Party for [${(mainMarka || subMarka || singleSelectedMarka).split(',')[0].trim()}]`}</span>
+                          </button>
+                        )}
+                      </div>
                       <input
                         type="text"
                         required
@@ -4301,6 +4353,12 @@ export default function BillerPortalPage() {
                         placeholder="e.g. Radhey Trading Co."
                         className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-sky-500 outline-none font-semibold"
                       />
+                      {markaSaveSuccess && (
+                        <p className="text-[11px] text-emerald-400 font-bold mt-1 animate-fadeIn flex items-center space-x-1">
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>{markaSaveSuccess}</span>
+                        </p>
+                      )}
                     </div>
 
                     {registrationType === 'Registered' ? (
@@ -5146,13 +5204,13 @@ export default function BillerPortalPage() {
                 </div>
                 <div>
                   <h3 className="text-base font-black text-white flex items-center space-x-2">
-                    <span>Marka Address Directory</span>
+                    <span>Marka &amp; Party Directory</span>
                     <span className="text-xs font-normal text-amber-400 bg-amber-950/50 border border-amber-800/40 px-2 py-0.5 rounded-full">
-                      मार्का एड्रेस डायरेक्टरी
+                      मार्का व पार्टी डायरेक्टरी
                     </span>
                   </h3>
                   <p className="text-xs text-slate-400">
-                    प्रत्येक मार्का (Marka) के लिए खरीदार और डिलीवरी एड्रेस स्थायी रूप से सेव करें।
+                    प्रत्येक मार्का (Marka) के अनुसार पार्टी का नाम (Party Name), GSTIN और डिलीवरी पता सेव करें ताकि बिलिंग तुरंत हो सके।
                   </p>
                 </div>
               </div>
@@ -5275,10 +5333,10 @@ export default function BillerPortalPage() {
                 <div className="flex items-center justify-between bg-slate-950/80 p-3 rounded-2xl border border-slate-800">
                   <div>
                     <span className="text-xs font-black text-white block">
-                      {selectedMarkaToEdit ? `Edit Address for [${selectedMarkaToEdit.marka}]` : 'Add New Marka Address'}
+                      {selectedMarkaToEdit ? `Edit Party & Address for [${selectedMarkaToEdit.marka}]` : 'Add New Marka & Party Name'}
                     </span>
                     <span className="text-[10px] text-slate-400">
-                      {selectedMarkaToEdit ? 'Updating existing directory record' : 'Fill details to add to directory'}
+                      {selectedMarkaToEdit ? 'Updating existing directory record' : 'Save party name and address against this Marka'}
                     </span>
                   </div>
                   {selectedMarkaToEdit && (
@@ -5343,8 +5401,8 @@ export default function BillerPortalPage() {
                   {/* Purchaser / Consignee Name & GSTIN */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="text-[11px] font-bold text-slate-300 block mb-1">
-                        Purchaser / Consignee Legal Name *
+                      <label className="text-[11px] font-bold text-amber-300 block mb-1">
+                        Party / Consignee Legal Name (पार्टी का नाम) *
                       </label>
                       <input
                         type="text"

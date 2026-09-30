@@ -300,7 +300,7 @@ export async function POST(req: NextRequest) {
     });
 
     const isExistingDifferentDoc = Boolean(existingInSameWarehouse && (!isEditMode || String(existingInSameWarehouse._id) !== String(targetId)));
-    const shouldAppendStock = Boolean(isExistingDifferentDoc && (body.appendStock || body.addFoundStock || body.allowAppend));
+    const shouldAppendStock = Boolean(existingInSameWarehouse && (body.appendStock || body.addFoundStock || body.allowAppend));
 
     if (isExistingDifferentDoc && !shouldAppendStock) {
       return NextResponse.json(
@@ -327,7 +327,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (shouldAppendStock && existingInSameWarehouse) {
-      // Staff found extra/remaining packages in godown and is adding them to the existing receipt entry
+      // Staff is adjusting godown stock (can add positive or negative quantities, weights, volumes)
       const addedQty = effectiveQuantity;
       const newTotalQty = (existingInSameWarehouse.quantity || 0) + addedQty;
 
@@ -344,6 +344,24 @@ export async function POST(req: NextRequest) {
       const actualLoaded = mappedShipments.reduce((sum, s) => sum + (parseInt(String(s.quantity || 0), 10) || 0), 0);
       const deliveredShipments = mappedShipments.filter((s) => Boolean(s.isDelivered));
 
+      if (newTotalQty < actualLoaded) {
+        return NextResponse.json(
+          {
+            error: `Cannot reduce total quantity (${newTotalQty} CTN) below already loaded quantity (${actualLoaded} CTN). At most you can reduce ${existingInSameWarehouse.quantity - actualLoaded} CTN.`,
+          },
+          { status: 400 }
+        );
+      }
+
+      if (newTotalQty < 0) {
+        return NextResponse.json(
+          {
+            error: `Total quantity cannot be negative (${newTotalQty} CTN).`,
+          },
+          { status: 400 }
+        );
+      }
+
       existingInSameWarehouse.quantity = newTotalQty;
       existingInSameWarehouse.loadedQuantity = actualLoaded;
       existingInSameWarehouse.remainingQuantity = Math.max(0, newTotalQty - actualLoaded);
@@ -352,19 +370,35 @@ export async function POST(req: NextRequest) {
         existingInSameWarehouse.isDelivered = false;
         existingInSameWarehouse.status = deliveredShipments.length > 0 ? 'Partially Delivered' : (actualLoaded > 0 ? 'Partially Loaded' : 'Received in Warehouse');
         existingInSameWarehouse.stockstatus = deliveredShipments.length > 0 ? 'Partially Delivered' : (actualLoaded > 0 ? 'Partially Dispatched' : 'In Stock');
+      } else {
+        if (actualLoaded > 0 && deliveredShipments.length > 0 && deliveredShipments.length === mappedShipments.length) {
+          existingInSameWarehouse.isDelivered = true;
+          existingInSameWarehouse.status = 'Delivered';
+          existingInSameWarehouse.stockstatus = 'Delivered';
+        } else if (actualLoaded > 0) {
+          existingInSameWarehouse.isDelivered = false;
+          existingInSameWarehouse.status = 'Fully Loaded';
+          existingInSameWarehouse.stockstatus = 'Dispatched';
+        } else {
+          existingInSameWarehouse.isDelivered = false;
+          existingInSameWarehouse.status = 'Received in Warehouse';
+          existingInSameWarehouse.stockstatus = 'In Stock';
+        }
       }
 
-      // Add newly found extra weight (KG) and volume (CBM)
-      const addedWeightNum = parseFloat(String(body.addedWeight || body.weight || 0)) || 0;
-      const addedVolumeNum = parseFloat(String(body.addedVolume || body.volume || 0)) || 0;
+      // Add or reduce weight (KG) and volume (CBM)
+      const addedWeightNum = parseFloat(String(body.addedWeight !== undefined ? body.addedWeight : (body.weight || 0))) || 0;
+      const addedVolumeNum = parseFloat(String(body.addedVolume !== undefined ? body.addedVolume : (body.volume || 0))) || 0;
 
-      if (addedWeightNum > 0) {
+      if (addedWeightNum !== 0) {
         const curWeightNum = parseFloat(String(existingInSameWarehouse.weight || 0)) || 0;
-        existingInSameWarehouse.weight = String(Math.round((curWeightNum + addedWeightNum) * 1000) / 1000);
+        const newWeightNum = Math.max(0, Math.round((curWeightNum + addedWeightNum) * 1000) / 1000);
+        existingInSameWarehouse.weight = String(newWeightNum);
       }
-      if (addedVolumeNum > 0) {
+      if (addedVolumeNum !== 0) {
         const curVolumeNum = parseFloat(String(existingInSameWarehouse.volume || 0)) || 0;
-        existingInSameWarehouse.volume = String(Math.round((curVolumeNum + addedVolumeNum) * 1000) / 1000);
+        const newVolumeNum = Math.max(0, Math.round((curVolumeNum + addedVolumeNum) * 1000) / 1000);
+        existingInSameWarehouse.volume = String(newVolumeNum);
       }
 
       await existingInSameWarehouse.save();
@@ -389,7 +423,7 @@ export async function POST(req: NextRequest) {
       );
 
       // If user chose to immediately load the newly found packages into a container plan:
-      if (loadIntoPlan && cleanPlan) {
+      if (loadIntoPlan && cleanPlan && addedQty > 0) {
         let containerDoc = await Container.findOne({ container: cleanPlan });
         if (!containerDoc) {
           containerDoc = await Container.create({
@@ -459,9 +493,21 @@ export async function POST(req: NextRequest) {
 
       indexSingleWarehouseReceipt(existingInSameWarehouse).catch(() => {});
 
+      const parts: string[] = [];
+      if (addedQty !== 0) {
+        parts.push(addedQty > 0 ? `added ${addedQty} CTN` : `reduced ${Math.abs(addedQty)} CTN`);
+      }
+      if (addedWeightNum !== 0) {
+        parts.push(addedWeightNum > 0 ? `added ${addedWeightNum} KG` : `reduced ${Math.abs(addedWeightNum)} KG`);
+      }
+      if (addedVolumeNum !== 0) {
+        parts.push(addedVolumeNum > 0 ? `added ${addedVolumeNum} CBM` : `reduced ${Math.abs(addedVolumeNum)} CBM`);
+      }
+      const summaryMsg = parts.length > 0 ? parts.join(', ') : 'adjusted stock';
+
       return NextResponse.json({
         success: true,
-        message: `Successfully added ${addedQty} newly found carton(s) to Receipt #${cleanReceipt} in ${cleanWarehouse}. Total quantity is now ${newTotalQty} CTN (${existingInSameWarehouse.remainingQuantity} CTN ready in stock).`,
+        message: `Successfully ${summaryMsg} for Receipt #${cleanReceipt} in ${cleanWarehouse}. Total quantity is now ${newTotalQty} CTN (${existingInSameWarehouse.remainingQuantity} CTN ready in stock).`,
         receipt: existingInSameWarehouse,
         addedQuantity: addedQty,
         totalQuantity: newTotalQty,

@@ -162,9 +162,9 @@ export default function LoaderHub() {
   const [receiveLoadingPlan, setReceiveLoadingPlan] = useState('');
   const [isReceivingGoods, setIsReceivingGoods] = useState(false);
 
-  // Dedicated state for Quick Add Godown Stock modal (adding extra found pieces)
+  // Dedicated state for Quick Add/Adjust Godown Stock modal (adding or reducing pieces, KG, CBM)
   const [addStockReceipt, setAddStockReceipt] = useState<WarehouseReceiptItem | null>(null);
-  const [addStockQuantityInput, setAddStockQuantityInput] = useState<number | ''>('');
+  const [addStockQuantityInput, setAddStockQuantityInput] = useState<string>('');
   const [addStockWeightInput, setAddStockWeightInput] = useState<string>('');
   const [addStockVolumeInput, setAddStockVolumeInput] = useState<string>('');
   const [isSubmittingAddStock, setIsSubmittingAddStock] = useState(false);
@@ -178,26 +178,72 @@ export default function LoaderHub() {
 
   const handleConfirmAddStock = async () => {
     if (!addStockReceipt) return;
-    const added = Number(addStockQuantityInput);
-    if (isNaN(added) || added <= 0) {
-      alert('Please enter a valid positive quantity greater than 0.');
+
+    const deltaQty = addStockQuantityInput.trim() !== '' ? parseInt(addStockQuantityInput.trim(), 10) : 0;
+    const deltaWt = addStockWeightInput.trim() !== '' ? parseFloat(addStockWeightInput.trim()) : 0;
+    const deltaVol = addStockVolumeInput.trim() !== '' ? parseFloat(addStockVolumeInput.trim()) : 0;
+
+    if (isNaN(deltaQty)) {
+      alert('Please enter a valid integer for Cartons (e.g. 2 to add, -2 to reduce).');
+      return;
+    }
+    if (isNaN(deltaWt)) {
+      alert('Please enter a valid number for Weight (e.g. 10 to add, -5 to reduce).');
+      return;
+    }
+    if (isNaN(deltaVol)) {
+      alert('Please enter a valid number for Volume (e.g. 0.5 to add, -0.2 to reduce).');
+      return;
+    }
+
+    if (deltaQty === 0 && deltaWt === 0 && deltaVol === 0) {
+      alert('Please enter at least one adjustment value (CTN, KG, or CBM) to add (+) or reduce (-).');
+      return;
+    }
+
+    const curTotalQty = addStockReceipt.quantity || 0;
+    const curLoaded = addStockReceipt.loadedQuantity || 0;
+    const newTotalQty = curTotalQty + deltaQty;
+
+    if (newTotalQty < curLoaded) {
+      alert(
+        `Cannot reduce total quantity below already loaded/delivered amount (${curLoaded} CTN).\n` +
+        `Currently recorded: ${curTotalQty} CTN\n` +
+        `Already loaded: ${curLoaded} CTN\n` +
+        `Maximum you can reduce: ${curTotalQty - curLoaded} CTN.`
+      );
+      return;
+    }
+    if (newTotalQty < 0) {
+      alert('Total quantity cannot be less than 0.');
+      return;
+    }
+
+    const curWt = parseFloat(String(addStockReceipt.weight || 0)) || 0;
+    const newWt = Math.round((curWt + deltaWt) * 1000) / 1000;
+    if (newWt < 0) {
+      alert(`Total weight cannot be negative. Current weight is ${curWt} KG.`);
+      return;
+    }
+
+    const curVol = parseFloat(String(addStockReceipt.volume || 0)) || 0;
+    const newVol = Math.round((curVol + deltaVol) * 1000) / 1000;
+    if (newVol < 0) {
+      alert(`Total volume cannot be negative. Current volume is ${curVol} CBM.`);
       return;
     }
 
     setIsSubmittingAddStock(true);
     try {
-      const addedWt = addStockWeightInput.trim() ? parseFloat(addStockWeightInput.trim()) : 0;
-      const addedVol = addStockVolumeInput.trim() ? parseFloat(addStockVolumeInput.trim()) : 0;
-
       const res = await fetch('/api/warehouse/receipts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           receipt: addStockReceipt.receipt,
           warehouse: addStockReceipt.warehouse,
-          quantity: added,
-          addedWeight: addedWt > 0 ? addedWt : undefined,
-          addedVolume: addedVol > 0 ? addedVol : undefined,
+          quantity: deltaQty,
+          addedWeight: deltaWt !== 0 ? deltaWt : undefined,
+          addedVolume: deltaVol !== 0 ? deltaVol : undefined,
           appendStock: true,
           addFoundStock: true,
           date: addStockReceipt.date || new Date().toISOString().split('T')[0],
@@ -208,10 +254,14 @@ export default function LoaderHub() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to add stock');
+      if (!res.ok) throw new Error(data.error || 'Failed to adjust stock');
 
-      const extraText = (addedWt > 0 ? `, ${addedWt} KG` : '') + (addedVol > 0 ? `, ${addedVol} CBM` : '');
-      alert(data.message || `Successfully added ${added} CTN${extraText} to Receipt #${addStockReceipt.receipt}. Total is now ${(addStockReceipt.quantity || 0) + added} CTN.`);
+      const parts = [];
+      if (deltaQty !== 0) parts.push(deltaQty > 0 ? `+${deltaQty} CTN` : `${deltaQty} CTN`);
+      if (deltaWt !== 0) parts.push(deltaWt > 0 ? `+${deltaWt} KG` : `${deltaWt} KG`);
+      if (deltaVol !== 0) parts.push(deltaVol > 0 ? `+${deltaVol} CBM` : `${deltaVol} CBM`);
+
+      alert(data.message || `Successfully adjusted stock (${parts.join(', ')}) for Receipt #${addStockReceipt.receipt}. Total is now ${newTotalQty} CTN.`);
       setAddStockReceipt(null);
       setAddStockQuantityInput('');
       setAddStockWeightInput('');
@@ -219,7 +269,7 @@ export default function LoaderHub() {
       dispatch(fetchWarehouseReceipts());
       dispatch(fetchLoadingPlans());
     } catch (err: any) {
-      alert(err.message || 'Failed to add stock');
+      alert(err.message || 'Failed to adjust stock');
     } finally {
       setIsSubmittingAddStock(false);
     }
@@ -2454,11 +2504,11 @@ export default function LoaderHub() {
               <button
                 type="button"
                 onClick={() => handleOpenAddStock(r)}
-                title="Found extra pieces in godown? Click to add stock to this receipt"
-                className="inline-flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 hover:border-emerald-300 transition shadow-2xs"
+                title="Adjust godown stock: Add (+) or Less (-) cartons, weight (KG), volume (CBM)"
+                className="inline-flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 hover:border-indigo-300 transition shadow-2xs"
               >
-                <Plus className="w-3.5 h-3.5 text-emerald-600" />
-                <span>+ Stock</span>
+                <Plus className="w-3.5 h-3.5 text-indigo-600" />
+                <span>+/- Stock</span>
               </button>
 
               <button
@@ -6175,200 +6225,294 @@ export default function LoaderHub() {
         </div>
       )}
 
-      {/* ── MODAL: QUICK ADD GODOWN STOCK (FOUND EXTRA PIECES) ── */}
-      {addStockReceipt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200">
-            <div className="p-5 bg-gradient-to-r from-emerald-600 to-teal-700 text-white flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 bg-white/20 rounded-xl text-white">
-                  <Package className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-black tracking-tight text-white">
-                    Add Extra Godown Stock (अतिरिक्त माल जोड़ें)
-                  </h3>
-                  <span className="text-xs text-emerald-100 font-medium">
-                    Receipt #{addStockReceipt.receipt} &bull; Warehouse: {addStockReceipt.warehouse}
-                  </span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setAddStockReceipt(null)}
-                className="text-white/80 hover:text-white transition p-1"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      {/* ── MODAL: QUICK ADJUST GODOWN STOCK (ADD OR LESS PIECES / KG / CBM) ── */}
+      {addStockReceipt && (() => {
+        const dQty = addStockQuantityInput.trim() !== '' ? parseInt(addStockQuantityInput.trim(), 10) : 0;
+        const dWt = addStockWeightInput.trim() !== '' ? parseFloat(addStockWeightInput.trim()) : 0;
+        const dVol = addStockVolumeInput.trim() !== '' ? parseFloat(addStockVolumeInput.trim()) : 0;
 
-            <div className="p-6 space-y-4">
-              {/* Receipt Summary Card */}
-              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2 text-xs">
-                <div className="flex justify-between items-center text-slate-600">
-                  <span>Currently Recorded Total:</span>
-                  <span className="font-bold text-slate-900 font-mono text-sm">{addStockReceipt.quantity} CTN</span>
-                </div>
-                <div className="flex justify-between items-center text-slate-600">
-                  <span>Current Weight &amp; Volume:</span>
-                  <span className="font-bold text-slate-800 font-mono">
-                    {addStockReceipt.weight ? `${addStockReceipt.weight} KG` : 'N/A'} &bull; {addStockReceipt.volume ? `${addStockReceipt.volume} CBM` : 'N/A'}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center text-slate-600">
-                  <span>Loaded / Delivered in Containers:</span>
-                  <span className="font-bold text-blue-700 font-mono">{addStockReceipt.loadedQuantity || 0} CTN</span>
-                </div>
-                <div className="flex justify-between items-center text-slate-600">
-                  <span>Current Available in Warehouse:</span>
-                  <span className="font-bold text-emerald-700 font-mono">
-                    {addStockReceipt.remainingQuantity !== undefined ? addStockReceipt.remainingQuantity : (addStockReceipt.quantity - (addStockReceipt.loadedQuantity || 0))} CTN
-                  </span>
-                </div>
-                {addStockReceipt.commodity && (
-                  <div className="flex justify-between items-center text-slate-500 pt-1 border-t border-slate-200">
-                    <span>Commodity:</span>
-                    <span className="font-medium text-slate-800 truncate max-w-[220px]">{addStockReceipt.commodity}</span>
-                  </div>
-                )}
-              </div>
+        const curQty = addStockReceipt.quantity || 0;
+        const curLoaded = addStockReceipt.loadedQuantity || 0;
+        const curAvail = addStockReceipt.remainingQuantity !== undefined ? addStockReceipt.remainingQuantity : (curQty - curLoaded);
+        const newTotalQty = !isNaN(dQty) ? curQty + dQty : curQty;
+        const newAvail = !isNaN(dQty) ? curAvail + dQty : curAvail;
 
-              {/* Extra Stock Inputs: CTN, KG, CBM */}
-              <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center justify-between">
-                    <span>Extra / Remaining Pieces Found (CTN)</span>
-                    <span className="text-emerald-700 font-bold">* Units (Cartons)</span>
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      min="1"
-                      required
-                      placeholder="Enter additional quantity found (e.g. 200)"
-                      value={addStockQuantityInput}
-                      onChange={(e) => setAddStockQuantityInput(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
-                      className="w-full px-3.5 py-2.5 text-sm font-mono font-bold rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-xs"
-                      autoFocus
-                    />
-                    <span className="absolute right-3.5 top-3 text-xs font-bold text-slate-400">CTN</span>
-                  </div>
-                </div>
+        const curWt = parseFloat(String(addStockReceipt.weight || 0)) || 0;
+        const newWt = !isNaN(dWt) ? Math.round((curWt + dWt) * 1000) / 1000 : curWt;
 
-                <div className="grid grid-cols-2 gap-3">
-                  {/* Extra Weight (KG) */}
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center justify-between">
-                      <span>Extra Weight (KG)</span>
-                      <span className="text-slate-400 text-[10px]">Optional</span>
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        placeholder="e.g. 350.5"
-                        value={addStockWeightInput}
-                        onChange={(e) => setAddStockWeightInput(e.target.value)}
-                        className="w-full px-3 py-2 text-xs font-mono font-bold rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-xs"
-                      />
-                      <span className="absolute right-3 top-2.5 text-[11px] font-bold text-slate-400">KG</span>
-                    </div>
-                  </div>
+        const curVol = parseFloat(String(addStockReceipt.volume || 0)) || 0;
+        const newVol = !isNaN(dVol) ? Math.round((curVol + dVol) * 1000) / 1000 : curVol;
 
-                  {/* Extra Volume (CBM) */}
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center justify-between">
-                      <span>Extra Volume (CBM)</span>
-                      <span className="text-slate-400 text-[10px]">Optional</span>
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        placeholder="e.g. 2.75"
-                        value={addStockVolumeInput}
-                        onChange={(e) => setAddStockVolumeInput(e.target.value)}
-                        className="w-full px-3 py-2 text-xs font-mono font-bold rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-xs"
-                      />
-                      <span className="absolute right-3 top-2.5 text-[11px] font-bold text-slate-400">CBM</span>
-                    </div>
-                  </div>
-                </div>
+        const hasChange = (!isNaN(dQty) && dQty !== 0) || (!isNaN(dWt) && dWt !== 0) || (!isNaN(dVol) && dVol !== 0);
+        const isQtyBelowLoaded = !isNaN(dQty) && dQty < 0 && newTotalQty < curLoaded;
+        const isQtyNegative = !isNaN(dQty) && newTotalQty < 0;
+        const isWtNegative = !isNaN(dWt) && newWt < 0;
+        const isVolNegative = !isNaN(dVol) && newVol < 0;
+        const hasError = isQtyBelowLoaded || isQtyNegative || isWtNegative || isVolNegative;
 
-                <p className="text-[11px] text-slate-500">
-                  अतिरिक्त कार्टन, वज़न (KG) और क्यूबिक मीटर (CBM) डालते ही वेयरहाउस में यह नया स्टॉक तुरंत उपलब्ध हो जाएगा।
-                </p>
-              </div>
-
-              {/* Real-time Calculation Preview */}
-              {Number(addStockQuantityInput) > 0 && (
-                <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl text-xs space-y-1 text-emerald-950 animate-fadeIn">
-                  <div className="flex justify-between font-bold">
-                    <span>New Total Quantity:</span>
-                    <span className="font-mono">{(addStockReceipt.quantity || 0) + Number(addStockQuantityInput)} CTN</span>
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200">
+              <div className="p-5 bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-900 text-white flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="p-2 bg-white/10 rounded-xl text-white">
+                    <Package className="w-5 h-5 text-indigo-300" />
                   </div>
-                  <div className="flex justify-between font-bold text-emerald-700">
-                    <span>New Available to Load in Warehouse:</span>
-                    <span className="font-mono">
-                      {(addStockReceipt.remainingQuantity !== undefined ? addStockReceipt.remainingQuantity : (addStockReceipt.quantity - (addStockReceipt.loadedQuantity || 0))) + Number(addStockQuantityInput)} CTN
-                    </span>
-                  </div>
-                  {parseFloat(addStockWeightInput) > 0 && (
-                    <div className="flex justify-between font-bold text-blue-900">
-                      <span>New Total Weight:</span>
-                      <span className="font-mono">
-                        {(Math.round(((parseFloat(String(addStockReceipt.weight || 0)) || 0) + parseFloat(addStockWeightInput)) * 1000) / 1000)} KG
-                      </span>
-                    </div>
-                  )}
-                  {parseFloat(addStockVolumeInput) > 0 && (
-                    <div className="flex justify-between font-bold text-indigo-900">
-                      <span>New Total Volume:</span>
-                      <span className="font-mono">
-                        {(Math.round(((parseFloat(String(addStockReceipt.volume || 0)) || 0) + parseFloat(addStockVolumeInput)) * 1000) / 1000)} CBM
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex justify-between text-slate-500 text-[11px] pt-1 border-t border-emerald-200">
-                    <span>Status will update to:</span>
-                    <span className="font-semibold text-emerald-800">
-                      {(addStockReceipt.loadedQuantity || 0) > 0 ? 'Partially Delivered (Ready to Load)' : 'Received in Warehouse'}
+                  <div>
+                    <h3 className="text-base font-black tracking-tight text-white">
+                      Adjust Godown Stock (माल जोड़ें या घटाएं)
+                    </h3>
+                    <span className="text-xs text-indigo-200 font-medium">
+                      Receipt #{addStockReceipt.receipt} &bull; Warehouse: {addStockReceipt.warehouse}
                     </span>
                   </div>
                 </div>
-              )}
-
-              {/* Action Buttons */}
-              <div className="pt-3 border-t border-slate-100 flex items-center justify-end space-x-2">
                 <button
                   type="button"
                   onClick={() => setAddStockReceipt(null)}
-                  disabled={isSubmittingAddStock}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
+                  className="text-white/70 hover:text-white transition p-1"
                 >
-                  Cancel
+                  <X className="w-5 h-5" />
                 </button>
-                <button
-                  type="button"
-                  onClick={handleConfirmAddStock}
-                  disabled={isSubmittingAddStock || !addStockQuantityInput || Number(addStockQuantityInput) <= 0}
-                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center space-x-1.5 disabled:opacity-50"
-                >
-                  {isSubmittingAddStock ? (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      <span>Adding Stock...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Confirm &amp; Add Stock to Warehouse</span>
-                    </>
+              </div>
+
+              <div className="p-6 space-y-4">
+                {/* Receipt Summary Card */}
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2 text-xs">
+                  <div className="flex justify-between items-center text-slate-600">
+                    <span>Currently Recorded Total:</span>
+                    <span className="font-bold text-slate-900 font-mono text-sm">{addStockReceipt.quantity} CTN</span>
+                  </div>
+                  <div className="flex justify-between items-center text-slate-600">
+                    <span>Current Weight &amp; Volume:</span>
+                    <span className="font-bold text-slate-800 font-mono">
+                      {addStockReceipt.weight ? `${addStockReceipt.weight} KG` : 'N/A'} &bull; {addStockReceipt.volume ? `${addStockReceipt.volume} CBM` : 'N/A'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-slate-600">
+                    <span>Loaded / Delivered in Containers:</span>
+                    <span className="font-bold text-blue-700 font-mono">{addStockReceipt.loadedQuantity || 0} CTN</span>
+                  </div>
+                  <div className="flex justify-between items-center text-slate-600">
+                    <span>Current Available in Warehouse:</span>
+                    <span className="font-bold text-emerald-700 font-mono">
+                      {curAvail} CTN
+                    </span>
+                  </div>
+                  {addStockReceipt.commodity && (
+                    <div className="flex justify-between items-center text-slate-500 pt-1 border-t border-slate-200">
+                      <span>Commodity:</span>
+                      <span className="font-medium text-slate-800 truncate max-w-[220px]">{addStockReceipt.commodity}</span>
+                    </div>
                   )}
-                </button>
+                </div>
+
+                {/* Instructions banner */}
+                <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-start space-x-2">
+                  <span className="text-sm">💡</span>
+                  <div className="space-y-0.5">
+                    <p className="font-bold">Add (+) or Less (-) Stock in CTN, KG, CBM</p>
+                    <p className="text-[11px] text-blue-800">
+                      माल <strong>बढ़ाने</strong> के लिए सीधा नंबर डालें (उदा. <code className="bg-blue-100 px-1 rounded font-bold">2</code>, <code className="bg-blue-100 px-1 rounded font-bold">10</code>, <code className="bg-blue-100 px-1 rounded font-bold">0.5</code>) और <strong>घटाने</strong> के लिए माइनस लगाएं (उदा. <code className="bg-blue-100 px-1 rounded font-bold">-2</code>, <code className="bg-blue-100 px-1 rounded font-bold">-10</code>, <code className="bg-blue-100 px-1 rounded font-bold">-0.5</code>)।
+                    </p>
+                  </div>
+                </div>
+
+                {/* Adjustment Inputs: CTN, KG, CBM */}
+                <div className="space-y-3">
+                  {/* Cartons Adjustment */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                        Cartons Adjustment (CTN)
+                      </label>
+                      <span className="text-indigo-600 font-bold text-[11px]">Type 2 to Add, -2 to Reduce</span>
+                    </div>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="e.g. 2 to add or -2 to reduce"
+                        value={addStockQuantityInput}
+                        onChange={(e) => setAddStockQuantityInput(e.target.value)}
+                        className="w-full px-3.5 py-2.5 text-sm font-mono font-bold rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs"
+                        autoFocus
+                      />
+                      <span className="absolute right-3.5 top-3 text-xs font-bold text-slate-400">CTN</span>
+                    </div>
+
+                    {/* Quick Preset Buttons for Cartons */}
+                    <div className="flex items-center space-x-1.5 pt-0.5">
+                      <span className="text-[10px] text-slate-400 font-semibold uppercase">Quick:</span>
+                      {[
+                        { label: '+1', val: '1' },
+                        { label: '+2', val: '2' },
+                        { label: '+5', val: '5' },
+                        { label: '+10', val: '10' },
+                        { label: '-1', val: '-1' },
+                        { label: '-2', val: '-2' },
+                        { label: '-5', val: '-5' },
+                      ].map((btn) => (
+                        <button
+                          key={btn.label}
+                          type="button"
+                          onClick={() => setAddStockQuantityInput(btn.val)}
+                          className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold border transition ${
+                            btn.val.startsWith('-')
+                              ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                              : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                          }`}
+                        >
+                          {btn.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Weight & Volume Adjustments */}
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* Weight (KG) */}
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center justify-between">
+                        <span>Weight (KG)</span>
+                        <span className="text-slate-400 text-[10px]">e.g. 15 or -10</span>
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder="e.g. 25 or -10"
+                          value={addStockWeightInput}
+                          onChange={(e) => setAddStockWeightInput(e.target.value)}
+                          className="w-full px-3 py-2 text-xs font-mono font-bold rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs"
+                        />
+                        <span className="absolute right-3 top-2.5 text-[11px] font-bold text-slate-400">KG</span>
+                      </div>
+                    </div>
+
+                    {/* Volume (CBM) */}
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center justify-between">
+                        <span>Volume (CBM)</span>
+                        <span className="text-slate-400 text-[10px]">e.g. 0.5 or -0.2</span>
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder="e.g. 0.5 or -0.2"
+                          value={addStockVolumeInput}
+                          onChange={(e) => setAddStockVolumeInput(e.target.value)}
+                          className="w-full px-3 py-2 text-xs font-mono font-bold rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs"
+                        />
+                        <span className="absolute right-3 top-2.5 text-[11px] font-bold text-slate-400">CBM</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Real-time Calculation Preview */}
+                {hasChange && (
+                  hasError ? (
+                    <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl text-xs space-y-1 text-rose-900 animate-fadeIn">
+                      <div className="font-bold flex items-center space-x-1.5 text-rose-700">
+                        <span>⚠️ Adjustment Error</span>
+                      </div>
+                      {isQtyBelowLoaded && (
+                        <p>
+                          Cannot reduce below already loaded/delivered quantity ({curLoaded} CTN). Max reduction possible is {curAvail} CTN.
+                        </p>
+                      )}
+                      {isQtyNegative && <p>Total quantity cannot be negative.</p>}
+                      {isWtNegative && <p>Total weight cannot be negative (Current: {curWt} KG).</p>}
+                      {isVolNegative && <p>Total volume cannot be negative (Current: {curVol} CBM).</p>}
+                    </div>
+                  ) : (
+                    <div className="p-3.5 bg-indigo-50 border border-indigo-200 rounded-2xl text-xs space-y-1.5 text-indigo-950 animate-fadeIn">
+                      <div className="flex justify-between items-center font-bold">
+                        <span>New Total Quantity:</span>
+                        <span className="font-mono text-sm text-indigo-900">
+                          {curQty} &rarr; <span className="underline">{newTotalQty} CTN</span>{' '}
+                          <span className={`text-xs ${dQty > 0 ? 'text-emerald-700' : dQty < 0 ? 'text-rose-600' : 'text-slate-500'}`}>
+                            ({dQty > 0 ? `+${dQty}` : dQty} CTN)
+                          </span>
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center font-bold text-emerald-800">
+                        <span>New Warehouse Available Stock:</span>
+                        <span className="font-mono text-sm">
+                          {curAvail} &rarr; <span className="underline">{newAvail} CTN</span>
+                        </span>
+                      </div>
+                      {dWt !== 0 && (
+                        <div className="flex justify-between items-center font-semibold text-blue-900">
+                          <span>New Total Weight:</span>
+                          <span className="font-mono">
+                            {curWt} &rarr; {newWt} KG{' '}
+                            <span className={`text-[11px] ${dWt > 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                              ({dWt > 0 ? `+${dWt}` : dWt} KG)
+                            </span>
+                          </span>
+                        </div>
+                      )}
+                      {dVol !== 0 && (
+                        <div className="flex justify-between items-center font-semibold text-violet-900">
+                          <span>New Total Volume:</span>
+                          <span className="font-mono">
+                            {curVol} &rarr; {newVol} CBM{' '}
+                            <span className={`text-[11px] ${dVol > 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                              ({dVol > 0 ? `+${dVol}` : dVol} CBM)
+                            </span>
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-slate-500 text-[11px] pt-1 border-t border-indigo-200">
+                        <span>Status will update to:</span>
+                        <span className="font-semibold text-indigo-800">
+                          {newAvail > 0
+                            ? curLoaded > 0
+                              ? 'Partially Delivered (Ready to Load)'
+                              : 'Received in Warehouse'
+                            : curLoaded > 0
+                            ? 'Delivered / Fully Loaded'
+                            : 'Out of Stock'}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                )}
+
+                {/* Action Buttons */}
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-end space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setAddStockReceipt(null)}
+                    disabled={isSubmittingAddStock}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmAddStock}
+                    disabled={isSubmittingAddStock || !hasChange || hasError}
+                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center space-x-1.5 disabled:opacity-50"
+                  >
+                    {isSubmittingAddStock ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Updating Stock...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Confirm &amp; Update Stock (स्टॉक अपडेट करें)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── MODAL: MANUAL GOODS RECEIVED IN WAREHOUSE (DIRECT ENTRY, NO EXCEL) ── */}
       {isReceiveModalOpen && (
