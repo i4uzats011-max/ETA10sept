@@ -246,6 +246,7 @@ export default function BillerPortalPage() {
   const [buyerState, setBuyerState] = useState('Delhi');
   const [buyerStateCode, setBuyerStateCode] = useState('07');
   const [sameAsConsignee, setSameAsConsignee] = useState(true);
+  const [addressMode, setAddressMode] = useState<'select' | 'new'>('select');
   const [purchaserPhone, setPurchaserPhone] = useState('');
   const [isSavingMarkaDirect, setIsSavingMarkaDirect] = useState(false);
   const [markaSaveSuccess, setMarkaSaveSuccess] = useState<string | null>(null);
@@ -1318,19 +1319,23 @@ export default function BillerPortalPage() {
           if (ma.stateCode) setConsigneeStateCode(ma.stateCode);
 
           if (addrs.length > 0) {
+            setAddressMode('select');
             const def = addrs.find((a: any) => a.isDefault) || addrs[0];
             setSelectedDeliveryAddressId(def._id || '');
             setConsigneeAddress(def.address || '');
+            setPurchaserAddress(def.address || '');
             if (def.state) setConsigneeState(def.state);
             if (def.stateCode) setConsigneeStateCode(def.stateCode);
             if (def.phone) setPurchaserPhone(def.phone);
             setSameAsConsignee(!ma.buyerAddress || ma.buyerAddress === def.address);
           } else {
+            setAddressMode('new');
             setSameAsConsignee(!ma.buyerAddress || ma.buyerAddress === (ma.purchaserAddress || ''));
           }
         } else {
           setCurrentMarkaAddresses([]);
           setSelectedDeliveryAddressId('');
+          setAddressMode('new');
         }
       }
     } catch (err) {
@@ -2195,8 +2200,10 @@ export default function BillerPortalPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to save party name');
 
-      setMarkaSaveSuccess(`✓ Party "${purchaserName.trim()}" saved for Marka [${currentMarka}]!`);
-      loadMarkaAddresses();
+      setMarkaSaveSuccess(`✓ Party "${purchaserName.trim()}" and address saved for Marka [${currentMarka}]!`);
+      await loadMarkaAddresses();
+      await fetchMarkaDeliveryLocations(currentMarka);
+      setAddressMode('select');
       setTimeout(() => setMarkaSaveSuccess(null), 5000);
     } catch (err: any) {
       alert(err.message || 'Failed to save marka party');
@@ -4159,396 +4166,538 @@ export default function BillerPortalPage() {
               </div>
 
               {/* STEP 3: CONSIGNEE (SHIP TO) & BUYER (BILL TO) DETAILS */}
-              <div className="bg-slate-950/70 border border-slate-800 rounded-3xl p-5 space-y-4 shadow-xl">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
+              <div className="bg-slate-950/70 border border-slate-800 rounded-3xl p-5 space-y-5 shadow-xl">
+                {/* Step 3 Header */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-4">
                   <div className="flex items-center space-x-2.5">
                     <div className="p-2 bg-violet-500/10 border border-violet-500/30 rounded-xl text-violet-400">
                       <UserCheck className="w-5 h-5" />
                     </div>
                     <div>
                       <div className="text-xs font-black text-violet-300 uppercase tracking-wider">
-                        Step 3: Consignee & Buyer Details (कंसाइनी & बायर पार्टी विवरण)
+                        Step 3: Consignee & Buyer Details (कंसाइनी व बायर पार्टी विवरण)
                       </div>
                       <p className="text-[11px] text-slate-400">
-                        PDF इनवॉइस के अनुसार: Consignee (Ship to) और Buyer (Bill to) पते
+                        डिलीवरी (Ship to) और बिलिंग (Bill to) पार्टी नाम व पते का चयन करें या नया जोड़ें
                       </p>
                     </div>
                   </div>
 
-                  {/* Registered vs Unregistered Toggle */}
-                  <div className="flex bg-slate-900 border border-slate-700 rounded-xl p-0.5 text-xs font-bold">
+                  {/* Primary Option: Select Saved Address vs Add New Address & Party */}
+                  <div className="flex bg-slate-900 border border-slate-700/80 p-1 rounded-2xl shrink-0">
                     <button
                       type="button"
-                      onClick={() => setRegistrationType('Registered')}
-                      className={`px-3 py-1.5 rounded-lg transition ${
-                        registrationType === 'Registered'
-                          ? 'bg-emerald-600 text-white shadow'
+                      onClick={() => setAddressMode('select')}
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 ${
+                        addressMode === 'select'
+                          ? 'bg-gradient-to-r from-sky-600 to-cyan-600 text-white shadow-md'
                           : 'text-slate-400 hover:text-white'
                       }`}
                     >
-                      Registered (GSTIN)
+                      <MapPin className="w-3.5 h-3.5" />
+                      <span>📍 सहेजा पता चुनें (Select Address)</span>
+                      {currentMarkaAddresses.length > 0 && (
+                        <span className="ml-1 px-1.5 py-0.2 bg-white/20 text-white rounded-full text-[10px]">
+                          {currentMarkaAddresses.length}
+                        </span>
+                      )}
                     </button>
                     <button
                       type="button"
-                      onClick={() => setRegistrationType('Unregistered')}
-                      className={`px-3 py-1.5 rounded-lg transition ${
-                        registrationType === 'Unregistered'
-                          ? 'bg-amber-600 text-white shadow'
+                      onClick={() => setAddressMode('new')}
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 ${
+                        addressMode === 'new'
+                          ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
                           : 'text-slate-400 hover:text-white'
                       }`}
                     >
-                      Unregistered (URP)
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>➕ नया पता व पार्टी जोड़ें (Add Address)</span>
                     </button>
                   </div>
                 </div>
 
-                {/* Consignee (Ship to) Section */}
-                <div className="space-y-3">
-                  <div className="text-xs font-black text-sky-400 flex items-center space-x-1.5 uppercase tracking-wide">
-                    <Truck className="w-3.5 h-3.5" />
-                    <span>Consignee / Shipped To (जहाँ माल डिलीवर होगा)</span>
-                  </div>
-
-                  {/* Marka-Wise Sending / Delivery Locations Selector */}
-                  {(mainMarka || subMarka || singleSelectedMarka) && (
-                    <div className="p-3.5 bg-slate-900/80 border border-cyan-500/40 rounded-2xl space-y-2.5">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        <div className="flex items-center space-x-2">
-                          <MapPin className="w-4 h-4 text-cyan-400 shrink-0" />
-                          <div>
-                            <span className="text-xs font-bold text-cyan-300">
-                              Marka-Wise Sending Locations (मार्का के सेंडिंग पते) — [{mainMarka || subMarka || singleSelectedMarka}]
-                            </span>
-                            <p className="text-[10px] text-slate-400">
-                              एक मार्का में एक से ज़्यादा पते सेव कर सकते हैं। क्लिक करके तुरंत सेलेक्ट करें।
-                            </p>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setNewLocTitle('');
-                            setNewLocAddress('');
-                            setNewLocCity('');
-                            setNewLocState(consigneeState || 'Delhi');
-                            setNewLocStateCode(consigneeStateCode || '07');
-                            setNewLocPincode('');
-                            setNewLocContactPerson(purchaserName || '');
-                            setNewLocPhone(purchaserPhone || '');
-                            setShowAddLocationModal(true);
-                          }}
-                          className="px-3 py-1.5 bg-cyan-600/30 hover:bg-cyan-600 text-cyan-300 hover:text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 self-start sm:self-auto shadow"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>+ Add New Sending Address (नया पता जोड़ें)</span>
-                        </button>
+                {/* MODE 1: SELECT EXISTING SAVED ADDRESS */}
+                {addressMode === 'select' && (
+                  <div className="space-y-4 animate-fadeIn">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="text-xs font-black text-sky-400 flex items-center space-x-1.5 uppercase tracking-wide">
+                        <Truck className="w-3.5 h-3.5" />
+                        <span>सहेजे गए पते (Saved Sending Locations) — मार्का: [{mainMarka || subMarka || singleSelectedMarka || 'Marka'}]</span>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => setAddressMode('new')}
+                        className="px-3 py-1 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white rounded-xl text-xs font-bold transition flex items-center space-x-1 border border-emerald-500/30 self-start sm:self-auto"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>+ नया पता व पार्टी जोड़ें (Add New)</span>
+                      </button>
+                    </div>
 
-                      {currentMarkaAddresses.length > 0 ? (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 pt-1">
-                          {currentMarkaAddresses.map((addr: any, idx: number) => {
-                            const isSelected = selectedDeliveryAddressId === addr._id || (!selectedDeliveryAddressId && idx === 0);
-                            return (
-                              <div
-                                key={addr._id || idx}
-                                onClick={() => handleSelectDeliveryAddress(addr)}
-                                className={`p-2.5 rounded-xl border text-xs cursor-pointer transition flex flex-col justify-between ${
-                                  isSelected
-                                    ? 'bg-cyan-950/70 border-cyan-400 text-white shadow-md shadow-cyan-950/50'
-                                    : 'bg-slate-950/60 border-slate-800 text-slate-300 hover:border-slate-700'
-                                }`}
-                              >
-                                <div>
-                                  <div className="flex items-center justify-between mb-1">
-                                    <span className="font-bold text-cyan-300 text-[11px] truncate">
-                                      {addr.title || `Location ${idx + 1}`}
-                                    </span>
-                                    <div className="flex items-center space-x-1 shrink-0">
-                                      {isSelected && (
-                                        <span className="px-1.5 py-0.5 bg-cyan-500 text-slate-950 font-black rounded text-[9px]">
-                                          चयनित
-                                        </span>
-                                      )}
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleOpenEditLocation(mainMarka || subMarka || singleSelectedMarka, addr);
-                                        }}
-                                        className="px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 font-bold rounded text-[10px] transition flex items-center space-x-1 border border-amber-500/30"
-                                        title="एड्रेस एडिट करें (Edit Address)"
-                                      >
-                                        <Edit3 className="w-2.5 h-2.5" />
-                                        <span>एडिट</span>
-                                      </button>
-                                      <button
-                                        type="button"
-                                        disabled={isDeletingLocationId === addr._id}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleDeleteLocation(mainMarka || subMarka || singleSelectedMarka, addr._id);
-                                        }}
-                                        className="px-2 py-0.5 bg-red-500/20 hover:bg-red-500 text-red-300 hover:text-white font-bold rounded text-[10px] transition flex items-center space-x-1 border border-red-500/30"
-                                        title="एड्रेस डिलीट करें (Delete Address)"
-                                      >
-                                        <Trash2 className="w-2.5 h-2.5" />
-                                        <span>डिलीट</span>
-                                      </button>
-                                    </div>
+                    {currentMarkaAddresses.length > 0 ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                        {currentMarkaAddresses.map((addr: any, idx: number) => {
+                          const isSelected = selectedDeliveryAddressId === addr._id || (!selectedDeliveryAddressId && idx === 0);
+                          return (
+                            <div
+                              key={addr._id || idx}
+                              onClick={() => handleSelectDeliveryAddress(addr)}
+                              className={`p-3 rounded-2xl border text-xs cursor-pointer transition flex flex-col justify-between ${
+                                isSelected
+                                  ? 'bg-cyan-950/80 border-cyan-400 text-white shadow-lg shadow-cyan-950/60 ring-1 ring-cyan-400'
+                                  : 'bg-slate-900/70 border-slate-800 text-slate-300 hover:border-slate-700 hover:bg-slate-900'
+                              }`}
+                            >
+                              <div>
+                                <div className="flex items-center justify-between mb-1.5">
+                                  <span className="font-bold text-cyan-300 text-xs truncate">
+                                    {addr.title || `Location ${idx + 1}`}
+                                  </span>
+                                  <div className="flex items-center space-x-1 shrink-0">
+                                    {isSelected && (
+                                      <span className="px-2 py-0.5 bg-cyan-400 text-slate-950 font-black rounded text-[10px] uppercase">
+                                        ✓ चयनित
+                                      </span>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenEditLocation(mainMarka || subMarka || singleSelectedMarka, addr);
+                                      }}
+                                      className="px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 font-bold rounded text-[10px] transition flex items-center space-x-1 border border-amber-500/30"
+                                      title="एड्रेस एडिट करें"
+                                    >
+                                      <Edit3 className="w-2.5 h-2.5" />
+                                      <span>एडिट</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={isDeletingLocationId === addr._id}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteLocation(mainMarka || subMarka || singleSelectedMarka, addr._id);
+                                      }}
+                                      className="px-2 py-0.5 bg-red-500/20 hover:bg-red-500 text-red-300 hover:text-white font-bold rounded text-[10px] transition flex items-center space-x-1 border border-red-500/30"
+                                      title="एड्रेस डिलीट करें"
+                                    >
+                                      <Trash2 className="w-2.5 h-2.5" />
+                                      <span>हटाएं</span>
+                                    </button>
                                   </div>
-                                  <p className="text-[11px] text-slate-200 line-clamp-2">{addr.address}</p>
                                 </div>
-                                <div className="text-[10px] text-slate-400 mt-1.5 flex items-center justify-between border-t border-slate-800/80 pt-1">
-                                  <span className="font-semibold text-slate-300">{addr.city || addr.state || 'Delhi'} ({getStateCode(addr.stateCode || addr.state) || '07'})</span>
+                                <p className="text-[11px] text-slate-200 line-clamp-2 leading-relaxed">{addr.address}</p>
+                              </div>
+
+                              <div className="mt-2.5 pt-2 border-t border-slate-800/80">
+                                <div className="text-[10px] text-slate-400 flex items-center justify-between">
+                                  <span className="font-semibold text-slate-300">
+                                    {addr.city || addr.state || 'Delhi'} ({getStateCode(addr.stateCode || addr.state) || '07'})
+                                  </span>
                                   {addr.phone && <span>📞 {addr.phone}</span>}
                                 </div>
                                 <button
                                   type="button"
                                   onClick={() => handleSelectDeliveryAddress(addr)}
-                                  className={`w-full mt-2 py-1 px-2 rounded-lg text-[10px] font-bold transition flex items-center justify-center space-x-1 ${
+                                  className={`w-full mt-2 py-1.5 px-2 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 ${
                                     isSelected
-                                      ? 'bg-cyan-500 text-slate-950 font-black'
-                                      : 'bg-slate-900 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/30'
+                                      ? 'bg-cyan-400 text-slate-950 font-black shadow'
+                                      : 'bg-slate-950 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/30'
                                   }`}
                                 >
-                                  <Check className="w-3 h-3" />
-                                  <span>{isSelected ? '✓ यह पता चुना हुआ है (Selected)' : 'इस पते पर डिस्पैच करें (Select)'}</span>
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>{isSelected ? '✓ यह पता चुना हुआ है (Selected)' : 'इस पते पर भेजें (Select)'}</span>
                                 </button>
                               </div>
-                            );
-                          })}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="p-6 bg-slate-900/60 border border-dashed border-slate-800 rounded-2xl text-center space-y-3">
+                        <MapPin className="w-8 h-8 text-slate-500 mx-auto" />
+                        <div>
+                          <p className="text-xs font-bold text-slate-300">
+                            इस मार्का [{mainMarka || subMarka || singleSelectedMarka || 'Marka'}] के लिए कोई सहेजा हुआ पता नहीं मिला।
+                          </p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            कृपया नया पता और पार्टी नाम जोड़ने के लिए नीचे दिए गए बटन पर क्लिक करें।
+                          </p>
                         </div>
-                      ) : (
-                        <p className="text-[11px] text-slate-400 italic">
-                          इस मार्का के लिए कोई पूर्व-सहेजा गया पता नहीं मिला। नीचे पता भरें या "+ Add New Sending Address" दबाएँ।
-                        </p>
-                      )}
-                    </div>
-                  )}
+                        <button
+                          type="button"
+                          onClick={() => setAddressMode('new')}
+                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition inline-flex items-center space-x-1.5 shadow"
+                        >
+                          <Plus className="w-4 h-4" />
+                          <span>➕ नया पता व पार्टी जोड़ें (Add Address & Party Now)</span>
+                        </button>
+                      </div>
+                    )}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="text-xs text-slate-300 font-bold block">
-                          Consignee / Party Legal Name *
-                        </label>
+                    {/* Selected Active Dispatch Summary & Quick Edit */}
+                    <div className="p-4 bg-slate-900/90 border border-slate-800 rounded-2xl space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black text-sky-300 flex items-center space-x-1.5">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                          <span>वर्तमान में चयनित डिस्पैच पार्टी व पता (Active Selected Details):</span>
+                        </span>
                         {(mainMarka || subMarka || singleSelectedMarka) && (
                           <button
                             type="button"
                             disabled={isSavingMarkaDirect || !purchaserName.trim()}
                             onClick={handleInstantSaveMarkaAddress}
-                            className="inline-flex items-center space-x-1 px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 font-bold rounded-lg text-[10px] transition border border-amber-500/30 disabled:opacity-40 shadow-2xs"
-                            title="इस मार्का के लिए यह पार्टी नाम सुरक्षित करें (Save Party Name for this Marka)"
+                            className="inline-flex items-center space-x-1 px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 font-bold rounded-lg text-xs transition border border-amber-500/30 disabled:opacity-40"
+                            title="मार्का के लिए सुरक्षित करें"
                           >
-                            <Save className="w-3 h-3" />
-                            <span>{isSavingMarkaDirect ? 'सेव हो रहा...' : `💾 Save Party for [${(mainMarka || subMarka || singleSelectedMarka).split(',')[0].trim()}]`}</span>
+                            <Save className="w-3.5 h-3.5" />
+                            <span>{isSavingMarkaDirect ? 'सेव हो रहा...' : `💾 Save Changes to [${(mainMarka || subMarka || singleSelectedMarka).split(',')[0].trim()}]`}</span>
                           </button>
                         )}
                       </div>
-                      <input
-                        type="text"
-                        required
-                        value={purchaserName}
-                        onChange={(e) => setPurchaserName(e.target.value)}
-                        placeholder="e.g. Radhey Trading Co."
-                        className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-sky-500 outline-none font-semibold"
-                      />
-                      {markaSaveSuccess && (
-                        <p className="text-[11px] text-emerald-400 font-bold mt-1 animate-fadeIn flex items-center space-x-1">
-                          <Check className="w-3.5 h-3.5 text-emerald-400" />
-                          <span>{markaSaveSuccess}</span>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                          <label className="text-[11px] text-slate-400 font-bold block mb-1">Party / Legal Name *</label>
+                          <input
+                            type="text"
+                            value={purchaserName}
+                            onChange={(e) => setPurchaserName(e.target.value)}
+                            placeholder="e.g. Radhey Trading Co."
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white font-semibold outline-none focus:ring-1 focus:ring-sky-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] text-slate-400 font-bold block mb-1">
+                            {registrationType === 'Registered' ? 'GSTIN (15-digit) *' : 'Registration Status'}
+                          </label>
+                          {registrationType === 'Registered' ? (
+                            <input
+                              type="text"
+                              value={purchaserGstin}
+                              onChange={(e) => handleConsigneeGstinChange(e.target.value)}
+                              placeholder="07AAAAA0000A1Z5"
+                              className="w-full px-3 py-2 bg-slate-950 border border-emerald-500/50 rounded-xl text-xs text-emerald-300 font-mono font-bold uppercase outline-none focus:ring-1 focus:ring-emerald-500"
+                            />
+                          ) : (
+                            <div className="px-3 py-2 bg-slate-950 border border-amber-500/30 rounded-xl text-xs text-amber-300 font-semibold flex items-center justify-between">
+                              <span>Unregistered (URP)</span>
+                              <span className="text-[10px] px-1.5 py-0.5 bg-amber-500/20 rounded font-mono">URP</span>
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <label className="text-[11px] text-slate-400 font-bold block mb-1">Phone / Mobile</label>
+                          <input
+                            type="text"
+                            value={purchaserPhone}
+                            onChange={(e) => setPurchaserPhone(e.target.value)}
+                            placeholder="e.g. 9876543210"
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white font-mono outline-none focus:ring-1 focus:ring-sky-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="sm:col-span-2">
+                          <label className="text-[11px] text-slate-400 font-bold block mb-1">Delivery Address (Ship to)</label>
+                          <input
+                            type="text"
+                            value={consigneeAddress || purchaserAddress}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setConsigneeAddress(val);
+                              setPurchaserAddress(val);
+                              const detected = detectStateFromAddress(val);
+                              if (detected) handleConsigneeStateChange(detected.name);
+                            }}
+                            placeholder="e.g. Shop No 4, Main Bazar, Agra"
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white outline-none focus:ring-1 focus:ring-sky-500"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[11px] text-slate-400 font-bold block mb-1">State (राज्य)</label>
+                            <select
+                              value={consigneeState}
+                              onChange={(e) => handleConsigneeStateChange(e.target.value)}
+                              className="w-full px-2.5 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white"
+                            >
+                              {INDIAN_STATES.map((st) => (
+                                <option key={st.name} value={st.name}>
+                                  {st.name} ({st.code})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-[11px] text-slate-400 font-bold block mb-1">State Code</label>
+                            <input
+                              type="text"
+                              value={consigneeStateCode}
+                              onChange={(e) => handleConsigneeStateCodeChange(e.target.value)}
+                              className="w-full px-2.5 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-amber-300 font-mono font-bold"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* MODE 2: ADD NEW ADDRESS & PARTY */}
+                {addressMode === 'new' && (
+                  <div className="p-4 bg-slate-900/90 border border-emerald-500/40 rounded-2xl space-y-4 animate-fadeIn">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                      <div>
+                        <div className="text-xs font-black text-emerald-400 flex items-center space-x-1.5 uppercase tracking-wide">
+                          <Plus className="w-4 h-4" />
+                          <span>नया पता व पार्टी जोड़ें (Add New Address & Party) — [{mainMarka || subMarka || singleSelectedMarka || 'Marka'}]</span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          पंजीकरण प्रकार (Registered या Unregistered) चुनें और पार्टी व पता दर्ज करें
                         </p>
-                      )}
+                      </div>
+
+                      {/* Registered vs Unregistered Toggle */}
+                      <div className="flex bg-slate-950 border border-slate-800 rounded-xl p-1 text-xs font-bold shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setRegistrationType('Registered')}
+                          className={`px-3.5 py-1.5 rounded-lg transition flex items-center space-x-1.5 ${
+                            registrationType === 'Registered'
+                              ? 'bg-emerald-600 text-white shadow'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          <Building2 className="w-3.5 h-3.5" />
+                          <span>🏢 Registered (GSTIN)</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRegistrationType('Unregistered')}
+                          className={`px-3.5 py-1.5 rounded-lg transition flex items-center space-x-1.5 ${
+                            registrationType === 'Unregistered'
+                              ? 'bg-amber-600 text-white shadow'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          <UserCheck className="w-3.5 h-3.5" />
+                          <span>👤 Unregistered (URP)</span>
+                        </button>
+                      </div>
                     </div>
 
-                    {registrationType === 'Registered' ? (
-                      <div>
-                        <label className="text-xs text-emerald-400 font-bold block mb-1">
-                          Consignee GSTIN (15-digit GST) * (राज्य स्वतः सेट होगा)
+                    {/* Inputs according to Registration Type */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                      {registrationType === 'Registered' && (
+                        <div>
+                          <label className="text-xs text-emerald-400 font-bold block mb-1">
+                            Consignee GSTIN (15-digit GST) * (राज्य स्वतः सेट होगा)
+                          </label>
+                          <input
+                            type="text"
+                            required={registrationType === 'Registered'}
+                            value={purchaserGstin}
+                            onChange={(e) => handleConsigneeGstinChange(e.target.value)}
+                            placeholder="07AAAAA0000A1Z5"
+                            className="w-full px-3.5 py-2.5 bg-slate-950 border border-emerald-500/50 rounded-xl text-xs text-emerald-300 font-mono font-black uppercase focus:ring-2 focus:ring-emerald-500 outline-none"
+                          />
+                        </div>
+                      )}
+
+                      <div className={registrationType === 'Registered' ? 'sm:col-span-1' : 'sm:col-span-2'}>
+                        <label className="text-xs text-slate-300 font-bold block mb-1">
+                          Consignee / Party Legal Name (पार्टी का नाम) *
                         </label>
                         <input
                           type="text"
-                          required={registrationType === 'Registered'}
-                          value={purchaserGstin}
-                          onChange={(e) => handleConsigneeGstinChange(e.target.value)}
-                          placeholder="07AAAAA0000A1Z5"
-                          className="w-full px-3.5 py-2.5 bg-slate-900 border border-emerald-500/50 rounded-xl text-xs text-emerald-300 font-mono font-black uppercase focus:ring-2 focus:ring-emerald-500 outline-none"
+                          required
+                          value={purchaserName}
+                          onChange={(e) => setPurchaserName(e.target.value)}
+                          placeholder="e.g. Radhey Trading Co."
+                          className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-emerald-500 outline-none font-semibold"
                         />
                       </div>
-                    ) : (
+
                       <div>
-                        <label className="text-xs text-amber-400 font-bold block mb-1">
-                          Registration Status
+                        <label className="text-xs text-slate-300 font-bold block mb-1">
+                          Phone / Mobile (फ़ोन नंबर)
                         </label>
-                        <div className="px-3.5 py-2.5 bg-slate-900 border border-amber-500/30 rounded-xl text-xs text-amber-300 font-semibold flex items-center justify-between">
-                          <span>Unregistered Party (URP)</span>
-                          <span className="text-[10px] px-1.5 py-0.5 bg-amber-500/20 rounded font-mono">URP</span>
-                        </div>
+                        <input
+                          type="text"
+                          value={purchaserPhone}
+                          onChange={(e) => setPurchaserPhone(e.target.value)}
+                          placeholder="e.g. 9876543210"
+                          className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-emerald-500 outline-none font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    {registrationType === 'Unregistered' && (
+                      <div className="p-2.5 bg-amber-950/30 border border-amber-500/30 rounded-xl text-[11px] text-amber-300 flex items-center space-x-2">
+                        <UserCheck className="w-4 h-4 text-amber-400 shrink-0" />
+                        <span>यह पार्टी गैर-पंजीकृत (URP) के रूप में चुनी गई है। इसके लिए GSTIN अनिवार्य नहीं है।</span>
                       </div>
                     )}
 
-                    <div>
-                      <label className="text-xs text-slate-300 font-bold block mb-1">
-                        Consignee Phone / Mobile
-                      </label>
-                      <input
-                        type="text"
-                        value={purchaserPhone}
-                        onChange={(e) => setPurchaserPhone(e.target.value)}
-                        placeholder="e.g. 9876543210"
-                        className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-sky-500 outline-none font-mono"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-                    <div className="sm:col-span-2">
-                      <label className="text-xs text-slate-300 font-bold block mb-1">
-                        Consignee Delivery Address (Ship to Address)
-                      </label>
-                      <input
-                        type="text"
-                        value={consigneeAddress || purchaserAddress}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setConsigneeAddress(val);
-                          setPurchaserAddress(val);
-                          const detected = detectStateFromAddress(val);
-                          if (detected) {
-                            handleConsigneeStateChange(detected.name);
-                          }
-                        }}
-                        placeholder="e.g. Shop No 4, Main Bazar, Agra"
-                        className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-sky-500 outline-none"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-xs text-slate-300 font-bold block mb-1">State (राज्य)</label>
-                        <select
-                          value={consigneeState}
-                          onChange={(e) => handleConsigneeStateChange(e.target.value)}
-                          className="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white"
-                        >
-                          {INDIAN_STATES.map((st) => (
-                            <option key={st.name} value={st.name}>
-                              {st.name} ({st.code})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="text-xs text-slate-300 font-bold block mb-1">State Code (ऑटो)</label>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                      <div className="sm:col-span-2">
+                        <label className="text-xs text-slate-300 font-bold block mb-1">
+                          Delivery / Shipping Address (पूरा पता) *
+                        </label>
                         <input
                           type="text"
-                          value={consigneeStateCode}
-                          onChange={(e) => handleConsigneeStateCodeChange(e.target.value)}
-                          placeholder="07"
-                          className="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-amber-300 font-mono font-bold"
+                          required
+                          value={consigneeAddress || purchaserAddress}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setConsigneeAddress(val);
+                            setPurchaserAddress(val);
+                            const detected = detectStateFromAddress(val);
+                            if (detected) handleConsigneeStateChange(detected.name);
+                          }}
+                          placeholder="e.g. Shop No 4, Main Bazar, Agra"
+                          className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-emerald-500 outline-none"
                         />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-xs text-slate-300 font-bold block mb-1">State (राज्य)</label>
+                          <select
+                            value={consigneeState}
+                            onChange={(e) => handleConsigneeStateChange(e.target.value)}
+                            className="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white"
+                          >
+                            {INDIAN_STATES.map((st) => (
+                              <option key={st.name} value={st.name}>
+                                {st.name} ({st.code})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs text-slate-300 font-bold block mb-1">State Code (ऑटो)</label>
+                          <input
+                            type="text"
+                            value={consigneeStateCode}
+                            onChange={(e) => handleConsigneeStateCodeChange(e.target.value)}
+                            placeholder="07"
+                            className="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-amber-300 font-mono font-bold"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* SAVE TOGETHER BUTTON (Party Name + Address Save to Marka) */}
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3.5 bg-emerald-950/40 border border-emerald-500/40 rounded-xl">
+                      <div className="text-xs text-emerald-300">
+                        <span className="font-bold flex items-center space-x-1.5">
+                          <Save className="w-4 h-4 text-emerald-400" />
+                          <span>पार्टी नाम और पता दोनों इस मार्का में एक साथ सेव होंगे:</span>
+                        </span>
+                        <p className="text-[11px] text-slate-300 mt-0.5">
+                          मार्का: <strong className="text-white font-mono">{mainMarka || subMarka || singleSelectedMarka || 'Marka'}</strong> | पार्टी: <strong className="text-white">{purchaserName || '—'}</strong>
+                        </p>
+                      </div>
+
+                      <div className="flex items-center space-x-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setAddressMode('select')}
+                          className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold transition"
+                        >
+                          रद्द करें (Cancel)
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isSavingMarkaDirect || !purchaserName.trim() || !(consigneeAddress || purchaserAddress).trim()}
+                          onClick={handleInstantSaveMarkaAddress}
+                          className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-xl text-xs font-black transition flex items-center space-x-1.5 shadow-lg shadow-emerald-950/60"
+                        >
+                          <Save className="w-3.5 h-3.5" />
+                          <span>{isSavingMarkaDirect ? 'सेव हो रहा है...' : '💾 Save Party & Address to Marka'}</span>
+                        </button>
                       </div>
                     </div>
                   </div>
+                )}
 
-                  {/* MARKA ADDRESS CONTROLS TOOLBAR: ADD, CHANGE / UPDATE, DELETE */}
-                  {(mainMarka || subMarka || singleSelectedMarka) && (
-                    <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-slate-900/90 border border-cyan-500/30 rounded-2xl">
-                      <div className="flex items-center space-x-1.5">
-                        <MapPin className="w-4 h-4 text-cyan-400" />
-                        <span className="text-xs font-bold text-cyan-300">
-                          डिस्पैच पता प्रबंधन (Marka Delivery Actions):
-                        </span>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {/* 1. Add New Location */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setNewLocTitle('');
-                            setNewLocAddress('');
-                            setNewLocCity('');
-                            setNewLocState(consigneeState || 'Delhi');
-                            setNewLocStateCode(consigneeStateCode || '07');
-                            setNewLocPincode('');
-                            setNewLocContactPerson(purchaserName || '');
-                            setNewLocPhone(purchaserPhone || '');
-                            setShowAddLocationModal(true);
-                          }}
-                          className="px-3 py-1.5 bg-cyan-600/30 hover:bg-cyan-600 text-cyan-300 hover:text-white rounded-xl text-xs font-bold transition flex items-center space-x-1 border border-cyan-500/40 shadow-sm"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>+ नया पता जोड़ें (Add Location)</span>
-                        </button>
-
-                        {/* 2. Change / Save / Update to Marka */}
-                        <button
-                          type="button"
-                          disabled={isSavingMarkaDirect}
-                          onClick={handleInstantSaveMarkaAddress}
-                          className="px-3 py-1.5 bg-emerald-600/30 hover:bg-emerald-600 text-emerald-300 hover:text-white rounded-xl text-xs font-bold transition flex items-center space-x-1 border border-emerald-500/40 shadow-sm"
-                          title="इस फॉर्म में भरे गए पते को मार्का में सुरक्षित / अपडेट करें"
-                        >
-                          <Save className="w-3.5 h-3.5" />
-                          <span>{isSavingMarkaDirect ? 'सेव हो रहा है...' : '💾 यह पता मार्का में सेव / बदलें (Update Address)'}</span>
-                        </button>
-
-                        {/* 3. Delete Selected Location */}
-                        {selectedDeliveryAddressId && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const m = mainMarka || subMarka || singleSelectedMarka;
-                              if (m && selectedDeliveryAddressId) {
-                                handleDeleteLocation(m, selectedDeliveryAddressId);
-                              }
-                            }}
-                            className="px-3 py-1.5 bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white rounded-xl text-xs font-bold transition flex items-center space-x-1 border border-red-500/30 shadow-sm"
-                            title="चयनित पते को इस मार्का से हटाएं"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            <span>🗑️ यह पता हटाएं (Delete)</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Buyer (Bill to) Toggle & Fields */}
+                {/* BUYER (BILL TO) DETAILS SECTION */}
                 <div className="border-t border-slate-800/80 pt-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="text-xs font-black text-amber-400 flex items-center space-x-1.5 uppercase tracking-wide">
-                      <Building2 className="w-3.5 h-3.5" />
-                      <span>Buyer / Billed To (जिसके नाम इनवॉइस बिल बनेगा)</span>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center space-x-2">
+                      <div className="p-1.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-400">
+                        <Building2 className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-black text-amber-300 uppercase tracking-wide">
+                          Buyer / Billed To (जिसके नाम इनवॉइस बिल बनेगा)
+                        </div>
+                        <p className="text-[11px] text-slate-400">
+                          मुख्य बिलिंग पार्टी और पता (डिफ़ॉल्ट रूप से शिपिंग पते के समान रहता है)
+                        </p>
+                      </div>
                     </div>
 
-                    <label className="flex items-center space-x-2 cursor-pointer bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-xl hover:bg-slate-800 transition">
+                    {/* Same as Consignee Toggle (Default YES) */}
+                    <label className="flex items-center space-x-2 cursor-pointer bg-slate-900 border border-slate-700/80 px-3.5 py-1.5 rounded-xl hover:bg-slate-800 transition">
                       <input
                         type="checkbox"
                         checked={sameAsConsignee}
                         onChange={(e) => setSameAsConsignee(e.target.checked)}
-                        className="rounded bg-slate-950 border-slate-700 text-amber-500 focus:ring-amber-500"
+                        className="w-4 h-4 rounded bg-slate-950 border-slate-700 text-emerald-500 focus:ring-emerald-500 cursor-pointer"
                       />
-                      <span className="text-xs font-bold text-slate-300">
-                        Same as Consignee (Ship to) / सेम खरीदार
+                      <span className="text-xs font-bold text-slate-200">
+                        Same as Consignee (बिलिंग और शिपिंग पता एक ही है)
                       </span>
                     </label>
                   </div>
 
-                  {!sameAsConsignee && (
-                    <div className="space-y-3 p-3.5 bg-slate-900/50 border border-slate-800 rounded-2xl">
+                  {/* If Same as Consignee is YES: NO OTHER DETAILS NEEDED! */}
+                  {sameAsConsignee ? (
+                    <div className="p-3.5 bg-emerald-950/20 border border-emerald-500/30 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 animate-fadeIn">
+                      <div className="flex items-center space-x-2.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <div className="text-xs">
+                          <span className="font-bold text-emerald-300">
+                            ✓ बिलिंग पता और शिपिंग पता एक समान (Same) हैं
+                          </span>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            अलग से कोई अन्य विवरण भरने की आवश्यकता नहीं है। इनवॉइस में बायर (Buyer) का नाम और पता अपने आप कंसाइनी से ले लिया जाएगा।
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSameAsConsignee(false)}
+                        className="text-[11px] font-bold text-amber-400 hover:text-amber-300 underline self-start sm:self-auto shrink-0"
+                      >
+                        क्या बिलिंग पता अलग है? (Click if Different)
+                      </button>
+                    </div>
+                  ) : (
+                    /* If Same as Consignee is NO: ENTER DETAILS ACCORDINGLY */
+                    <div className="space-y-3 p-4 bg-slate-900/60 border border-amber-500/30 rounded-2xl animate-fadeIn">
+                      <div className="text-xs font-bold text-amber-300 flex items-center space-x-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                        <span>अलग खरीदार विवरण दर्ज करें (Separate Buyer / Bill To Details):</span>
+                      </div>
+
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                         <div>
                           <label className="text-xs text-slate-300 font-bold block mb-1">
-                            Buyer Legal Name
+                            Buyer Legal Name (खरीदार का नाम) *
                           </label>
                           <input
                             type="text"
                             value={buyerName}
                             onChange={(e) => setBuyerName(e.target.value)}
                             placeholder="Buyer company / person name"
-                            className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white"
+                            className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white outline-none focus:ring-1 focus:ring-amber-500"
                           />
                         </div>
                         <div>
@@ -4560,7 +4709,7 @@ export default function BillerPortalPage() {
                             value={buyerGstin}
                             onChange={(e) => handleBuyerGstinChange(e.target.value)}
                             placeholder="Buyer 15-digit GSTIN"
-                            className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white font-mono uppercase"
+                            className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-amber-300 font-mono font-bold uppercase outline-none focus:ring-1 focus:ring-amber-500"
                           />
                         </div>
                       </div>
@@ -4568,14 +4717,14 @@ export default function BillerPortalPage() {
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                         <div className="sm:col-span-2">
                           <label className="text-xs text-slate-300 font-bold block mb-1">
-                            Buyer Billing Address
+                            Buyer Billing Address (बिलिंग पता) *
                           </label>
                           <input
                             type="text"
                             value={buyerAddress}
                             onChange={(e) => setBuyerAddress(e.target.value)}
                             placeholder="Buyer office / registered address"
-                            className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white"
+                            className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white outline-none focus:ring-1 focus:ring-amber-500"
                           />
                         </div>
                         <div className="grid grid-cols-2 gap-2">
@@ -4584,7 +4733,7 @@ export default function BillerPortalPage() {
                             <select
                               value={buyerState}
                               onChange={(e) => handleBuyerStateChange(e.target.value)}
-                              className="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white"
+                              className="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white"
                             >
                               {INDIAN_STATES.map((st) => (
                                 <option key={st.name} value={st.name}>
@@ -4600,7 +4749,7 @@ export default function BillerPortalPage() {
                               value={buyerStateCode}
                               onChange={(e) => setBuyerStateCode(e.target.value)}
                               placeholder="09"
-                              className="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-amber-300 font-mono font-bold"
+                              className="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-amber-300 font-mono font-bold"
                             />
                           </div>
                         </div>
@@ -4614,23 +4763,23 @@ export default function BillerPortalPage() {
                   <div className="flex items-center space-x-2 text-xs text-slate-400">
                     <MapPin className="w-4 h-4 text-amber-400 shrink-0" />
                     <span>
-                      मार्का: <strong className="text-white font-mono">{mainMarka || subMarka || singleSelectedMarka || 'कोई मार्का नहीं चुना'}</strong> के लिए पता सेव करें।
+                      मार्का: <strong className="text-white font-mono">{mainMarka || subMarka || singleSelectedMarka || 'कोई मार्का नहीं चुना'}</strong> | पार्टी: <strong className="text-white">{purchaserName || '—'}</strong>
                     </span>
                   </div>
 
                   <div className="flex items-center space-x-2">
                     <button
                       type="button"
-                      disabled={isSavingMarkaDirect || !(mainMarka || subMarka || singleSelectedMarka)}
+                      disabled={isSavingMarkaDirect || !(mainMarka || subMarka || singleSelectedMarka) || !purchaserName.trim()}
                       onClick={handleInstantSaveMarkaAddress}
                       className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow"
                     >
                       {isSavingMarkaDirect ? (
-                        <span>Saving Address...</span>
+                        <span>सेव हो रहा है...</span>
                       ) : (
                         <>
                           <Save className="w-3.5 h-3.5" />
-                          <span>Save Address for Marka [{mainMarka || subMarka || singleSelectedMarka || 'Marka'}]</span>
+                          <span>💾 Save Party & Address for [{(mainMarka || subMarka || singleSelectedMarka || 'Marka').split(',')[0].trim()}]</span>
                         </>
                       )}
                     </button>
@@ -4647,7 +4796,7 @@ export default function BillerPortalPage() {
 
                 {markaSaveSuccess && (
                   <div className="p-2.5 bg-emerald-950/60 border border-emerald-500/40 rounded-xl text-emerald-300 text-xs font-bold flex items-center space-x-2 animate-fadeIn">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                     <span>{markaSaveSuccess}</span>
                   </div>
                 )}
