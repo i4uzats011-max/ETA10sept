@@ -3158,7 +3158,14 @@ export default function AdminDashboardPage() {
                           {shipment.weight || '-'} / {shipment.volume || '-'}
                         </td>
                         <td className="p-3 font-medium text-slate-700 whitespace-nowrap">{formatGlobalDate(shipment.date)}</td>
-                        <td className="p-3 font-semibold text-slate-900 whitespace-nowrap">{formatGlobalDate(shipment.eta)}</td>
+                        <td className="p-3 whitespace-nowrap">
+                          <div className="font-semibold text-slate-900">{formatGlobalDate(shipment.eta)}</div>
+                          {(shipment.etaUpdatedAt || shipment.lastApiSync) && shipment.eta && shipment.eta !== 'N/A' && shipment.eta !== 'Pending' && (
+                            <div className="text-[10px] font-medium text-slate-500 mt-0.5">
+                              Upd: {formatGlobalDate(shipment.etaUpdatedAt || shipment.lastApiSync)}
+                            </div>
+                          )}
+                        </td>
                         <td className="p-3 whitespace-nowrap">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] border ${turnaround.badgeClass}`}>
                             {turnaround.label}

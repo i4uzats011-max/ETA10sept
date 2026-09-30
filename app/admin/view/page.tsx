@@ -1989,6 +1989,11 @@ export default function InternalEmployeeViewPage() {
                             <Clock className="w-3 h-3 text-red-500" />
                             <span>{formatGlobalDate(item.eta)}</span>
                           </div>
+                          {(item.etaUpdatedAt || item.lastApiSync) && item.eta && item.eta !== 'N/A' && item.eta !== 'Pending' && (
+                            <div className="text-[10px] font-medium text-slate-500 mt-0.5 pl-4">
+                              Upd: {formatGlobalDate(item.etaUpdatedAt || item.lastApiSync)}
+                            </div>
+                          )}
                         </td>
 
                         {/* 12. Days to Deliver (Turnaround) */}

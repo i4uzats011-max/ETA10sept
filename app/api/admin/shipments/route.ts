@@ -79,6 +79,10 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Shipment not found' }, { status: 404 });
     }
 
+    if (updateFields.eta !== undefined && updateFields.eta !== existing.eta) {
+      updateFields.etaUpdatedAt = new Date();
+    }
+
     // Direct database update: Zero external API calls during user edits
     const updated = await Shipment.findByIdAndUpdate(id, { $set: updateFields }, { new: true });
 
@@ -190,10 +194,12 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Receipt and Container are required for creating a shipment' }, { status: 400 });
       }
 
+      const hasValidEta = createData.eta && createData.eta !== 'N/A' && createData.eta !== 'Pending';
       const created = await Shipment.create({
         ...createData,
         uploadedAt: new Date(),
         eta: createData.eta || 'N/A',
+        ...(hasValidEta ? { etaUpdatedAt: new Date() } : {}),
         status: createData.status || 'Pending',
       });
 
@@ -280,6 +286,10 @@ export async function POST(req: NextRequest) {
           cleanedUpdateData[key] = updateData[key];
         }
       });
+
+      if (cleanedUpdateData.eta !== undefined) {
+        cleanedUpdateData.etaUpdatedAt = new Date();
+      }
 
       // Direct database update: Zero external API calls during bulk edits
       const result = await Shipment.updateMany(
