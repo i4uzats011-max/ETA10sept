@@ -3335,10 +3335,12 @@ export default function LoaderHub() {
                       </div>
 
                       <div className="flex justify-between items-center text-[11px]">
-                        <span className="text-slate-400">Last Synced:</span>
-                        <span className="font-mono font-bold text-slate-600">
-                          {plan.lastApiSync ? (formatGlobalDate(plan.lastApiSync) || String(plan.lastApiSync)) : 'Never'}
-                          {plan.apiCallCount ? ` (${plan.apiCallCount} calls)` : ''}
+                        <span className="text-slate-400">ETA Last Updated:</span>
+                        <span className="font-mono font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                          {(plan.etaUpdatedAt || plan.lastApiSync)
+                            ? (formatGlobalDate(plan.etaUpdatedAt || plan.lastApiSync) || String(plan.etaUpdatedAt || plan.lastApiSync))
+                            : 'Not Updated'}
+                          {plan.apiCallCount ? ` (${plan.apiCallCount} API)` : ''}
                         </span>
                       </div>
 
@@ -3526,7 +3528,7 @@ export default function LoaderHub() {
                     </span>
                     <span className="text-slate-300 hidden sm:inline">•</span>
                     <span className="text-slate-500">
-                      Last Synced: <strong className="text-slate-700 font-mono font-bold">{activePlan.lastApiSync ? (formatGlobalDate(activePlan.lastApiSync) || String(activePlan.lastApiSync)) : 'Never'}</strong>
+                      ETA Last Updated: <strong className="text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-mono font-bold">{(activePlan.etaUpdatedAt || activePlan.lastApiSync) ? (formatGlobalDate(activePlan.etaUpdatedAt || activePlan.lastApiSync) || String(activePlan.etaUpdatedAt || activePlan.lastApiSync)) : 'Not Updated'}</strong>
                     </span>
                   </div>
                 </div>

@@ -75,6 +75,7 @@ export interface LoadingItemAllocation {
   rawEta?: string;
   destinationDate?: string;
   etaBufferDays?: number;
+  etaUpdatedAt?: string | null;
   status?: string;
 }
 
@@ -97,6 +98,7 @@ export interface LoadingPlanItem {
   rawEta?: string;
   destinationDate?: string;
   etaBufferDays?: number;
+  etaUpdatedAt?: string | null;
   status?: string;
   lastApiSync?: string | Date | null;
   apiCallCount?: number;

@@ -45,6 +45,11 @@ export async function GET(req: NextRequest) {
         if (!isNaN(q)) totalQty += q;
       }
 
+      const effectiveEta = c.destinationDate || c.eta || 'Pending';
+      const hasValidEta = effectiveEta && effectiveEta !== 'Pending' && effectiveEta !== 'N/A';
+      const rawEtaUpdated = c.etaUpdatedAt || c.lastApiSync || (hasValidEta ? c.updatedAt : null);
+      const etaUpdatedAt = rawEtaUpdated ? new Date(rawEtaUpdated).toISOString() : null;
+
       return {
         _id: c._id,
         container: c.container, // Internal container alias / plan number
@@ -60,12 +65,13 @@ export async function GET(req: NextRequest) {
         deliveryDate: c.deliveryDate || '',
         daysToDeliver: c.daysToDeliver !== undefined ? c.daysToDeliver : null,
         isDelivered: Boolean(c.isDelivered),
-        eta: c.destinationDate || c.eta || 'Pending',
+        eta: effectiveEta,
         rawEta: c.rawEta || '',
         destinationDate: c.destinationDate || c.eta || 'N/A',
         etaBufferDays: c.etaBufferDays !== undefined ? c.etaBufferDays : 10,
         status: c.status || 'Pending',
         lastApiSync: c.lastApiSync || null,
+        etaUpdatedAt,
         apiCallCount: c.apiCallCount || 0,
         apiCalled: Boolean(c.apiCalled),
         shipmentCount: items.length,
@@ -102,6 +108,7 @@ export async function GET(req: NextRequest) {
           eta: i.eta,
           destinationDate: i.destinationDate || c.destinationDate || '',
           etaBufferDays: i.etaBufferDays !== undefined ? i.etaBufferDays : (c.etaBufferDays !== undefined ? c.etaBufferDays : 10),
+          etaUpdatedAt: i.etaUpdatedAt ? new Date(i.etaUpdatedAt).toISOString() : etaUpdatedAt,
           status: i.status,
         })),
       };

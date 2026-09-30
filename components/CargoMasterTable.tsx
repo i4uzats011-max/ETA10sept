@@ -860,13 +860,14 @@ export default function CargoMasterTable({
 
   const handleToggleAllLogistics = () => {
     const nextVal = !isLogisticsRevealed;
-    setColumnVisibility({
+    setColumnVisibility((prev) => ({
+      ...prev,
       containerNumber: nextVal,
       shippingLine: nextVal,
       shippedFrom: nextVal,
       shippedTo: nextVal,
       status: nextVal,
-    });
+    }));
   };
 
   // TanStack React Table Instance
