@@ -1252,8 +1252,28 @@ export default function LoaderHub() {
     if (deleteWarehouseReceipt.fulfilled.match(res)) {
       alert(res.payload?.message || `Warehouse receipt '${receiptItem.receipt}' deleted successfully.`);
       dispatch(fetchWarehouseReceipts());
+      dispatch(fetchLoadingPlans());
     } else {
-      alert((res.payload as string) || `Failed to delete receipt '${receiptItem.receipt}'.`);
+      const errMsg = (res.payload as string) || '';
+      if (errMsg.toLowerCase().includes('loaded') || errMsg.toLowerCase().includes('container') || errMsg.toLowerCase().includes('cannot delete')) {
+        const forceConfirm = window.confirm(
+          `${errMsg}\n\nDo you want to automatically UNMARK this cargo from the container(s) and delete this receipt from China warehouse stock anyway?`
+        );
+        if (forceConfirm) {
+          const forceRes = await dispatch(deleteWarehouseReceipt({ id: receiptItem._id, unloadFirst: true }));
+          if (deleteWarehouseReceipt.fulfilled.match(forceRes)) {
+            alert(forceRes.payload?.message || `Receipt #${receiptItem.receipt} unmarked from container(s) and deleted successfully.`);
+            dispatch(fetchWarehouseReceipts());
+            dispatch(fetchLoadingPlans());
+            return;
+          } else {
+            alert((forceRes.payload as string) || 'Failed to force delete receipt.');
+            return;
+          }
+        }
+      } else {
+        alert(errMsg || `Failed to delete receipt '${receiptItem.receipt}'.`);
+      }
     }
   };
 

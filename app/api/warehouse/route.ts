@@ -6,6 +6,7 @@ import Container from '@/models/Container';
 import Shipment from '@/models/Shipment';
 import { isStaffOrAdminAuthenticated, isSuperAdminAuthenticated } from '@/lib/auth';
 import { translateWarehouse } from '@/lib/translate';
+import { deleteSingleWarehouseReceipt } from '@/lib/typesense';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,13 +32,17 @@ export async function GET(req: NextRequest) {
 
     // 3. Merge, deduplicate, and sort
     const set = new Set<string>();
-    DEFAULT_WAREHOUSES.forEach((w) => set.add(w));
     receiptWarehouses.forEach((w) => {
       if (w && typeof w === 'string' && w.trim()) set.add(w.trim());
     });
     customWarehouses.forEach((w: any) => {
       if (w.name && typeof w.name === 'string' && w.name.trim()) set.add(w.name.trim());
     });
+
+    // Only populate defaults if database is completely empty (fresh initialization)
+    if (set.size === 0) {
+      DEFAULT_WAREHOUSES.forEach((w) => set.add(w));
+    }
 
     const sortedList = Array.from(set).sort((a, b) => a.localeCompare(b));
 
@@ -122,12 +127,14 @@ export async function DELETE(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     let name = searchParams.get('name')?.trim();
     let id = searchParams.get('id')?.trim();
+    let deleteAllReceiptsFirst = searchParams.get('deleteAllReceiptsFirst') === 'true' || searchParams.get('force') === 'true';
 
     if (!name && !id) {
       try {
         const body = await req.json();
         name = body.name?.trim();
         id = body.id?.trim();
+        if (body.deleteAllReceiptsFirst || body.force) deleteAllReceiptsFirst = true;
       } catch {}
     }
 
@@ -156,7 +163,37 @@ export async function DELETE(req: NextRequest) {
 
     const totalMapped = receiptCount + containerCount + shipmentCount;
 
-    if (totalMapped > 0) {
+    if (totalMapped > 0 && deleteAllReceiptsFirst) {
+      // 1. Process Rule: Unmark and remove all shipments mapped to this warehouse from container plans
+      const shipmentsToClean = await Shipment.find({ warehouse: regexPattern }).lean();
+      for (const s of shipmentsToClean) {
+        const qty = parseInt(String(s.quantity || 0), 10) || 0;
+        if (s.container) {
+          await Container.findOneAndUpdate(
+            { container: s.container },
+            {
+              $inc: {
+                shipmentCount: -1,
+                totalQuantity: -qty,
+              },
+            }
+          );
+        }
+        await Shipment.findByIdAndDelete(s._id);
+      }
+
+      // 2. Delete all warehouse receipts mapped to this warehouse
+      const deletedReceipts = await WarehouseReceipt.find({ warehouse: regexPattern }).select('_id').lean();
+      await WarehouseReceipt.deleteMany({ warehouse: regexPattern });
+
+      // Async clean from Typesense
+      deletedReceipts.forEach((r: any) => {
+        deleteSingleWarehouseReceipt(String(r._id)).catch(() => {});
+      });
+
+      // 3. Remove container plans dedicated to this warehouse if empty
+      await Container.deleteMany({ warehouse: regexPattern, shipmentCount: { $lte: 0 } });
+    } else if (totalMapped > 0) {
       const breakdown: string[] = [];
       if (receiptCount > 0) breakdown.push(`${receiptCount} warehouse receipt(s)`);
       if (containerCount > 0) breakdown.push(`${containerCount} container plan(s)`);
