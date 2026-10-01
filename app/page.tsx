@@ -1342,13 +1342,6 @@ export default function PublicTrackerPage() {
                             </div>
                           )}
 
-                          {item.daysToDeliver !== null && item.daysToDeliver !== undefined && (
-                            <div className="pt-1.5 border-t border-slate-800 flex items-center justify-between text-[11px]">
-                              <span className="text-slate-400 font-medium">Turnaround Time:</span>
-                              <span className="font-mono font-bold text-emerald-400">{item.daysToDeliver} days</span>
-                            </div>
-                          )}
-
                           {item.etaUpdatedAt && (
                             <div className="pt-1.5 border-t border-slate-800 flex items-center justify-between text-[11px]">
                               <span className="text-slate-400 font-semibold flex items-center space-x-1">
@@ -1488,11 +1481,6 @@ export default function PublicTrackerPage() {
                                   <span className="text-xs font-black font-mono text-white block">
                                     {formatGlobalDate(itemDelivDate)}
                                   </span>
-                                  {item.daysToDeliver !== null && item.daysToDeliver !== undefined && (
-                                    <span className="text-[9px] font-medium text-emerald-100 block mt-0.5">
-                                      Transit: {item.daysToDeliver} days
-                                    </span>
-                                  )}
                                 </div>
                               </div>
                             </div>
@@ -1598,7 +1586,7 @@ export default function PublicTrackerPage() {
             const deliveryDateVal = containerResult.deliveryDate || (isDelivered ? containerResult.dateOfDelivery : '');
 
             return (
-              <section className={`${isDelivered ? 'max-w-xl' : 'max-w-md'} mx-auto px-4 sm:px-6 space-y-4`}>
+              <section className="max-w-md mx-auto px-4 sm:px-6 space-y-4">
                 <div className="bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden p-6 sm:p-8 space-y-6 text-center animate-fadeIn">
                   <div className="space-y-2">
                     <span className="text-xs uppercase font-bold text-slate-500 tracking-wider">Container No.</span>
@@ -1616,49 +1604,27 @@ export default function PublicTrackerPage() {
                   </div>
 
                   {isDelivered ? (
-                    <div className="space-y-4">
-                      {/* Both Expected ETA & Delivered Date shown together side by side */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                        {/* Expected ETA Box */}
-                        <div className="p-4 rounded-2xl bg-slate-900 text-white space-y-1.5 border border-slate-800 text-left">
-                          <div className="flex items-center space-x-1.5 text-amber-300 text-xs font-bold uppercase tracking-wider">
-                            <Clock className="w-4 h-4 text-amber-400" />
-                            <span>Expected ETA</span>
-                          </div>
-                          <div className="text-xl sm:text-2xl font-black font-mono text-white">
-                            {formatGlobalDate(containerResult.eta) || containerResult.dateOfDelivery || 'Pending'}
-                          </div>
-                          <p className="text-[11px] text-slate-400">Scheduled arrival date</p>
-                        </div>
-
-                        {/* Delivered Date Box */}
-                        <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-950/90 to-slate-900 text-white space-y-1.5 border border-emerald-500/50 text-left">
-                          <div className="flex items-center space-x-1.5 text-emerald-400 text-xs font-bold uppercase tracking-wider">
-                            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                            <span>Delivered Date</span>
-                          </div>
-                          <div className="text-xl sm:text-2xl font-black font-mono text-emerald-300">
-                            {formatGlobalDate(deliveryDateVal)}
-                          </div>
-                          <p className="text-[11px] text-emerald-300/80">Container safely delivered</p>
-                        </div>
+                    <div className="p-6 rounded-2xl bg-slate-900 text-white space-y-3 border border-emerald-500/40">
+                      <span className="text-xs font-bold uppercase tracking-widest text-emerald-400 flex items-center justify-center space-x-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        <span>Delivered Date</span>
+                      </span>
+                      <div className="text-3xl sm:text-4xl font-black font-mono text-emerald-300">
+                        {formatGlobalDate(deliveryDateVal)}
                       </div>
 
-                      {/* Turnaround & ETA Last Updated */}
-                      <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
-                        {containerResult.daysToDeliver !== null && containerResult.daysToDeliver !== undefined ? (
-                          <span className="text-slate-300">
-                            Total Delivery Turnaround: <strong className="font-mono text-emerald-400 font-bold">{containerResult.daysToDeliver} days</strong>
+                      {(containerResult.eta || containerResult.dateOfDelivery) && (
+                        <div className="pt-2 border-t border-slate-800 flex items-center justify-center">
+                          <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-800 text-slate-300 border border-slate-700">
+                            <Clock className="w-3.5 h-3.5 text-amber-400" />
+                            <span>Expected ETA: <strong className="font-mono text-white">{formatGlobalDate(containerResult.eta) || containerResult.dateOfDelivery}</strong></span>
                           </span>
-                        ) : (
-                          <span className="text-slate-400">Status: <strong className="text-emerald-400 font-bold">Delivered</strong></span>
-                        )}
-                        {(containerResult.etaUpdatedAt || containerResult.lastApiSync) && (
-                          <span className="text-slate-400 text-[11px]">
-                            ETA Last Updated: <strong className="font-mono text-slate-200">{formatGlobalDate(containerResult.etaUpdatedAt || containerResult.lastApiSync)}</strong>
-                          </span>
-                        )}
-                      </div>
+                        </div>
+                      )}
+
+                      <p className="text-[11px] text-emerald-300/80">
+                        Container {containerResult.container} has been safely delivered.
+                      </p>
                     </div>
                   ) : (
                     <div className="p-6 rounded-2xl bg-slate-900 text-white space-y-3 border border-slate-800">
