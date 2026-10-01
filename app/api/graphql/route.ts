@@ -493,7 +493,7 @@ function createRootResolver(req: NextRequest) {
           rawDeliveryDate = (deliveredShipment as any).deliveryDate || '';
         }
       } else if (!rawDeliveryDate && target) {
-        const contDoc = await Container.findOne({ container: target.container }).lean();
+        const contDoc: any = await Container.findOne({ container: target.container }).lean();
         if (contDoc?.deliveryDate || contDoc?.isDelivered) {
           isDelivered = true;
           rawDeliveryDate = contDoc.deliveryDate || '';

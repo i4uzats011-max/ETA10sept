@@ -98,7 +98,7 @@ export async function GET(req: NextRequest) {
         rawDeliveryDate = (deliveredShipment as any).deliveryDate || '';
       }
     } else if (!rawDeliveryDate && foundShipment) {
-      const contDoc = await Container.findOne({ container: foundShipment.container }).lean();
+      const contDoc: any = await Container.findOne({ container: foundShipment.container }).lean();
       if (contDoc?.deliveryDate || contDoc?.isDelivered) {
         isDelivered = true;
         rawDeliveryDate = contDoc.deliveryDate || '';
