@@ -242,6 +242,7 @@ export default function AdminDashboardPage() {
   const [manualEtaDateInput, setManualEtaDateInput] = useState('');
   const [manualBufferDays, setManualBufferDays] = useState(7);
   const [manualStatusInput, setManualStatusInput] = useState('In Transit');
+  const [manualDeliveryDate, setManualDeliveryDate] = useState('');
   const [manualShippedFrom, setManualShippedFrom] = useState('Ningbo / Shanghai, China');
   const [manualShippedTo, setManualShippedTo] = useState('Nhava Sheva / Mundra, India');
   const [manualShippingCompany, setManualShippingCompany] = useState('MSC');
@@ -524,6 +525,8 @@ export default function AdminDashboardPage() {
         if (data.shippedTo) setManualShippedTo(data.shippedTo);
         if (data.shippingLine) setManualShippingCompany(data.shippingLine);
         if (data.status) setManualStatusInput(data.status);
+        if (data.deliveryDate) setManualDeliveryDate(data.deliveryDate);
+        else setManualDeliveryDate('');
         if (data.etaBufferDays !== undefined) setManualBufferDays(data.etaBufferDays);
         setManualEtaLastUpdated(data.etaUpdatedAt || data.lastApiSync || null);
       }
@@ -678,6 +681,17 @@ export default function AdminDashboardPage() {
       return;
     }
 
+    let effectiveDeliveryDate = manualDeliveryDate.trim();
+    if (manualStatusInput.toLowerCase().includes('deliver') && !effectiveDeliveryDate) {
+      const entered = prompt('Container is marked as Delivered. Please enter the Delivery Date (डिलीवरी तारीख दर्ज करें) (YYYY-MM-DD):', new Date().toISOString().slice(0, 10));
+      if (!entered || !entered.trim()) {
+        setManualEtaStatus({ type: 'error', message: 'Delivery Date is mandatory when marking container as Delivered.' });
+        return;
+      }
+      effectiveDeliveryDate = entered.trim();
+      setManualDeliveryDate(effectiveDeliveryDate);
+    }
+
     setIsSettingManualEta(true);
     setManualEtaStatus(null);
 
@@ -696,6 +710,8 @@ export default function AdminDashboardPage() {
           destinationDate: manualGraceEtaDate,
           etaBufferDays: manualBufferDays,
           status: manualStatusInput,
+          deliveryDate: effectiveDeliveryDate,
+          isDelivered: manualStatusInput.toLowerCase().includes('deliver'),
           shippedFrom: manualShippedFrom,
           shippedTo: manualShippedTo,
           shippingLine: manualShippingCompany,
@@ -2264,11 +2280,59 @@ export default function AdminDashboardPage() {
                   <input
                     type="text"
                     value={manualStatusInput}
-                    onChange={(e) => setManualStatusInput(e.target.value)}
-                    placeholder="e.g. In Transit, Customs, Arrived"
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setManualStatusInput(val);
+                      if (val.toLowerCase().includes('deliver') && !manualDeliveryDate) {
+                        setManualDeliveryDate(new Date().toISOString().slice(0, 10));
+                      }
+                    }}
+                    placeholder="e.g. In Transit, Customs, Arrived, Delivered"
                     className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-bold bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-xs"
                   />
+                  {/* Quick status chips */}
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    {['In Transit', 'Customs Clearance', 'Arrived', 'Delivered'].map((st) => (
+                      <button
+                        key={st}
+                        type="button"
+                        onClick={() => {
+                          setManualStatusInput(st);
+                          if (st === 'Delivered' && !manualDeliveryDate) {
+                            setManualDeliveryDate(new Date().toISOString().slice(0, 10));
+                          }
+                        }}
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold border transition ${
+                          manualStatusInput.toLowerCase() === st.toLowerCase()
+                            ? (st === 'Delivered' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-amber-500 text-white border-amber-500')
+                            : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-100'
+                        }`}
+                      >
+                        {st === 'Delivered' ? '✓ Delivered' : st}
+                      </button>
+                    ))}
+                  </div>
                 </div>
+
+                {/* Delivery Date Picker (Prompted when status is Delivered) */}
+                {manualStatusInput.toLowerCase().includes('deliver') && (
+                  <div className="col-span-full bg-emerald-50 border-2 border-emerald-400 p-4 rounded-xl space-y-1.5 animate-fadeIn">
+                    <label className="block text-xs font-black text-emerald-950 uppercase tracking-wider flex items-center space-x-1.5">
+                      <Calendar className="w-4 h-4 text-emerald-600" />
+                      <span>Actual Delivery Date * (डिलीवरी तारीख दर्ज करें)</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={manualDeliveryDate}
+                      onChange={(e) => setManualDeliveryDate(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-lg border border-emerald-400 text-xs font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono shadow-xs"
+                      required
+                    />
+                    <p className="text-[10px] text-emerald-800 font-medium">
+                      Mandatory: When ETA/container is marked as Delivered, this delivery date will be shown on public view along with ETA.
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Submit Button */}

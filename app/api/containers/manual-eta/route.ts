@@ -4,6 +4,7 @@ import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
 import { isAdminAuthenticated } from '@/lib/auth';
 import { addFilingBufferDays } from '@/lib/jsoncargo';
+import { calculateDaysBetween, formatReceiptDate } from '@/lib/dateUtils';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +34,8 @@ export async function POST(req: NextRequest) {
       shippedTo,
       shippingLine,
       isNewContainer = false,
+      deliveryDate,
+      isDelivered,
     } = body;
 
     const queryInput = (container || '').trim();
@@ -97,6 +100,32 @@ export async function POST(req: NextRequest) {
     }
     if (shippingLine && shippingLine.trim()) {
       updateFields.shippingLine = shippingLine.trim();
+    }
+
+    const isMarkedDelivered = Boolean(
+      isDelivered ||
+      (status && status.toLowerCase().includes('deliver')) ||
+      (deliveryDate && String(deliveryDate).trim())
+    );
+
+    if (isMarkedDelivered) {
+      updateFields.isDelivered = true;
+      updateFields.status = 'Delivered';
+      const cleanDelivDate = deliveryDate ? formatReceiptDate(deliveryDate) : formatReceiptDate(new Date().toISOString().slice(0, 10));
+      updateFields.deliveryDate = cleanDelivDate;
+
+      // Calculate days to deliver if loading / start date is available
+      const baseStart = inputLoading || updateFields.startDate || '';
+      if (baseStart && cleanDelivDate) {
+        const days = calculateDaysBetween(baseStart, cleanDelivDate);
+        if (days !== null && days >= 0) {
+          updateFields.daysToDeliver = days;
+        }
+      }
+    } else if (isDelivered === false) {
+      updateFields.isDelivered = false;
+      updateFields.deliveryDate = '';
+      updateFields.daysToDeliver = null;
     }
 
     // Build search condition for existing container / shipments

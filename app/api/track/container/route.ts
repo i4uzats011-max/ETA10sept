@@ -74,26 +74,54 @@ export async function GET(req: NextRequest) {
     const clearanceEta = target.destinationDate || target.eta || '';
     const bufferDays = target.etaBufferDays ?? 10;
     // Per user requirement: Search by Container No. -> ETA = Actual Vessel ETA (Carrier) + 10d
-    let dateOfDelivery = 'Pending';
+    let publicEta = 'Pending';
     if (actualCarrierEta && actualCarrierEta !== 'N/A' && actualCarrierEta !== 'Pending') {
-      dateOfDelivery = calculatePublicDeliveryDate(actualCarrierEta, 10);
+      publicEta = calculatePublicDeliveryDate(actualCarrierEta, 10);
     } else if (clearanceEta && clearanceEta !== 'N/A' && clearanceEta !== 'Pending') {
-      dateOfDelivery = formatGlobalDate(clearanceEta);
+      publicEta = formatGlobalDate(clearanceEta);
     }
+
+    let isDelivered = Boolean(
+      target.isDelivered ||
+      (target.status && target.status.toLowerCase().includes('deliver')) ||
+      (target.deliveryDate && target.deliveryDate.trim() !== '')
+    );
+    let rawDeliveryDate = target.deliveryDate || '';
+
+    if (!rawDeliveryDate && foundContainer) {
+      const deliveredShipment = await Shipment.findOne({
+        container: foundContainer.container,
+        $or: [{ isDelivered: true }, { deliveryDate: { $exists: true, $nin: ['', null, 'N/A'] } }]
+      }).lean();
+      if (deliveredShipment) {
+        isDelivered = true;
+        rawDeliveryDate = (deliveredShipment as any).deliveryDate || '';
+      }
+    } else if (!rawDeliveryDate && foundShipment) {
+      const contDoc = await Container.findOne({ container: foundShipment.container }).lean();
+      if (contDoc?.deliveryDate || contDoc?.isDelivered) {
+        isDelivered = true;
+        rawDeliveryDate = contDoc.deliveryDate || '';
+      }
+    }
+
+    const formattedDeliveryDate = rawDeliveryDate ? (formatGlobalDate(rawDeliveryDate) || rawDeliveryDate) : '';
 
     const rawEtaUpdated =
       target.etaUpdatedAt ||
       target.lastApiSync ||
-      (dateOfDelivery !== 'Pending' ? target.updatedAt || target.uploadedAt : null);
+      (publicEta !== 'Pending' ? target.updatedAt || target.uploadedAt : null);
     const etaUpdatedAt = rawEtaUpdated ? new Date(rawEtaUpdated).toISOString() : null;
 
-    // Public tracking security: Users cannot see actual container no., status, or destination.
-    // They can ONLY see date of delivery (ETA + 10 days), internal container alias, and when ETA was last updated.
     return NextResponse.json({
       success: true,
       container: target.container,
-      dateOfDelivery,
-      eta: dateOfDelivery, // Backwards compatibility for UI fields
+      eta: publicEta,
+      deliveryDate: formattedDeliveryDate,
+      dateOfDelivery: isDelivered ? formattedDeliveryDate : publicEta,
+      isDelivered,
+      status: isDelivered ? (target.status || 'Delivered') : 'In Transit',
+      daysToDeliver: target.daysToDeliver ?? null,
       etaUpdatedAt,
     });
   } catch (error: any) {

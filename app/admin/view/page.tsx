@@ -415,6 +415,16 @@ export default function InternalEmployeeViewPage() {
       return;
     }
 
+    let deliveryDateToSend = '';
+    if (setDatesStatus && setDatesStatus.toLowerCase().includes('deliver')) {
+      const entered = prompt('Container is marked as Delivered. Please enter the Delivery Date (YYYY-MM-DD):', new Date().toISOString().slice(0, 10));
+      if (!entered || !entered.trim()) {
+        setSetDatesFeedback({ type: 'error', message: 'Delivery Date is mandatory when marking status as Delivered.' });
+        return;
+      }
+      deliveryDateToSend = entered.trim();
+    }
+
     setIsSavingDates(true);
     setSetDatesFeedback(null);
 
@@ -429,6 +439,8 @@ export default function InternalEmployeeViewPage() {
           manualEta: setDatesEta,
           destinationDate: setDatesEta,
           status: setDatesStatus,
+          deliveryDate: deliveryDateToSend,
+          isDelivered: Boolean(deliveryDateToSend || setDatesStatus.toLowerCase().includes('deliver')),
           shippedFrom: setDatesShippedFrom,
           shippedTo: setDatesShippedTo,
           shippingLine: setDatesShippingLine,

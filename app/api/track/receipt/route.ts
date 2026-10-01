@@ -85,6 +85,14 @@ export async function GET(req: NextRequest) {
       if (whItem) selectedWarehouse = whItem.warehouse;
     }
 
+    if (whItem) {
+      whItem = {
+        ...whItem,
+        deliveryDate: whItem.deliveryDate ? (formatGlobalDate(whItem.deliveryDate) || whItem.deliveryDate) : '',
+        isDelivered: Boolean(whItem.isDelivered || (whItem.status && whItem.status.toLowerCase().includes('deliver'))),
+      };
+    }
+
     // Now query shipments strictly for this specific warehouse / receipt
     let shipmentQuery: any;
     if (whItem) {
@@ -179,15 +187,30 @@ export async function GET(req: NextRequest) {
           : null);
       const etaUpdatedAt = rawEtaUpdated ? new Date(rawEtaUpdated).toISOString() : null;
 
+      const isItemDelivered = Boolean(
+        shipment.isDelivered ||
+        (shipment.status && shipment.status.toLowerCase().includes('deliver')) ||
+        fallbackDoc?.isDelivered ||
+        (fallbackDoc?.status && fallbackDoc?.status.toLowerCase() === 'delivered') ||
+        (shipment.deliveryDate && shipment.deliveryDate.trim() !== '') ||
+        (fallbackDoc?.deliveryDate && fallbackDoc?.deliveryDate.trim() !== '')
+      );
+
+      const rawDeliveryDate = shipment.deliveryDate || fallbackDoc?.deliveryDate || whItem?.deliveryDate || '';
+      const formattedDeliveryDate = rawDeliveryDate ? (formatGlobalDate(rawDeliveryDate) || rawDeliveryDate) : '';
+
       return {
         id: shipment._id,
         receipt: shipment.receipt,
         party: shipment.party || whItem?.party || 'General Party',
         container: shipment.container, // Internal Container Alias only (e.g. 'USI-01')
-        status: shipment.isDelivered ? 'Delivered' : (shipment.status && shipment.status !== 'Planning' ? shipment.status : 'Loaded'),
-        dateOfDelivery: publicDeliveryDate,
+        status: isItemDelivered ? 'Delivered' : (shipment.status && shipment.status !== 'Planning' ? shipment.status : 'Loaded'),
+        dateOfDelivery: isItemDelivered ? formattedDeliveryDate : publicDeliveryDate,
         expectedDeliveryDate: publicDeliveryDate,
-        eta: publicDeliveryDate, // For backwards compatibility with UI components expecting eta
+        eta: publicDeliveryDate,
+        deliveryDate: formattedDeliveryDate,
+        isDelivered: isItemDelivered,
+        daysToDeliver: shipment.daysToDeliver ?? fallbackDoc?.daysToDeliver ?? null,
         etaUpdatedAt,
         english: translateToEnglish(shipment.english || shipment.commodity || shipment.chinese),
         commodity: translateToEnglish(shipment.commodity || shipment.english || shipment.chinese),

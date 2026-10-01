@@ -26,6 +26,9 @@ const schema = buildSchema(`
     shippingLine: String
     eta: String
     dateOfDelivery: String
+    deliveryDate: String
+    isDelivered: Boolean
+    daysToDeliver: Int
     status: String
     lastApiSync: String
     etaUpdatedAt: String
@@ -68,6 +71,8 @@ const schema = buildSchema(`
     subMarka: String
     status: String!
     stockstatus: String
+    deliveryDate: String
+    isDelivered: Boolean
     uploadedAt: String
   }
 
@@ -90,6 +95,8 @@ const schema = buildSchema(`
     date: String
     eta: String
     status: String
+    deliveryDate: String
+    isDelivered: Boolean
   }
 
   type LoadingPlan {
@@ -115,6 +122,9 @@ const schema = buildSchema(`
     container: String!
     eta: String
     dateOfDelivery: String
+    deliveryDate: String
+    isDelivered: Boolean
+    daysToDeliver: Int
     etaUpdatedAt: String
     status: String
     shippedFrom: String
@@ -259,6 +269,8 @@ function createRootResolver(req: NextRequest) {
             subMarka: whItem.subMarka || '',
             status: whItem.status || 'Received',
             stockstatus: whItem.stockstatus || 'In Stock',
+            deliveryDate: whItem.deliveryDate ? (formatGlobalDate(whItem.deliveryDate) || whItem.deliveryDate) : '',
+            isDelivered: Boolean(whItem.isDelivered || (whItem.status && whItem.status.toLowerCase().includes('deliver'))),
             uploadedAt: whItem.uploadedAt ? new Date(whItem.uploadedAt).toISOString() : null,
           }
         : null;
@@ -333,6 +345,19 @@ function createRootResolver(req: NextRequest) {
           publicDeliveryDate = formatGlobalDate(resolvedEta);
         }
 
+        const isItemDelivered = Boolean(
+          s.isDelivered ||
+          (s.status && s.status.toLowerCase().includes('deliver')) ||
+          fallbackDoc?.isDelivered ||
+          (fallbackDoc?.status && fallbackDoc?.status.toLowerCase() === 'delivered') ||
+          (s.deliveryDate && s.deliveryDate.trim() !== '') ||
+          (fallbackDoc?.deliveryDate && fallbackDoc?.deliveryDate.trim() !== '')
+        );
+
+        const rawDeliveryDate = s.deliveryDate || fallbackDoc?.deliveryDate || whItem?.deliveryDate || '';
+        const formattedDeliveryDate = rawDeliveryDate ? (formatGlobalDate(rawDeliveryDate) || rawDeliveryDate) : '';
+        const publicDateOfDelivery = isItemDelivered ? (formattedDeliveryDate || publicDeliveryDate) : publicDeliveryDate;
+
         const rawEtaUpdated =
           fallbackDoc?.etaUpdatedAt ||
           s.etaUpdatedAt ||
@@ -350,8 +375,11 @@ function createRootResolver(req: NextRequest) {
           containerNumber: null, // Strictly masked
           shippingLine: null,
           eta: publicDeliveryDate,
-          dateOfDelivery: publicDeliveryDate,
-          status: s.status || 'In Transit',
+          dateOfDelivery: publicDateOfDelivery,
+          deliveryDate: formattedDeliveryDate,
+          isDelivered: isItemDelivered,
+          daysToDeliver: s.daysToDeliver ?? fallbackDoc?.daysToDeliver ?? null,
+          status: isItemDelivered ? 'Delivered' : (s.status || 'In Transit'),
           lastApiSync: s.lastApiSync ? new Date(s.lastApiSync).toISOString() : null,
           etaUpdatedAt: rawEtaUpdated ? new Date(rawEtaUpdated).toISOString() : null,
           warehouseEntry: s.warehouseEntry || 'N/A',
@@ -448,19 +476,48 @@ function createRootResolver(req: NextRequest) {
         }
       }
 
+      let isDelivered = Boolean(
+        target.isDelivered ||
+        (target.status && target.status.toLowerCase().includes('deliver')) ||
+        (target.deliveryDate && target.deliveryDate.trim() !== '')
+      );
+      let rawDeliveryDate = target.deliveryDate || '';
+
+      if (!rawDeliveryDate && foundContainer) {
+        const deliveredShipment = await Shipment.findOne({
+          container: foundContainer.container,
+          $or: [{ isDelivered: true }, { deliveryDate: { $exists: true, $nin: ['', null, 'N/A'] } }]
+        }).lean();
+        if (deliveredShipment) {
+          isDelivered = true;
+          rawDeliveryDate = (deliveredShipment as any).deliveryDate || '';
+        }
+      } else if (!rawDeliveryDate && target) {
+        const contDoc = await Container.findOne({ container: target.container }).lean();
+        if (contDoc?.deliveryDate || contDoc?.isDelivered) {
+          isDelivered = true;
+          rawDeliveryDate = contDoc.deliveryDate || '';
+        }
+      }
+
+      const formattedDeliveryDate = rawDeliveryDate ? (formatGlobalDate(rawDeliveryDate) || rawDeliveryDate) : '';
+
       const rawEtaUpdated =
         target.etaUpdatedAt ||
         target.lastApiSync ||
         (calculatedDeliveryDate !== 'Pending' ? target.updatedAt || target.uploadedAt : null);
 
-      // STRICT PRIVACY: Return ONLY container alias, ETA date, and when ETA was last updated.
+      // Return container alias, delivery date (or ETA date if in transit), delivery status, and when ETA was last updated.
       return {
         success: true,
         container: containerAlias,
         eta: calculatedDeliveryDate,
-        dateOfDelivery: calculatedDeliveryDate,
+        dateOfDelivery: isDelivered ? (formattedDeliveryDate || calculatedDeliveryDate) : calculatedDeliveryDate,
+        deliveryDate: formattedDeliveryDate,
+        isDelivered,
+        daysToDeliver: target.daysToDeliver ?? null,
         etaUpdatedAt: rawEtaUpdated ? new Date(rawEtaUpdated).toISOString() : null,
-        status: 'Scheduled',
+        status: isDelivered ? (target.status || 'Delivered') : 'Scheduled',
         shippedFrom: null,
         shippedTo: null,
         currentLocation: null,
