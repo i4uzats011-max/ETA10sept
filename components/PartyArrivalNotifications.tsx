@@ -748,16 +748,16 @@ Please note without above details goods will not be load`;
                         )}
                       </div>
 
-                      {/* Party Mobile Number & Save for Future Reference */}
+                      {/* Party Mobile Number & Optional Save for Future Reference */}
                       <div className="p-3.5 bg-amber-50/60 rounded-xl border border-amber-200 space-y-2">
                         <div className="flex items-center justify-between">
                           <label className="text-[11px] font-black text-amber-950 uppercase flex items-center space-x-1.5">
                             <Phone className="w-3.5 h-3.5 text-amber-600" />
-                            <span>Party Mobile / WhatsApp No.</span>
+                            <span>Party Mobile / WhatsApp No. (Optional / ऐच्छिक)</span>
                           </label>
                           {r.phone && (
                             <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.2 rounded">
-                              ✓ Saved
+                              ✓ Saved for Mark
                             </span>
                           )}
                         </div>
@@ -769,7 +769,7 @@ Please note without above details goods will not be load`;
                             onChange={(e) =>
                               setPhoneInputs((prev) => ({ ...prev, [r._id]: e.target.value }))
                             }
-                            placeholder="e.g. 9810012345 or +91..."
+                            placeholder="Mobile no. (Optional - to save for future)"
                             className="flex-1 px-3 py-1.5 rounded-lg border border-amber-300 text-xs font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono shadow-2xs"
                           />
 
@@ -778,7 +778,7 @@ Please note without above details goods will not be load`;
                             onClick={() => handleSaveMobile(r)}
                             disabled={isSaving}
                             className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1 shadow-2xs shrink-0 disabled:opacity-50"
-                            title="Save mobile number for this receipt and for this Mark in future reference"
+                            title="Save mobile number for this receipt and for this Mark in future reference (Optional)"
                           >
                             {isSaved ? (
                               <>
@@ -790,13 +790,13 @@ Please note without above details goods will not be load`;
                             ) : (
                               <>
                                 <Save className="w-3.5 h-3.5" />
-                                <span>Save Mobile</span>
+                                <span>Save No. (Optional)</span>
                               </>
                             )}
                           </button>
                         </div>
                         <p className="text-[10px] text-amber-800">
-                          Saving associates this mobile with Mark &lsquo;{r.mainMarka || r.party || r.receipt}&rsquo; for future inward arrivals automatically.
+                          Saving is optional. If saved, future goods for Mark &lsquo;{r.mainMarka || r.party || r.receipt}&rsquo; will auto-fill this number.
                         </p>
                       </div>
                     </div>
@@ -813,7 +813,7 @@ Please note without above details goods will not be load`;
                         </div>
 
                         {/* Exact Message Box */}
-                        <div className="p-4 bg-emerald-50/40 rounded-xl border border-emerald-200 font-mono text-xs text-slate-900 whitespace-pre-wrap leading-relaxed shadow-inner">
+                        <div className="p-4 bg-emerald-50/40 rounded-xl border border-emerald-200 font-mono text-xs text-slate-900 whitespace-pre-wrap leading-relaxed shadow-inner select-all">
                           {messageText}
                         </div>
                       </div>
@@ -821,7 +821,7 @@ Please note without above details goods will not be load`;
                       {/* Copy & Send Action Buttons */}
                       <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2 border-t border-slate-100">
                         <div className="flex flex-wrap items-center gap-2">
-                          {/* Copy Message Button */}
+                          {/* Copy Message Button (Copy date is recorded as send date) */}
                           <button
                             type="button"
                             onClick={() => handleCopyAndMarkSent(r)}
@@ -834,12 +834,12 @@ Please note without above details goods will not be load`;
                             {isCopied ? (
                               <>
                                 <Check className="w-4 h-4 text-emerald-200" />
-                                <span>Copied &amp; Marked as Sent!</span>
+                                <span>Copied! Send Date Recorded</span>
                               </>
                             ) : (
                               <>
                                 <Copy className="w-4 h-4" />
-                                <span>Copy Message &amp; Mark as Sent</span>
+                                <span>Copy Message &amp; Record Send Date</span>
                               </>
                             )}
                           </button>

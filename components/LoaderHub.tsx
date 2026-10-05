@@ -69,8 +69,10 @@ import {
   Download,
   RotateCcw,
   Zap,
+  MessageSquare,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import PartyArrivalNotifications from '@/components/PartyArrivalNotifications';
 import {
   useReactTable,
   getCoreRowModel,
@@ -122,7 +124,8 @@ export default function LoaderHub() {
     uploadHistoryLoading,
   } = useAppSelector((state) => state.loadingPlan);
 
-  const [activeSubTab, setActiveSubTab] = useState<'stock' | 'plans' | 'uploads'>('stock');
+  const [activeSubTab, setActiveSubTab] = useState<'stock' | 'plans' | 'uploads' | 'notifications'>('stock');
+  const [notificationReceiptDate, setNotificationReceiptDate] = useState<string>('');
 
   // Local state for Create Plan modal
   const [isCreatePlanOpen, setIsCreatePlanOpen] = useState(false);
@@ -2500,6 +2503,19 @@ export default function LoaderHub() {
             <div className="inline-flex items-center space-x-1.5 justify-end w-full">
               <button
                 type="button"
+                onClick={() => {
+                  setNotificationReceiptDate(r.date || '');
+                  setActiveSubTab('notifications');
+                }}
+                title="Send party arrival notification / WhatsApp message"
+                className="inline-flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 transition shadow-2xs"
+              >
+                <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Message</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => handleOpenAddStock(r)}
                 title="Adjust godown stock: Add (+) or Less (-) cartons, weight (KG), volume (CBM)"
                 className="inline-flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 hover:border-indigo-300 transition shadow-2xs"
@@ -2767,6 +2783,18 @@ export default function LoaderHub() {
           >
             <History className="w-4 h-4" />
             <span>3. Upload Tracking Records ({uploadHistory.filter((u) => u.status === 'Active').length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveSubTab('notifications')}
+            className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              activeSubTab === 'notifications'
+                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-200'
+                : 'bg-white text-emerald-800 hover:bg-emerald-50 border border-emerald-300'
+            }`}
+          >
+            <MessageSquare className="w-4 h-4" />
+            <span>4. Party Messages (पार्टी सूचना / WhatsApp)</span>
           </button>
         </div>
 
@@ -3933,6 +3961,14 @@ export default function LoaderHub() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* SUBTAB 4: PARTY ARRIVAL NOTIFICATIONS (WHATSAPP NOTIFICATIONS) */}
+      {activeSubTab === 'notifications' && (
+        <PartyArrivalNotifications
+          initialDate={notificationReceiptDate}
+          onClose={() => setActiveSubTab('stock')}
+        />
       )}
 
       {/* MODAL 1: QUANTITY SPLITTING & LOADING MODAL */}
