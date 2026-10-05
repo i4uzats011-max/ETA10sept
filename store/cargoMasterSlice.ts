@@ -22,6 +22,9 @@ export interface ContainerMasterItem {
   vesselName?: string;
   voyageNumber?: string;
   shipmentCount?: number;
+  totalCartons?: number;
+  totalWeight?: number;
+  totalVolume?: number;
   warehouse?: string;
   isMappedWithActual?: boolean;
   apiCalled?: boolean;

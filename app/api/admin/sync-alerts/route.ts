@@ -144,10 +144,13 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// Clear or dismiss sync errors (Staff or Admin)
+// Clear or dismiss sync errors (Super Admin Only)
 export async function DELETE(req: NextRequest) {
-  if (!isStaffOrAdminAuthenticated(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!isSuperAdminAuthenticated(req)) {
+    return NextResponse.json(
+      { error: 'Forbidden: Any change in data can only be made by Super Admin.' },
+      { status: 403 }
+    );
   }
 
   try {

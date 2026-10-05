@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
       containerMap.set(c.container.toUpperCase(), c);
     }
 
-    // 2. Also aggregate distinct container aliases from Shipment to guarantee newly uploaded containers appear immediately
+    // 2. Aggregate live cargo metrics (CTN cartons, weight KGS, volume CBM, item count) per container from Shipment
     const distinctShipmentContainers = await Shipment.aggregate([
       {
         $match: {
@@ -56,6 +56,13 @@ export async function GET(req: NextRequest) {
       {
         $group: {
           _id: '$container',
+          items: {
+            $push: {
+              quantity: '$quantity',
+              weight: '$weight',
+              volume: '$volume',
+            },
+          },
           shippedFrom: { $first: '$shippedFrom' },
           shippedTo: { $first: '$shippedTo' },
           currentLocation: { $first: '$currentLocation' },
@@ -75,9 +82,24 @@ export async function GET(req: NextRequest) {
       { $sort: { _id: 1 } },
     ]);
 
-    // Merge shipment containers if not yet in Container collection
     for (const sc of distinctShipmentContainers) {
-      const key = String(sc._id).toUpperCase();
+      let cartons = 0;
+      let weight = 0;
+      let volume = 0;
+      if (Array.isArray(sc.items)) {
+        for (const it of sc.items) {
+          const q = parseInt(String(it.quantity || 0).replace(/[^\d]/g, ''), 10) || 0;
+          const w = parseFloat(String(it.weight || 0).replace(/[^\d.]/g, '')) || 0;
+          const v = parseFloat(String(it.volume || 0).replace(/[^\d.]/g, '')) || 0;
+          cartons += q;
+          weight += w;
+          volume += v;
+        }
+      }
+      const key = String(sc._id).toUpperCase().trim();
+      const roundedWeight = Math.round(weight * 100) / 100;
+      const roundedVolume = Math.round(volume * 1000) / 1000;
+
       if (!containerMap.has(key)) {
         containerMap.set(key, {
           container: sc._id,
@@ -92,22 +114,21 @@ export async function GET(req: NextRequest) {
           vesselName: sc.vesselName || '',
           voyageNumber: sc.voyageNumber || '',
           shipmentCount: sc.shipmentCount || 0,
+          totalCartons: cartons,
+          totalWeight: roundedWeight,
+          totalVolume: roundedVolume,
           lastApiSync: sc.lastApiSync || null,
           etaUpdatedAt: sc.etaUpdatedAt || null,
           updatedAt: sc.updatedAt || null,
         });
       } else {
-        // Update shipmentCount from live shipments if zero
         const existing = containerMap.get(key);
-        if (!existing.shipmentCount || existing.shipmentCount === 0) {
-          existing.shipmentCount = sc.shipmentCount;
-        }
-        if (!existing.rawEta && sc.rawEta) {
-          existing.rawEta = sc.rawEta;
-        }
-        if (!existing.etaUpdatedAt && sc.etaUpdatedAt) {
-          existing.etaUpdatedAt = sc.etaUpdatedAt;
-        }
+        existing.totalCartons = cartons;
+        existing.totalWeight = roundedWeight;
+        existing.totalVolume = roundedVolume;
+        existing.shipmentCount = sc.shipmentCount || existing.shipmentCount || 0;
+        if (!existing.rawEta && sc.rawEta) existing.rawEta = sc.rawEta;
+        if (!existing.etaUpdatedAt && sc.etaUpdatedAt) existing.etaUpdatedAt = sc.etaUpdatedAt;
       }
     }
 
@@ -176,9 +197,10 @@ export async function GET(req: NextRequest) {
         actualDaysRemaining: isStaffOrAdmin ? actualDaysRemaining : undefined,
         etaBucket,
         vesselName: isStaffOrAdmin ? (c.vesselName || '') : undefined,
-        voyageNumber: isStaffOrAdmin ? (c.voyageNumber || '') : undefined,
         shipmentCount: c.shipmentCount || 0,
-        apiCalled: Boolean(c.apiCalled || c.lastApiSync),
+        totalCartons: c.totalCartons || 0,
+        totalWeight: c.totalWeight || 0,
+        totalVolume: c.totalVolume || 0,
         apiCallCount: c.apiCallCount || 0,
         lastApiSync: isStaffOrAdmin ? (c.lastApiSync ? new Date(c.lastApiSync).toISOString() : null) : undefined,
         etaUpdatedAt: isStaffOrAdmin ? etaUpdatedAt : undefined,

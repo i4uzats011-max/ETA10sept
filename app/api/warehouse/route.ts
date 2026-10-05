@@ -61,6 +61,13 @@ export async function GET(req: NextRequest) {
 
 // POST: Create a new China Warehouse
 export async function POST(req: NextRequest) {
+  if (!isSuperAdminAuthenticated(req)) {
+    return NextResponse.json(
+      { error: 'Forbidden: Any change in data can only be made by Super Admin.' },
+      { status: 403 }
+    );
+  }
+
   try {
     const body = await req.json();
     const { name, code, city, address, contact } = body;
@@ -116,9 +123,9 @@ export async function POST(req: NextRequest) {
 
 // DELETE: Delete a warehouse only if NO data is mapped to it
 export async function DELETE(req: NextRequest) {
-  if (!isStaffOrAdminAuthenticated(req)) {
+  if (!isSuperAdminAuthenticated(req)) {
     return NextResponse.json(
-      { error: 'Forbidden: Staff or Admin privileges required to delete a warehouse' },
+      { error: 'Forbidden: Any change in data can only be made by Super Admin.' },
       { status: 403 }
     );
   }

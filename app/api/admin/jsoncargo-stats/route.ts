@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchApiKeyStats } from '@/lib/jsoncargo';
-import { isStaffOrAdminAuthenticated } from '@/lib/auth';
+import { isStaffOrAdminAuthenticated, isSuperAdminAuthenticated } from '@/lib/auth';
 import fs from 'fs';
 import path from 'path';
 
@@ -29,8 +29,11 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!isStaffOrAdminAuthenticated(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!isSuperAdminAuthenticated(req)) {
+    return NextResponse.json(
+      { error: 'Forbidden: Any change in data can only be made by Super Admin.' },
+      { status: 403 }
+    );
   }
 
   try {

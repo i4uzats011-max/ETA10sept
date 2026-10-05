@@ -22,7 +22,7 @@ import {
   setStatusFilter,
   setCarrierFilter,
 } from '@/store/cargoMasterSlice';
-import { formatGlobalDate } from '@/lib/dateUtils';
+import { formatGlobalDate, parseReceiptDate } from '@/lib/dateUtils';
 import CargoMasterChart from './CargoMasterChart';
 import MarkDeliveredModal from './MarkDeliveredModal';
 import * as XLSX from 'xlsx';
@@ -70,6 +70,18 @@ export default function CargoMasterTable({
   const [sorting, setSorting] = useState<SortingState>([]);
   const [showCharts, setShowCharts] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<'admin' | 'staff' | null>(null);
+
+  useEffect(() => {
+    fetch('/api/auth/me')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.role) setUserRole(data.role);
+      })
+      .catch(() => {});
+  }, []);
+
+  const isSuperAdmin = !isStaffOnly && userRole === 'admin';
 
   // Show ALL information columns in table format by default per user requirement
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
