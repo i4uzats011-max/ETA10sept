@@ -125,7 +125,6 @@ export default function PublicTrackerPage() {
 
       const anyDelivered = shipments.some((s) => s.isDelivered || (s.status && s.status.toLowerCase().includes('deliver')) || s.deliveryDate);
       const deliveryDateVal = shipments.find((s) => s.deliveryDate)?.deliveryDate || primary.deliveryDate || '';
-      const portDateVal = shipments.find((s) => s.portDate)?.portDate || primary.portDate || '';
 
       doc.setFont('helvetica', 'bold');
       doc.text('Status:', 18, 69);
@@ -144,19 +143,10 @@ export default function PublicTrackerPage() {
       doc.setFont('helvetica', 'normal');
       doc.text(String(primary.warehouse || 'China Warehouse'), 50, 77);
 
-      if (portDateVal) {
-        doc.setFont('helvetica', 'bold');
-        doc.text('Port Date (Vessel):', 110, 77);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(2, 132, 199); // Blue for Port Date
-        doc.text(String(formatGlobalDate(portDateVal)), 145, 77);
-        doc.setTextColor(15, 23, 42);
-      } else {
-        doc.setFont('helvetica', 'bold');
-        doc.text('Destination Port:', 110, 77);
-        doc.setFont('helvetica', 'normal');
-        doc.text('Nhava Sheva / Mundra, India', 145, 77);
-      }
+      doc.setFont('helvetica', 'bold');
+      doc.text('Destination Port:', 110, 77);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Nhava Sheva / Mundra, India', 145, 77);
 
       doc.setFont('helvetica', 'bold');
       doc.text('Cargo Marks:', 18, 85);
@@ -174,14 +164,12 @@ export default function PublicTrackerPage() {
       }
 
       // Manifest Table
-      const headers = ['#', 'Item / Commodity Name', 'Cargo Marks', 'Cartons (Qty)', 'Weight (KG)', 'Volume (CBM)', 'Container Alias', anyDelivered ? 'Port / ETA / Delivered' : 'Port Date & ETA'];
+      const headers = ['#', 'Item / Commodity Name', 'Cargo Marks', 'Cartons (Qty)', 'Weight (KG)', 'Volume (CBM)', 'Container Alias', anyDelivered ? 'ETA / Delivered Date' : 'Estimated Arrival (ETA)'];
       const body = shipments.map((s, idx) => {
         const etaStr = formatGlobalDate(s.eta) || s.dateOfDelivery || 'Pending';
-        const portStr = s.portDate ? formatGlobalDate(s.portDate) : '';
         const isItemDeliv = Boolean(s.isDelivered || s.deliveryDate || (s.status && s.status.toLowerCase().includes('deliver')));
         const delivStr = s.deliveryDate ? formatGlobalDate(s.deliveryDate) : '';
         const lines: string[] = [];
-        if (portStr) lines.push(`Port: ${portStr}`);
         lines.push(`ETA: ${etaStr}`);
         if (isItemDeliv && delivStr) lines.push(`Delivered: ${delivStr}`);
         const dateColDisplay = lines.join('\n');
@@ -597,8 +585,8 @@ export default function PublicTrackerPage() {
 
   const faqs = [
     {
-      q: 'What is the difference between Port Date and ETA Date?',
-      a: 'The Port Date indicates when the vessel arrives at the destination port (Nhava Sheva / Mundra). The ETA Date shows the expected final arrival and delivery date. Both are actual dates tracked directly from carrier and operations schedules without arbitrary buffer delays.',
+      q: 'How is the ETA Date calculated?',
+      a: 'The ETA Date shows the actual estimated delivery arrival date tracked directly from live carrier schedules and logistics operations without arbitrary buffer delays.',
     },
     {
       q: 'Can I track multiple cargo packages with a single Receipt Number?',

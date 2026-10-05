@@ -115,7 +115,6 @@ export default function CargoMasterTable({
     cargoMetrics: true,
     shipmentCount: true,
     lastApiSync: !isStaffOnly,
-    apiProtection: true,
     actions: true,
   });
 
@@ -739,33 +738,12 @@ export default function CargoMasterTable({
         },
       },
       {
-        id: 'apiProtection',
-        header: 'Protection Status',
-        cell: ({ row }) => {
-          const isProtected = Boolean(row.original.apiCalled || row.original.lastApiSync);
-          if (isProtected) {
-            return (
-              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300" title="API ETA called: Protected from deletion permanently">
-                <Lock className="w-3 h-3 text-amber-700" />
-                <span>Protected</span>
-              </span>
-            );
-          }
-          return (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
-              Pending API
-            </span>
-          );
-        },
-      },
-      {
         id: 'actions',
         header: 'Quick Actions',
         cell: ({ row }) => {
           const c = row.original;
           const isDelivered = isContainerDelivered(c);
           const hasActualContainer = Boolean(c.containerNumber && c.containerNumber.trim().length > 0 && c.containerNumber.trim().toLowerCase() !== c.container.trim().toLowerCase());
-          const isApiProtected = Boolean(c.apiCalled || c.lastApiSync);
 
           return (
             <div className="inline-flex items-center space-x-1.5 whitespace-nowrap">
@@ -831,8 +809,7 @@ export default function CargoMasterTable({
                     `• Actual Vessel ETA (Carrier): ${c.rawEta ? formatGlobalDate(c.rawEta) : 'Pending API'}\n` +
                     `• Clearance ETA (+10d): ${c.eta ? formatGlobalDate(c.eta) : 'Pending'}\n` +
                     `• ETA Last Updated Date: ${etaLastUpdated ? formatGlobalDate(etaLastUpdated) : 'Not Updated'}\n` +
-                    `• Final Delivery Date: ${c.deliveryDate ? formatGlobalDate(c.deliveryDate) : 'In Transit'}\n` +
-                    `• API Protection: ${isApiProtected ? 'Protected (Never Deleted)' : 'Normal'}`
+                    `• Final Delivery Date: ${c.deliveryDate ? formatGlobalDate(c.deliveryDate) : 'In Transit'}`
                   );
                 }}
                 className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold transition flex items-center space-x-1"
