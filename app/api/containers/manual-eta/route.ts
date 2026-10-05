@@ -2,16 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
-import { isAdminAuthenticated } from '@/lib/auth';
+import { isSuperAdminAuthenticated } from '@/lib/auth';
 import { addFilingBufferDays } from '@/lib/jsoncargo';
 import { calculateDaysBetween, formatReceiptDate } from '@/lib/dateUtils';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
-  if (!isAdminAuthenticated(req)) {
+  if (!isSuperAdminAuthenticated(req)) {
     return NextResponse.json(
-      { error: 'Forbidden: You must be logged in as an administrator or staff member to modify container data.' },
+      { error: 'Forbidden: Any change in data can only be made by Super Admin.' },
       { status: 403 }
     );
   }

@@ -3,7 +3,7 @@ import { connectToDatabase } from '@/lib/mongodb';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
 import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
-import { isStaffOrAdminAuthenticated } from '@/lib/auth';
+import { isSuperAdminAuthenticated } from '@/lib/auth';
 import {
   translateCommodity,
   translatePackaging,
@@ -15,8 +15,11 @@ import { deleteSingleWarehouseReceipt, indexSingleWarehouseReceipt } from '@/lib
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
-  if (!isStaffOrAdminAuthenticated(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!isSuperAdminAuthenticated(req)) {
+    return NextResponse.json(
+      { error: 'Forbidden: Any change in data can only be made by Super Admin.' },
+      { status: 403 }
+    );
   }
 
   try {

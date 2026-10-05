@@ -4,7 +4,7 @@ import WarehouseReceipt from '@/models/WarehouseReceipt';
 import Warehouse from '@/models/Warehouse';
 import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
-import { isStaffOrAdminAuthenticated } from '@/lib/auth';
+import { isStaffOrAdminAuthenticated, isSuperAdminAuthenticated } from '@/lib/auth';
 import {
   translateCommodity,
   translatePackaging,
@@ -189,8 +189,11 @@ export async function GET(req: NextRequest) {
 
 // POST: Create or Edit Warehouse Inward Receipt
 export async function POST(req: NextRequest) {
-  if (!isStaffOrAdminAuthenticated(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!isSuperAdminAuthenticated(req)) {
+    return NextResponse.json(
+      { error: 'Forbidden: Any change in data can only be made by Super Admin.' },
+      { status: 403 }
+    );
   }
 
   try {
@@ -738,8 +741,11 @@ export async function POST(req: NextRequest) {
 
 // DELETE: Delete Wrongly Uploaded Warehouse Receipt
 export async function DELETE(req: NextRequest) {
-  if (!isStaffOrAdminAuthenticated(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!isSuperAdminAuthenticated(req)) {
+    return NextResponse.json(
+      { error: 'Forbidden: Any change in data can only be made by Super Admin.' },
+      { status: 403 }
+    );
   }
 
   const { searchParams } = new URL(req.url);

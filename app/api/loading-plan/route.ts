@@ -3,7 +3,7 @@ import { connectToDatabase } from '@/lib/mongodb';
 import Container from '@/models/Container';
 import Shipment from '@/models/Shipment';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
-import { isStaffOrAdminAuthenticated } from '@/lib/auth';
+import { isStaffOrAdminAuthenticated, isSuperAdminAuthenticated } from '@/lib/auth';
 import { fetchContainerTracking, addFilingBufferDays } from '@/lib/jsoncargo';
 
 export const dynamic = 'force-dynamic';
@@ -126,8 +126,11 @@ export async function GET(req: NextRequest) {
 
 // POST: Execute Loading Plan Actions
 export async function POST(req: NextRequest) {
-  if (!isStaffOrAdminAuthenticated(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!isSuperAdminAuthenticated(req)) {
+    return NextResponse.json(
+      { error: 'Forbidden: Any change in data can only be made by Super Admin.' },
+      { status: 403 }
+    );
   }
 
   try {
@@ -1406,8 +1409,11 @@ export async function POST(req: NextRequest) {
 
 // DELETE: HTTP DELETE endpoint supporting query params ?container=...&unloadFirst=true
 export async function DELETE(req: NextRequest) {
-  if (!isStaffOrAdminAuthenticated(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!isSuperAdminAuthenticated(req)) {
+    return NextResponse.json(
+      { error: 'Forbidden: Any change in data can only be made by Super Admin.' },
+      { status: 403 }
+    );
   }
 
   try {

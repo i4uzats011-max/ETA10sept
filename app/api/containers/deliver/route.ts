@@ -2,14 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import Container from '@/models/Container';
 import Shipment from '@/models/Shipment';
-import { isStaffOrAdminAuthenticated } from '@/lib/auth';
+import { isSuperAdminAuthenticated } from '@/lib/auth';
 import { calculateDaysBetween, formatReceiptDate } from '@/lib/dateUtils';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
-  if (!isStaffOrAdminAuthenticated(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!isSuperAdminAuthenticated(req)) {
+    return NextResponse.json(
+      { error: 'Unauthorized: Any change in data can only be made by Super Admin.' },
+      { status: 403 }
+    );
   }
 
   try {
