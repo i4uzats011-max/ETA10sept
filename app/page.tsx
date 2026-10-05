@@ -350,16 +350,15 @@ export default function PublicTrackerPage() {
                 subMarka
                 mainMarka
                 status
+                portDate
                 eta
                 dateOfDelivery
                 deliveryDate
                 isDelivered
                 daysToDeliver
-                etaUpdatedAt
                 isSplit
                 splitIndex
                 originalTotalQuantity
-                lastApiSync
               }
             }
           }
@@ -416,6 +415,7 @@ export default function PublicTrackerPage() {
             trackByContainer(container: $container) {
               success
               container
+              portDate
               eta
               dateOfDelivery
               deliveryDate

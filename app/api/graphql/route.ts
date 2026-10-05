@@ -24,6 +24,7 @@ const schema = buildSchema(`
     container: String!
     containerNumber: String
     shippingLine: String
+    portDate: String
     eta: String
     dateOfDelivery: String
     deliveryDate: String
@@ -120,6 +121,7 @@ const schema = buildSchema(`
   type ContainerArrival {
     success: Boolean!
     container: String!
+    portDate: String
     eta: String
     dateOfDelivery: String
     deliveryDate: String
@@ -334,16 +336,27 @@ function createRootResolver(req: NextRequest) {
           }
         }
 
-        // Per user requirement: Search by Receipt No. -> ETA = Actual Vessel ETA (Carrier) + 10 DAYS
+        // Two arrival dates: Port Date (vessel arrival at port) and ETA Date (destination ETA).
+        // DO NOT add three days or any buffer: show the actual ETA date directly.
         const rawCarrierEta = s.rawEta || fallbackDoc?.rawEta;
-        let publicDeliveryDate = 'Pending';
-        if (rawCarrierEta && rawCarrierEta !== 'N/A' && rawCarrierEta !== 'Pending') {
-          publicDeliveryDate = calculatePublicDeliveryDate(rawCarrierEta, 10);
-        } else if (fallbackDoc?.destinationDate && fallbackDoc.destinationDate !== 'N/A' && fallbackDoc.destinationDate !== 'Pending') {
-          publicDeliveryDate = formatGlobalDate(fallbackDoc.destinationDate);
-        } else if (resolvedEta && resolvedEta !== 'N/A' && resolvedEta !== 'Pending') {
-          publicDeliveryDate = formatGlobalDate(resolvedEta);
-        }
+        const rawPortDate = rawCarrierEta || s.rawEta || fallbackDoc?.rawEta || '';
+        const formattedPortDate =
+          rawPortDate && rawPortDate !== 'N/A' && rawPortDate !== 'Pending' && rawPortDate !== '—'
+            ? (formatGlobalDate(rawPortDate) || rawPortDate)
+            : null;
+
+        const rawActualEta =
+          (fallbackDoc?.destinationDate && fallbackDoc.destinationDate !== 'N/A' && fallbackDoc.destinationDate !== 'Pending')
+            ? fallbackDoc.destinationDate
+            : (resolvedEta && resolvedEta !== 'N/A' && resolvedEta !== 'Pending')
+            ? resolvedEta
+            : (s.destinationDate && s.destinationDate !== 'N/A' && s.destinationDate !== 'Pending')
+            ? s.destinationDate
+            : (rawPortDate && rawPortDate !== 'N/A' && rawPortDate !== 'Pending')
+            ? rawPortDate
+            : 'Pending';
+
+        const publicDeliveryDate = rawActualEta !== 'Pending' ? (formatGlobalDate(rawActualEta) || rawActualEta) : 'Pending';
 
         const isItemDelivered = Boolean(
           s.isDelivered ||
@@ -374,14 +387,15 @@ function createRootResolver(req: NextRequest) {
           container: s.container,
           containerNumber: null, // Strictly masked
           shippingLine: null,
+          portDate: formattedPortDate,
           eta: publicDeliveryDate,
           dateOfDelivery: publicDateOfDelivery,
           deliveryDate: formattedDeliveryDate,
           isDelivered: isItemDelivered,
           daysToDeliver: s.daysToDeliver ?? fallbackDoc?.daysToDeliver ?? null,
           status: isItemDelivered ? 'Delivered' : (s.status || 'In Transit'),
-          lastApiSync: s.lastApiSync ? new Date(s.lastApiSync).toISOString() : null,
-          etaUpdatedAt: rawEtaUpdated ? new Date(rawEtaUpdated).toISOString() : null,
+          lastApiSync: null,
+          etaUpdatedAt: null,
           warehouseEntry: s.warehouseEntry || 'N/A',
           commodity: translateToEnglish(s.commodity || s.chinese || s.english),
           chinese: translateToEnglish(s.chinese || s.commodity || s.english), // Enforce English translation ONLY
@@ -463,18 +477,25 @@ function createRootResolver(req: NextRequest) {
         throw new Error(`No container found matching '${cleanQuery}'. Please check the container number and try again.`);
       }
 
-      // Per user requirement: Search by Container No. -> ETA = Actual Vessel ETA (Carrier) + 10d
+      // Two arrival dates: Port Date (vessel arrival at port) and ETA Date (destination ETA).
+      // DO NOT add three days or any buffer: show the actual ETA date directly.
       const actualCarrierEta = target.rawEta;
-      let calculatedDeliveryDate = 'Pending';
+      const rawPortDate = actualCarrierEta || '';
+      const formattedPortDate =
+        rawPortDate && rawPortDate !== 'N/A' && rawPortDate !== 'Pending' && rawPortDate !== '—'
+          ? (formatGlobalDate(rawPortDate) || rawPortDate)
+          : null;
 
-      if (actualCarrierEta && actualCarrierEta !== 'N/A' && actualCarrierEta !== 'Pending') {
-        calculatedDeliveryDate = calculatePublicDeliveryDate(actualCarrierEta, 10);
-      } else {
-        const fallbackEta = target.destinationDate || target.eta;
-        if (fallbackEta && fallbackEta !== 'N/A' && fallbackEta !== 'Pending') {
-          calculatedDeliveryDate = formatGlobalDate(fallbackEta);
-        }
-      }
+      const rawActualEta =
+        target.destinationDate && target.destinationDate !== 'N/A' && target.destinationDate !== 'Pending'
+          ? target.destinationDate
+          : target.eta && target.eta !== 'N/A' && target.eta !== 'Pending'
+          ? target.eta
+          : rawPortDate && rawPortDate !== 'N/A' && rawPortDate !== 'Pending'
+          ? rawPortDate
+          : 'Pending';
+
+      const calculatedDeliveryDate = rawActualEta !== 'Pending' ? (formatGlobalDate(rawActualEta) || rawActualEta) : 'Pending';
 
       let isDelivered = Boolean(
         target.isDelivered ||
@@ -502,21 +523,16 @@ function createRootResolver(req: NextRequest) {
 
       const formattedDeliveryDate = rawDeliveryDate ? (formatGlobalDate(rawDeliveryDate) || rawDeliveryDate) : '';
 
-      const rawEtaUpdated =
-        target.etaUpdatedAt ||
-        target.lastApiSync ||
-        (calculatedDeliveryDate !== 'Pending' ? target.updatedAt || target.uploadedAt : null);
-
-      // Return container alias, delivery date (or ETA date if in transit), delivery status, and when ETA was last updated.
       return {
         success: true,
         container: containerAlias,
+        portDate: formattedPortDate,
         eta: calculatedDeliveryDate,
         dateOfDelivery: isDelivered ? (formattedDeliveryDate || calculatedDeliveryDate) : calculatedDeliveryDate,
         deliveryDate: formattedDeliveryDate,
         isDelivered,
         daysToDeliver: target.daysToDeliver ?? null,
-        etaUpdatedAt: rawEtaUpdated ? new Date(rawEtaUpdated).toISOString() : null,
+        etaUpdatedAt: null,
         status: isDelivered ? (target.status || 'Delivered') : 'Scheduled',
         shippedFrom: null,
         shippedTo: null,
