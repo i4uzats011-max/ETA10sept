@@ -2159,13 +2159,13 @@ export default function InternalEmployeeViewPage() {
                           )}
                         </td>
 
-                        {/* 9. Qty / Weight / Vol */}
+                        {/* 9. Cartons (CTN) / KGS / CBM */}
                         <td className="py-2.5 px-4 whitespace-nowrap text-[11px] text-slate-600">
                           <div>
-                            <strong className="text-slate-900">{item.quantity ?? '-'}</strong> pcs
+                            <strong className="text-slate-900 font-bold">{item.quantity ?? '-'}</strong> CTN
                           </div>
-                          <div className="text-slate-400">
-                            {item.weight ?? '-'}kg | {item.volume ?? '-'}cbm
+                          <div className="text-slate-500 font-mono text-[10px]">
+                            {item.weight ?? '-'} KGS | {item.volume ?? '-'} CBM
                           </div>
                         </td>
 

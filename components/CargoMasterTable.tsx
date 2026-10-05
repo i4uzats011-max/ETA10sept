@@ -100,6 +100,7 @@ export default function CargoMasterTable({
     shippedTo: true,
     currentLocation: true,
     vesselVoyage: true,
+    cargoMetrics: true,
     shipmentCount: true,
     lastApiSync: !isStaffOnly,
     apiProtection: true,
@@ -531,75 +532,90 @@ export default function CargoMasterTable({
             row.original.isDelivered ||
             (row.original.status && row.original.status.toLowerCase().includes('deliver'))
           );
-          const daysToDeliver = row.original.daysToDeliver;
-          const daysRemaining = row.original.daysRemaining;
 
           if (isDelivered) {
             return (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
-                ✓ {daysToDeliver !== null ? `${daysToDeliver}d turnaround` : 'Delivered'}
-              </span>
+              <div className="flex flex-col items-start gap-0.5">
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                  ✓ Container Delivered
+                </span>
+                {row.original.deliveryDate && (
+                  <span className="text-[10px] text-emerald-700 font-mono font-bold pl-0.5">
+                    {formatGlobalDate(row.original.deliveryDate)}
+                  </span>
+                )}
+              </div>
             );
           }
 
-          if (daysRemaining !== null && daysRemaining !== undefined) {
-            if (daysRemaining < 0) {
-              if (isStaffOnly) {
-                return (
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                    ⚡ Arriving Soon
-                  </span>
-                );
+          let days = row.original.daysRemaining;
+          if (days === null || days === undefined) {
+            const targetDateStr = row.original.destinationDate || row.original.eta || row.original.rawEta;
+            if (targetDateStr && targetDateStr !== 'N/A' && targetDateStr !== 'Pending') {
+              const t = new Date(targetDateStr).getTime();
+              if (!isNaN(t)) {
+                const now = new Date();
+                now.setHours(0, 0, 0, 0);
+                days = Math.ceil((t - now.getTime()) / (1000 * 60 * 60 * 24));
               }
+            }
+          }
+
+          if (days !== null && days !== undefined) {
+            if (days < 0) {
               return (
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-black bg-rose-100 text-rose-800 border border-rose-300">
-                  🚨 Late +{Math.abs(daysRemaining)}d
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                  ⚡ Arriving Soon
                 </span>
               );
             }
-            if (daysRemaining === 0) {
+            if (days === 0) {
               return (
                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-100 text-amber-900 border border-amber-300">
                   ⚡ Arriving Today
                 </span>
               );
             }
-            if (daysRemaining === 1) {
+            if (days === 1) {
               return (
                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-100 text-amber-900 border border-amber-300">
                   ⚡ Tomorrow (1d)
                 </span>
               );
             }
-            if (daysRemaining === 2) {
+            if (days === 2) {
               return (
                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-100 text-amber-900 border border-amber-300">
                   ⚡ In 2 days
                 </span>
               );
             }
-            if (daysRemaining <= 7) {
+            if (days <= 7) {
               return (
                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-900 border border-blue-300">
-                  🚢 In {daysRemaining} days (2-7d)
+                  🚢 In {days} days (2-7d)
                 </span>
               );
             }
-            if (daysRemaining <= 15) {
+            if (days <= 15) {
               return (
                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-100 text-indigo-900 border border-indigo-300">
-                  🌊 In {daysRemaining} days (7-15d)
+                  🌊 In {days} days (7-15d)
                 </span>
               );
             }
             return (
               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-900 border border-purple-300">
-                🌐 In {daysRemaining} days (&gt;15d)
+                🌐 In {days} days (&gt;15d)
               </span>
             );
           }
 
-          return <span className="text-slate-400 text-xs">—</span>;
+          return (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
+              ⏳ In Transit
+            </span>
+          );
         },
       },
       {
@@ -680,13 +696,31 @@ export default function CargoMasterTable({
         },
       },
       {
+        id: 'cargoMetrics',
         accessorKey: 'shipmentCount',
-        header: 'Packages',
-        cell: ({ row }) => (
-          <span className="font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-full text-xs">
-            {row.original.shipmentCount ?? 0}
-          </span>
-        ),
+        header: 'Cargo (CTN / KGS / CBM)',
+        cell: ({ row }) => {
+          const c = row.original;
+          const cartons = c.totalCartons ?? 0;
+          const weight = c.totalWeight ?? 0;
+          const volume = c.totalVolume ?? 0;
+          const count = c.shipmentCount ?? 0;
+          return (
+            <div className="space-y-0.5 text-xs whitespace-nowrap">
+              <div className="font-bold text-slate-900 flex items-center gap-1">
+                <span className="text-blue-700 font-extrabold">{cartons.toLocaleString()}</span>
+                <span className="text-[10px] uppercase font-bold text-slate-500">CTN</span>
+                <span className="text-slate-300">|</span>
+                <span className="text-slate-600 font-medium text-[11px]">{count} pkgs</span>
+              </div>
+              <div className="text-[10px] text-slate-500 font-mono flex items-center gap-1.5">
+                <span>{weight.toLocaleString(undefined, { maximumFractionDigits: 2 })} KGS</span>
+                <span>•</span>
+                <span>{volume.toLocaleString(undefined, { maximumFractionDigits: 3 })} CBM</span>
+              </div>
+            </div>
+          );
+        },
       },
       {
         accessorKey: 'lastApiSync',
@@ -743,8 +777,8 @@ export default function CargoMasterTable({
 
           return (
             <div className="inline-flex items-center space-x-1.5 whitespace-nowrap">
-              {/* Edit Dates & Details / Correct Container */}
-              {onEditDates && (
+              {/* Edit Dates (Super Admin Only) */}
+              {isSuperAdmin && onEditDates && (
                 <button
                   type="button"
                   onClick={() => onEditDates(c.container)}
@@ -756,7 +790,7 @@ export default function CargoMasterTable({
                 </button>
               )}
 
-              {/* Click to view full logistics details for this container */}
+              {/* Click to view full logistics details for this container (Available for everyone) */}
               <button
                 type="button"
                 onClick={() => {
@@ -771,6 +805,9 @@ export default function CargoMasterTable({
                     `• Current Status: ${c.status || 'In Transit'}\n` +
                     `• Current Location: ${c.currentLocation || 'In Transit'}\n` +
                     `• Vessel: ${c.vesselName || 'TBA'} | Voyage: ${c.voyageNumber || 'TBA'}\n` +
+                    `• Cartons (CTN): ${c.totalCartons ?? 0} CTN\n` +
+                    `• Weight: ${c.totalWeight ?? 0} KGS | Volume: ${c.totalVolume ?? 0} CBM\n` +
+                    `• Packages Count: ${c.shipmentCount ?? 0} item(s)\n` +
                     `• Loading Date: ${c.startDate ? formatGlobalDate(c.startDate) : 'Pending'}\n` +
                     `• Actual Vessel ETA (Carrier): ${c.rawEta ? formatGlobalDate(c.rawEta) : 'Pending API'}\n` +
                     `• Clearance ETA (+10d): ${c.eta ? formatGlobalDate(c.eta) : 'Pending'}\n` +
@@ -786,87 +823,99 @@ export default function CargoMasterTable({
                 <span>Logistics</span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => dispatch(openDeliveryModal(c))}
-                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center space-x-1 shadow-xs ${
-                  isDelivered
-                    ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300'
-                    : 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                }`}
-                title={isDelivered ? 'Edit Delivery Date' : 'Mark Container Delivered'}
-              >
-                <Truck className="w-3.5 h-3.5" />
-                <span>{isDelivered ? 'Edit' : 'Deliver'}</span>
-              </button>
+              {/* Super Admin Mutations: Deliver / Undeliver / Sync / De-map / Delete */}
+              {isSuperAdmin && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => dispatch(openDeliveryModal(c))}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center space-x-1 shadow-xs ${
+                      isDelivered
+                        ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                    }`}
+                    title={isDelivered ? 'Edit Delivery Date' : 'Mark Container Delivered'}
+                  >
+                    <Truck className="w-3.5 h-3.5" />
+                    <span>{isDelivered ? 'Edit Date' : 'Deliver'}</span>
+                  </button>
 
-              {isDelivered && (
-                <button
-                  type="button"
-                  onClick={() => handleUnmarkDeliverRow(c)}
-                  className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-xs font-semibold transition flex items-center space-x-1"
-                  title="Mistake correction: Revert container back to Undelivered (In Transit)"
-                >
-                  <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Undeliver</span>
-                </button>
+                  {isDelivered && (
+                    <button
+                      type="button"
+                      onClick={() => handleUnmarkDeliverRow(c)}
+                      className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-xs font-semibold transition flex items-center space-x-1"
+                      title="Mistake correction: Revert container back to Undelivered (In Transit)"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Undeliver</span>
+                    </button>
+                  )}
+
+                  {!isDelivered && hasActualContainer && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onSyncApi
+                          ? onSyncApi(c.container)
+                          : handleSyncContainer(c.container, c.containerNumber, c.shippingLine)
+                      }
+                      disabled={syncingContainer === c.container}
+                      className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-300 rounded-lg text-xs font-semibold transition flex items-center space-x-1"
+                      title="Manual API Sync (Immediate carrier tracking & ETA status update)"
+                    >
+                      <Zap className={`w-3.5 h-3.5 text-indigo-600 ${syncingContainer === c.container ? 'animate-spin' : ''}`} />
+                      <span>Sync</span>
+                    </button>
+                  )}
+
+                  {/* De-map Actual Container Button */}
+                  {hasActualContainer && !isDelivered && (
+                    <button
+                      type="button"
+                      onClick={() => handleDemapActual(c.container)}
+                      className="px-2 py-1 bg-orange-50 hover:bg-orange-100 text-orange-800 border border-orange-300 rounded-lg text-xs font-semibold transition flex items-center space-x-1"
+                      title="De-map actual carrier container from this internal container"
+                    >
+                      <Unlink className="w-3.5 h-3.5 text-orange-600" />
+                      <span>De-map</span>
+                    </button>
+                  )}
+
+                  {/* Delete Container Plan */}
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteContainer(c)}
+                    className={`p-1 rounded-lg border text-xs transition ${
+                      c.shipmentCount && c.shipmentCount > 0
+                        ? 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100'
+                        : 'bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100'
+                    }`}
+                    title={
+                      c.shipmentCount && c.shipmentCount > 0
+                        ? `Delete wrong loading plan (${c.shipmentCount} items will be safely returned to China warehouse stock)`
+                        : 'Delete Container Plan'
+                    }
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </>
               )}
 
-              {!isDelivered && hasActualContainer && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    onSyncApi
-                      ? onSyncApi(c.container)
-                      : handleSyncContainer(c.container, c.containerNumber, c.shippingLine)
-                  }
-                  disabled={syncingContainer === c.container}
-                  className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-300 rounded-lg text-xs font-semibold transition flex items-center space-x-1"
-                  title="Manual API Sync (Immediate carrier tracking & ETA status update)"
-                >
-                  <Zap className={`w-3.5 h-3.5 text-indigo-600 ${syncingContainer === c.container ? 'animate-spin' : ''}`} />
-                  <span>Sync</span>
-                </button>
-              )}
-
-              {/* De-map Actual Container Button (if allotted) */}
-              {hasActualContainer && !isDelivered && (
-                <button
-                  type="button"
-                  onClick={() => handleDemapActual(c.container)}
-                  className="px-2 py-1 bg-orange-50 hover:bg-orange-100 text-orange-800 border border-orange-300 rounded-lg text-xs font-semibold transition flex items-center space-x-1"
-                  title="De-map actual carrier container from this internal container"
-                >
-                  <Unlink className="w-3.5 h-3.5 text-orange-600" />
-                  <span>De-map</span>
-                </button>
-              )}
-
-              {/* Delete Container Plan */}
-              {!isStaffOnly && (
-                <button
-                  type="button"
-                  onClick={() => handleDeleteContainer(c)}
-                  className={`p-1 rounded-lg border text-xs transition ${
-                    c.shipmentCount && c.shipmentCount > 0
-                      ? 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100'
-                      : 'bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100'
-                  }`}
-                  title={
-                    c.shipmentCount && c.shipmentCount > 0
-                      ? `Delete wrong loading plan (${c.shipmentCount} items will be safely returned to China warehouse stock)`
-                      : 'Delete Container Plan'
-                  }
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+              {/* Staff / Non-Super Admin: Read-only status pill */}
+              {!isSuperAdmin && (
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                  isDelivered ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
+                }`}>
+                  {isDelivered ? '✓ Delivered' : 'In Transit'}
+                </span>
               )}
             </div>
           );
         },
       },
     ];
-  }, [copiedId, dispatch, onEditDates, onSyncApi, isStaffOnly, syncingContainer]);
+  }, [copiedId, dispatch, onEditDates, onSyncApi, isStaffOnly, isSuperAdmin, syncingContainer]);
 
   // Master Logistics Columns Reveal State
   const isLogisticsRevealed = Boolean(
@@ -926,7 +975,7 @@ export default function CargoMasterTable({
       let bucketLabel = 'Pending';
       if (isDelivered) bucketLabel = 'Delivered';
       else if (c.daysRemaining !== null && c.daysRemaining !== undefined) {
-        if (c.daysRemaining < 0) bucketLabel = isStaffOnly ? 'Arriving Soon' : `Late (${Math.abs(c.daysRemaining)}d ago)`;
+        if (c.daysRemaining < 0) bucketLabel = 'Arriving Soon';
         else if (c.daysRemaining <= 2) bucketLabel = `Within 2 Days (${c.daysRemaining}d)`;
         else if (c.daysRemaining <= 7) bucketLabel = `2 to 7 Days (${c.daysRemaining}d)`;
         else if (c.daysRemaining <= 15) bucketLabel = `7 to 15 Days (${c.daysRemaining}d)`;
@@ -945,11 +994,14 @@ export default function CargoMasterTable({
         'Actual Port Arrival Date (Actual ETA)': c.rawEta ? formatGlobalDate(c.rawEta) : 'Pending',
         'Grace / Clearance Delivery Date': c.destinationDate || c.eta ? formatGlobalDate(c.destinationDate || c.eta) : 'Pending',
         'ETA Last Updated Date': etaLastUpdated ? formatGlobalDate(etaLastUpdated) : '—',
-        'Days Remaining (Countdown)': c.daysRemaining !== null && c.daysRemaining !== undefined ? (c.daysRemaining < 0 ? (isStaffOnly ? 'Arriving Soon' : `Late by ${Math.abs(c.daysRemaining)} days`) : `${c.daysRemaining} days`) : '—',
+        'Days Remaining (Countdown)': c.daysRemaining !== null && c.daysRemaining !== undefined ? (c.daysRemaining < 0 ? 'Arriving Soon' : `${c.daysRemaining} days`) : '—',
         'ETA Bucket Category': bucketLabel,
         'Delivery Date': c.deliveryDate ? formatGlobalDate(c.deliveryDate) : (isDelivered ? 'Delivered' : 'In Transit'),
         'Cargo Status': c.status || 'In Transit',
-        'Packages / Cartons': c.shipmentCount || 0,
+        'Cartons (CTN)': c.totalCartons || 0,
+        'Weight (KGS)': c.totalWeight || 0,
+        'Volume (CBM)': c.totalVolume || 0,
+        'Packages Count': c.shipmentCount || 0,
       };
     };
 
@@ -960,7 +1012,7 @@ export default function CargoMasterTable({
         { name: '2 to 7 Days', filter: (c: ContainerMasterItem) => !c.isDelivered && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining > 2 && c.daysRemaining <= 7 },
         { name: '7 to 15 Days', filter: (c: ContainerMasterItem) => !c.isDelivered && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining > 7 && c.daysRemaining <= 15 },
         { name: 'More Than 15 Days', filter: (c: ContainerMasterItem) => !c.isDelivered && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining > 15 },
-        { name: isStaffOnly ? 'Arriving Soon' : 'Late Containers', filter: (c: ContainerMasterItem) => !c.isDelivered && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining < 0 },
+        { name: 'Arriving Soon', filter: (c: ContainerMasterItem) => !c.isDelivered && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining < 0 },
         { name: 'Delivered', filter: (c: ContainerMasterItem) => Boolean(c.isDelivered || (c.status && c.status.toLowerCase().includes('deliver'))) },
         { name: 'All Containers', filter: () => true },
       ];
@@ -1140,9 +1192,9 @@ export default function CargoMasterTable({
                 { id: 'more-than-15-days', label: '🌐 > 15 Days', count: bucketCounts.moreThanFifteen, badgeClass: 'bg-purple-200 text-purple-900' },
                 {
                   id: 'late',
-                  label: isStaffOnly ? '⚡ Arriving Soon' : '🚨 Late Containers',
+                  label: '⚡ Arriving Soon',
                   count: bucketCounts.late,
-                  badgeClass: isStaffOnly ? 'bg-amber-200 text-amber-900' : 'bg-rose-200 text-rose-900',
+                  badgeClass: 'bg-amber-200 text-amber-900',
                 },
                 { id: 'delivered', label: '✓ Delivered', count: bucketCounts.delivered, badgeClass: 'bg-emerald-200 text-emerald-900' },
               ].map((tab) => (
