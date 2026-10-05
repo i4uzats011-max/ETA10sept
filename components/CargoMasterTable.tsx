@@ -80,7 +80,7 @@ export default function CargoMasterTable({
     startDate: true,
     rawEta: true,
     eta: true,
-    etaUpdatedAt: true,
+    etaUpdatedAt: !isStaffOnly,
     deliveryDate: true,
     daysToDeliver: true,
     status: true,
@@ -89,7 +89,7 @@ export default function CargoMasterTable({
     currentLocation: true,
     vesselVoyage: true,
     shipmentCount: true,
-    lastApiSync: true,
+    lastApiSync: !isStaffOnly,
     apiProtection: true,
     actions: true,
   });
@@ -419,7 +419,7 @@ export default function CargoMasterTable({
               <span className="font-bold font-mono text-xs text-sky-900 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded inline-block">
                 {formatGlobalDate(rawEta)}
               </span>
-              {updatedAt && (
+              {!isStaffOnly && updatedAt && (
                 <div className="text-[10px] font-semibold text-slate-500 flex items-center gap-1 whitespace-nowrap">
                   <Clock className="w-2.5 h-2.5 text-sky-600 shrink-0" />
                   <span>Updated: {formatGlobalDate(updatedAt)}</span>
@@ -447,7 +447,7 @@ export default function CargoMasterTable({
               <span className="font-bold font-mono text-xs text-slate-950 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded inline-block">
                 {formatGlobalDate(eta)}
               </span>
-              {updatedAt && (
+              {!isStaffOnly && updatedAt && (
                 <div className="text-[10px] font-semibold text-emerald-700 flex items-center gap-1 whitespace-nowrap">
                   <Clock className="w-2.5 h-2.5 text-emerald-600 shrink-0" />
                   <span>Updated: {formatGlobalDate(updatedAt)}</span>
@@ -532,6 +532,13 @@ export default function CargoMasterTable({
 
           if (daysRemaining !== null && daysRemaining !== undefined) {
             if (daysRemaining < 0) {
+              if (isStaffOnly) {
+                return (
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                    ⚡ Arriving Soon
+                  </span>
+                );
+              }
               return (
                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-black bg-rose-100 text-rose-800 border border-rose-300">
                   🚨 Late +{Math.abs(daysRemaining)}d
@@ -907,7 +914,7 @@ export default function CargoMasterTable({
       let bucketLabel = 'Pending';
       if (isDelivered) bucketLabel = 'Delivered';
       else if (c.daysRemaining !== null && c.daysRemaining !== undefined) {
-        if (c.daysRemaining < 0) bucketLabel = `Late (${Math.abs(c.daysRemaining)}d ago)`;
+        if (c.daysRemaining < 0) bucketLabel = isStaffOnly ? 'Arriving Soon' : `Late (${Math.abs(c.daysRemaining)}d ago)`;
         else if (c.daysRemaining <= 2) bucketLabel = `Within 2 Days (${c.daysRemaining}d)`;
         else if (c.daysRemaining <= 7) bucketLabel = `2 to 7 Days (${c.daysRemaining}d)`;
         else if (c.daysRemaining <= 15) bucketLabel = `7 to 15 Days (${c.daysRemaining}d)`;
@@ -926,7 +933,7 @@ export default function CargoMasterTable({
         'Actual Port Arrival Date (Actual ETA)': c.rawEta ? formatGlobalDate(c.rawEta) : 'Pending',
         'Grace / Clearance Delivery Date': c.destinationDate || c.eta ? formatGlobalDate(c.destinationDate || c.eta) : 'Pending',
         'ETA Last Updated Date': etaLastUpdated ? formatGlobalDate(etaLastUpdated) : '—',
-        'Days Remaining (Countdown)': c.daysRemaining !== null && c.daysRemaining !== undefined ? (c.daysRemaining < 0 ? `Late by ${Math.abs(c.daysRemaining)} days` : `${c.daysRemaining} days`) : '—',
+        'Days Remaining (Countdown)': c.daysRemaining !== null && c.daysRemaining !== undefined ? (c.daysRemaining < 0 ? (isStaffOnly ? 'Arriving Soon' : `Late by ${Math.abs(c.daysRemaining)} days`) : `${c.daysRemaining} days`) : '—',
         'ETA Bucket Category': bucketLabel,
         'Delivery Date': c.deliveryDate ? formatGlobalDate(c.deliveryDate) : (isDelivered ? 'Delivered' : 'In Transit'),
         'Cargo Status': c.status || 'In Transit',
@@ -941,7 +948,7 @@ export default function CargoMasterTable({
         { name: '2 to 7 Days', filter: (c: ContainerMasterItem) => !c.isDelivered && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining > 2 && c.daysRemaining <= 7 },
         { name: '7 to 15 Days', filter: (c: ContainerMasterItem) => !c.isDelivered && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining > 7 && c.daysRemaining <= 15 },
         { name: 'More Than 15 Days', filter: (c: ContainerMasterItem) => !c.isDelivered && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining > 15 },
-        { name: 'Late Containers', filter: (c: ContainerMasterItem) => !c.isDelivered && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining < 0 },
+        { name: isStaffOnly ? 'Arriving Soon' : 'Late Containers', filter: (c: ContainerMasterItem) => !c.isDelivered && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining < 0 },
         { name: 'Delivered', filter: (c: ContainerMasterItem) => Boolean(c.isDelivered || (c.status && c.status.toLowerCase().includes('deliver'))) },
         { name: 'All Containers', filter: () => true },
       ];
@@ -1119,7 +1126,12 @@ export default function CargoMasterTable({
                 { id: '2-to-7-days', label: '🚢 2 to 7 Days', count: bucketCounts.twoToSeven, badgeClass: 'bg-blue-200 text-blue-900' },
                 { id: '7-to-15-days', label: '🌊 7 to 15 Days', count: bucketCounts.sevenToFifteen, badgeClass: 'bg-indigo-200 text-indigo-900' },
                 { id: 'more-than-15-days', label: '🌐 > 15 Days', count: bucketCounts.moreThanFifteen, badgeClass: 'bg-purple-200 text-purple-900' },
-                { id: 'late', label: '🚨 Late Containers', count: bucketCounts.late, badgeClass: 'bg-rose-200 text-rose-900' },
+                {
+                  id: 'late',
+                  label: isStaffOnly ? '⚡ Arriving Soon' : '🚨 Late Containers',
+                  count: bucketCounts.late,
+                  badgeClass: isStaffOnly ? 'bg-amber-200 text-amber-900' : 'bg-rose-200 text-rose-900',
+                },
                 { id: 'delivered', label: '✓ Delivered', count: bucketCounts.delivered, badgeClass: 'bg-emerald-200 text-emerald-900' },
               ].map((tab) => (
                 <button
@@ -1197,6 +1209,30 @@ export default function CargoMasterTable({
                 className="w-3.5 h-3.5 rounded text-blue-600 accent-blue-600"
               />
               <span className="font-semibold text-slate-700">Shipping Line</span>
+            </label>
+
+            <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-[11px]">
+              <input
+                type="checkbox"
+                checked={Boolean(columnVisibility.startDate)}
+                onChange={(e) =>
+                  setColumnVisibility((prev) => ({ ...prev, startDate: e.target.checked }))
+                }
+                className="w-3.5 h-3.5 rounded text-blue-600 accent-blue-600"
+              />
+              <span className="font-semibold text-slate-700">Loading / Receipt Date</span>
+            </label>
+
+            <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-[11px]">
+              <input
+                type="checkbox"
+                checked={Boolean(columnVisibility.etaUpdatedAt)}
+                onChange={(e) =>
+                  setColumnVisibility((prev) => ({ ...prev, etaUpdatedAt: e.target.checked, lastApiSync: e.target.checked }))
+                }
+                className="w-3.5 h-3.5 rounded text-blue-600 accent-blue-600"
+              />
+              <span className="font-semibold text-slate-700">ETA Last Updated</span>
             </label>
 
             <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-[11px]">

@@ -119,13 +119,20 @@ export async function GET(req: NextRequest) {
           c.containerNumber.trim().toLowerCase() !== c.container.trim().toLowerCase()
       );
 
+      const rawPortDate = (c.rawEta && c.rawEta !== 'N/A' && c.rawEta !== 'Pending' && c.rawEta !== '—') ? c.rawEta : '';
+      const portDate = rawPortDate ? (formatGlobalDate(rawPortDate) || rawPortDate) : undefined;
+
       const effectiveGraceDate = c.destinationDate || c.eta || '';
-      let publicEtaDate = 'Pending';
-      if (c.rawEta && c.rawEta !== 'N/A' && c.rawEta !== 'Pending') {
-        publicEtaDate = calculatePublicDeliveryDate(c.rawEta, 10);
-      } else if (effectiveGraceDate && effectiveGraceDate !== 'N/A' && effectiveGraceDate !== 'Pending') {
-        publicEtaDate = formatGlobalDate(effectiveGraceDate);
-      }
+      // Two arrival dates: Port Date (vessel arrival at port) and ETA Date (destination ETA).
+      // DO NOT add three days or any buffer: show the actual ETA date directly.
+      const rawActualEta =
+        effectiveGraceDate && effectiveGraceDate !== 'Pending' && effectiveGraceDate !== 'N/A'
+          ? effectiveGraceDate
+          : (c.eta && c.eta !== 'N/A' && c.eta !== 'Pending')
+          ? c.eta
+          : rawPortDate || 'Pending';
+
+      const publicEtaDate = rawActualEta !== 'Pending' ? (formatGlobalDate(rawActualEta) || rawActualEta) : 'Pending';
 
       const destinationDate = isStaffOrAdmin
         ? (effectiveGraceDate || 'Pending')
@@ -154,8 +161,9 @@ export async function GET(req: NextRequest) {
         shippedFrom: c.shippedFrom || 'Ningbo / Shanghai, China',
         shippedTo: c.shippedTo || 'Nhava Sheva / Mundra, India',
         currentLocation: isStaffOrAdmin ? (c.currentLocation || c.status || 'In Transit') : 'Scheduled Delivery',
-        startDate: c.startDate || c.loadingDate || '',
-        loadingDate: c.loadingDate || c.startDate || '',
+        startDate: isStaffOrAdmin ? (c.startDate || c.loadingDate || '') : undefined,
+        loadingDate: isStaffOrAdmin ? (c.loadingDate || c.startDate || '') : undefined,
+        portDate: portDate,
         destinationDate: destinationDate,
         eta: destinationDate,
         rawEta: isStaffOrAdmin ? (c.rawEta || '') : undefined,
@@ -173,7 +181,7 @@ export async function GET(req: NextRequest) {
         apiCalled: Boolean(c.apiCalled || c.lastApiSync),
         apiCallCount: c.apiCallCount || 0,
         lastApiSync: isStaffOrAdmin ? (c.lastApiSync ? new Date(c.lastApiSync).toISOString() : null) : undefined,
-        etaUpdatedAt,
+        etaUpdatedAt: isStaffOrAdmin ? etaUpdatedAt : undefined,
       };
     });
 

@@ -167,15 +167,26 @@ export async function GET(req: NextRequest) {
         Shipment.updateOne({ _id: shipment._id }, { $set: { eta: resolvedEta } }).exec().catch(() => {});
       }
 
-      // Per user requirement: Search by Receipt No. -> ETA = Actual Vessel ETA (Carrier) + 10 DAYS
-      let publicDeliveryDate = 'Pending';
-      if (rawCarrierEta && rawCarrierEta !== 'N/A' && rawCarrierEta !== 'Pending') {
-        publicDeliveryDate = calculatePublicDeliveryDate(rawCarrierEta, 10);
-      } else if (fallbackDoc?.destinationDate && fallbackDoc.destinationDate !== 'N/A' && fallbackDoc.destinationDate !== 'Pending') {
-        publicDeliveryDate = formatGlobalDate(fallbackDoc.destinationDate);
-      } else if (resolvedEta && resolvedEta !== 'N/A' && resolvedEta !== 'Pending') {
-        publicDeliveryDate = formatGlobalDate(resolvedEta);
-      }
+      // Two arrival dates: Port Date (vessel arrival at port) and ETA Date (destination ETA).
+      // DO NOT add three days or any buffer: show the actual ETA date directly.
+      const rawPortDate = rawCarrierEta || shipment.rawEta || fallbackDoc?.rawEta || '';
+      const formattedPortDate =
+        rawPortDate && rawPortDate !== 'N/A' && rawPortDate !== 'Pending' && rawPortDate !== '—'
+          ? (formatGlobalDate(rawPortDate) || rawPortDate)
+          : '';
+
+      const rawActualEta =
+        (fallbackDoc?.destinationDate && fallbackDoc.destinationDate !== 'N/A' && fallbackDoc.destinationDate !== 'Pending')
+          ? fallbackDoc.destinationDate
+          : (resolvedEta && resolvedEta !== 'N/A' && resolvedEta !== 'Pending')
+          ? resolvedEta
+          : (shipment.destinationDate && shipment.destinationDate !== 'N/A' && shipment.destinationDate !== 'Pending')
+          ? shipment.destinationDate
+          : (rawPortDate && rawPortDate !== 'N/A' && rawPortDate !== 'Pending')
+          ? rawPortDate
+          : 'Pending';
+
+      const publicDeliveryDate = rawActualEta !== 'Pending' ? (formatGlobalDate(rawActualEta) || rawActualEta) : 'Pending';
 
       const rawEtaUpdated =
         fallbackDoc?.etaUpdatedAt ||
@@ -205,13 +216,14 @@ export async function GET(req: NextRequest) {
         party: shipment.party || whItem?.party || 'General Party',
         container: shipment.container, // Internal Container Alias only (e.g. 'USI-01')
         status: isItemDelivered ? 'Delivered' : (shipment.status && shipment.status !== 'Planning' ? shipment.status : 'Loaded'),
+        portDate: formattedPortDate || null,
         dateOfDelivery: isItemDelivered ? formattedDeliveryDate : publicDeliveryDate,
         expectedDeliveryDate: publicDeliveryDate,
         eta: publicDeliveryDate,
         deliveryDate: formattedDeliveryDate,
         isDelivered: isItemDelivered,
         daysToDeliver: shipment.daysToDeliver ?? fallbackDoc?.daysToDeliver ?? null,
-        etaUpdatedAt,
+        etaUpdatedAt: null,
         english: translateToEnglish(shipment.english || shipment.commodity || shipment.chinese),
         commodity: translateToEnglish(shipment.commodity || shipment.english || shipment.chinese),
         quantity: shipment.quantity || '0',
@@ -222,7 +234,7 @@ export async function GET(req: NextRequest) {
         splitIndex: shipment.splitIndex || 1,
         weight: shipment.weight || 'N/A',
         volume: formatVolumeWithDecimals(shipment.volume),
-        date: shipment.date || 'N/A',
+        date: undefined,
         warehouse: shipment.warehouse || whItem?.warehouse || 'China Warehouse',
         warehouseEntry: shipment.warehouseEntry || 'N/A',
         packaging: shipment.packaging || 'N/A',
@@ -232,6 +244,24 @@ export async function GET(req: NextRequest) {
       };
     });
 
+    const sanitizedWhItem = whItem ? { ...whItem } : null;
+    if (sanitizedWhItem) {
+      delete sanitizedWhItem.date;
+      delete sanitizedWhItem.receiptDate;
+      delete sanitizedWhItem.createdAt;
+      delete sanitizedWhItem.uploadedAt;
+      delete sanitizedWhItem.etaUpdatedAt;
+      delete sanitizedWhItem.lastApiSync;
+      if (Array.isArray(sanitizedWhItem.items)) {
+        sanitizedWhItem.items = sanitizedWhItem.items.map((it: any) => {
+          const cleanItem = { ...it };
+          delete cleanItem.date;
+          delete cleanItem.receiptDate;
+          return cleanItem;
+        });
+      }
+    }
+
     return NextResponse.json({
       success: true,
       count: publicCargoDetails.length,
@@ -239,7 +269,7 @@ export async function GET(req: NextRequest) {
       // Provide both array `shipments` and primary `data` object for backwards compatibility
       data: publicCargoDetails[0],
       shipments: publicCargoDetails,
-      warehouseReceipt: whItem,
+      warehouseReceipt: sanitizedWhItem,
     });
   } catch (error: any) {
     return NextResponse.json(

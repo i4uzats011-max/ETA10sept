@@ -271,8 +271,10 @@ export default function InternalEmployeeViewPage() {
   const [error, setError] = useState<string | null>(null);
   const [isExportingJpg, setIsExportingJpg] = useState(false);
 
-  // Column Visibility - Hidden by Default per user requirements:
-  // Carrier Container actual container no., Shipping Line, Destination, Source, and Current Status!
+  // Column Visibility:
+  // Carrier Container actual container no., Shipping Line, Destination, Source, and Current Status are hidden by default.
+  // Receipt Date can be toggled/hidden by the user!
+  const [showReceiptDate, setShowReceiptDate] = useState(true);
   const [showActualContainer, setShowActualContainer] = useState(false);
   const [showShippingLine, setShowShippingLine] = useState(false);
   const [showDestination, setShowDestination] = useState(false);
@@ -282,8 +284,16 @@ export default function InternalEmployeeViewPage() {
   // Row Marking: 'bold' = primary mark (gold star), 'sub' = sub-mark (blue bookmark)
   const [rowMarks, setRowMarks] = useState<Record<string, MarkType>>({});
 
-  // View Mode: 'all' vs 'late_default' (Default late list requested by user)
-  const [viewMode, setViewMode] = useState<'all' | 'late'>('late');
+  // View Mode: Customer-friendly ETA buckets and delivery status filter
+  type ViewFilter =
+    | 'all'
+    | 'within-2-days'
+    | '2-to-7-days'
+    | '7-to-15-days'
+    | 'more-than-15-days'
+    | 'arriving-soon'
+    | 'delivered';
+  const [viewMode, setViewMode] = useState<ViewFilter>('all');
 
   // Excel-Like Multi-Select Filters across all columns
   const [globalSearch, setGlobalSearch] = useState('');
@@ -308,9 +318,6 @@ export default function InternalEmployeeViewPage() {
   // Toolbar Filter Panel Visibility
   const [activeFilterPanel, setActiveFilterPanel] = useState(true);
 
-  // Late containers summary state
-  const [lateContainers, setLateContainers] = useState<any[]>([]);
-  const [lateContainersLoading, setLateContainersLoading] = useState(false);
 
   // ── MODULAR EMPLOYEE MENU TABS (Read-Only) ──
   type EmployeeTab = 'shipments' | 'containers';
@@ -464,7 +471,6 @@ export default function InternalEmployeeViewPage() {
       setIsSavingDates(false);
     }
   };
-  const [showLatePanel, setShowLatePanel] = useState(true);
 
   // Auth verification
   useEffect(() => {
@@ -479,24 +485,10 @@ export default function InternalEmployeeViewPage() {
           setUserRole(data.role || 'staff');
           fetchAllShipments();
           fetchContainerFleet();
-          fetchLateContainers();
         }
       })
       .catch(() => router.push('/admin/login'));
   }, [router]);
-
-  const fetchLateContainers = async () => {
-    setLateContainersLoading(true);
-    try {
-      const res = await fetch('/api/admin/late-containers');
-      const data = await res.json();
-      if (res.ok) setLateContainers(data.lateContainers || []);
-    } catch {
-      // silent
-    } finally {
-      setLateContainersLoading(false);
-    }
-  };
 
   const fetchAllShipments = async () => {
     setIsLoading(true);
@@ -524,8 +516,177 @@ export default function InternalEmployeeViewPage() {
   const uniqueStatuses = useMemo(() => [...new Set(shipments.map((s) => s.status).filter(Boolean))].sort(), [shipments]);
   const uniqueWarehouseEntries = useMemo(() => [...new Set(shipments.map((s) => s.warehouseEntry).filter(Boolean))].sort(), [shipments]);
 
-  // Turnaround categories
-  const turnaroundOptions = ['Late (>35 days)', 'On Time (<=35 days)', 'Pending ETA'];
+  // Container lookup map for synchronizing delivery & ETA status across shipments
+  const containerFleetMap = useMemo(() => {
+    const map = new Map<string, any>();
+    for (const c of containerFleet) {
+      if (c.container) {
+        map.set(String(c.container).toUpperCase().trim(), c);
+      }
+    }
+    return map;
+  }, [containerFleet]);
+
+  // Customer-friendly delivery calculation (NO "Late" text shown to customers!)
+  const getDeliveryInfo = useCallback(
+    (item: any) => {
+      const containerKey = String(item.container || '').toUpperCase().trim();
+      const cFleet = containerFleetMap.get(containerKey);
+
+      const isDelivered = Boolean(
+        item.isDelivered ||
+          cFleet?.isDelivered ||
+          (item.deliveryDate && item.deliveryDate.trim() && item.deliveryDate !== '—' && item.deliveryDate !== 'N/A') ||
+          (cFleet?.deliveryDate && cFleet?.deliveryDate.trim() && cFleet?.deliveryDate !== '—' && cFleet?.deliveryDate !== 'N/A') ||
+          (item.status && (
+            item.status.toLowerCase().includes('deliver') ||
+            item.status.toLowerCase().includes('reached')
+          )) ||
+          (cFleet?.status && (
+            cFleet?.status.toLowerCase().includes('deliver') ||
+            cFleet?.status.toLowerCase().includes('reached')
+          ))
+      );
+
+      const targetDateStr = item.destinationDate || item.eta || cFleet?.destinationDate || cFleet?.eta;
+      let daysRemaining: number | null = null;
+      if (targetDateStr && targetDateStr !== 'N/A' && targetDateStr !== 'Pending' && targetDateStr !== '—') {
+        const targetDate = parseReceiptDate(targetDateStr) || new Date(targetDateStr);
+        if (targetDate && !isNaN(targetDate.getTime())) {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          targetDate.setHours(0, 0, 0, 0);
+          daysRemaining = Math.ceil((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        }
+      }
+
+      if (isDelivered) {
+        const turnaroundDays = item.daysToDeliver ?? cFleet?.daysToDeliver ?? null;
+        return {
+          daysRemaining,
+          isDelivered: true,
+          category: 'delivered',
+          label: turnaroundDays !== null ? `✓ Delivered (${turnaroundDays}d)` : '✓ Container Delivered',
+          badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold',
+        };
+      }
+
+      if (daysRemaining === null || daysRemaining === undefined) {
+        return {
+          daysRemaining: null,
+          isDelivered: false,
+          category: 'pending',
+          label: '⏳ In Transit',
+          badgeClass: 'bg-slate-100 text-slate-700 border-slate-200 font-medium',
+        };
+      }
+
+      // NOTE: Per user requirement: Do NOT show "container late" to customers!
+      // When daysRemaining < 0 (ETA has passed/arrived), show "Arriving Soon" / "Under Clearance"
+      if (daysRemaining < 0) {
+        return {
+          daysRemaining,
+          isDelivered: false,
+          category: 'arriving-soon',
+          label: '⚡ Arriving Soon',
+          badgeClass: 'bg-amber-100 text-amber-900 border-amber-300 font-bold',
+        };
+      }
+
+      if (daysRemaining === 0) {
+        return {
+          daysRemaining: 0,
+          isDelivered: false,
+          category: 'within-2-days',
+          label: '⚡ Arriving Today',
+          badgeClass: 'bg-amber-100 text-amber-900 border-amber-300 font-bold',
+        };
+      }
+
+      if (daysRemaining === 1) {
+        return {
+          daysRemaining: 1,
+          isDelivered: false,
+          category: 'within-2-days',
+          label: '⚡ Tomorrow (1d)',
+          badgeClass: 'bg-amber-100 text-amber-900 border-amber-300 font-bold',
+        };
+      }
+
+      if (daysRemaining === 2) {
+        return {
+          daysRemaining: 2,
+          isDelivered: false,
+          category: 'within-2-days',
+          label: '⚡ In 2 days',
+          badgeClass: 'bg-amber-100 text-amber-900 border-amber-300 font-bold',
+        };
+      }
+
+      if (daysRemaining <= 7) {
+        return {
+          daysRemaining,
+          isDelivered: false,
+          category: '2-to-7-days',
+          label: `🚢 In ${daysRemaining} days (2-7d)`,
+          badgeClass: 'bg-blue-100 text-blue-900 border-blue-300 font-bold',
+        };
+      }
+
+      if (daysRemaining <= 15) {
+        return {
+          daysRemaining,
+          isDelivered: false,
+          category: '7-to-15-days',
+          label: `🌊 In ${daysRemaining} days (7-15d)`,
+          badgeClass: 'bg-indigo-100 text-indigo-900 border-indigo-300 font-bold',
+        };
+      }
+
+      return {
+        daysRemaining,
+        isDelivered: false,
+        category: 'more-than-15-days',
+        label: `🌐 In ${daysRemaining} days (>15d)`,
+        badgeClass: 'bg-purple-100 text-purple-900 border-purple-300 font-bold',
+      };
+    },
+    [containerFleetMap]
+  );
+
+  // Dynamic Fleet Delivery Counts for List-by-List View Tabs
+  const deliveryCounts = useMemo(() => {
+    let within2Days = 0;
+    let twoToSeven = 0;
+    let sevenToFifteen = 0;
+    let moreThanFifteen = 0;
+    let arrivingSoon = 0;
+    let delivered = 0;
+    const all = shipments.length;
+
+    shipments.forEach((s) => {
+      const info = getDeliveryInfo(s);
+      if (info.isDelivered) delivered++;
+      else if (info.category === 'within-2-days') within2Days++;
+      else if (info.category === '2-to-7-days') twoToSeven++;
+      else if (info.category === '7-to-15-days') sevenToFifteen++;
+      else if (info.category === 'more-than-15-days') moreThanFifteen++;
+      else if (info.category === 'arriving-soon') arrivingSoon++;
+    });
+
+    return { all, within2Days, twoToSeven, sevenToFifteen, moreThanFifteen, arrivingSoon, delivered };
+  }, [shipments, getDeliveryInfo]);
+
+  // Turnaround categories (customer-friendly, zero late text)
+  const turnaroundOptions = [
+    'Container Delivered',
+    'In 1 to 2 Days',
+    'In 2 to 7 Days',
+    'In 7 to 15 Days',
+    'More Than 15 Days',
+    'Arriving Soon',
+    'In Transit',
+  ];
   const rowMarkOptions = ['★ Primary Mark', '◆ Sub-Mark', 'Unmarked'];
 
   // Counts for each column
@@ -592,11 +753,17 @@ export default function InternalEmployeeViewPage() {
     const q = globalSearch.trim().toLowerCase();
 
     return shipments.filter((item) => {
-      const turnaround = getDeliveryTurnaroundStatus(item.date, item.eta, item.uploadedAt);
-      const isLate = turnaround.isLate;
+      const deliveryInfo = getDeliveryInfo(item);
 
-      // 1. Default Late List View Filter
-      if (viewMode === 'late' && !isLate) return false;
+      // 1. Customer-Friendly View Mode (ETA Buckets & Delivered)
+      if (viewMode !== 'all') {
+        if (viewMode === 'delivered' && !deliveryInfo.isDelivered) return false;
+        if (viewMode === 'within-2-days' && deliveryInfo.category !== 'within-2-days') return false;
+        if (viewMode === '2-to-7-days' && deliveryInfo.category !== '2-to-7-days') return false;
+        if (viewMode === '7-to-15-days' && deliveryInfo.category !== '7-to-15-days') return false;
+        if (viewMode === 'more-than-15-days' && deliveryInfo.category !== 'more-than-15-days') return false;
+        if (viewMode === 'arriving-soon' && deliveryInfo.category !== 'arriving-soon') return false;
+      }
 
       // 2. Receipt No Filter
       if (selectedReceipts.size > 0 && !selectedReceipts.has(item.receipt)) return false;
@@ -635,15 +802,16 @@ export default function InternalEmployeeViewPage() {
         if (!selectedRowMarks.has(label)) return false;
       }
 
-      // 12. Turnaround / Late Status Filter
+      // 12. Turnaround / Delivery Status Dropdown Filter
       if (selectedTurnaroundStatuses.size > 0) {
-        let cat = 'Pending ETA';
-        if (turnaround.days !== null) {
-          cat = turnaround.isLate ? 'Late (>35 days)' : 'On Time (<=35 days)';
-        } else if (turnaround.isLate) {
-          cat = 'Late (>35 days)';
-        }
-        if (!selectedTurnaroundStatuses.has(cat)) return false;
+        let catName = 'In Transit';
+        if (deliveryInfo.isDelivered) catName = 'Container Delivered';
+        else if (deliveryInfo.category === 'within-2-days') catName = 'In 1 to 2 Days';
+        else if (deliveryInfo.category === '2-to-7-days') catName = 'In 2 to 7 Days';
+        else if (deliveryInfo.category === '7-to-15-days') catName = 'In 7 to 15 Days';
+        else if (deliveryInfo.category === 'more-than-15-days') catName = 'More Than 15 Days';
+        else if (deliveryInfo.category === 'arriving-soon') catName = 'Arriving Soon';
+        if (!selectedTurnaroundStatuses.has(catName)) return false;
       }
 
       // 13. Receipt Date Range Filter
@@ -704,6 +872,7 @@ export default function InternalEmployeeViewPage() {
     etaFrom,
     etaTo,
     rowMarks,
+    getDeliveryInfo,
   ]);
 
   // Mark row helper
@@ -714,11 +883,6 @@ export default function InternalEmployeeViewPage() {
       return { ...prev, [id]: next };
     });
   }, []);
-
-  // Total late count in entire dataset
-  const totalLateCount = useMemo(() => {
-    return shipments.filter((s) => isContainerLate(s.date, s.eta, s.uploadedAt)).length;
-  }, [shipments]);
 
   // Active filter count
   const activeFilterCount = useMemo(() => {
@@ -737,7 +901,7 @@ export default function InternalEmployeeViewPage() {
     if (selectedTurnaroundStatuses.size > 0) c++;
     if (receiptDateFrom || receiptDateTo) c++;
     if (etaFrom || etaTo) c++;
-    if (viewMode === 'late') c++;
+    if (viewMode !== 'all') c++;
     return c;
   }, [
     globalSearch,
@@ -786,7 +950,7 @@ export default function InternalEmployeeViewPage() {
   // --- EXPORTS WITH NEW FIELDS (Receipt Date, Days to Deliver, Marks) ---
   const getExportRows = () =>
     filteredShipments.map((s) => {
-      const turnaround = getDeliveryTurnaroundStatus(s.date, s.eta, s.uploadedAt);
+      const deliveryInfo = getDeliveryInfo(s);
       const row: Record<string, any> = {
         Mark: rowMarks[s._id] === 'bold' ? '★ Primary' : rowMarks[s._id] === 'sub' ? '◆ Sub-Mark' : '',
         'Main Mark': s.mainMarka || '',
@@ -801,9 +965,9 @@ export default function InternalEmployeeViewPage() {
       row['Quantity'] = s.quantity ?? '';
       row['Weight (kg)'] = s.weight ?? '';
       row['Volume (cbm)'] = s.volume ?? '';
-      row['Receipt Date'] = s.date || 'N/A';
+      if (showReceiptDate) row['Receipt Date'] = s.date || 'N/A';
       row['ETA Date'] = s.eta || '';
-      row['Days to Deliver'] = turnaround.label;
+      row['Days to Deliver'] = deliveryInfo.label;
       if (showStatus) row['Status'] = s.status || '';
       if (showDestination) row['Destination'] = s.shippedTo || 'Nhava Sheva / Mundra, India';
       if (showSource) row['Warehouse Entry (Source)'] = s.warehouseEntry || '';
@@ -872,7 +1036,7 @@ export default function InternalEmployeeViewPage() {
       doc.setFontSize(8);
       doc.setTextColor(100);
       doc.text(
-        `Date: ${new Date().toLocaleDateString()}   |   Records: ${filteredShipments.length}   |   Late: ${totalLateCount}`,
+        `Date: ${new Date().toLocaleDateString()}   |   Records: ${filteredShipments.length}`,
         190,
         14
       );
@@ -880,22 +1044,24 @@ export default function InternalEmployeeViewPage() {
       const headers = ['Mark', 'Main Mark', 'Sub Mark', 'Receipt No', 'Container'];
       if (showActualContainer) headers.push('Actual Container');
       if (showShippingLine) headers.push('Line');
-      headers.push('Commodity', 'Receipt Date', 'ETA Date', 'Turnaround');
+      headers.push('Commodity');
+      if (showReceiptDate) headers.push('Receipt Date');
+      headers.push('ETA Date', 'Days to Deliver');
       if (showStatus) headers.push('Status');
       if (showDestination) headers.push('Destination');
       if (showSource) headers.push('Source');
 
       const body = filteredShipments.map((s) => {
         const mark = rowMarks[s._id] === 'bold' ? '★' : rowMarks[s._id] === 'sub' ? '◆' : '';
-        const turnaround = getDeliveryTurnaroundStatus(s.date, s.eta, s.uploadedAt);
+        const deliveryInfo = getDeliveryInfo(s);
         const row = [mark, s.mainMarka || '-', s.subMarka || '-', s.receipt || '', s.container || ''];
         if (showActualContainer) row.push(s.containerNumber || '-');
         if (showShippingLine) row.push(s.shippingLine || '-');
+        row.push(s.english || s.commodity || '');
+        if (showReceiptDate) row.push(s.date || '-');
         row.push(
-          s.english || s.commodity || '',
-          s.date || '-',
           s.eta || 'Pending',
-          turnaround.label
+          deliveryInfo.label
         );
         if (showStatus) row.push(s.status || 'In Transit');
         if (showDestination) row.push(s.shippedTo || 'India');
@@ -1079,130 +1245,132 @@ export default function InternalEmployeeViewPage() {
           </div>
         </div>
 
-        {/* ── LATE CONTAINERS COLLAPSIBLE ALERT PANEL ── */}
-        {(lateContainers.length > 0 || lateContainersLoading) && (
-          <div className="bg-white border border-red-200 rounded-2xl shadow-sm overflow-hidden">
-            <div
-              className="flex items-center justify-between px-5 py-3 bg-red-50 border-b border-red-200 cursor-pointer"
-              onClick={() => setShowLatePanel((v) => !v)}
-            >
-              <div className="flex items-center space-x-2">
-                <AlertTriangle className="w-4 h-4 text-red-600" />
-                <span className="font-black text-sm text-red-900">
-                  Late Shipments Priority Alert ({lateContainers.length})
-                </span>
-                <span className="text-xs text-red-700 font-semibold hidden sm:inline">
-                  — ETA exceeds 35 days from receipt date
-                </span>
-              </div>
-              <div className="flex items-center space-x-2 text-xs font-bold text-red-600">
-                <span>{showLatePanel ? 'Hide Alert' : 'Show Details'}</span>
-                <span>{showLatePanel ? '▲' : '▼'}</span>
-              </div>
-            </div>
-
-            {showLatePanel && (
-              <div className="overflow-x-auto max-h-60">
-                <table className="w-full text-xs">
-                  <thead className="bg-red-100/50 border-b border-red-200 text-[10px] uppercase font-bold text-red-800 sticky top-0">
-                    <tr>
-                      <th className="py-2.5 px-4 text-left">Receipt</th>
-                      <th className="py-2.5 px-4 text-left">Container</th>
-                      <th className="py-2.5 px-4 text-left">Main Mark</th>
-                      <th className="py-2.5 px-4 text-left">Sub Mark</th>
-                      <th className="py-2.5 px-4 text-left">Commodity</th>
-                      <th className="py-2.5 px-4 text-left">Receipt Date</th>
-                      <th className="py-2.5 px-4 text-left">ETA Date</th>
-                      <th className="py-2.5 px-4 text-left">Days to Deliver</th>
-                      <th className="py-2.5 px-4 text-left">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lateContainers.map((lc, i) => (
-                      <tr
-                        key={String(lc._id)}
-                        className={`border-b border-red-100 ${i % 2 === 0 ? 'bg-white' : 'bg-red-50/40'}`}
-                      >
-                        <td className="py-2 px-4 font-mono font-black text-slate-900">{lc.receipt}</td>
-                        <td className="py-2 px-4 font-mono font-bold text-slate-700">{lc.container}</td>
-                        <td className="py-2 px-4">
-                          {lc.mainMarka ? (
-                            <span className="text-[10px] font-bold bg-amber-100 text-amber-900 px-2 py-0.5 rounded border border-amber-300">
-                              ★ {lc.mainMarka}
-                            </span>
-                          ) : (
-                            <span className="text-slate-300">—</span>
-                          )}
-                        </td>
-                        <td className="py-2 px-4">
-                          {lc.subMarka ? (
-                            <span className="text-[10px] font-bold bg-blue-100 text-blue-900 px-2 py-0.5 rounded border border-blue-300">
-                              ◆ {lc.subMarka}
-                            </span>
-                          ) : (
-                            <span className="text-slate-300">—</span>
-                          )}
-                        </td>
-                        <td className="py-2 px-4 max-w-[160px] truncate text-slate-700">
-                          {lc.commodity || '—'}
-                        </td>
-                        <td className="py-2 px-4 text-slate-600 font-mono">{lc.receiptDate || 'N/A'}</td>
-                        <td className="py-2 px-4 font-bold text-red-700 font-mono">{lc.eta || 'N/A'}</td>
-                        <td className="py-2 px-4">
-                          <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-black bg-red-600 text-white">
-                            {lc.daysToDeliver}d (+{lc.daysOverLimit}d over 35d)
-                          </span>
-                        </td>
-                        <td className="py-2 px-4 text-[11px] text-slate-600">{lc.status}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-
         {/* ── TAB 1: CARGO SHIPMENTS TABLE & FILTERS ── */}
         {activeEmployeeTab === 'shipments' && (
           <div className="space-y-4 animate-fadeIn">
-{/* ── PRIMARY VIEW MODE TABS (Default: Late Containers) ── */}
-        <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-2.5 rounded-2xl border border-slate-200 shadow-sm">
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => setViewMode('late')}
-              className={`px-4 py-2 rounded-xl text-xs font-black transition flex items-center space-x-2 shadow-sm ${
-                viewMode === 'late'
-                  ? 'bg-red-600 text-white shadow-red-600/20'
-                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-              }`}
-            >
-              <AlertTriangle className="w-4 h-4 text-amber-300" />
-              <span>Late Containers (&gt;35 Days)</span>
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                viewMode === 'late' ? 'bg-white text-red-700' : 'bg-red-100 text-red-700'
-              }`}>
-                {totalLateCount}
-              </span>
-            </button>
+            {/* ── PRIMARY VIEW MODE TABS: CUSTOMER-FRIENDLY DELIVERY STAGES (List-by-List View) ── */}
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-2.5 rounded-2xl border border-slate-200 shadow-sm">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('all')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 ${
+                    viewMode === 'all'
+                      ? 'bg-slate-900 text-white shadow-sm'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  <Box className="w-3.5 h-3.5" />
+                  <span>All Shipments</span>
+                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                    viewMode === 'all' ? 'bg-white text-slate-900' : 'bg-slate-200 text-slate-700'
+                  }`}>
+                    {deliveryCounts.all}
+                  </span>
+                </button>
 
-            <button
-              onClick={() => setViewMode('all')}
-              className={`px-4 py-2 rounded-xl text-xs font-black transition flex items-center space-x-2 shadow-sm ${
-                viewMode === 'all'
-                  ? 'bg-slate-900 text-white shadow-slate-900/20'
-                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-              }`}
-            >
-              <Box className="w-4 h-4 text-blue-400" />
-              <span>All Shipments</span>
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                viewMode === 'all' ? 'bg-white text-slate-900' : 'bg-slate-200 text-slate-700'
-              }`}>
-                {shipments.length}
-              </span>
-            </button>
-          </div>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('within-2-days')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 ${
+                    viewMode === 'within-2-days'
+                      ? 'bg-amber-600 text-white shadow-sm'
+                      : 'bg-amber-50 text-amber-900 border border-amber-200 hover:bg-amber-100'
+                  }`}
+                >
+                  <span>⚡ 1 to 2 Days</span>
+                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                    viewMode === 'within-2-days' ? 'bg-white text-amber-800' : 'bg-amber-200 text-amber-900'
+                  }`}>
+                    {deliveryCounts.within2Days}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setViewMode('2-to-7-days')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 ${
+                    viewMode === '2-to-7-days'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-blue-50 text-blue-900 border border-blue-200 hover:bg-blue-100'
+                  }`}
+                >
+                  <span>🚢 2 to 7 Days</span>
+                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                    viewMode === '2-to-7-days' ? 'bg-white text-blue-800' : 'bg-blue-200 text-blue-900'
+                  }`}>
+                    {deliveryCounts.twoToSeven}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setViewMode('7-to-15-days')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 ${
+                    viewMode === '7-to-15-days'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'bg-indigo-50 text-indigo-900 border border-indigo-200 hover:bg-indigo-100'
+                  }`}
+                >
+                  <span>🌊 7 to 15 Days</span>
+                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                    viewMode === '7-to-15-days' ? 'bg-white text-indigo-800' : 'bg-indigo-200 text-indigo-900'
+                  }`}>
+                    {deliveryCounts.sevenToFifteen}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setViewMode('more-than-15-days')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 ${
+                    viewMode === 'more-than-15-days'
+                      ? 'bg-purple-600 text-white shadow-sm'
+                      : 'bg-purple-50 text-purple-900 border border-purple-200 hover:bg-purple-100'
+                  }`}
+                >
+                  <span>🌐 &gt; 15 Days</span>
+                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                    viewMode === 'more-than-15-days' ? 'bg-white text-purple-800' : 'bg-purple-200 text-purple-900'
+                  }`}>
+                    {deliveryCounts.moreThanFifteen}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setViewMode('arriving-soon')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 ${
+                    viewMode === 'arriving-soon'
+                      ? 'bg-orange-600 text-white shadow-sm'
+                      : 'bg-orange-50 text-orange-900 border border-orange-200 hover:bg-orange-100'
+                  }`}
+                >
+                  <span>⚡ Arriving Soon</span>
+                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                    viewMode === 'arriving-soon' ? 'bg-white text-orange-800' : 'bg-orange-200 text-orange-900'
+                  }`}>
+                    {deliveryCounts.arrivingSoon}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setViewMode('delivered')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 ${
+                    viewMode === 'delivered'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'bg-emerald-50 text-emerald-900 border border-emerald-200 hover:bg-emerald-100'
+                  }`}
+                >
+                  <span>✓ Delivered</span>
+                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                    viewMode === 'delivered' ? 'bg-white text-emerald-800' : 'bg-emerald-200 text-emerald-900'
+                  }`}>
+                    {deliveryCounts.delivered}
+                  </span>
+                </button>
+              </div>
 
           <div className="flex items-center space-x-2 text-xs">
             <span className="text-slate-500 font-semibold">
@@ -1531,6 +1699,16 @@ export default function InternalEmployeeViewPage() {
                     )}
                   </button>
 
+                  <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2 py-1 rounded-lg border border-slate-200 hover:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      checked={showReceiptDate}
+                      onChange={(e) => setShowReceiptDate(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded text-blue-600 accent-blue-600"
+                    />
+                    <span className="font-semibold text-slate-700">Receipt Date</span>
+                  </label>
+
                   <div className="flex items-center space-x-1 text-slate-400 text-[10px] uppercase font-bold tracking-wider">
                     <Lock className="w-3 h-3 text-amber-600" />
                     <span>Hidden by default:</span>
@@ -1636,9 +1814,7 @@ export default function InternalEmployeeViewPage() {
               <Box className="w-10 h-10 text-slate-300 mx-auto" />
               <p className="text-sm font-bold text-slate-800">No matching cargo records</p>
               <p className="text-xs text-slate-400">
-                {viewMode === 'late'
-                  ? 'No late containers found. Switch to "All Shipments" to view full database.'
-                  : 'Adjust your search parameters or click "Reset All" above.'}
+                Adjust your search parameters or select a different filter tab above.
               </p>
               <button
                 onClick={resetFilters}
@@ -1775,11 +1951,13 @@ export default function InternalEmployeeViewPage() {
                     <th className="py-3 px-4 text-left">Qty / Wt / Vol</th>
 
                     {/* 10. Receipt Date (Date of Receipt in DB) */}
-                    <th className="py-3 px-4 text-left">
-                      <div className="flex items-center">
-                        <span>Receipt Date</span>
-                      </div>
-                    </th>
+                    {showReceiptDate && (
+                      <th className="py-3 px-4 text-left">
+                        <div className="flex items-center">
+                          <span>Receipt Date</span>
+                        </div>
+                      </th>
+                    )}
 
                     {/* 11. ETA Arrival Date */}
                     <th className="py-3 px-4 text-left">
@@ -1848,10 +2026,11 @@ export default function InternalEmployeeViewPage() {
                 <tbody>
                   {filteredShipments.map((item, idx) => {
                     const mark = rowMarks[item._id] || 'none';
-                    const turnaround = getDeliveryTurnaroundStatus(item.date, item.eta, item.uploadedAt);
+                    const deliveryInfo = getDeliveryInfo(item);
                     const isArrived =
                       (item.status || '').toLowerCase().includes('arrived') ||
-                      (item.status || '').toLowerCase().includes('custom');
+                      (item.status || '').toLowerCase().includes('custom') ||
+                      deliveryInfo.isDelivered;
 
                     return (
                       <tr
@@ -1861,8 +2040,6 @@ export default function InternalEmployeeViewPage() {
                             ? 'bg-amber-50 hover:bg-amber-100/70 font-semibold'
                             : mark === 'sub'
                             ? 'bg-blue-50 hover:bg-blue-100/70 font-semibold'
-                            : turnaround.isLate
-                            ? 'bg-red-50/40 hover:bg-red-50/70'
                             : idx % 2 === 0
                             ? 'bg-white hover:bg-slate-50'
                             : 'bg-slate-50/50 hover:bg-slate-100/70'
@@ -1988,33 +2165,30 @@ export default function InternalEmployeeViewPage() {
                         </td>
 
                         {/* 10. Receipt Date */}
-                        <td className="py-2.5 px-4 whitespace-nowrap">
-                          <div className="flex items-center space-x-1 font-semibold text-slate-800">
-                            <Calendar className="w-3 h-3 text-slate-400" />
-                            <span>{formatGlobalDate(item.date)}</span>
-                          </div>
-                        </td>
+                        {showReceiptDate && (
+                          <td className="py-2.5 px-4 whitespace-nowrap">
+                            <div className="flex items-center space-x-1 font-semibold text-slate-800">
+                              <Calendar className="w-3 h-3 text-slate-400" />
+                              <span>{formatGlobalDate(item.date)}</span>
+                            </div>
+                          </td>
+                        )}
 
                         {/* 11. ETA Date */}
                         <td className="py-2.5 px-4 whitespace-nowrap">
                           <div className="flex items-center space-x-1 font-bold text-slate-950">
-                            <Clock className="w-3 h-3 text-red-500" />
+                            <Clock className="w-3 h-3 text-blue-500" />
                             <span>{formatGlobalDate(item.eta)}</span>
                           </div>
-                          {(item.etaUpdatedAt || item.lastApiSync) && item.eta && item.eta !== 'N/A' && item.eta !== 'Pending' && (
-                            <div className="text-[10px] font-medium text-slate-500 mt-0.5 pl-4">
-                              Upd: {formatGlobalDate(item.etaUpdatedAt || item.lastApiSync)}
-                            </div>
-                          )}
                         </td>
 
                         {/* 12. Days to Deliver (Turnaround) */}
                         <td className="py-2.5 px-4 whitespace-nowrap">
                           <span
-                            className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] border ${turnaround.badgeClass}`}
+                            className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] border ${deliveryInfo.badgeClass}`}
                           >
                             <TrendingUp className="w-3 h-3 mr-1 shrink-0" />
-                            {turnaround.label}
+                            {deliveryInfo.label}
                           </span>
                         </td>
 

@@ -70,16 +70,24 @@ export async function GET(req: NextRequest) {
     }
 
     const target = foundContainer || foundShipment;
-    const actualCarrierEta = target.rawEta;
-    const clearanceEta = target.destinationDate || target.eta || '';
-    const bufferDays = target.etaBufferDays ?? 10;
-    // Per user requirement: Search by Container No. -> ETA = Actual Vessel ETA (Carrier) + 10d
-    let publicEta = 'Pending';
-    if (actualCarrierEta && actualCarrierEta !== 'N/A' && actualCarrierEta !== 'Pending') {
-      publicEta = calculatePublicDeliveryDate(actualCarrierEta, 10);
-    } else if (clearanceEta && clearanceEta !== 'N/A' && clearanceEta !== 'Pending') {
-      publicEta = formatGlobalDate(clearanceEta);
-    }
+    const rawPortDate = target.rawEta || '';
+    const portDate =
+      rawPortDate && rawPortDate !== 'N/A' && rawPortDate !== 'Pending' && rawPortDate !== '—'
+        ? (formatGlobalDate(rawPortDate) || rawPortDate)
+        : '';
+
+    // Two arrival dates: Port Date (vessel arrival at port) and ETA Date (destination ETA).
+    // DO NOT add three days or any buffer: show the actual ETA date directly.
+    const rawActualEta =
+      target.destinationDate && target.destinationDate !== 'N/A' && target.destinationDate !== 'Pending'
+        ? target.destinationDate
+        : target.eta && target.eta !== 'N/A' && target.eta !== 'Pending'
+        ? target.eta
+        : rawPortDate && rawPortDate !== 'N/A' && rawPortDate !== 'Pending'
+        ? rawPortDate
+        : 'Pending';
+
+    const publicEta = rawActualEta !== 'Pending' ? (formatGlobalDate(rawActualEta) || rawActualEta) : 'Pending';
 
     let isDelivered = Boolean(
       target.isDelivered ||
@@ -116,13 +124,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       success: true,
       container: target.container,
+      portDate: portDate || null,
       eta: publicEta,
       deliveryDate: formattedDeliveryDate,
       dateOfDelivery: isDelivered ? formattedDeliveryDate : publicEta,
       isDelivered,
       status: isDelivered ? (target.status || 'Delivered') : 'In Transit',
       daysToDeliver: target.daysToDeliver ?? null,
-      etaUpdatedAt,
+      etaUpdatedAt: null,
     });
   } catch (error: any) {
     return NextResponse.json(

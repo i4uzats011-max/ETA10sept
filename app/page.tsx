@@ -127,9 +127,9 @@ export default function PublicTrackerPage() {
       const deliveryDateVal = shipments.find((s) => s.deliveryDate)?.deliveryDate || primary.deliveryDate || '';
 
       doc.setFont('helvetica', 'bold');
-      doc.text('Receipt Date:', 18, 69);
+      doc.text('Status:', 18, 69);
       doc.setFont('helvetica', 'normal');
-      doc.text(String(formatGlobalDate(primary.date)), 50, 69);
+      doc.text(anyDelivered ? 'Delivered' : 'In Transit', 50, 69);
 
       doc.setFont('helvetica', 'bold');
       doc.text('ETA:', 110, 69);
@@ -151,11 +151,10 @@ export default function PublicTrackerPage() {
         doc.text(String(formatGlobalDate(deliveryDateVal)), 145, 77);
         doc.setTextColor(15, 23, 42);
       } else {
-        const primaryUpdated = primary.etaUpdatedAt || primary.lastApiSync;
         doc.setFont('helvetica', 'bold');
-        doc.text('ETA Updated On:', 110, 77);
+        doc.text('Destination Port:', 110, 77);
         doc.setFont('helvetica', 'normal');
-        doc.text(primaryUpdated ? String(formatGlobalDate(primaryUpdated)) : 'Pending', 145, 77);
+        doc.text('Nhava Sheva / Mundra, India', 145, 77);
       }
 
       doc.setFont('helvetica', 'bold');
@@ -165,15 +164,14 @@ export default function PublicTrackerPage() {
       doc.text(marksStr, 50, 85);
 
       // Manifest Table
-      const headers = ['#', 'Item / Commodity Name', 'Cargo Marks', 'Cartons (Qty)', 'Weight (KG)', 'Volume (CBM)', 'Container Alias', anyDelivered ? 'ETA & Delivered Date' : 'ETA (Last Updated)'];
+      const headers = ['#', 'Item / Commodity Name', 'Cargo Marks', 'Cartons (Qty)', 'Weight (KG)', 'Volume (CBM)', 'Container Alias', anyDelivered ? 'ETA & Delivered Date' : 'Estimated Arrival (ETA)'];
       const body = shipments.map((s, idx) => {
         const etaStr = formatGlobalDate(s.eta) || s.dateOfDelivery || 'Pending';
         const isItemDeliv = Boolean(s.isDelivered || s.deliveryDate || (s.status && s.status.toLowerCase().includes('deliver')));
         const delivStr = s.deliveryDate ? formatGlobalDate(s.deliveryDate) : '';
-        const updStr = (s.etaUpdatedAt || s.lastApiSync) ? formatGlobalDate(s.etaUpdatedAt || s.lastApiSync) : '';
         const dateColDisplay = isItemDeliv && delivStr
           ? `ETA: ${etaStr}\nDelivered: ${delivStr}`
-          : (updStr && etaStr !== 'Pending' ? `${etaStr}\n(Upd: ${updStr})` : etaStr);
+          : etaStr;
         return [
           idx + 1,
           s.english || s.commodity || 'General Cargo',
@@ -581,7 +579,6 @@ export default function PublicTrackerPage() {
   const chineseCommodity = primaryGoods.chinese && primaryGoods.chinese !== commodityName ? primaryGoods.chinese : '';
   const packagingType = primaryGoods.packaging || 'Carton';
   const warehouseLocation = whReceipt?.warehouse || receiptShipmentsList[0]?.warehouse || 'China Warehouse';
-  const receiptDateFormatted = formatGlobalDate(primaryGoods.date) || primaryGoods.date || 'Recent';
   const marksSummary = [
     primaryGoods.mainMarka ? `Main: ${primaryGoods.mainMarka}` : '',
     primaryGoods.subMarka && primaryGoods.subMarka !== '??' ? `Sub: ${primaryGoods.subMarka}` : ''
@@ -1181,7 +1178,7 @@ export default function PublicTrackerPage() {
                       <MapPin className="w-3.5 h-3.5 text-red-600 shrink-0" />
                       <span>{warehouseLocation}</span>
                     </div>
-                    <div className="text-[11px] text-slate-500 mt-0.5">Received Date: {receiptDateFormatted}</div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">Destination: Nhava Sheva / Mundra, India</div>
                   </div>
 
                   <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
@@ -1341,18 +1338,6 @@ export default function PublicTrackerPage() {
                               )}
                             </div>
                           )}
-
-                          {item.etaUpdatedAt && (
-                            <div className="pt-1.5 border-t border-slate-800 flex items-center justify-between text-[11px]">
-                              <span className="text-slate-400 font-semibold flex items-center space-x-1">
-                                <Calendar className="w-3 h-3 text-emerald-400" />
-                                <span>Last Updated:</span>
-                              </span>
-                              <span className="font-mono font-bold text-emerald-300 bg-emerald-950/60 border border-emerald-700/50 px-2 py-0.5 rounded">
-                                {formatGlobalDate(item.etaUpdatedAt)}
-                              </span>
-                            </div>
-                          )}
                         </div>
                       </div>
                     );
@@ -1463,11 +1448,6 @@ export default function PublicTrackerPage() {
                                   <span className="text-xs font-black font-mono text-white block">
                                     {formatGlobalDate(item.eta) || item.dateOfDelivery || 'Pending'}
                                   </span>
-                                  {(item.etaUpdatedAt || item.lastApiSync) && (
-                                    <span className="text-[9px] font-medium text-slate-400 block mt-0.5">
-                                      Updated: {formatGlobalDate(item.etaUpdatedAt || item.lastApiSync)}
-                                    </span>
-                                  )}
                                 </div>
                               </div>
 
@@ -1494,11 +1474,6 @@ export default function PublicTrackerPage() {
                                 <span className="text-sm font-black font-mono text-white block">
                                   {item.dateOfDelivery || formatGlobalDate(item.eta) || 'Pending'}
                                 </span>
-                                {(item.etaUpdatedAt || item.lastApiSync) && (
-                                  <span className="text-[10px] font-semibold text-amber-200 block mt-0.5">
-                                    Updated: {formatGlobalDate(item.etaUpdatedAt || item.lastApiSync)}
-                                  </span>
-                                )}
                               </div>
                             </div>
                           )}
@@ -1576,7 +1551,7 @@ export default function PublicTrackerPage() {
           )}
 
 
-          {/* 6. Container Search Results (CONTAINER ALIAS, DATE OF DELIVERY (ETA + 10 DAYS), AND ETA LAST UPDATED DATE) */}
+          {/* 6. Container Search Results (CONTAINER ALIAS, DATE OF DELIVERY) */}
           {activeTab === 'container' && containerResult && (() => {
             const isDelivered = Boolean(
               containerResult.isDelivered ||
@@ -1634,17 +1609,6 @@ export default function PublicTrackerPage() {
                       <div className="text-3xl sm:text-4xl font-black font-mono text-amber-300">
                         {containerResult.dateOfDelivery || formatGlobalDate(containerResult.eta) || 'Pending'}
                       </div>
-
-                      {(containerResult.etaUpdatedAt || containerResult.lastApiSync) && (
-                        <div className="pt-2 border-t border-slate-800 flex items-center justify-center">
-                          <span className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                            <Clock className="w-3.5 h-3.5 text-emerald-400" />
-                            <span>
-                              ETA Last Updated: <strong className="font-mono text-white">{formatGlobalDate(containerResult.etaUpdatedAt || containerResult.lastApiSync)}</strong>
-                            </span>
-                          </span>
-                        </div>
-                      )}
 
                       <p className="text-[11px] text-slate-400">
                         Estimated arrival date for container {containerResult.container}.
