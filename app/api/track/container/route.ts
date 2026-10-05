@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
-import { calculatePublicDeliveryDate, formatGlobalDate } from '@/lib/dateUtils';
+import { formatGlobalDate } from '@/lib/dateUtils';
 
 export const dynamic = 'force-dynamic';
 

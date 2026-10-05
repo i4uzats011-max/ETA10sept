@@ -4,7 +4,7 @@ import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
 import { translateToEnglish } from '@/lib/translate';
-import { calculatePublicDeliveryDate, formatGlobalDate } from '@/lib/dateUtils';
+import { formatGlobalDate } from '@/lib/dateUtils';
 
 export const dynamic = 'force-dynamic';
 
@@ -236,7 +236,7 @@ export async function GET(req: NextRequest) {
         volume: formatVolumeWithDecimals(shipment.volume),
         date: undefined,
         warehouse: shipment.warehouse || whItem?.warehouse || 'China Warehouse',
-        warehouseEntry: shipment.warehouseEntry || 'N/A',
+        warehouseEntry: undefined,
         packaging: shipment.packaging || 'N/A',
         mainMarka: shipment.mainMarka || '',
         subMarka: shipment.subMarka || '',
@@ -248,6 +248,7 @@ export async function GET(req: NextRequest) {
     if (sanitizedWhItem) {
       delete sanitizedWhItem.date;
       delete sanitizedWhItem.receiptDate;
+      delete sanitizedWhItem.warehouseEntry;
       delete sanitizedWhItem.createdAt;
       delete sanitizedWhItem.uploadedAt;
       delete sanitizedWhItem.etaUpdatedAt;

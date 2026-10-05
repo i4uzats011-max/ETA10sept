@@ -125,6 +125,7 @@ export default function PublicTrackerPage() {
 
       const anyDelivered = shipments.some((s) => s.isDelivered || (s.status && s.status.toLowerCase().includes('deliver')) || s.deliveryDate);
       const deliveryDateVal = shipments.find((s) => s.deliveryDate)?.deliveryDate || primary.deliveryDate || '';
+      const portDateVal = shipments.find((s) => s.portDate)?.portDate || primary.portDate || '';
 
       doc.setFont('helvetica', 'bold');
       doc.text('Status:', 18, 69);
@@ -132,7 +133,7 @@ export default function PublicTrackerPage() {
       doc.text(anyDelivered ? 'Delivered' : 'In Transit', 50, 69);
 
       doc.setFont('helvetica', 'bold');
-      doc.text('ETA:', 110, 69);
+      doc.text('ETA Date:', 110, 69);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(220, 38, 38); // Highlight ETA in Red
       doc.text(String(formatGlobalDate(primary.eta) || primary.dateOfDelivery || 'Pending'), 145, 69);
@@ -143,12 +144,12 @@ export default function PublicTrackerPage() {
       doc.setFont('helvetica', 'normal');
       doc.text(String(primary.warehouse || 'China Warehouse'), 50, 77);
 
-      if (anyDelivered && deliveryDateVal) {
+      if (portDateVal) {
         doc.setFont('helvetica', 'bold');
-        doc.text('Delivered Date:', 110, 77);
+        doc.text('Port Date (Vessel):', 110, 77);
         doc.setFont('helvetica', 'bold');
-        doc.setTextColor(16, 185, 129); // Highlight Delivered Date in Green
-        doc.text(String(formatGlobalDate(deliveryDateVal)), 145, 77);
+        doc.setTextColor(2, 132, 199); // Blue for Port Date
+        doc.text(String(formatGlobalDate(portDateVal)), 145, 77);
         doc.setTextColor(15, 23, 42);
       } else {
         doc.setFont('helvetica', 'bold');
@@ -163,15 +164,27 @@ export default function PublicTrackerPage() {
       const marksStr = [primary.mainMarka ? `Main: ${primary.mainMarka}` : '', (primary.subMarka && primary.subMarka !== '??') ? `Sub: ${primary.subMarka}` : ''].filter(Boolean).join(' | ') || 'N/A';
       doc.text(marksStr, 50, 85);
 
+      if (anyDelivered && deliveryDateVal) {
+        doc.setFont('helvetica', 'bold');
+        doc.text('Delivered Date:', 110, 85);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(16, 185, 129); // Highlight Delivered Date in Green
+        doc.text(String(formatGlobalDate(deliveryDateVal)), 145, 85);
+        doc.setTextColor(15, 23, 42);
+      }
+
       // Manifest Table
-      const headers = ['#', 'Item / Commodity Name', 'Cargo Marks', 'Cartons (Qty)', 'Weight (KG)', 'Volume (CBM)', 'Container Alias', anyDelivered ? 'ETA & Delivered Date' : 'Estimated Arrival (ETA)'];
+      const headers = ['#', 'Item / Commodity Name', 'Cargo Marks', 'Cartons (Qty)', 'Weight (KG)', 'Volume (CBM)', 'Container Alias', anyDelivered ? 'Port / ETA / Delivered' : 'Port Date & ETA'];
       const body = shipments.map((s, idx) => {
         const etaStr = formatGlobalDate(s.eta) || s.dateOfDelivery || 'Pending';
+        const portStr = s.portDate ? formatGlobalDate(s.portDate) : '';
         const isItemDeliv = Boolean(s.isDelivered || s.deliveryDate || (s.status && s.status.toLowerCase().includes('deliver')));
         const delivStr = s.deliveryDate ? formatGlobalDate(s.deliveryDate) : '';
-        const dateColDisplay = isItemDeliv && delivStr
-          ? `ETA: ${etaStr}\nDelivered: ${delivStr}`
-          : etaStr;
+        const lines: string[] = [];
+        if (portStr) lines.push(`Port: ${portStr}`);
+        lines.push(`ETA: ${etaStr}`);
+        if (isItemDeliv && delivStr) lines.push(`Delivered: ${delivStr}`);
+        const dateColDisplay = lines.join('\n');
         return [
           idx + 1,
           s.english || s.commodity || 'General Cargo',
@@ -342,8 +355,6 @@ export default function PublicTrackerPage() {
                 quantity
                 weight
                 volume
-                date
-                warehouseEntry
                 warehouse
                 stockstatus
                 packaging
@@ -421,12 +432,10 @@ export default function PublicTrackerPage() {
               deliveryDate
               isDelivered
               daysToDeliver
-              etaUpdatedAt
               status
               shippedFrom
               shippedTo
               currentLocation
-              startDate
               destinationDate
               vesselName
               voyageNumber
@@ -588,8 +597,8 @@ export default function PublicTrackerPage() {
 
   const faqs = [
     {
-      q: 'How does the container arrival date calculation work?',
-      a: 'For live carrier APIs, an automated +10 days buffer is added to the actual carrier vessel ETA to account for customs clearance and container terminal processing in India. If the ETA date is explicitly defined by our admin team, the exact date set by the admin is displayed directly.',
+      q: 'What is the difference between Port Date and ETA Date?',
+      a: 'The Port Date indicates when the vessel arrives at the destination port (Nhava Sheva / Mundra). The ETA Date shows the expected final arrival and delivery date. Both are actual dates tracked directly from carrier and operations schedules without arbitrary buffer delays.',
     },
     {
       q: 'Can I track multiple cargo packages with a single Receipt Number?',
@@ -1014,9 +1023,9 @@ export default function PublicTrackerPage() {
                   </div>
 
                   <div className="bg-white/80 p-3.5 rounded-2xl border border-blue-100">
-                    <span className="text-[11px] font-bold text-slate-400 uppercase">Received Date</span>
+                    <span className="text-[11px] font-bold text-slate-400 uppercase">Storage Status</span>
                     <div className="font-bold text-slate-900 text-sm mt-0.5">
-                      {formatGlobalDate(receiptResult.warehouseReceipt.date) || receiptResult.warehouseReceipt.date || 'Recent'}
+                      {receiptResult.warehouseReceipt.stockstatus || 'Secure In-Stock'}
                     </div>
                   </div>
 
@@ -1475,6 +1484,20 @@ export default function PublicTrackerPage() {
                         <div className="flex items-center space-x-3">
                           {isItemDeliv ? (
                             <div className="flex flex-wrap items-center gap-2">
+                              {item.portDate && (
+                                <div className="flex items-center space-x-2 text-white px-3 py-1.5 rounded-xl border shadow-sm bg-slate-800 border-sky-500/40">
+                                  <Ship className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                                  <div>
+                                    <span className="text-[9px] uppercase font-bold text-sky-300 block">
+                                      Port Date
+                                    </span>
+                                    <span className="text-xs font-black font-mono text-white block">
+                                      {formatGlobalDate(item.portDate)}
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
+
                               {/* Expected ETA */}
                               <div className="flex items-center space-x-2 text-white px-3 py-1.5 rounded-xl border shadow-sm bg-slate-800 border-slate-700">
                                 <Clock className="w-3.5 h-3.5 text-amber-300 shrink-0" />
@@ -1502,15 +1525,31 @@ export default function PublicTrackerPage() {
                               </div>
                             </div>
                           ) : (
-                            <div className="flex items-center space-x-2.5 text-white px-4 py-2 rounded-xl border shadow-sm bg-gradient-to-r from-red-600 to-rose-600 border-red-400/40">
-                              <Clock className="w-4 h-4 text-amber-300 shrink-0" />
-                              <div>
-                                <span className="text-[9px] uppercase font-bold text-rose-200 block">
-                                  ETA
-                                </span>
-                                <span className="text-sm font-black font-mono text-white block">
-                                  {item.dateOfDelivery || formatGlobalDate(item.eta) || 'Pending'}
-                                </span>
+                            <div className="flex flex-wrap items-center gap-2">
+                              {item.portDate && (
+                                <div className="flex items-center space-x-2 text-white px-3 py-1.5 rounded-xl border shadow-sm bg-slate-800 border-sky-500/40">
+                                  <Ship className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                                  <div>
+                                    <span className="text-[9px] uppercase font-bold text-sky-300 block">
+                                      Port Date
+                                    </span>
+                                    <span className="text-xs font-black font-mono text-white block">
+                                      {formatGlobalDate(item.portDate)}
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
+
+                              <div className="flex items-center space-x-2.5 text-white px-4 py-2 rounded-xl border shadow-sm bg-gradient-to-r from-red-600 to-rose-600 border-red-400/40">
+                                <Clock className="w-4 h-4 text-amber-300 shrink-0" />
+                                <div>
+                                  <span className="text-[9px] uppercase font-bold text-rose-200 block">
+                                    ETA Date
+                                  </span>
+                                  <span className="text-sm font-black font-mono text-white block">
+                                    {formatGlobalDate(item.eta) || item.dateOfDelivery || 'Pending'}
+                                  </span>
+                                </div>
                               </div>
                             </div>
                           )}
@@ -1625,27 +1664,62 @@ export default function PublicTrackerPage() {
                         {formatGlobalDate(deliveryDateVal)}
                       </div>
 
-                      {(containerResult.eta || containerResult.dateOfDelivery) && (
-                        <div className="pt-2 border-t border-slate-800 flex items-center justify-center">
+                      <div className="pt-2 border-t border-slate-800 flex flex-wrap items-center justify-center gap-2">
+                        {containerResult.portDate && (
+                          <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-800 text-sky-300 border border-sky-500/30">
+                            <Ship className="w-3.5 h-3.5 text-sky-400" />
+                            <span>Port Date: <strong className="font-mono text-white">{formatGlobalDate(containerResult.portDate)}</strong></span>
+                          </span>
+                        )}
+                        {(containerResult.eta || containerResult.dateOfDelivery) && (
                           <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-800 text-slate-300 border border-slate-700">
                             <Clock className="w-3.5 h-3.5 text-amber-400" />
                             <span>Expected ETA: <strong className="font-mono text-white">{formatGlobalDate(containerResult.eta) || containerResult.dateOfDelivery}</strong></span>
                           </span>
-                        </div>
-                      )}
+                        )}
+                      </div>
 
                       <p className="text-[11px] text-emerald-300/80">
                         Container {containerResult.container} has been safely delivered.
                       </p>
                     </div>
                   ) : (
-                    <div className="p-6 rounded-2xl bg-slate-900 text-white space-y-3 border border-slate-800">
-                      <span className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                        Expected Arrival Date (ETA)
-                      </span>
-                      <div className="text-3xl sm:text-4xl font-black font-mono text-amber-300">
-                        {containerResult.dateOfDelivery || formatGlobalDate(containerResult.eta) || 'Pending'}
-                      </div>
+                    <div className="p-6 rounded-2xl bg-slate-900 text-white space-y-4 border border-slate-800">
+                      {containerResult.portDate ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
+                          <div className="p-3.5 rounded-xl bg-sky-950/60 border border-sky-600/40">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-300 flex items-center space-x-1 mb-1">
+                              <Ship className="w-3.5 h-3.5 text-sky-400" />
+                              <span>Port Date (Vessel Arrival)</span>
+                            </span>
+                            <div className="text-xl sm:text-2xl font-black font-mono text-sky-200">
+                              {formatGlobalDate(containerResult.portDate)}
+                            </div>
+                            <span className="text-[10px] text-sky-300/70 mt-0.5 block">Nhava Sheva / Mundra Port</span>
+                          </div>
+
+                          <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-700">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-300 flex items-center space-x-1 mb-1">
+                              <Clock className="w-3.5 h-3.5 text-amber-400" />
+                              <span>ETA Date (Expected Arrival)</span>
+                            </span>
+                            <div className="text-xl sm:text-2xl font-black font-mono text-white">
+                              {formatGlobalDate(containerResult.eta) || containerResult.dateOfDelivery || 'Pending'}
+                            </div>
+                            <span className="text-[10px] text-slate-400 mt-0.5 block">Final Delivery ETA</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <span className="text-xs font-bold uppercase tracking-widest text-slate-400 flex items-center justify-center space-x-1.5">
+                            <Clock className="w-4 h-4 text-amber-400" />
+                            <span>Expected Arrival Date (ETA)</span>
+                          </span>
+                          <div className="text-3xl sm:text-4xl font-black font-mono text-amber-300">
+                            {formatGlobalDate(containerResult.eta) || containerResult.dateOfDelivery || 'Pending'}
+                          </div>
+                        </div>
+                      )}
 
                       <p className="text-[11px] text-slate-400">
                         Estimated arrival date for container {containerResult.container}.
@@ -1789,7 +1863,7 @@ export default function PublicTrackerPage() {
                 </div>
                 <div className="flex items-center space-x-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span>Automated Carrier ETA Updates (Actual Vessel ETA + 10 Days Buffer)</span>
+                  <span>Confirmed Port Arrival & Direct Delivery ETA Tracking</span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />

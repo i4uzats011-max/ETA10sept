@@ -7,7 +7,7 @@ import WarehouseReceipt from '@/models/WarehouseReceipt';
 import { isAdminAuthenticated } from '@/lib/auth';
 import { fetchContainerTracking, fetchApiKeyStats, addFilingBufferDays } from '@/lib/jsoncargo';
 import { translateToEnglish } from '@/lib/translate';
-import { calculatePublicDeliveryDate, formatGlobalDate } from '@/lib/dateUtils';
+import { formatGlobalDate } from '@/lib/dateUtils';
 
 export const dynamic = 'force-dynamic';
 
@@ -396,7 +396,7 @@ function createRootResolver(req: NextRequest) {
           status: isItemDelivered ? 'Delivered' : (s.status || 'In Transit'),
           lastApiSync: null,
           etaUpdatedAt: null,
-          warehouseEntry: s.warehouseEntry || 'N/A',
+          warehouseEntry: null,
           commodity: translateToEnglish(s.commodity || s.chinese || s.english),
           chinese: translateToEnglish(s.chinese || s.commodity || s.english), // Enforce English translation ONLY
           english: translateToEnglish(s.english || s.commodity || s.chinese),
@@ -408,7 +408,7 @@ function createRootResolver(req: NextRequest) {
           packaging: s.packaging || 'N/A',
           subMarka: s.subMarka || '',
           mainMarka: s.mainMarka || '',
-          date: s.date || 'N/A',
+          date: null,
           isSplit: Boolean(s.isSplit || rawShipments.length > 1),
           splitIndex: s.splitIndex || 1,
           originalTotalQuantity: s.originalTotalQuantity || s.quantity || '0',
