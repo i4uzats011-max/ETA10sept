@@ -163,13 +163,7 @@ export default function CargoMasterTable({
     const all = items.length;
 
     items.forEach((c) => {
-      const isDelivered = Boolean(
-        c.isDelivered ||
-          (c.status &&
-            (c.status.toLowerCase().includes('deliver') ||
-              c.status.toLowerCase().includes('arrived') ||
-              c.status.toLowerCase().includes('reached')))
-      );
+      const isDelivered = isContainerDelivered(c);
       if (isDelivered) {
         delivered++;
       } else if (c.daysRemaining !== null && c.daysRemaining !== undefined) {
@@ -188,13 +182,7 @@ export default function CargoMasterTable({
   const filteredData = useMemo(() => {
     const list = items.filter((c) => {
       // 1. Status Tab / ETA Bucket filter
-      const isDelivered = Boolean(
-        c.isDelivered ||
-          (c.status &&
-            (c.status.toLowerCase().includes('deliver') ||
-              c.status.toLowerCase().includes('arrived') ||
-              c.status.toLowerCase().includes('reached')))
-      );
+      const isDelivered = isContainerDelivered(c);
       const days = c.daysRemaining;
 
       if (statusFilter === 'within-2-days') {
@@ -512,10 +500,7 @@ export default function CargoMasterTable({
         header: 'Delivery Date',
         cell: ({ row }) => {
           const dDate = row.original.deliveryDate;
-          const isDelivered = Boolean(
-            row.original.isDelivered ||
-            (row.original.status && row.original.status.toLowerCase().includes('deliver'))
-          );
+          const isDelivered = isContainerDelivered(row.original);
 
           if (isDelivered && dDate) {
             return (
@@ -540,10 +525,7 @@ export default function CargoMasterTable({
           </button>
         ),
         cell: ({ row }) => {
-          const isDelivered = Boolean(
-            row.original.isDelivered ||
-            (row.original.status && row.original.status.toLowerCase().includes('deliver'))
-          );
+          const isDelivered = isContainerDelivered(row.original);
 
           if (isDelivered) {
             return (
@@ -635,16 +617,22 @@ export default function CargoMasterTable({
         header: 'Status',
         cell: ({ row }) => {
           const status = row.original.status || 'In Transit';
-          const isDelivered = Boolean(
-            row.original.isDelivered || status.toLowerCase().includes('deliver')
-          );
+          const isDelivered = isContainerDelivered(row.original);
           const isDestinationReached = Boolean(
             status.toLowerCase().includes('destination') ||
               status.toLowerCase().includes('arrived') ||
               status.toLowerCase().includes('reached')
           );
 
-          if (isDestinationReached && !isDelivered) {
+          if (isDelivered) {
+            return (
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                Delivered
+              </span>
+            );
+          }
+
+          if (isDestinationReached) {
             return (
               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-teal-100 text-teal-900 border border-teal-300">
                 Container reached to the final destination
@@ -653,14 +641,8 @@ export default function CargoMasterTable({
           }
 
           return (
-            <span
-              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                isDelivered
-                  ? 'bg-emerald-100 text-emerald-800'
-                  : 'bg-blue-100 text-blue-800'
-              }`}
-            >
-              {isDelivered ? 'Delivered' : status}
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800">
+              {status}
             </span>
           );
         },
