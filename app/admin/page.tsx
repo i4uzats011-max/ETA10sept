@@ -235,6 +235,9 @@ export default function AdminDashboardPage() {
 
   // Manual ETA & Container Control Tool state (Zero API Dependency)
   const [manualEtaContainer, setManualEtaContainer] = useState('');
+  const [containerSearchInput, setContainerSearchInput] = useState('');
+  const [isContainerDropdownOpen, setIsContainerDropdownOpen] = useState(false);
+  const containerSearchRef = useRef<HTMLDivElement>(null);
   const [manualActualContainerNo, setManualActualContainerNo] = useState('');
   const [manualLoadingDate, setManualLoadingDate] = useState('');
   const [manualActualEtaDate, setManualActualEtaDate] = useState('');
@@ -244,7 +247,7 @@ export default function AdminDashboardPage() {
   const [manualStatusInput, setManualStatusInput] = useState('In Transit');
   const [manualDeliveryDate, setManualDeliveryDate] = useState('');
   const [manualShippedFrom, setManualShippedFrom] = useState('Ningbo / Shanghai, China');
-  const [manualShippedTo, setManualShippedTo] = useState('Nhava Sheva / Mundra, India');
+  const [manualShippedTo, setManualShippedTo] = useState('India Port');
   const [manualShippingCompany, setManualShippingCompany] = useState('MSC');
   const [applyFilingBuffer, setApplyFilingBuffer] = useState(true);
   const [isSettingManualEta, setIsSettingManualEta] = useState(false);
@@ -471,7 +474,9 @@ export default function AdminDashboardPage() {
     setActiveAdminTab('manual-eta');
     if (containerAlias) {
       setManualEtaContainer(containerAlias);
+      setContainerSearchInput(containerAlias);
       setSelectedContainer(containerAlias);
+      handleContainerSelectionChange(containerAlias);
     }
     if (company) {
       setManualShippingCompany(company);
@@ -499,6 +504,7 @@ export default function AdminDashboardPage() {
   const handleContainerSelectionChange = async (alias: string) => {
     setManualSyncContainer(alias);
     setManualEtaContainer(alias);
+    setContainerSearchInput(alias);
     setEditedAliasInput(alias);
     setIsEditingContainerNumber(false);
     setDatePasteInput('');
@@ -533,6 +539,14 @@ export default function AdminDashboardPage() {
     } catch {
       // Fallback
     }
+  };
+
+  const handleSelectSearchContainer = (alias: string) => {
+    setManualEtaContainer(alias);
+    setContainerSearchInput(alias);
+    setSelectedContainer(alias);
+    setIsContainerDropdownOpen(false);
+    handleContainerSelectionChange(alias);
   };
 
   const fetchApiStats = async () => {
@@ -669,7 +683,17 @@ export default function AdminDashboardPage() {
   // 4. Handle Manual ETA Date & Container Update/Create Override (Zero API Dependency)
   const handleManualEtaOverrideSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const effectiveContainer = isNewContainerMode ? newContainerInput.trim() : manualEtaContainer.trim();
+    let targetContainer = manualEtaContainer.trim();
+    if (!targetContainer && containerSearchInput.trim()) {
+      const match = allSearchableContainers.find(
+        (c) =>
+          c.alias.toLowerCase() === containerSearchInput.trim().toLowerCase() ||
+          (c.containerNumber && c.containerNumber.toLowerCase() === containerSearchInput.trim().toLowerCase())
+      );
+      targetContainer = match ? match.alias : containerSearchInput.trim();
+      setManualEtaContainer(targetContainer);
+    }
+    const effectiveContainer = isNewContainerMode ? newContainerInput.trim() : targetContainer;
 
     if (!effectiveContainer) {
       setManualEtaStatus({ type: 'error', message: 'Please select or enter a container identifier' });
@@ -737,6 +761,7 @@ export default function AdminDashboardPage() {
       }
 
       setManualEtaContainer(savedAlias);
+      setContainerSearchInput(savedAlias);
       setSelectedContainer(savedAlias);
       setIsEditingContainerNumber(false);
 

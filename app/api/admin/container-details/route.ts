@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
       containerNumber: doc.containerNumber || '',
       shippingLine: doc.shippingLine || 'MSC',
       shippedFrom: doc.shippedFrom || 'Ningbo / Shanghai, China',
-      shippedTo: doc.shippedTo || 'Nhava Sheva / Mundra, India',
+      shippedTo: doc.shippedTo || 'India Port',
       startDate: doc.startDate || doc.loadingDate || '',
       loadingDate: doc.loadingDate || doc.startDate || '',
       rawEta: doc.rawEta || '',
