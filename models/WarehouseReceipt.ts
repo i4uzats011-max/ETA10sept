@@ -36,6 +36,11 @@ export interface IWarehouseReceipt extends Document {
   deliveryDate?: string;        // Final delivery date
   isDelivered?: boolean;        // Delivery status
   notes?: string;               // Optional notes or remarks from warehouse
+  phone?: string;               // Party contact / WhatsApp mobile
+  partyPhone?: string;          // Party phone
+  messageSent?: boolean;        // Arrival notification sent status
+  messageSentAt?: Date | null;  // Timestamp of message sent
+  messageSentDate?: string;     // Formatted message sent date/time
   uploadBatchId?: string;       // ID of upload batch for tracking & rollback
   uploadedAt: Date;             // Entry creation timestamp
   createdAt: Date;
@@ -86,6 +91,11 @@ const WarehouseReceiptSchema = new Schema<IWarehouseReceipt>(
     deliveryDate: { type: String, default: '' },
     isDelivered: { type: Boolean, default: false },
     notes: { type: String, default: '' },
+    phone: { type: String, default: '', trim: true },
+    partyPhone: { type: String, default: '', trim: true },
+    messageSent: { type: Boolean, default: false, index: true },
+    messageSentAt: { type: Date, default: null },
+    messageSentDate: { type: String, default: '' },
     uploadBatchId: { type: String, default: '', index: true },
     uploadedAt: { type: Date, default: Date.now },
   },

@@ -15,6 +15,7 @@ import {
 import { addFilingBufferDays } from '@/lib/jsoncargo';
 import CargoMasterTable from '@/components/CargoMasterTable';
 import LoaderHub from '@/components/LoaderHub';
+import PartyArrivalNotifications from '@/components/PartyArrivalNotifications';
 import { ReduxProvider } from '@/store/ReduxProvider';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -55,6 +56,7 @@ import {
   Key,
   Copy,
   Boxes,
+  MessageSquare,
 } from 'lucide-react';
 
 const SHIPPING_LINES = [
@@ -225,7 +227,7 @@ export default function AdminDashboardPage() {
   const [liveJsonCargoDetails, setLiveJsonCargoDetails] = useState<any | null>(null);
 
   // Modern Modular Menu Bar Tabs state
-  type AdminTab = 'loader-hub' | 'shipments' | 'containers' | 'api-sync' | 'manual-eta' | 'alerts';
+  type AdminTab = 'loader-hub' | 'shipments' | 'containers' | 'api-sync' | 'manual-eta' | 'alerts' | 'notifications';
   const [activeAdminTab, setActiveAdminTab] = useState<AdminTab>('loader-hub');
 
   // Container Fleet Directory state (Table view)
@@ -1352,7 +1354,7 @@ export default function AdminDashboardPage() {
 
         {/* ── MODERN ADMIN MENU BAR (Zero Scrollbars - Responsive Grid) ── */}
         <div className="bg-white border border-slate-200 rounded-2xl p-2 shadow-sm">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 w-full">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2 w-full">
             <button
               type="button"
               onClick={() => setActiveAdminTab('loader-hub')}
@@ -1364,6 +1366,19 @@ export default function AdminDashboardPage() {
             >
               <Warehouse className="w-4 h-4 shrink-0" />
               <span className="truncate">Loader Hub</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveAdminTab('notifications')}
+              className={`px-3 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 w-full ${
+                activeAdminTab === 'notifications'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
+              }`}
+            >
+              <MessageSquare className="w-4 h-4 shrink-0" />
+              <span className="truncate">Party Messages</span>
             </button>
 
             <button
@@ -3098,6 +3113,13 @@ export default function AdminDashboardPage() {
             <ReduxProvider>
               <LoaderHub />
             </ReduxProvider>
+          </div>
+        )}
+
+        {/* ── TAB: PARTY ARRIVAL NOTIFICATIONS (WHATSAPP NOTIFICATIONS) ── */}
+        {activeAdminTab === 'notifications' && (
+          <div className="animate-fadeIn">
+            <PartyArrivalNotifications />
           </div>
         )}
 

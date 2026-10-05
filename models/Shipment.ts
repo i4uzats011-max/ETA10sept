@@ -49,6 +49,11 @@ export interface IShipment extends Document {
   apiCallCount?: number;        // Count of API calls made
   rawEta?: string;              // Carrier raw ETA
   etaBufferDays?: number;       // Clearance procedure buffer days added to raw ETA (default: 10)
+  phone?: string;               // Party contact / WhatsApp mobile
+  partyPhone?: string;          // Party phone
+  messageSent?: boolean;        // Arrival notification sent status
+  messageSentAt?: Date | null;  // Timestamp of message sent
+  messageSentDate?: string;     // Formatted message sent date/time
   uploadBatchId?: string;       // ID of upload batch for tracking & rollback
   uploadedAt: Date;             // Record creation timestamp
 }
@@ -74,6 +79,11 @@ const ShipmentSchema = new Schema<IShipment>({
   mainMarka: { type: String, default: '' },
 
   party: { type: String, default: '', index: true, trim: true },
+  phone: { type: String, default: '', trim: true },
+  partyPhone: { type: String, default: '', trim: true },
+  messageSent: { type: Boolean, default: false, index: true },
+  messageSentAt: { type: Date, default: null },
+  messageSentDate: { type: String, default: '' },
   loadingDate: { type: String, default: '' },
   receiptId: { type: Schema.Types.ObjectId, ref: 'WarehouseReceipt', default: null },
   originalTotalQuantity: { type: String, default: '' },
