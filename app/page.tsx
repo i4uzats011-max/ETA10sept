@@ -500,9 +500,9 @@ export default function PublicTrackerPage() {
   const containerMap = new Map<string, {
     container: string;
     quantity: number;
+    portDate?: string | null;
     eta: string;
     dateOfDelivery: string;
-    etaUpdatedAt?: string | null;
     items: any[];
     weight: number;
     volume: number;
@@ -516,14 +516,15 @@ export default function PublicTrackerPage() {
     const isItemDeliv = Boolean(s.isDelivered || (s.status && s.status.toLowerCase().includes('deliver')) || s.deliveryDate);
     const delivDate = s.deliveryDate || (isItemDeliv ? s.dateOfDelivery : '');
     const etaDate = formatGlobalDate(s.eta) || s.dateOfDelivery || 'Pending';
+    const portDateVal = s.portDate ? (formatGlobalDate(s.portDate) || s.portDate) : (s.rawEta ? (formatGlobalDate(s.rawEta) || s.rawEta) : null);
 
     if (!containerMap.has(c)) {
       containerMap.set(c, {
         container: c,
         quantity: 0,
+        portDate: portDateVal,
         eta: etaDate,
         dateOfDelivery: s.dateOfDelivery || etaDate,
-        etaUpdatedAt: s.etaUpdatedAt || s.lastApiSync || null,
         items: [],
         weight: 0,
         volume: 0,
@@ -541,6 +542,9 @@ export default function PublicTrackerPage() {
     entry.volume += v;
     entry.items.push(s);
 
+    if (!entry.portDate && portDateVal) {
+      entry.portDate = portDateVal;
+    }
     if (isItemDeliv) {
       entry.isDelivered = true;
       if (delivDate) {
@@ -552,9 +556,6 @@ export default function PublicTrackerPage() {
     }
     if (entry.eta === 'Pending' && s.eta) {
       entry.eta = formatGlobalDate(s.eta);
-    }
-    if (!entry.etaUpdatedAt && (s.etaUpdatedAt || s.lastApiSync)) {
-      entry.etaUpdatedAt = s.etaUpdatedAt || s.lastApiSync;
     }
   }
 
@@ -1294,19 +1295,31 @@ export default function PublicTrackerPage() {
                         >
                           {item.isDelivered ? (
                             <div className="space-y-2">
-                              <div className="grid grid-cols-2 gap-2">
-                                {/* Left: Expected ETA */}
+                              <div className={`grid ${item.portDate ? 'grid-cols-3' : 'grid-cols-2'} gap-2`}>
+                                {item.portDate && (
+                                  <div className="p-2 rounded-lg bg-sky-950/60 border border-sky-600/40">
+                                    <div className="flex items-center space-x-1 text-sky-300 text-[10px] font-bold uppercase">
+                                      <Ship className="w-3 h-3 text-sky-400 shrink-0" />
+                                      <span>Port Date</span>
+                                    </div>
+                                    <div className="text-xs font-black font-mono text-sky-200 mt-0.5 truncate">
+                                      {formatGlobalDate(item.portDate)}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Expected ETA */}
                                 <div className="p-2 rounded-lg bg-slate-800/80 border border-slate-700/60">
                                   <div className="flex items-center space-x-1 text-amber-300 text-[10px] font-bold uppercase">
                                     <Clock className="w-3 h-3 text-amber-400 shrink-0" />
                                     <span>Expected ETA</span>
                                   </div>
                                   <div className="text-xs font-black font-mono text-white mt-0.5 truncate">
-                                    {item.eta || item.dateOfDelivery || 'Pending'}
+                                    {formatGlobalDate(item.eta) || item.dateOfDelivery || 'Pending'}
                                   </div>
                                 </div>
 
-                                {/* Right: Delivered Date */}
+                                {/* Delivered Date */}
                                 <div className="p-2 rounded-lg bg-emerald-950/60 border border-emerald-500/40">
                                   <div className="flex items-center space-x-1 text-emerald-300 text-[10px] font-bold uppercase">
                                     <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
@@ -1318,16 +1331,40 @@ export default function PublicTrackerPage() {
                                 </div>
                               </div>
                             </div>
+                          ) : item.portDate ? (
+                            <div className="space-y-1.5">
+                              <div className="grid grid-cols-2 gap-2">
+                                <div className="p-2 rounded-lg bg-sky-950/60 border border-sky-600/40">
+                                  <div className="flex items-center space-x-1 text-sky-300 text-[10px] font-bold uppercase">
+                                    <Ship className="w-3 h-3 text-sky-400 shrink-0" />
+                                    <span>Port Date</span>
+                                  </div>
+                                  <div className="text-xs font-black font-mono text-sky-200 mt-0.5 truncate">
+                                    {formatGlobalDate(item.portDate)}
+                                  </div>
+                                </div>
+
+                                <div className="p-2 rounded-lg bg-slate-900 border border-slate-700/60">
+                                  <div className="flex items-center space-x-1 text-amber-300 text-[10px] font-bold uppercase">
+                                    <Clock className="w-3 h-3 text-amber-400 shrink-0" />
+                                    <span>ETA Date</span>
+                                  </div>
+                                  <div className="text-xs font-black font-mono text-white mt-0.5 truncate">
+                                    {formatGlobalDate(item.eta) || item.dateOfDelivery || 'Pending'}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
                           ) : (
                             <div className="flex items-center justify-between">
                               <div className="flex items-center space-x-2">
                                 <Clock className="w-4 h-4 text-amber-400 shrink-0" />
                                 <div>
                                   <span className="text-[10px] uppercase font-bold text-red-300 block">
-                                    ETA (Expected Arrival)
+                                    ETA Date (Expected Arrival)
                                   </span>
                                   <span className="text-sm font-black font-mono text-white">
-                                    {item.dateOfDelivery || item.eta}
+                                    {formatGlobalDate(item.eta) || item.dateOfDelivery || 'Pending'}
                                   </span>
                                 </div>
                               </div>
