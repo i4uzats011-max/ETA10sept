@@ -353,7 +353,7 @@ export async function POST(req: NextRequest) {
         await WarehouseReceipt.updateMany(
           {
             $or: [{ mainMarka: effectiveMarka }, { subMarka: effectiveMarka }],
-            $or: [{ phone: '' }, { phone: { $exists: false } }],
+            phone: { $in: ['', null] },
           },
           {
             $set: {
