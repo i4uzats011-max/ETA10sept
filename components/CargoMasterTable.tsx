@@ -763,14 +763,39 @@ export default function CargoMasterTable({
         header: 'Quick Actions',
         cell: ({ row }) => {
           const c = row.original;
-          const isDelivered = Boolean(
-            c.isDelivered || (c.status && c.status.toLowerCase().includes('deliver'))
-          );
+          const isDelivered = isContainerDelivered(c);
           const hasActualContainer = Boolean(c.containerNumber && c.containerNumber.trim().length > 0 && c.containerNumber.trim().toLowerCase() !== c.container.trim().toLowerCase());
           const isApiProtected = Boolean(c.apiCalled || c.lastApiSync);
 
           return (
             <div className="inline-flex items-center space-x-1.5 whitespace-nowrap">
+              {/* Deliver / Undeliver Actions: User can mark any container delivered or undelivered */}
+              <button
+                type="button"
+                onClick={() => dispatch(openDeliveryModal(c))}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center space-x-1 shadow-xs ${
+                  isDelivered
+                    ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300'
+                    : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                }`}
+                title={isDelivered ? 'Edit Delivery Date' : 'Mark Container Delivered'}
+              >
+                <Truck className="w-3.5 h-3.5" />
+                <span>{isDelivered ? 'Edit Date' : 'Deliver'}</span>
+              </button>
+
+              {isDelivered && (
+                <button
+                  type="button"
+                  onClick={() => handleUnmarkDeliverRow(c)}
+                  className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-xs font-semibold transition flex items-center space-x-1"
+                  title="Revert container back to Undelivered (In Transit)"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Undeliver</span>
+                </button>
+              )}
+
               {/* Edit Dates (Super Admin Only) */}
               {isSuperAdmin && onEditDates && (
                 <button
@@ -817,35 +842,9 @@ export default function CargoMasterTable({
                 <span>Logistics</span>
               </button>
 
-              {/* Super Admin Mutations: Deliver / Undeliver / Sync / De-map / Delete */}
+              {/* Super Admin Mutations: Sync / De-map / Delete */}
               {isSuperAdmin && (
                 <>
-                  <button
-                    type="button"
-                    onClick={() => dispatch(openDeliveryModal(c))}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center space-x-1 shadow-xs ${
-                      isDelivered
-                        ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300'
-                        : 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                    }`}
-                    title={isDelivered ? 'Edit Delivery Date' : 'Mark Container Delivered'}
-                  >
-                    <Truck className="w-3.5 h-3.5" />
-                    <span>{isDelivered ? 'Edit Date' : 'Deliver'}</span>
-                  </button>
-
-                  {isDelivered && (
-                    <button
-                      type="button"
-                      onClick={() => handleUnmarkDeliverRow(c)}
-                      className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-xs font-semibold transition flex items-center space-x-1"
-                      title="Mistake correction: Revert container back to Undelivered (In Transit)"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
-                      <span>Undeliver</span>
-                    </button>
-                  )}
-
                   {!isDelivered && hasActualContainer && (
                     <button
                       type="button"
@@ -894,15 +893,6 @@ export default function CargoMasterTable({
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </>
-              )}
-
-              {/* Staff / Non-Super Admin: Read-only status pill */}
-              {!isSuperAdmin && (
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                  isDelivered ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
-                }`}>
-                  {isDelivered ? '✓ Delivered' : 'In Transit'}
-                </span>
               )}
             </div>
           );
@@ -959,13 +949,7 @@ export default function CargoMasterTable({
     const wb = XLSX.utils.book_new();
 
     const formatRow = (c: ContainerMasterItem) => {
-      const isDelivered = Boolean(
-        c.isDelivered ||
-          (c.status &&
-            (c.status.toLowerCase().includes('deliver') ||
-              c.status.toLowerCase().includes('arrived') ||
-              c.status.toLowerCase().includes('reached')))
-      );
+      const isDelivered = isContainerDelivered(c);
       let bucketLabel = 'Pending';
       if (isDelivered) bucketLabel = 'Delivered';
       else if (c.daysRemaining !== null && c.daysRemaining !== undefined) {
@@ -1002,12 +986,12 @@ export default function CargoMasterTable({
     if (exportAllBuckets) {
       // Create separate sheet for each bucket
       const bucketDefinitions = [
-        { name: '1-2 Days (Today)', filter: (c: ContainerMasterItem) => !c.isDelivered && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining >= 0 && c.daysRemaining <= 2 },
-        { name: '2 to 7 Days', filter: (c: ContainerMasterItem) => !c.isDelivered && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining > 2 && c.daysRemaining <= 7 },
-        { name: '7 to 15 Days', filter: (c: ContainerMasterItem) => !c.isDelivered && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining > 7 && c.daysRemaining <= 15 },
-        { name: 'More Than 15 Days', filter: (c: ContainerMasterItem) => !c.isDelivered && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining > 15 },
-        { name: 'Arriving Soon', filter: (c: ContainerMasterItem) => !c.isDelivered && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining < 0 },
-        { name: 'Delivered', filter: (c: ContainerMasterItem) => Boolean(c.isDelivered || (c.status && c.status.toLowerCase().includes('deliver'))) },
+        { name: '1-2 Days (Today)', filter: (c: ContainerMasterItem) => !isContainerDelivered(c) && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining >= 0 && c.daysRemaining <= 2 },
+        { name: '2 to 7 Days', filter: (c: ContainerMasterItem) => !isContainerDelivered(c) && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining > 2 && c.daysRemaining <= 7 },
+        { name: '7 to 15 Days', filter: (c: ContainerMasterItem) => !isContainerDelivered(c) && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining > 7 && c.daysRemaining <= 15 },
+        { name: 'More Than 15 Days', filter: (c: ContainerMasterItem) => !isContainerDelivered(c) && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining > 15 },
+        { name: 'Arriving Soon', filter: (c: ContainerMasterItem) => !isContainerDelivered(c) && c.daysRemaining !== null && c.daysRemaining !== undefined && c.daysRemaining < 0 },
+        { name: 'Delivered', filter: (c: ContainerMasterItem) => isContainerDelivered(c) },
         { name: 'All Containers', filter: () => true },
       ];
 

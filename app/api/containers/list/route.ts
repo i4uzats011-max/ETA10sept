@@ -160,7 +160,9 @@ export async function GET(req: NextRequest) {
         : publicEtaDate;
 
       const isDelivered = Boolean(
-        c.isDelivered || (c.status && c.status.toLowerCase().includes('deliver'))
+        c.isDelivered ||
+          (c.deliveryDate && c.deliveryDate.trim() && c.deliveryDate !== '—' && c.deliveryDate !== 'N/A' && c.deliveryDate !== 'In Transit') ||
+          (c.status && c.status.toLowerCase().trim() === 'delivered')
       );
 
       // Days remaining calculated based on destination ETA date, fallback to rawEta

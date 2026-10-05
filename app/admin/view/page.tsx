@@ -536,16 +536,10 @@ export default function InternalEmployeeViewPage() {
       const isDelivered = Boolean(
         item.isDelivered ||
           cFleet?.isDelivered ||
-          (item.deliveryDate && item.deliveryDate.trim() && item.deliveryDate !== '—' && item.deliveryDate !== 'N/A') ||
-          (cFleet?.deliveryDate && cFleet?.deliveryDate.trim() && cFleet?.deliveryDate !== '—' && cFleet?.deliveryDate !== 'N/A') ||
-          (item.status && (
-            item.status.toLowerCase().includes('deliver') ||
-            item.status.toLowerCase().includes('reached')
-          )) ||
-          (cFleet?.status && (
-            cFleet?.status.toLowerCase().includes('deliver') ||
-            cFleet?.status.toLowerCase().includes('reached')
-          ))
+          (item.deliveryDate && item.deliveryDate.trim() && item.deliveryDate !== '—' && item.deliveryDate !== 'N/A' && item.deliveryDate !== 'In Transit') ||
+          (cFleet?.deliveryDate && cFleet?.deliveryDate.trim() && cFleet?.deliveryDate !== '—' && cFleet?.deliveryDate !== 'N/A' && cFleet?.deliveryDate !== 'In Transit') ||
+          (item.status && item.status.toLowerCase().trim() === 'delivered') ||
+          (cFleet?.status && cFleet?.status.toLowerCase().trim() === 'delivered')
       );
 
       const targetDateStr = item.destinationDate || item.eta || cFleet?.destinationDate || cFleet?.eta;
@@ -2240,7 +2234,7 @@ export default function InternalEmployeeViewPage() {
         {activeEmployeeTab === 'containers' && (
           <div className="animate-fadeIn">
             <ReduxProvider>
-              <CargoMasterTable isStaffOnly={true} />
+              <CargoMasterTable isStaffOnly={userRole !== 'admin'} />
             </ReduxProvider>
           </div>
         )}

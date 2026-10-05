@@ -1288,11 +1288,8 @@ export default function LoaderHub() {
       list = list.filter(
         (p) =>
           p.isDelivered ||
-          (p.status &&
-            (p.status.toLowerCase().includes('deliver') ||
-              p.status.toLowerCase().includes('destination') ||
-              p.status.toLowerCase().includes('arrived') ||
-              p.status.toLowerCase().includes('reached')))
+          (p.deliveryDate && p.deliveryDate.trim() && p.deliveryDate !== '—' && p.deliveryDate !== 'N/A' && p.deliveryDate !== 'In Transit') ||
+          (p.status && p.status.toLowerCase().trim() === 'delivered')
       );
       // Date-wise sorting (newest delivery/loading date first)
       list.sort((a, b) => {
@@ -3151,11 +3148,8 @@ export default function LoaderHub() {
                     loadingPlans.filter(
                       (p) =>
                         p.isDelivered ||
-                        (p.status &&
-                          (p.status.toLowerCase().includes('deliver') ||
-                            p.status.toLowerCase().includes('destination') ||
-                            p.status.toLowerCase().includes('arrived') ||
-                            p.status.toLowerCase().includes('reached')))
+                        (p.deliveryDate && p.deliveryDate.trim() && p.deliveryDate !== '—' && p.deliveryDate !== 'N/A' && p.deliveryDate !== 'In Transit') ||
+                        (p.status && p.status.toLowerCase().trim() === 'delivered')
                     ).length
                   }
                   )

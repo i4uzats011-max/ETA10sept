@@ -43,7 +43,9 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
 
     containers.forEach((c) => {
       const isDelivered = Boolean(
-        c.isDelivered || (c.status && c.status.toLowerCase().includes('deliver'))
+        c.isDelivered ||
+          (c.deliveryDate && c.deliveryDate.trim() && c.deliveryDate !== '—' && c.deliveryDate !== 'N/A' && c.deliveryDate !== 'In Transit') ||
+          (c.status && c.status.toLowerCase().trim() === 'delivered')
       );
 
       const isLate = Boolean(
