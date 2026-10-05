@@ -1183,6 +1183,73 @@ export default function AdminDashboardPage() {
     );
   }, [containerFleet, containerFleetSearch]);
 
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerSearchRef.current && !containerSearchRef.current.contains(e.target as Node)) {
+        setIsContainerDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (manualEtaContainer) {
+      setContainerSearchInput(manualEtaContainer);
+    }
+  }, [manualEtaContainer]);
+
+  const allSearchableContainers = useMemo(() => {
+    const map = new Map<string, { alias: string; containerNumber?: string; shippingLine?: string; eta?: string; status?: string }>();
+
+    if (Array.isArray(containerFleet)) {
+      containerFleet.forEach((c) => {
+        const alias = c?.container || c?.alias;
+        if (alias && typeof alias === 'string') {
+          map.set(alias.toUpperCase(), {
+            alias,
+            containerNumber: c.containerNumber || '',
+            shippingLine: c.shippingLine || '',
+            eta: c.destinationDate || c.eta || '',
+            status: c.status || '',
+          });
+        }
+      });
+    }
+
+    if (Array.isArray(distinctContainers)) {
+      distinctContainers.forEach((alias) => {
+        if (alias && typeof alias === 'string') {
+          const upper = alias.toUpperCase();
+          if (!map.has(upper)) {
+            map.set(upper, {
+              alias,
+              containerNumber: '',
+              shippingLine: '',
+              eta: '',
+              status: '',
+            });
+          }
+        }
+      });
+    }
+
+    return Array.from(map.values()).sort((a, b) =>
+      a.alias.localeCompare(b.alias, undefined, { numeric: true, sensitivity: 'base' })
+    );
+  }, [containerFleet, distinctContainers]);
+
+  const filteredSearchContainers = useMemo(() => {
+    const q = containerSearchInput.trim().toLowerCase();
+    if (!q) return allSearchableContainers;
+    return allSearchableContainers.filter((item) => {
+      const matchAlias = item.alias.toLowerCase().includes(q);
+      const matchNumber = item.containerNumber ? item.containerNumber.toLowerCase().includes(q) : false;
+      const matchLine = item.shippingLine ? item.shippingLine.toLowerCase().includes(q) : false;
+      return matchAlias || matchNumber || matchLine;
+    });
+  }, [allSearchableContainers, containerSearchInput]);
+
   if (isAuthenticated === null) {
     return (
       <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center">
@@ -1735,6 +1802,7 @@ export default function AdminDashboardPage() {
               <CargoMasterTable
                 onEditDates={(alias) => {
                   setManualEtaContainer(alias);
+                  setContainerSearchInput(alias);
                   setSelectedContainer(alias);
                   handleContainerSelectionChange(alias);
                   setActiveAdminTab('manual-eta');
@@ -1813,7 +1881,10 @@ export default function AdminDashboardPage() {
                     type="button"
                     onClick={() => {
                       setIsNewContainerMode(false);
-                      if (manualEtaContainer) handleContainerSelectionChange(manualEtaContainer);
+                      if (manualEtaContainer) {
+                        setContainerSearchInput(manualEtaContainer);
+                        handleContainerSelectionChange(manualEtaContainer);
+                      }
                     }}
                     className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 ${
                       !isNewContainerMode
@@ -1829,6 +1900,7 @@ export default function AdminDashboardPage() {
                     onClick={() => {
                       setIsNewContainerMode(true);
                       setNewContainerInput('');
+                      setContainerSearchInput('');
                       setManualActualContainerNo('');
                       setManualLoadingDate('');
                       setManualActualEtaDate('');
@@ -1846,29 +1918,183 @@ export default function AdminDashboardPage() {
                 </div>
 
                 {!isNewContainerMode ? (
-                  /* Existing Container Picker */
+                  /* Existing Container Picker with Search Autocomplete Combobox */
                   <div className="space-y-3">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                        Select Container Alias *
-                      </label>
-                      <select
-                        value={manualEtaContainer}
-                        onChange={(e) => {
-                          setManualEtaContainer(e.target.value);
-                          setSelectedContainer(e.target.value);
-                          handleContainerSelectionChange(e.target.value);
-                        }}
-                        className="w-full px-4 py-3 rounded-xl border border-slate-300 text-sm font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-xs"
-                        required={!isNewContainerMode}
-                      >
-                        <option value="">-- Choose Container Alias --</option>
-                        {distinctContainers.map((alias) => (
-                          <option key={alias} value={alias}>
-                            {alias}
-                          </option>
-                        ))}
-                      </select>
+                    <div ref={containerSearchRef} className="relative">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                          Select Container Alias * (कंटेनर सर्च करें)
+                        </label>
+                        <span className="text-[11px] font-medium text-slate-500">
+                          {allSearchableContainers.length} containers in list
+                        </span>
+                      </div>
+
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                          <Search className="w-4 h-4" />
+                        </div>
+                        <input
+                          type="text"
+                          value={containerSearchInput}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setContainerSearchInput(val);
+                            setIsContainerDropdownOpen(true);
+                            // Auto-match if exact alias or carrier number typed
+                            const exact = allSearchableContainers.find(
+                              (c) =>
+                                c.alias.toLowerCase() === val.trim().toLowerCase() ||
+                                (c.containerNumber && c.containerNumber.toLowerCase() === val.trim().toLowerCase())
+                            );
+                            if (exact) {
+                              setManualEtaContainer(exact.alias);
+                              setSelectedContainer(exact.alias);
+                              handleContainerSelectionChange(exact.alias);
+                            }
+                          }}
+                          onFocus={() => setIsContainerDropdownOpen(true)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              if (filteredSearchContainers.length > 0) {
+                                handleSelectSearchContainer(filteredSearchContainers[0].alias);
+                              }
+                            } else if (e.key === 'Escape') {
+                              setIsContainerDropdownOpen(false);
+                            }
+                          }}
+                          placeholder="Type container alias or carrier no. (e.g. USI-246, MSCU...)"
+                          className={`w-full pl-10 pr-20 py-3 rounded-xl border text-sm font-bold bg-white focus:outline-none focus:ring-2 shadow-xs transition ${
+                            manualEtaContainer
+                              ? 'border-amber-400 focus:ring-amber-500 text-slate-900 bg-amber-50/20'
+                              : 'border-slate-300 focus:ring-blue-500 text-slate-900'
+                          }`}
+                          required={!isNewContainerMode && !manualEtaContainer}
+                        />
+
+                        {/* Action buttons on the right of input */}
+                        <div className="absolute inset-y-0 right-0 pr-2 flex items-center space-x-1">
+                          {containerSearchInput && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setContainerSearchInput('');
+                                setManualEtaContainer('');
+                                setIsContainerDropdownOpen(true);
+                              }}
+                              className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition"
+                              title="Clear search"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setIsContainerDropdownOpen((prev) => !prev)}
+                            className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition"
+                            title="Toggle suggestions list"
+                          >
+                            {isContainerDropdownOpen ? (
+                              <ChevronUp className="w-4 h-4 text-amber-600" />
+                            ) : (
+                              <ChevronDown className="w-4 h-4" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Dropdown Suggestions List */}
+                      {isContainerDropdownOpen && (
+                        <div className="absolute z-50 left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-xl shadow-2xl max-h-80 overflow-y-auto divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-100">
+                          <div className="sticky top-0 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600 flex items-center justify-between border-b border-slate-200 z-10">
+                            <span>
+                              {containerSearchInput ? (
+                                <>
+                                  Matches for &ldquo;<span className="text-amber-700">{containerSearchInput}</span>&rdquo; ({filteredSearchContainers.length})
+                                </>
+                              ) : (
+                                <>All Available Containers ({filteredSearchContainers.length})</>
+                              )}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-normal">Click or press Enter to select</span>
+                          </div>
+
+                          {filteredSearchContainers.length === 0 ? (
+                            <div className="p-4 text-center text-xs text-slate-500">
+                              <p className="font-semibold text-slate-700">No container matched &ldquo;{containerSearchInput}&rdquo;</p>
+                              <p className="mt-1 text-[11px]">
+                                Try typing another alias/carrier number, or click &ldquo;+ Enter New Container&rdquo; above.
+                              </p>
+                            </div>
+                          ) : (
+                            filteredSearchContainers.map((item) => {
+                              const isSelected = manualEtaContainer === item.alias;
+                              return (
+                                <button
+                                  key={item.alias}
+                                  type="button"
+                                  onClick={() => handleSelectSearchContainer(item.alias)}
+                                  className={`w-full text-left px-3.5 py-2.5 transition flex items-center justify-between gap-3 text-xs ${
+                                    isSelected
+                                      ? 'bg-amber-100/70 border-l-4 border-amber-500 font-bold'
+                                      : 'hover:bg-slate-50 font-medium'
+                                  }`}
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center space-x-2">
+                                      <span className="font-mono text-sm font-black text-slate-900">
+                                        {item.alias}
+                                      </span>
+                                      {item.containerNumber && (
+                                        <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 truncate">
+                                          {item.containerNumber}
+                                        </span>
+                                      )}
+                                      {item.shippingLine && (
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-bold uppercase">
+                                          {item.shippingLine}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center space-x-2 mt-1 text-[11px] text-slate-500">
+                                      {item.status && (
+                                        <span
+                                          className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                            item.status.toLowerCase().includes('deliver')
+                                              ? 'bg-emerald-100 text-emerald-800'
+                                              : 'bg-amber-100 text-amber-800'
+                                          }`}
+                                        >
+                                          {item.status}
+                                        </span>
+                                      )}
+                                      {item.eta ? (
+                                        <span>ETA: {formatGlobalDate(item.eta)}</span>
+                                      ) : (
+                                        <span className="text-slate-400">ETA: Pending</span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className="shrink-0 flex items-center">
+                                    {isSelected ? (
+                                      <span className="inline-flex items-center text-amber-700 font-bold text-xs bg-amber-200/80 px-2 py-0.5 rounded-full">
+                                        <Check className="w-3.5 h-3.5 mr-1" />
+                                        Selected
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-400 text-[11px]">
+                                        Select →
+                                      </span>
+                                    )}
+                                  </div>
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {/* Selected Container Live Info & Correction Panel */}
@@ -2114,6 +2340,7 @@ export default function AdminDashboardPage() {
                 {/* Quick Indian Port Preset Buttons */}
                 <div className="flex flex-wrap gap-1.5">
                   {[
+                    'India Port',
                     'Nhava Sheva / JNPT, Mumbai',
                     'Mundra Port, Gujarat',
                     'Hazira Port, Surat',
@@ -2141,7 +2368,7 @@ export default function AdminDashboardPage() {
                   type="text"
                   value={manualShippedTo}
                   onChange={(e) => setManualShippedTo(e.target.value)}
-                  placeholder="e.g. Nhava Sheva / Mundra, India"
+                  placeholder="e.g. India Port, Nhava Sheva, Mundra"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-xs"
                   required
                 />
@@ -2364,7 +2591,7 @@ export default function AdminDashboardPage() {
               {/* Submit Button */}
               <button
                 type="submit"
-                disabled={isSettingManualEta || (!manualEtaContainer && !newContainerInput)}
+                disabled={isSettingManualEta || (!manualEtaContainer && !newContainerInput && !containerSearchInput.trim())}
                 className="w-full py-4 bg-amber-600 hover:bg-amber-700 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-md transition flex items-center justify-center space-x-2 disabled:opacity-50"
               >
                 {isSettingManualEta ? (
