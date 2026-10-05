@@ -143,25 +143,20 @@ export default function PublicTrackerPage() {
       doc.setFont('helvetica', 'normal');
       doc.text(String(primary.warehouse || 'China Warehouse'), 50, 77);
 
-      doc.setFont('helvetica', 'bold');
-      doc.text('Destination Port:', 110, 77);
-      doc.setFont('helvetica', 'normal');
-      doc.text('Nhava Sheva / Mundra, India', 145, 77);
+      if (anyDelivered && deliveryDateVal) {
+        doc.setFont('helvetica', 'bold');
+        doc.text('Delivered Date:', 110, 77);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(16, 185, 129); // Highlight Delivered Date in Green
+        doc.text(String(formatGlobalDate(deliveryDateVal)), 145, 77);
+        doc.setTextColor(15, 23, 42);
+      }
 
       doc.setFont('helvetica', 'bold');
       doc.text('Cargo Marks:', 18, 85);
       doc.setFont('helvetica', 'normal');
       const marksStr = [primary.mainMarka ? `Main: ${primary.mainMarka}` : '', (primary.subMarka && primary.subMarka !== '??') ? `Sub: ${primary.subMarka}` : ''].filter(Boolean).join(' | ') || 'N/A';
       doc.text(marksStr, 50, 85);
-
-      if (anyDelivered && deliveryDateVal) {
-        doc.setFont('helvetica', 'bold');
-        doc.text('Delivered Date:', 110, 85);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(16, 185, 129); // Highlight Delivered Date in Green
-        doc.text(String(formatGlobalDate(deliveryDateVal)), 145, 85);
-        doc.setTextColor(15, 23, 42);
-      }
 
       // Manifest Table
       const headers = ['#', 'Item / Commodity Name', 'Cargo Marks', 'Cartons (Qty)', 'Weight (KG)', 'Volume (CBM)', 'Container Alias', anyDelivered ? 'ETA / Delivered Date' : 'Estimated Arrival (ETA)'];
@@ -1176,7 +1171,6 @@ export default function PublicTrackerPage() {
                       <MapPin className="w-3.5 h-3.5 text-red-600 shrink-0" />
                       <span>{warehouseLocation}</span>
                     </div>
-                    <div className="text-[11px] text-slate-500 mt-0.5">Destination: Nhava Sheva / Mundra, India</div>
                   </div>
 
                   <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
@@ -1746,7 +1740,7 @@ export default function PublicTrackerPage() {
                 Seamless Trade Connectivity Between China & India
               </h2>
               <p className="text-slate-300 text-sm leading-relaxed">
-                We manage the entire transit pipeline—from supplier pickups in Ningbo, Yiwu, Guangzhou, and Shenzhen to final clearance at Indian customs ports (Nhava Sheva, Mundra, Kolkata, and ICD Delhi).
+                We manage the entire transit pipeline—from supplier pickups in Ningbo, Yiwu, Guangzhou, and Shenzhen to final clearance and delivery in India.
               </p>
               <div className="space-y-3 text-xs font-semibold text-slate-200">
                 <div className="flex items-center space-x-2">
@@ -1755,7 +1749,7 @@ export default function PublicTrackerPage() {
                 </div>
                 <div className="flex items-center space-x-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span>Confirmed Port Arrival & Direct Delivery ETA Tracking</span>
+                  <span>Direct Delivery ETA Tracking</span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />
