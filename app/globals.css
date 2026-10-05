@@ -8,6 +8,13 @@
   --background-end-rgb: 255, 255, 255;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  scroll-behavior: smooth;
+}
+
 body {
   color: rgb(var(--foreground-rgb));
   background: linear-gradient(
@@ -17,4 +24,56 @@ body {
     )
     rgb(var(--background-start-rgb));
   min-height: 100vh;
+  touch-action: manipulation;
+  overflow-x: hidden;
+}
+
+/* Chrome / WebKit Custom Slim Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(241, 245, 249, 0.7);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* iOS & Android Chrome Smooth Touch Momentum Scrolling */
+.overflow-x-auto,
+.overflow-y-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Hide scrollbar utility for touch swipe bars */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Touch Friendly Focus States for Google Chrome */
+input:focus,
+select:focus,
+textarea:focus,
+button:focus {
+  outline-color: #dc2626;
+}
+
+/* Prevent accidental text inflation on mobile devices */
+@media screen and (max-width: 768px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
 }

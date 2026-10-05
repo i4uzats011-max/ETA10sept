@@ -104,7 +104,7 @@ function MultiSelectDropdown({
         {open && (
           <div
             onClick={(e) => e.stopPropagation()}
-            className="absolute top-full left-0 mt-1 z-50 bg-white text-slate-800 border border-slate-200 rounded-xl shadow-2xl min-w-[220px] max-w-[280px] max-h-72 flex flex-col font-normal text-xs"
+            className="absolute top-full left-0 mt-1 z-50 bg-white text-slate-800 border border-slate-200 rounded-xl shadow-2xl min-w-[200px] max-w-[calc(100vw-2rem)] max-h-72 flex flex-col font-normal text-xs"
           >
             <div className="p-2.5 border-b border-slate-100 bg-slate-50 rounded-t-xl space-y-1.5">
               <div className="flex items-center justify-between">
@@ -194,7 +194,7 @@ function MultiSelectDropdown({
       </button>
 
       {open && (
-        <div className="absolute top-full left-0 mt-1 z-50 bg-white border border-slate-200 rounded-xl shadow-xl min-w-[240px] max-w-[320px] max-h-72 flex flex-col">
+        <div className="absolute top-full left-0 mt-1 z-50 bg-white border border-slate-200 rounded-xl shadow-xl min-w-[220px] max-w-[calc(100vw-2rem)] max-h-72 flex flex-col">
           <div className="p-2.5 border-b border-slate-100 bg-slate-50 rounded-t-xl space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
@@ -1106,26 +1106,26 @@ export default function InternalEmployeeViewPage() {
     <div className="min-h-screen bg-slate-100 font-sans text-slate-900">
       {/* ── NAVBAR ── */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
-        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-md">
-              <LayoutGrid className="w-5 h-5 text-white" />
+        <div className="max-w-screen-2xl mx-auto px-3 sm:px-6 lg:px-8 py-2.5 sm:py-0 min-h-16 flex flex-wrap items-center justify-between gap-2.5">
+          <div className="flex items-center space-x-2.5 sm:space-x-3">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-md shrink-0">
+              <LayoutGrid className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
             </div>
             <div>
-              <div className="flex items-center space-x-2">
-                <span className="font-black text-base text-slate-950 tracking-tight">US INTERNATIONAL</span>
-                <span className="font-black text-base text-blue-600 tracking-tight">LOGISTICS</span>
-                <span className="text-[10px] font-extrabold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200 uppercase">
-                  Staff Portal
+              <div className="flex items-center space-x-1.5 sm:space-x-2">
+                <span className="font-black text-sm sm:text-base text-slate-950 tracking-tight">US INTERNATIONAL</span>
+                <span className="font-black text-sm sm:text-base text-blue-600 tracking-tight">LOGISTICS</span>
+                <span className="text-[9px] sm:text-[10px] font-extrabold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200 uppercase">
+                  Staff
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500 font-semibold">
+              <p className="text-[10px] sm:text-[11px] text-slate-500 font-semibold hidden sm:block">
                 Cargo Manifest Database &amp; Container Directory (Read-Only)
               </p>
             </div>
           </div>
 
-          <div className="flex items-center space-x-2.5">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             {(boldCount > 0 || subCount > 0) && (
               <div className="hidden md:flex items-center space-x-2 text-xs font-bold">
                 {boldCount > 0 && (
@@ -1145,35 +1145,35 @@ export default function InternalEmployeeViewPage() {
 
             <Link
               href="/biller"
-              className="px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold transition"
+              className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold transition flex items-center space-x-1"
             >
-              Biller (बिलर)
+              <span>Biller (बिलर)</span>
             </Link>
 
             <Link
               href="/dispatcher"
-              className="px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 text-xs font-bold transition"
+              className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 text-xs font-bold transition flex items-center space-x-1"
             >
-              Dispatcher (डिस्पैचर)
+              <span>Dispatcher (डिस्पैचर)</span>
             </Link>
 
             {userRole === 'admin' && (
               <Link
                 href="/admin"
-                className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-sm"
+                className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-sm"
               >
                 Super Admin
               </Link>
             )}
             <Link
               href="/"
-              className="px-3.5 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold transition"
+              className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold transition hidden xs:inline-flex"
             >
               Public Tracker
             </Link>
             <button
               onClick={handleLogout}
-              className="p-2 rounded-xl border border-slate-200 hover:bg-red-50 text-slate-500 hover:text-red-600 transition"
+              className="p-1.5 sm:p-2 rounded-xl border border-slate-200 hover:bg-red-50 text-slate-500 hover:text-red-600 transition"
               title="Sign Out"
             >
               <LogOut className="w-4 h-4" />
@@ -1238,8 +1238,8 @@ export default function InternalEmployeeViewPage() {
         {activeEmployeeTab === 'shipments' && (
           <div className="space-y-4 animate-fadeIn">
             {/* ── PRIMARY VIEW MODE TABS: CUSTOMER-FRIENDLY DELIVERY STAGES (List-by-List View) ── */}
-            <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-2.5 rounded-2xl border border-slate-200 shadow-sm">
-              <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-2.5 rounded-2xl border border-slate-200 shadow-sm">
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 no-scrollbar w-full sm:w-auto">
                 <button
                   type="button"
                   onClick={() => setViewMode('all')}
@@ -1865,7 +1865,7 @@ export default function InternalEmployeeViewPage() {
               </button>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto scrollbar-thin" style={{ WebkitOverflowScrolling: 'touch' }}>
               <table className="w-full text-xs border-collapse">
                 <thead>
                   <tr className="bg-slate-100 text-slate-700 text-[10px] font-bold uppercase tracking-wider border-b border-slate-200 select-none">

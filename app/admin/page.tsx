@@ -1173,21 +1173,21 @@ export default function AdminDashboardPage() {
     <div className="min-h-screen bg-slate-100 text-slate-800 flex flex-col font-sans">
       {/* Admin Navbar */}
       <header className="bg-white text-slate-800 shadow-sm sticky top-0 z-30 border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="p-2 bg-blue-600 rounded-xl text-white shadow-md shadow-blue-600/20">
-              <ShieldCheck className="w-5 h-5" />
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2 sm:py-0 min-h-16 flex flex-wrap items-center justify-between gap-2.5">
+          <div className="flex items-center space-x-2.5 sm:space-x-3">
+            <div className="p-1.5 sm:p-2 bg-blue-600 rounded-xl text-white shadow-md shadow-blue-600/20 shrink-0">
+              <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             <div>
               <div className="flex items-center space-x-1.5">
-                <span className="font-black text-sm tracking-tight text-slate-900">US INTERNATIONAL</span>
-                <span className="font-black text-sm tracking-tight text-blue-600">LOGISTICS</span>
+                <span className="font-black text-xs sm:text-sm tracking-tight text-slate-900">US INTERNATIONAL</span>
+                <span className="font-black text-xs sm:text-sm tracking-tight text-blue-600">LOGISTICS</span>
               </div>
-              <p className="text-[11px] text-slate-500 font-medium">China to India Super Admin Dashboard</p>
+              <p className="text-[10px] sm:text-[11px] text-slate-500 font-medium hidden sm:block">China to India Super Admin Dashboard</p>
             </div>
           </div>
 
-          <div className="flex items-center space-x-2.5">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             {/* JSONCargo API Stats Badge */}
             {apiStats && (
               <button
@@ -1196,12 +1196,12 @@ export default function AdminDashboardPage() {
                   setActiveAdminTab('api-sync');
                   fetchApiStats();
                 }}
-                className="flex items-center space-x-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-xl text-xs transition cursor-pointer shadow-xs"
+                className="flex items-center space-x-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 px-2.5 py-1.5 rounded-xl text-xs transition cursor-pointer shadow-xs"
                 title="Click to view API calls & quota monitor"
               >
                 <Activity className="w-3.5 h-3.5 text-blue-600" />
                 <span className="text-slate-700">
-                  Calls: <strong className="text-blue-700 font-mono font-black">{apiStats.requests_made ?? 0}</strong> / {apiStats.requests_total ?? '∞'}
+                  Calls: <strong className="text-blue-700 font-mono font-black">{apiStats.requests_made ?? 0}</strong>
                 </span>
               </button>
             )}
@@ -1209,43 +1209,44 @@ export default function AdminDashboardPage() {
             <button
               onClick={handleTriggerCronSync}
               disabled={isSyncingCron}
-              className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center space-x-1.5 transition shadow-sm disabled:opacity-50"
+              className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center space-x-1.5 transition shadow-sm disabled:opacity-50"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncingCron ? 'animate-spin' : ''}`} />
-              <span>{isSyncingCron ? 'Syncing...' : 'Trigger Full Cron ETA Sync'}</span>
+              <span className="hidden sm:inline">{isSyncingCron ? 'Syncing...' : 'Trigger Full Cron ETA Sync'}</span>
+              <span className="sm:hidden">{isSyncingCron ? 'Syncing' : 'Sync All'}</span>
             </button>
 
             <Link
               href="/biller"
-              className="px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold border border-amber-300 transition flex items-center space-x-1"
+              className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold border border-amber-300 transition flex items-center space-x-1"
             >
               <span>Biller (बिलर)</span>
             </Link>
 
             <Link
               href="/dispatcher"
-              className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-300 transition flex items-center space-x-1"
+              className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-300 transition flex items-center space-x-1"
             >
               <span>Dispatcher (डिस्पैचर)</span>
             </Link>
 
             <Link
               href="/admin/view"
-              className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold border border-slate-200 transition"
+              className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold border border-slate-200 transition"
             >
               Employee View
             </Link>
 
             <Link
               href="/"
-              className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold border border-slate-200 transition"
+              className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold border border-slate-200 transition hidden xs:inline-flex"
             >
               Public Site
             </Link>
 
             <button
               onClick={handleLogout}
-              className="p-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 transition"
+              className="p-1.5 sm:p-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 transition"
               title="Logout"
             >
               <LogOut className="w-4 h-4" />

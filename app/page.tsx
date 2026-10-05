@@ -600,16 +600,16 @@ export default function PublicTrackerPage() {
   return (
     <div className="min-h-screen flex flex-col bg-slate-100 text-slate-800 font-sans">
       {/* 1. Top Contact & Utility Bar (US International Logistics Theme) */}
-      <div className="bg-slate-950 text-slate-300 border-b border-slate-800 text-xs py-2 px-4 sm:px-8">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
-          <div className="flex items-center space-x-6">
+      <div className="bg-slate-950 text-slate-300 border-b border-slate-800 text-xs py-2 px-3 sm:px-8">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 text-center sm:text-left">
+          <div className="flex flex-wrap items-center justify-center sm:justify-start gap-x-4 gap-y-1">
             <a href="tel:09355456060" className="flex items-center space-x-1.5 hover:text-red-400 transition font-semibold">
               <Phone className="w-3.5 h-3.5 text-red-500" />
               <span>+91 9355456060</span>
             </a>
             <a href="mailto:info@usinternationallogistics.com" className="flex items-center space-x-1.5 hover:text-red-400 transition font-semibold">
               <Mail className="w-3.5 h-3.5 text-red-500" />
-              <span>info@usinternationallogistics.com</span>
+              <span className="truncate max-w-[200px] sm:max-w-none">info@usinternationallogistics.com</span>
             </a>
             <div className="hidden md:flex items-center space-x-1.5 text-slate-400 font-medium">
               <MapPin className="w-3.5 h-3.5 text-amber-500" />
@@ -617,12 +617,12 @@ export default function PublicTrackerPage() {
             </div>
           </div>
 
-          <div className="flex items-center space-x-4">
+          <div className="flex flex-wrap items-center justify-center gap-2">
             <span className="bg-red-600/20 text-red-400 border border-red-500/30 px-2.5 py-0.5 rounded text-[11px] font-bold flex items-center gap-1">
               <Globe className="w-3 h-3 text-red-400" />
-              <span>China to India Logistics Specialist</span>
+              <span>China to India Specialist</span>
             </span>
-            <Link href="/admin/login" className="flex items-center space-x-1 hover:text-white transition font-bold text-slate-300">
+            <Link href="/admin/login" className="flex items-center space-x-1 hover:text-white transition font-bold text-slate-300 bg-slate-900 border border-slate-800 px-2.5 py-0.5 rounded">
               <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
               <span>Admin Portal</span>
             </Link>
@@ -632,17 +632,17 @@ export default function PublicTrackerPage() {
 
       {/* 2. Main Navigation Bar */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="bg-red-600 p-2.5 rounded-2xl text-white shadow-md shadow-red-600/20">
-              <Ship className="w-7 h-7" />
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between">
+          <div className="flex items-center space-x-2.5 sm:space-x-3">
+            <div className="bg-red-600 p-2 sm:p-2.5 rounded-xl sm:rounded-2xl text-white shadow-md shadow-red-600/20">
+              <Ship className="w-5 h-5 sm:w-7 sm:h-7" />
             </div>
             <div>
-              <div className="flex items-center space-x-1.5">
-                <span className="font-black text-xl tracking-tight text-slate-950">US INTERNATIONAL</span>
-                <span className="font-black text-xl tracking-tight text-red-600">LOGISTICS</span>
+              <div className="flex items-center space-x-1 sm:space-x-1.5">
+                <span className="font-black text-sm sm:text-xl tracking-tight text-slate-950">US INTERNATIONAL</span>
+                <span className="font-black text-sm sm:text-xl tracking-tight text-red-600">LOGISTICS</span>
               </div>
-              <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider">
+              <p className="text-[9px] sm:text-[11px] text-slate-500 font-bold uppercase tracking-wider hidden xs:block">
                 China to India Cargo & Freight Solutions
               </p>
             </div>
@@ -656,12 +656,12 @@ export default function PublicTrackerPage() {
             <a href="#faq" className="hover:text-red-600 transition">FAQs</a>
           </nav>
 
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-2 sm:space-x-3">
             <Link
               href="/admin/login"
-              className="px-5 py-2.5 rounded-2xl bg-slate-950 hover:bg-red-600 text-white font-bold text-xs tracking-wide transition shadow-md flex items-center space-x-2"
+              className="px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl bg-slate-950 hover:bg-red-600 text-white font-bold text-xs tracking-wide transition shadow-md flex items-center space-x-1.5 sm:space-x-2"
             >
-              <ShieldCheck className="w-4 h-4 text-amber-400" />
+              <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400" />
               <span>Admin Sign In</span>
             </Link>
           </div>
@@ -669,31 +669,31 @@ export default function PublicTrackerPage() {
       </header>
 
       {/* 3. Hero Section with Graphics & Image Cards */}
-      <main className="flex-1 space-y-16 pb-16">
-        <section id="tracking" className="relative bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white py-16 px-4 sm:px-6 lg:px-8 border-b border-slate-800 overflow-hidden">
+      <main className="flex-1 space-y-12 sm:space-y-16 pb-16">
+        <section id="tracking" className="relative bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white py-10 sm:py-16 px-3 sm:px-6 lg:px-8 border-b border-slate-800 overflow-hidden">
           {/* Background Glow Effects */}
           <div className="absolute top-0 right-1/4 w-96 h-96 bg-red-600/10 rounded-full blur-3xl pointer-events-none"></div>
           <div className="absolute bottom-0 left-1/4 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl pointer-events-none"></div>
 
-          <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-12 items-center relative z-10">
+          <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 sm:gap-12 items-center relative z-10">
             {/* Left Column: Hero Content & Search Box */}
-            <div className="lg:col-span-7 space-y-8">
-              <div className="space-y-4">
-                <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-red-600/20 border border-red-500/30 text-red-300 text-xs font-bold uppercase tracking-wider">
+            <div className="lg:col-span-7 space-y-6 sm:space-y-8">
+              <div className="space-y-3 sm:space-y-4">
+                <div className="inline-flex items-center space-x-2 px-3 py-1 sm:px-3.5 sm:py-1.5 rounded-full bg-red-600/20 border border-red-500/30 text-red-300 text-[11px] sm:text-xs font-bold uppercase tracking-wider">
                   <Sparkles className="w-3.5 h-3.5 text-red-400" />
                   <span>Real-Time China to India Freight Tracking</span>
                 </div>
-                <h1 className="text-3xl sm:text-5xl font-black text-white tracking-tight leading-tight">
+                <h1 className="text-2xl sm:text-4xl md:text-5xl font-black text-white tracking-tight leading-tight">
                   Seamless Ocean & Air Cargo Tracking
                 </h1>
-                <p className="text-slate-300 text-sm sm:text-base leading-relaxed">
+                <p className="text-slate-300 text-xs sm:text-base leading-relaxed">
                   Track your cargo receipts and container arrival dates instantly. Search by Receipt number for complete consignment details, or Container number to check its ETA directly.
                 </p>
               </div>
 
               {/* Interactive Search Card */}
-              <div className="bg-white text-slate-900 rounded-3xl shadow-2xl border border-slate-200 overflow-hidden">
-                <div className="flex border-b border-slate-200 bg-slate-50 p-2 gap-2">
+              <div className="bg-white text-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 overflow-hidden">
+                <div className="flex border-b border-slate-200 bg-slate-50 p-1.5 sm:p-2 gap-1.5 sm:gap-2">
                   <button
                     onClick={() => {
                       setActiveTab('receipt');
@@ -702,14 +702,17 @@ export default function PublicTrackerPage() {
                       setContainerResult(null);
                       setSearchQuery('');
                     }}
-                    className={`flex-1 py-3.5 px-4 rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-center space-x-2 transition ${
+                    className={`flex-1 py-2.5 sm:py-3.5 px-2 sm:px-4 rounded-xl sm:rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-center space-x-1.5 sm:space-x-2 transition ${
                       activeTab === 'receipt'
                         ? 'bg-red-600 text-white shadow-md shadow-red-600/20'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
                     }`}
                   >
-                    <FileText className="w-4 h-4" />
-                    <span>Search by Receipt (Bill No)</span>
+                    <FileText className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    <span>
+                      <span className="hidden sm:inline">Search by Receipt (Bill No)</span>
+                      <span className="sm:hidden">By Receipt</span>
+                    </span>
                   </button>
 
                   <button
@@ -720,21 +723,24 @@ export default function PublicTrackerPage() {
                       setContainerResult(null);
                       setSearchQuery('');
                     }}
-                    className={`flex-1 py-3.5 px-4 rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-center space-x-2 transition ${
+                    className={`flex-1 py-2.5 sm:py-3.5 px-2 sm:px-4 rounded-xl sm:rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-center space-x-1.5 sm:space-x-2 transition ${
                       activeTab === 'container'
                         ? 'bg-red-600 text-white shadow-md shadow-red-600/20'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
                     }`}
                   >
-                    <Box className="w-4 h-4" />
-                    <span>Search by Container No.</span>
+                    <Box className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    <span>
+                      <span className="hidden sm:inline">Search by Container No.</span>
+                      <span className="sm:hidden">By Container</span>
+                    </span>
                   </button>
                 </div>
 
                 {/* Search Form */}
-                <form onSubmit={handleSearch} className="p-6 sm:p-8 space-y-4">
+                <form onSubmit={handleSearch} className="p-4 sm:p-8 space-y-4">
                   <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+                    <label className="block text-[11px] sm:text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
                       {activeTab === 'receipt'
                         ? 'Enter Receipt Number (e.g., REC-1002)'
                         : 'Enter Container Number (e.g., USI-01 or MSCU1234567)'}
@@ -758,24 +764,27 @@ export default function PublicTrackerPage() {
                               ? 'Enter exact Receipt Number (e.g., REC-1002)...'
                               : 'Enter Container Number (e.g., USI-01 or MSCU1234567)...'
                           }
-                          className="w-full pl-12 pr-36 py-4 rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-600 focus:border-transparent text-base font-semibold text-slate-900 placeholder-slate-400 bg-slate-50"
+                          className="w-full pl-10 sm:pl-12 pr-28 sm:pr-36 py-3.5 sm:py-4 rounded-xl sm:rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-600 focus:border-transparent text-base font-semibold text-slate-900 placeholder-slate-400 bg-slate-50"
                           required
                         />
-                        <div className="absolute left-4 text-slate-400 pointer-events-none">
-                          <Search className="w-5 h-5 text-red-600" />
+                        <div className="absolute left-3.5 sm:left-4 text-slate-400 pointer-events-none">
+                          <Search className="w-4 h-4 sm:w-5 sm:h-5 text-red-600" />
                         </div>
                         <button
                           type="submit"
                           disabled={isLoading}
-                          className="absolute right-2 px-6 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-sm transition shadow-md shadow-red-600/20 disabled:opacity-50 flex items-center space-x-2"
+                          className="absolute right-1.5 sm:right-2 px-3 sm:px-6 py-2 sm:py-2.5 rounded-lg sm:rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs sm:text-sm transition shadow-md shadow-red-600/20 disabled:opacity-50 flex items-center space-x-1 sm:space-x-2"
                         >
                           {isLoading ? (
                             <>
-                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                              <span>Searching...</span>
+                              <div className="w-3.5 h-3.5 sm:w-4 sm:h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                              <span className="hidden sm:inline">Searching...</span>
                             </>
                           ) : (
-                            <span>Track Status</span>
+                            <>
+                              <span className="hidden sm:inline">Track Status</span>
+                              <span className="sm:hidden">Track</span>
+                            </>
                           )}
                         </button>
                       </div>
@@ -1037,14 +1046,16 @@ export default function PublicTrackerPage() {
           {activeTab === 'receipt' && receiptShipmentsList.length > 0 && (
             <section className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6 animate-fadeIn">
               {/* Top Banner with Receipt Info & PDF Download */}
-              <div className="bg-red-50 border border-red-200 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs font-bold text-red-950 shadow-sm">
-                <div className="flex items-center space-x-2">
-                  <FileText className="w-4 h-4 text-red-600" />
-                  <span>
-                    Receipt Number: <strong className="font-mono text-sm text-slate-950">{receiptResult.receipt}</strong>
-                  </span>
+              <div className="bg-red-50 border border-red-200 p-3.5 sm:p-4 rounded-2xl flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 text-xs font-bold text-red-950 shadow-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center space-x-1.5">
+                    <FileText className="w-4 h-4 text-red-600" />
+                    <span>
+                      Receipt Number: <strong className="font-mono text-sm text-slate-950">{receiptResult.receipt}</strong>
+                    </span>
+                  </div>
                   <span
-                    className={`ml-2 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
                       allDeliveredInReceipt
                         ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                         : remainingWarehouseCartons === 0
@@ -1059,75 +1070,75 @@ export default function PublicTrackerPage() {
                       : `Partially Loaded (${distinctContainersCount} Containers • ${remainingWarehouseCartons} CTN In WH)`}
                   </span>
                   {anyDeliveredInReceipt && receiptDeliveryDate && (
-                    <span className="ml-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-600 text-white shadow-xs flex items-center space-x-1">
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-600 text-white shadow-xs flex items-center space-x-1">
                       <CheckCircle2 className="w-3 h-3 text-white" />
                       <span>Delivered Date: {formatGlobalDate(receiptDeliveryDate)}</span>
                     </span>
                   )}
                 </div>
 
-                <div className="flex items-center space-x-3">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={() => downloadReceiptPDF(receiptResult.receipt, receiptShipmentsList)}
-                    className="px-4 py-2 bg-slate-900 hover:bg-red-600 text-white rounded-xl text-xs font-black transition flex items-center space-x-1.5 shadow-sm"
+                    className="w-full sm:w-auto px-4 py-2 bg-slate-900 hover:bg-red-600 text-white rounded-xl text-xs font-black transition flex items-center justify-center space-x-1.5 shadow-sm"
                   >
                     <Download className="w-3.5 h-3.5 text-amber-400" />
                     <span>Download / Print PDF Receipt</span>
                   </button>
-                  <span className="bg-red-600 text-white px-3 py-1 rounded-full font-bold">
+                  <span className="bg-red-600 text-white px-3 py-1 rounded-full font-bold text-center text-xs">
                     Found {receiptShipmentsList.length} cargo record(s)
                   </span>
                 </div>
               </div>
 
               {/* 4 Summary Metric Cards */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
-                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                  <div className="flex items-center justify-between text-slate-400 mb-1 text-[11px] font-bold uppercase tracking-wider">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3.5">
+                <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-sm">
+                  <div className="flex items-center justify-between text-slate-400 mb-1 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider">
                     <span>Total Inward</span>
-                    <Package className="w-4 h-4 text-blue-500" />
+                    <Package className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-500" />
                   </div>
-                  <div className="text-2xl font-black text-slate-900 font-mono">
+                  <div className="text-xl sm:text-2xl font-black text-slate-900 font-mono">
                     {totalInwardCartons} <span className="text-xs font-semibold text-slate-400 font-sans">CTN</span>
                   </div>
-                  <div className="text-[11px] text-slate-500 mt-1">Received at China WH</div>
+                  <div className="text-[10px] sm:text-[11px] text-slate-500 mt-0.5 sm:mt-1">Received at China WH</div>
                 </div>
 
-                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                  <div className="flex items-center justify-between text-slate-400 mb-1 text-[11px] font-bold uppercase tracking-wider">
+                <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-sm">
+                  <div className="flex items-center justify-between text-slate-400 mb-1 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider">
                     <span>Loaded Quantity</span>
-                    <Truck className="w-4 h-4 text-emerald-500" />
+                    <Truck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-500" />
                   </div>
-                  <div className="text-2xl font-black text-emerald-600 font-mono">
+                  <div className="text-xl sm:text-2xl font-black text-emerald-600 font-mono">
                     {totalLoadedCartons} <span className="text-xs font-semibold text-slate-400 font-sans">CTN</span>
                   </div>
-                  <div className="text-[11px] text-slate-500 mt-1">
+                  <div className="text-[10px] sm:text-[11px] text-slate-500 mt-0.5 sm:mt-1 truncate">
                     {totalInwardCartons > 0 ? `${Math.round((totalLoadedCartons / totalInwardCartons) * 100)}% of shipment` : 'Allocated to containers'}
                   </div>
                 </div>
 
-                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                  <div className="flex items-center justify-between text-slate-400 mb-1 text-[11px] font-bold uppercase tracking-wider">
+                <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-sm">
+                  <div className="flex items-center justify-between text-slate-400 mb-1 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider">
                     <span>Warehouse Balance</span>
-                    <Box className="w-4 h-4 text-amber-500" />
+                    <Box className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-500" />
                   </div>
-                  <div className="text-2xl font-black text-amber-600 font-mono">
+                  <div className="text-xl sm:text-2xl font-black text-amber-600 font-mono">
                     {remainingWarehouseCartons} <span className="text-xs font-semibold text-slate-400 font-sans">CTN</span>
                   </div>
-                  <div className="text-[11px] text-slate-500 mt-1">
+                  <div className="text-[10px] sm:text-[11px] text-slate-500 mt-0.5 sm:mt-1 truncate">
                     {remainingWarehouseCartons > 0 ? 'Remaining in China WH' : 'All Goods Dispatched'}
                   </div>
                 </div>
 
-                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                  <div className="flex items-center justify-between text-slate-400 mb-1 text-[11px] font-bold uppercase tracking-wider">
+                <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-sm">
+                  <div className="flex items-center justify-between text-slate-400 mb-1 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider">
                     <span>Containers</span>
-                    <Layers className="w-4 h-4 text-purple-500" />
+                    <Layers className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-purple-500" />
                   </div>
-                  <div className="text-2xl font-black text-purple-900 font-mono">
+                  <div className="text-xl sm:text-2xl font-black text-purple-900 font-mono">
                     {distinctContainersCount} <span className="text-xs font-semibold text-slate-400 font-sans">{distinctContainersCount === 1 ? 'Container' : 'Containers'}</span>
                   </div>
-                  <div className="text-[11px] text-slate-500 mt-1">Carrying your goods</div>
+                  <div className="text-[10px] sm:text-[11px] text-slate-500 mt-0.5 sm:mt-1">Carrying your goods</div>
                 </div>
               </div>
 
