@@ -1292,19 +1292,7 @@ export default function PublicTrackerPage() {
                         >
                           {item.isDelivered ? (
                             <div className="space-y-2">
-                              <div className={`grid ${item.portDate ? 'grid-cols-3' : 'grid-cols-2'} gap-2`}>
-                                {item.portDate && (
-                                  <div className="p-2 rounded-lg bg-sky-950/60 border border-sky-600/40">
-                                    <div className="flex items-center space-x-1 text-sky-300 text-[10px] font-bold uppercase">
-                                      <Ship className="w-3 h-3 text-sky-400 shrink-0" />
-                                      <span>Port Date</span>
-                                    </div>
-                                    <div className="text-xs font-black font-mono text-sky-200 mt-0.5 truncate">
-                                      {formatGlobalDate(item.portDate)}
-                                    </div>
-                                  </div>
-                                )}
-
+                              <div className="grid grid-cols-2 gap-2">
                                 {/* Expected ETA */}
                                 <div className="p-2 rounded-lg bg-slate-800/80 border border-slate-700/60">
                                   <div className="flex items-center space-x-1 text-amber-300 text-[10px] font-bold uppercase">
@@ -1324,30 +1312,6 @@ export default function PublicTrackerPage() {
                                   </div>
                                   <div className="text-xs font-black font-mono text-emerald-300 mt-0.5 truncate">
                                     {formatGlobalDate(item.deliveryDate || item.dateOfDelivery)}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          ) : item.portDate ? (
-                            <div className="space-y-1.5">
-                              <div className="grid grid-cols-2 gap-2">
-                                <div className="p-2 rounded-lg bg-sky-950/60 border border-sky-600/40">
-                                  <div className="flex items-center space-x-1 text-sky-300 text-[10px] font-bold uppercase">
-                                    <Ship className="w-3 h-3 text-sky-400 shrink-0" />
-                                    <span>Port Date</span>
-                                  </div>
-                                  <div className="text-xs font-black font-mono text-sky-200 mt-0.5 truncate">
-                                    {formatGlobalDate(item.portDate)}
-                                  </div>
-                                </div>
-
-                                <div className="p-2 rounded-lg bg-slate-900 border border-slate-700/60">
-                                  <div className="flex items-center space-x-1 text-amber-300 text-[10px] font-bold uppercase">
-                                    <Clock className="w-3 h-3 text-amber-400 shrink-0" />
-                                    <span>ETA Date</span>
-                                  </div>
-                                  <div className="text-xs font-black font-mono text-white mt-0.5 truncate">
-                                    {formatGlobalDate(item.eta) || item.dateOfDelivery || 'Pending'}
                                   </div>
                                 </div>
                               </div>
@@ -1472,20 +1436,6 @@ export default function PublicTrackerPage() {
                         <div className="flex items-center space-x-3">
                           {isItemDeliv ? (
                             <div className="flex flex-wrap items-center gap-2">
-                              {item.portDate && (
-                                <div className="flex items-center space-x-2 text-white px-3 py-1.5 rounded-xl border shadow-sm bg-slate-800 border-sky-500/40">
-                                  <Ship className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                                  <div>
-                                    <span className="text-[9px] uppercase font-bold text-sky-300 block">
-                                      Port Date
-                                    </span>
-                                    <span className="text-xs font-black font-mono text-white block">
-                                      {formatGlobalDate(item.portDate)}
-                                    </span>
-                                  </div>
-                                </div>
-                              )}
-
                               {/* Expected ETA */}
                               <div className="flex items-center space-x-2 text-white px-3 py-1.5 rounded-xl border shadow-sm bg-slate-800 border-slate-700">
                                 <Clock className="w-3.5 h-3.5 text-amber-300 shrink-0" />
@@ -1514,20 +1464,6 @@ export default function PublicTrackerPage() {
                             </div>
                           ) : (
                             <div className="flex flex-wrap items-center gap-2">
-                              {item.portDate && (
-                                <div className="flex items-center space-x-2 text-white px-3 py-1.5 rounded-xl border shadow-sm bg-slate-800 border-sky-500/40">
-                                  <Ship className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                                  <div>
-                                    <span className="text-[9px] uppercase font-bold text-sky-300 block">
-                                      Port Date
-                                    </span>
-                                    <span className="text-xs font-black font-mono text-white block">
-                                      {formatGlobalDate(item.portDate)}
-                                    </span>
-                                  </div>
-                                </div>
-                              )}
-
                               <div className="flex items-center space-x-2.5 text-white px-4 py-2 rounded-xl border shadow-sm bg-gradient-to-r from-red-600 to-rose-600 border-red-400/40">
                                 <Clock className="w-4 h-4 text-amber-300 shrink-0" />
                                 <div>
@@ -1653,12 +1589,6 @@ export default function PublicTrackerPage() {
                       </div>
 
                       <div className="pt-2 border-t border-slate-800 flex flex-wrap items-center justify-center gap-2">
-                        {containerResult.portDate && (
-                          <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-800 text-sky-300 border border-sky-500/30">
-                            <Ship className="w-3.5 h-3.5 text-sky-400" />
-                            <span>Port Date: <strong className="font-mono text-white">{formatGlobalDate(containerResult.portDate)}</strong></span>
-                          </span>
-                        )}
                         {(containerResult.eta || containerResult.dateOfDelivery) && (
                           <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-800 text-slate-300 border border-slate-700">
                             <Clock className="w-3.5 h-3.5 text-amber-400" />
@@ -1673,41 +1603,15 @@ export default function PublicTrackerPage() {
                     </div>
                   ) : (
                     <div className="p-6 rounded-2xl bg-slate-900 text-white space-y-4 border border-slate-800">
-                      {containerResult.portDate ? (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
-                          <div className="p-3.5 rounded-xl bg-sky-950/60 border border-sky-600/40">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-300 flex items-center space-x-1 mb-1">
-                              <Ship className="w-3.5 h-3.5 text-sky-400" />
-                              <span>Port Date (Vessel Arrival)</span>
-                            </span>
-                            <div className="text-xl sm:text-2xl font-black font-mono text-sky-200">
-                              {formatGlobalDate(containerResult.portDate)}
-                            </div>
-                            <span className="text-[10px] text-sky-300/70 mt-0.5 block">Nhava Sheva / Mundra Port</span>
-                          </div>
-
-                          <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-700">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-300 flex items-center space-x-1 mb-1">
-                              <Clock className="w-3.5 h-3.5 text-amber-400" />
-                              <span>ETA Date (Expected Arrival)</span>
-                            </span>
-                            <div className="text-xl sm:text-2xl font-black font-mono text-white">
-                              {formatGlobalDate(containerResult.eta) || containerResult.dateOfDelivery || 'Pending'}
-                            </div>
-                            <span className="text-[10px] text-slate-400 mt-0.5 block">Final Delivery ETA</span>
-                          </div>
+                      <div className="space-y-2">
+                        <span className="text-xs font-bold uppercase tracking-widest text-slate-400 flex items-center justify-center space-x-1.5">
+                          <Clock className="w-4 h-4 text-amber-400" />
+                          <span>Expected Arrival Date (ETA)</span>
+                        </span>
+                        <div className="text-3xl sm:text-4xl font-black font-mono text-amber-300">
+                          {formatGlobalDate(containerResult.eta) || containerResult.dateOfDelivery || 'Pending'}
                         </div>
-                      ) : (
-                        <div className="space-y-2">
-                          <span className="text-xs font-bold uppercase tracking-widest text-slate-400 flex items-center justify-center space-x-1.5">
-                            <Clock className="w-4 h-4 text-amber-400" />
-                            <span>Expected Arrival Date (ETA)</span>
-                          </span>
-                          <div className="text-3xl sm:text-4xl font-black font-mono text-amber-300">
-                            {formatGlobalDate(containerResult.eta) || containerResult.dateOfDelivery || 'Pending'}
-                          </div>
-                        </div>
-                      )}
+                      </div>
 
                       <p className="text-[11px] text-slate-400">
                         Estimated arrival date for container {containerResult.container}.
