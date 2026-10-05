@@ -52,6 +52,18 @@ import {
   RotateCcw,
 } from 'lucide-react';
 
+export const isContainerDelivered = (c?: { isDelivered?: boolean; deliveryDate?: string; status?: string } | null): boolean => {
+  if (!c) return false;
+  if (c.isDelivered === true) return true;
+  if (c.deliveryDate && c.deliveryDate.trim() && c.deliveryDate !== '—' && c.deliveryDate !== 'N/A' && c.deliveryDate !== 'In Transit') {
+    return true;
+  }
+  if (c.status && c.status.toLowerCase().trim() === 'delivered') {
+    return true;
+  }
+  return false;
+};
+
 interface CargoMasterTableProps {
   onEditDates?: (containerAlias: string) => void;
   onSyncApi?: (containerAlias: string) => void;
