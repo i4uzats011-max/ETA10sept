@@ -50,7 +50,30 @@ import {
   Trash2,
   Unlink,
   RotateCcw,
+  SlidersHorizontal,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
+
+export const ALL_CARGO_COLUMNS: { key: string; label: string }[] = [
+  { key: 'container', label: 'Container Alias' },
+  { key: 'containerNumber', label: 'Carrier Container' },
+  { key: 'shippingLine', label: 'Shipping Line' },
+  { key: 'warehouse', label: 'Warehouse (Origin)' },
+  { key: 'startDate', label: 'Loading / Receipt Date' },
+  { key: 'rawEta', label: 'Vessel ETA (Carrier)' },
+  { key: 'eta', label: 'Destination ETA' },
+  { key: 'etaUpdatedAt', label: 'ETA Last Updated' },
+  { key: 'deliveryDate', label: 'Delivery Date' },
+  { key: 'daysToDeliver', label: 'Days to Deliver' },
+  { key: 'status', label: 'Current Status' },
+  { key: 'shippedFrom', label: 'Source (Origin Port)' },
+  { key: 'shippedTo', label: 'Destination Port' },
+  { key: 'currentLocation', label: 'Current Location' },
+  { key: 'vesselVoyage', label: 'Vessel / Voyage' },
+  { key: 'cargoMetrics', label: 'Cargo (CTN/KGS/CBM)' },
+  { key: 'actions', label: 'Quick Actions' },
+];
 
 export const isContainerDelivered = (c?: { isDelivered?: boolean; deliveryDate?: string; status?: string } | null): boolean => {
   if (!c) return false;
@@ -117,6 +140,42 @@ export default function CargoMasterTable({
     lastApiSync: !isStaffOnly,
     actions: true,
   });
+
+  const visibleColumnsCount = ALL_CARGO_COLUMNS.filter((c) => Boolean(columnVisibility[c.key])).length;
+
+  const handleShowAllColumns = () => {
+    const allVis: Record<string, boolean> = {};
+    ALL_CARGO_COLUMNS.forEach((col) => {
+      allVis[col.key] = true;
+    });
+    allVis.lastApiSync = true;
+    allVis.shipmentCount = true;
+    setColumnVisibility(allVis);
+  };
+
+  const handleResetDefaultColumns = () => {
+    setColumnVisibility({
+      container: true,
+      containerNumber: true,
+      shippingLine: true,
+      warehouse: true,
+      startDate: true,
+      rawEta: true,
+      eta: true,
+      etaUpdatedAt: !isStaffOnly,
+      deliveryDate: true,
+      daysToDeliver: true,
+      status: true,
+      shippedFrom: true,
+      shippedTo: true,
+      currentLocation: true,
+      vesselVoyage: true,
+      cargoMetrics: true,
+      shipmentCount: true,
+      lastApiSync: !isStaffOnly,
+      actions: true,
+    });
+  };
 
   const [apiStats, setApiStats] = useState<any | null>(null);
   const [syncingContainer, setSyncingContainer] = useState<string | null>(null);
@@ -528,9 +587,9 @@ export default function CargoMasterTable({
 
           if (isDelivered) {
             return (
-              <div className="flex flex-col items-start gap-0.5">
+              <div className="flex flex-col items-start gap-0.5 whitespace-nowrap">
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
-                  ✓ Container Delivered
+                  ✓ Delivered
                 </span>
                 {row.original.deliveryDate && (
                   <span className="text-[10px] text-emerald-700 font-mono font-bold pl-0.5">
@@ -541,66 +600,73 @@ export default function CargoMasterTable({
             );
           }
 
+          // Calculate days remaining directly as (ETA - TODAY)
+          const targetDateStr = row.original.destinationDate || row.original.eta || row.original.rawEta;
           let days = row.original.daysRemaining;
-          if (days === null || days === undefined) {
-            const targetDateStr = row.original.destinationDate || row.original.eta || row.original.rawEta;
-            if (targetDateStr && targetDateStr !== 'N/A' && targetDateStr !== 'Pending') {
-              const t = new Date(targetDateStr).getTime();
-              if (!isNaN(t)) {
-                const now = new Date();
-                now.setHours(0, 0, 0, 0);
-                days = Math.ceil((t - now.getTime()) / (1000 * 60 * 60 * 24));
-              }
+          if (targetDateStr && targetDateStr !== 'N/A' && targetDateStr !== 'Pending' && targetDateStr !== '—') {
+            const parsedTarget = parseReceiptDate(targetDateStr) || new Date(targetDateStr);
+            if (parsedTarget && !isNaN(parsedTarget.getTime())) {
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              parsedTarget.setHours(0, 0, 0, 0);
+              days = Math.ceil((parsedTarget.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
             }
           }
 
           if (days !== null && days !== undefined) {
             if (days < 0) {
               return (
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                  ⚡ Arriving Soon
-                </span>
+                <div className="flex flex-col items-start gap-0.5 whitespace-nowrap">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                    ⚡ Arriving Soon
+                  </span>
+                  {targetDateStr && (
+                    <span className="text-[10px] text-slate-500 font-mono">
+                      ETA: {formatGlobalDate(targetDateStr)}
+                    </span>
+                  )}
+                </div>
               );
             }
             if (days === 0) {
               return (
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-100 text-amber-900 border border-amber-300">
-                  ⚡ Arriving Today
-                </span>
+                <div className="flex flex-col items-start gap-0.5 whitespace-nowrap">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-100 text-amber-900 border border-amber-300">
+                    ⚡ Today (0 Days)
+                  </span>
+                  {targetDateStr && (
+                    <span className="text-[10px] text-slate-500 font-mono">
+                      ETA: {formatGlobalDate(targetDateStr)}
+                    </span>
+                  )}
+                </div>
               );
             }
             if (days === 1) {
               return (
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-100 text-amber-900 border border-amber-300">
-                  ⚡ Tomorrow (1d)
-                </span>
-              );
-            }
-            if (days === 2) {
-              return (
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-100 text-amber-900 border border-amber-300">
-                  ⚡ In 2 days
-                </span>
-              );
-            }
-            if (days <= 7) {
-              return (
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-900 border border-blue-300">
-                  🚢 In {days} days (2-7d)
-                </span>
-              );
-            }
-            if (days <= 15) {
-              return (
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-100 text-indigo-900 border border-indigo-300">
-                  🌊 In {days} days (7-15d)
-                </span>
+                <div className="flex flex-col items-start gap-0.5 whitespace-nowrap">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-100 text-amber-900 border border-amber-300">
+                    ⚡ 1 Day (Tomorrow)
+                  </span>
+                  {targetDateStr && (
+                    <span className="text-[10px] text-slate-500 font-mono">
+                      ETA: {formatGlobalDate(targetDateStr)}
+                    </span>
+                  )}
+                </div>
               );
             }
             return (
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-900 border border-purple-300">
-                🌐 In {days} days (&gt;15d)
-              </span>
+              <div className="flex flex-col items-start gap-0.5 whitespace-nowrap">
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-900 border border-blue-300">
+                  🚢 {days} Days
+                </span>
+                {targetDateStr && (
+                  <span className="text-[10px] text-slate-500 font-mono">
+                    ETA: {formatGlobalDate(targetDateStr)}
+                  </span>
+                )}
+              </div>
             );
           }
 
@@ -659,8 +725,8 @@ export default function CargoMasterTable({
         accessorKey: 'shippedTo',
         header: 'Destination Port',
         cell: ({ row }) => (
-          <span className="font-bold text-xs text-blue-900 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded-md truncate max-w-[170px] inline-block" title={row.original.shippedTo || 'Nhava Sheva / Mundra, India'}>
-            {row.original.shippedTo || 'Nhava Sheva / Mundra, India'}
+          <span className="font-bold text-xs text-blue-900 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded-md truncate max-w-[170px] inline-block" title={row.original.shippedTo || 'India Port'}>
+            {row.original.shippedTo || 'India Port'}
           </span>
         ),
       },
@@ -798,7 +864,7 @@ export default function CargoMasterTable({
                     `• Shipping Line: ${c.shippingLine || 'MSC'}\n` +
                     `• Warehouse: ${c.warehouse || 'China Warehouse'}\n` +
                     `• Source (Origin Port): ${c.shippedFrom || 'China Port'}\n` +
-                    `• Destination Port: ${c.shippedTo || 'Nhava Sheva / Mundra, India'}\n` +
+                    `• Destination Port: ${c.shippedTo || 'India Port'}\n` +
                     `• Current Status: ${c.status || 'In Transit'}\n` +
                     `• Current Location: ${c.currentLocation || 'In Transit'}\n` +
                     `• Vessel: ${c.vesselName || 'TBA'} | Voyage: ${c.voyageNumber || 'TBA'}\n` +
@@ -1199,96 +1265,67 @@ export default function CargoMasterTable({
             </div>
           </div>
 
-          {/* Sensitive Columns Toggle Bar (Hidden by Default) */}
-          <div className="flex flex-wrap items-center gap-2.5 pt-3 border-t border-slate-200 text-xs">
-            <div className="flex items-center space-x-1 text-slate-500 font-bold uppercase text-[10px] tracking-wider shrink-0">
-              <Lock className="w-3 h-3 text-amber-600" />
-              <span>Hidden by default:</span>
+          {/* Complete Column Visibility Control: User can hide ANY column */}
+          <div className="pt-3 border-t border-slate-200 text-xs space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center space-x-2">
+                <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-800 font-bold text-xs border border-slate-200">
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Columns ({visibleColumnsCount}/{ALL_CARGO_COLUMNS.length} visible)</span>
+                </span>
+
+                <button
+                  type="button"
+                  onClick={handleShowAllColumns}
+                  className="px-2.5 py-1 bg-white hover:bg-slate-50 text-blue-600 border border-blue-200 rounded-lg text-xs font-bold transition shadow-2xs"
+                >
+                  Show All
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleResetDefaultColumns}
+                  className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 rounded-lg text-xs font-bold transition shadow-2xs"
+                >
+                  Reset Defaults
+                </button>
+              </div>
+
+              <span className="text-[11px] text-slate-400 font-medium">
+                Click any column below to instantly show or hide it
+              </span>
             </div>
 
-            <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-[11px]">
-              <input
-                type="checkbox"
-                checked={Boolean(columnVisibility.containerNumber)}
-                onChange={(e) =>
-                  setColumnVisibility((prev) => ({ ...prev, containerNumber: e.target.checked }))
-                }
-                className="w-3.5 h-3.5 rounded text-blue-600 accent-blue-600"
-              />
-              <span className="font-semibold text-slate-700">Carrier Container</span>
-            </label>
-
-            <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-[11px]">
-              <input
-                type="checkbox"
-                checked={Boolean(columnVisibility.shippingLine)}
-                onChange={(e) =>
-                  setColumnVisibility((prev) => ({ ...prev, shippingLine: e.target.checked }))
-                }
-                className="w-3.5 h-3.5 rounded text-blue-600 accent-blue-600"
-              />
-              <span className="font-semibold text-slate-700">Shipping Line</span>
-            </label>
-
-            <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-[11px]">
-              <input
-                type="checkbox"
-                checked={Boolean(columnVisibility.startDate)}
-                onChange={(e) =>
-                  setColumnVisibility((prev) => ({ ...prev, startDate: e.target.checked }))
-                }
-                className="w-3.5 h-3.5 rounded text-blue-600 accent-blue-600"
-              />
-              <span className="font-semibold text-slate-700">Loading / Receipt Date</span>
-            </label>
-
-            <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-[11px]">
-              <input
-                type="checkbox"
-                checked={Boolean(columnVisibility.etaUpdatedAt)}
-                onChange={(e) =>
-                  setColumnVisibility((prev) => ({ ...prev, etaUpdatedAt: e.target.checked, lastApiSync: e.target.checked }))
-                }
-                className="w-3.5 h-3.5 rounded text-blue-600 accent-blue-600"
-              />
-              <span className="font-semibold text-slate-700">ETA Last Updated</span>
-            </label>
-
-            <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-[11px]">
-              <input
-                type="checkbox"
-                checked={Boolean(columnVisibility.shippedFrom)}
-                onChange={(e) =>
-                  setColumnVisibility((prev) => ({ ...prev, shippedFrom: e.target.checked }))
-                }
-                className="w-3.5 h-3.5 rounded text-blue-600 accent-blue-600"
-              />
-              <span className="font-semibold text-slate-700">Source (Origin)</span>
-            </label>
-
-            <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-[11px]">
-              <input
-                type="checkbox"
-                checked={Boolean(columnVisibility.shippedTo)}
-                onChange={(e) =>
-                  setColumnVisibility((prev) => ({ ...prev, shippedTo: e.target.checked }))
-                }
-                className="w-3.5 h-3.5 rounded text-blue-600 accent-blue-600"
-              />
-              <span className="font-semibold text-slate-700">Destination</span>
-            </label>
-
-            <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-[11px]">
-              <input
-                type="checkbox"
-                checked={Boolean(columnVisibility.status)}
-                onChange={(e) =>
-                  setColumnVisibility((prev) => ({ ...prev, status: e.target.checked }))
-                }
-                className="w-3.5 h-3.5 rounded text-blue-600 accent-blue-600"
-              />
-              <span className="font-semibold text-slate-700">Current Status</span>
-            </label>
+            {/* Checkbox pills for EVERY column */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+              {ALL_CARGO_COLUMNS.map((col) => {
+                const isVisible = Boolean(columnVisibility[col.key]);
+                return (
+                  <label
+                    key={col.key}
+                    className={`inline-flex items-center space-x-1.5 cursor-pointer px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition select-none ${
+                      isVisible
+                        ? 'bg-blue-50 text-blue-900 border-blue-200 hover:bg-blue-100'
+                        : 'bg-slate-50 text-slate-400 border-slate-200 opacity-60 hover:opacity-100 line-through'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isVisible}
+                      onChange={(e) =>
+                        setColumnVisibility((prev) => ({
+                          ...prev,
+                          [col.key]: e.target.checked,
+                          ...(col.key === 'etaUpdatedAt' ? { lastApiSync: e.target.checked } : {}),
+                        }))
+                      }
+                      className="w-3.5 h-3.5 rounded text-blue-600 accent-blue-600"
+                    />
+                    <span>{col.label}</span>
+                  </label>
+                );
+              })}
+            </div>
           </div>
         </div>
 

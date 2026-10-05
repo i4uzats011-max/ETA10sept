@@ -271,15 +271,22 @@ export default function InternalEmployeeViewPage() {
   const [error, setError] = useState<string | null>(null);
   const [isExportingJpg, setIsExportingJpg] = useState(false);
 
-  // Column Visibility:
-  // Carrier Container actual container no., Shipping Line, Destination, Source, and Current Status are hidden by default.
-  // Receipt Date can be toggled/hidden by the user!
-  const [showReceiptDate, setShowReceiptDate] = useState(true);
+  // Column Visibility: User can hide ANY column per requirement
+  const [showMarks, setShowMarks] = useState(true);
+  const [showMainMark, setShowMainMark] = useState(true);
+  const [showSubMark, setShowSubMark] = useState(true);
+  const [showReceiptNo, setShowReceiptNo] = useState(true);
+  const [showContainer, setShowContainer] = useState(true);
   const [showActualContainer, setShowActualContainer] = useState(false);
   const [showShippingLine, setShowShippingLine] = useState(false);
+  const [showCommodity, setShowCommodity] = useState(true);
+  const [showCargoMetrics, setShowCargoMetrics] = useState(true);
+  const [showReceiptDate, setShowReceiptDate] = useState(true);
+  const [showEtaDate, setShowEtaDate] = useState(true);
+  const [showDaysToDeliver, setShowDaysToDeliver] = useState(true);
+  const [showStatus, setShowStatus] = useState(false);
   const [showDestination, setShowDestination] = useState(false);
   const [showSource, setShowSource] = useState(false);
-  const [showStatus, setShowStatus] = useState(false);
 
   // Row Marking: 'bold' = primary mark (gold star), 'sub' = sub-mark (blue bookmark)
   const [rowMarks, setRowMarks] = useState<Record<string, MarkType>>({});
@@ -334,7 +341,7 @@ export default function InternalEmployeeViewPage() {
   const [setDatesEta, setSetDatesEta] = useState('');
   const [setDatesStatus, setSetDatesStatus] = useState('In Transit');
   const [setDatesShippedFrom, setSetDatesShippedFrom] = useState('Ningbo / Shanghai, China');
-  const [setDatesShippedTo, setSetDatesShippedTo] = useState('Nhava Sheva / Mundra, India');
+  const [setDatesShippedTo, setSetDatesShippedTo] = useState('India Port');
   const [setDatesShippingLine, setSetDatesShippingLine] = useState('MSC');
   const [setDatesBuffer, setSetDatesBuffer] = useState(true);
   const [isSavingDates, setIsSavingDates] = useState(false);
@@ -555,12 +562,11 @@ export default function InternalEmployeeViewPage() {
       }
 
       if (isDelivered) {
-        const turnaroundDays = item.daysToDeliver ?? cFleet?.daysToDeliver ?? null;
         return {
           daysRemaining,
           isDelivered: true,
           category: 'delivered',
-          label: turnaroundDays !== null ? `✓ Delivered (${turnaroundDays}d)` : '✓ Container Delivered',
+          label: '✓ Delivered',
           badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold',
         };
       }
@@ -575,8 +581,7 @@ export default function InternalEmployeeViewPage() {
         };
       }
 
-      // NOTE: Per user requirement: Do NOT show "container late" to customers!
-      // When daysRemaining < 0 (ETA has passed/arrived), show "Arriving Soon" / "Under Clearance"
+      // Customer-friendly calculation: Direct ETA - TODAY countdown! (NO "container late" shown)
       if (daysRemaining < 0) {
         return {
           daysRemaining,
@@ -592,7 +597,7 @@ export default function InternalEmployeeViewPage() {
           daysRemaining: 0,
           isDelivered: false,
           category: 'within-2-days',
-          label: '⚡ Arriving Today',
+          label: '⚡ Today (0 Days)',
           badgeClass: 'bg-amber-100 text-amber-900 border-amber-300 font-bold',
         };
       }
@@ -602,47 +607,17 @@ export default function InternalEmployeeViewPage() {
           daysRemaining: 1,
           isDelivered: false,
           category: 'within-2-days',
-          label: '⚡ Tomorrow (1d)',
+          label: '⚡ 1 Day (Tomorrow)',
           badgeClass: 'bg-amber-100 text-amber-900 border-amber-300 font-bold',
-        };
-      }
-
-      if (daysRemaining === 2) {
-        return {
-          daysRemaining: 2,
-          isDelivered: false,
-          category: 'within-2-days',
-          label: '⚡ In 2 days',
-          badgeClass: 'bg-amber-100 text-amber-900 border-amber-300 font-bold',
-        };
-      }
-
-      if (daysRemaining <= 7) {
-        return {
-          daysRemaining,
-          isDelivered: false,
-          category: '2-to-7-days',
-          label: `🚢 In ${daysRemaining} days (2-7d)`,
-          badgeClass: 'bg-blue-100 text-blue-900 border-blue-300 font-bold',
-        };
-      }
-
-      if (daysRemaining <= 15) {
-        return {
-          daysRemaining,
-          isDelivered: false,
-          category: '7-to-15-days',
-          label: `🌊 In ${daysRemaining} days (7-15d)`,
-          badgeClass: 'bg-indigo-100 text-indigo-900 border-indigo-300 font-bold',
         };
       }
 
       return {
         daysRemaining,
         isDelivered: false,
-        category: 'more-than-15-days',
-        label: `🌐 In ${daysRemaining} days (>15d)`,
-        badgeClass: 'bg-purple-100 text-purple-900 border-purple-300 font-bold',
+        category: daysRemaining <= 7 ? '2-to-7-days' : daysRemaining <= 15 ? '7-to-15-days' : 'more-than-15-days',
+        label: `🚢 ${daysRemaining} Days`,
+        badgeClass: daysRemaining <= 7 ? 'bg-blue-100 text-blue-900 border-blue-300 font-bold' : daysRemaining <= 15 ? 'bg-indigo-100 text-indigo-900 border-indigo-300 font-bold' : 'bg-purple-100 text-purple-900 border-purple-300 font-bold',
       };
     },
     [containerFleetMap]
@@ -945,25 +920,28 @@ export default function InternalEmployeeViewPage() {
   const getExportRows = () =>
     filteredShipments.map((s) => {
       const deliveryInfo = getDeliveryInfo(s);
-      const row: Record<string, any> = {
-        Mark: rowMarks[s._id] === 'bold' ? '★ Primary' : rowMarks[s._id] === 'sub' ? '◆ Sub-Mark' : '',
-        'Main Mark': s.mainMarka || '',
-        'Sub Mark': s.subMarka || '',
-        'Receipt No': s.receipt || '',
-        'Container Alias': s.container || '',
-      };
+      const row: Record<string, any> = {};
+      if (showMarks) row['Mark'] = rowMarks[s._id] === 'bold' ? '★ Primary' : rowMarks[s._id] === 'sub' ? '◆ Sub-Mark' : '';
+      if (showMainMark) row['Main Mark'] = s.mainMarka || '';
+      if (showSubMark) row['Sub Mark'] = s.subMarka || '';
+      if (showReceiptNo) row['Receipt No'] = s.receipt || '';
+      if (showContainer) row['Container Alias'] = s.container || '';
       if (showActualContainer) row['Actual Container No'] = s.containerNumber || '';
       if (showShippingLine) row['Shipping Line'] = s.shippingLine || '';
-      row['Commodity (English)'] = s.english || s.commodity || '';
-      row['Commodity (Chinese)'] = s.commodity || '';
-      row['Cartons (CTN)'] = s.quantity ?? '';
-      row['Weight (KGS)'] = s.weight ?? '';
-      row['Volume (CBM)'] = s.volume ?? '';
+      if (showCommodity) {
+        row['Commodity (English)'] = s.english || s.commodity || '';
+        row['Commodity (Chinese)'] = s.commodity || '';
+      }
+      if (showCargoMetrics) {
+        row['Cartons (CTN)'] = s.quantity ?? '';
+        row['Weight (KGS)'] = s.weight ?? '';
+        row['Volume (CBM)'] = s.volume ?? '';
+      }
       if (showReceiptDate) row['Receipt Date'] = s.date || 'N/A';
-      row['ETA Date'] = s.eta || '';
-      row['Days to Deliver'] = deliveryInfo.label;
+      if (showEtaDate) row['ETA Date'] = s.eta || '';
+      if (showDaysToDeliver) row['Days to Deliver'] = deliveryInfo.label;
       if (showStatus) row['Status'] = s.status || '';
-      if (showDestination) row['Destination'] = s.shippedTo || 'Nhava Sheva / Mundra, India';
+      if (showDestination) row['Destination'] = s.shippedTo || 'India Port';
       if (showSource) row['Warehouse Entry (Source)'] = s.warehouseEntry || '';
       return row;
     });
@@ -1035,12 +1013,19 @@ export default function InternalEmployeeViewPage() {
         14
       );
 
-      const headers = ['Mark', 'Main Mark', 'Sub Mark', 'Receipt No', 'Container'];
+      const headers: string[] = [];
+      if (showMarks) headers.push('Mark');
+      if (showMainMark) headers.push('Main Mark');
+      if (showSubMark) headers.push('Sub Mark');
+      if (showReceiptNo) headers.push('Receipt No');
+      if (showContainer) headers.push('Container');
       if (showActualContainer) headers.push('Actual Container');
       if (showShippingLine) headers.push('Line');
-      headers.push('Commodity', 'CTN', 'Weight (KGS)', 'CBM');
+      if (showCommodity) headers.push('Commodity');
+      if (showCargoMetrics) headers.push('CTN', 'Weight (KGS)', 'CBM');
       if (showReceiptDate) headers.push('Receipt Date');
-      headers.push('ETA Date', 'Days to Deliver');
+      if (showEtaDate) headers.push('ETA Date');
+      if (showDaysToDeliver) headers.push('Days to Deliver');
       if (showStatus) headers.push('Status');
       if (showDestination) headers.push('Destination');
       if (showSource) headers.push('Source');
@@ -1048,22 +1033,27 @@ export default function InternalEmployeeViewPage() {
       const body = filteredShipments.map((s) => {
         const mark = rowMarks[s._id] === 'bold' ? '★' : rowMarks[s._id] === 'sub' ? '◆' : '';
         const deliveryInfo = getDeliveryInfo(s);
-        const row = [mark, s.mainMarka || '-', s.subMarka || '-', s.receipt || '', s.container || ''];
+        const row: string[] = [];
+        if (showMarks) row.push(mark);
+        if (showMainMark) row.push(s.mainMarka || '-');
+        if (showSubMark) row.push(s.subMarka || '-');
+        if (showReceiptNo) row.push(s.receipt || '');
+        if (showContainer) row.push(s.container || '');
         if (showActualContainer) row.push(s.containerNumber || '-');
         if (showShippingLine) row.push(s.shippingLine || '-');
-        row.push(
-          s.english || s.commodity || '',
-          s.quantity ? `${s.quantity} CTN` : '-',
-          s.weight ? `${s.weight} KGS` : '-',
-          s.volume ? `${s.volume} CBM` : '-'
-        );
+        if (showCommodity) row.push(s.english || s.commodity || '');
+        if (showCargoMetrics) {
+          row.push(
+            s.quantity ? `${s.quantity} CTN` : '-',
+            s.weight ? `${s.weight} KGS` : '-',
+            s.volume ? `${s.volume} CBM` : '-'
+          );
+        }
         if (showReceiptDate) row.push(s.date || '-');
-        row.push(
-          s.eta || 'Pending',
-          deliveryInfo.label
-        );
+        if (showEtaDate) row.push(s.eta || 'Pending');
+        if (showDaysToDeliver) row.push(deliveryInfo.label);
         if (showStatus) row.push(s.status || 'In Transit');
-        if (showDestination) row.push(s.shippedTo || 'India');
+        if (showDestination) row.push(s.shippedTo || 'India Port');
         if (showSource) row.push(s.warehouseEntry || '-');
         return row;
       });
@@ -1661,107 +1651,159 @@ export default function InternalEmployeeViewPage() {
               {/* Column Visibility & Row Mark Toggles */}
               <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-slate-200 text-xs">
                 <div className="flex flex-wrap items-center gap-3">
-                  {/* Master Logistics Toggle Button */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const isAnyRevealed =
-                        showActualContainer ||
-                        showShippingLine ||
-                        showDestination ||
-                        showSource ||
-                        showStatus;
-                      const next = !isAnyRevealed;
-                      setShowActualContainer(next);
-                      setShowShippingLine(next);
-                      setShowDestination(next);
-                      setShowSource(next);
-                      setShowStatus(next);
-                    }}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 border shadow-xs ${
-                      showActualContainer || showShippingLine || showDestination || showSource || showStatus
-                        ? 'bg-amber-100 text-amber-950 border-amber-300'
-                        : 'bg-slate-900 hover:bg-slate-800 text-white border-slate-950'
-                    }`}
-                    title="Carrier container, shipping line, destination, source, and current status are hidden by default. Click to reveal/hide."
-                  >
-                    {showActualContainer || showShippingLine || showDestination || showSource || showStatus ? (
-                      <>
-                        <EyeOff className="w-3.5 h-3.5 text-amber-700" />
-                        <span>Hide Logistics Details (5 Columns)</span>
-                      </>
-                    ) : (
-                      <>
-                        <Eye className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Click to Reveal Logistics (Carrier, Line, Dest, Source, Status)</span>
-                      </>
-                    )}
-                  </button>
+                  <div className="w-full flex flex-wrap items-center justify-between gap-2 pb-1 border-b border-slate-200">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold text-slate-700 text-xs flex items-center space-x-1">
+                        <SlidersHorizontal className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Column Visibility: Show/Hide Any Column</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowMarks(true);
+                          setShowMainMark(true);
+                          setShowSubMark(true);
+                          setShowReceiptNo(true);
+                          setShowContainer(true);
+                          setShowActualContainer(true);
+                          setShowShippingLine(true);
+                          setShowCommodity(true);
+                          setShowCargoMetrics(true);
+                          setShowReceiptDate(true);
+                          setShowEtaDate(true);
+                          setShowDaysToDeliver(true);
+                          setShowStatus(true);
+                          setShowDestination(true);
+                          setShowSource(true);
+                        }}
+                        className="px-2.5 py-1 bg-white hover:bg-slate-50 text-blue-600 border border-blue-200 rounded-lg text-xs font-bold transition"
+                      >
+                        Show All
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowMarks(true);
+                          setShowMainMark(true);
+                          setShowSubMark(true);
+                          setShowReceiptNo(true);
+                          setShowContainer(true);
+                          setShowActualContainer(false);
+                          setShowShippingLine(false);
+                          setShowCommodity(true);
+                          setShowCargoMetrics(true);
+                          setShowReceiptDate(true);
+                          setShowEtaDate(true);
+                          setShowDaysToDeliver(true);
+                          setShowStatus(false);
+                          setShowDestination(false);
+                          setShowSource(false);
+                        }}
+                        className="px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 rounded-lg text-xs font-bold transition"
+                      >
+                        Reset Defaults
+                      </button>
+                    </div>
 
-                  <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2 py-1 rounded-lg border border-slate-200 hover:bg-slate-50">
-                    <input
-                      type="checkbox"
-                      checked={showReceiptDate}
-                      onChange={(e) => setShowReceiptDate(e.target.checked)}
-                      className="w-3.5 h-3.5 rounded text-blue-600 accent-blue-600"
-                    />
-                    <span className="font-semibold text-slate-700">Receipt Date</span>
-                  </label>
-
-                  <div className="flex items-center space-x-1 text-slate-400 text-[10px] uppercase font-bold tracking-wider">
-                    <Lock className="w-3 h-3 text-amber-600" />
-                    <span>Hidden by default:</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const isAnyRevealed =
+                          showActualContainer ||
+                          showShippingLine ||
+                          showDestination ||
+                          showSource ||
+                          showStatus;
+                        const next = !isAnyRevealed;
+                        setShowActualContainer(next);
+                        setShowShippingLine(next);
+                        setShowDestination(next);
+                        setShowSource(next);
+                        setShowStatus(next);
+                      }}
+                      className={`px-3 py-1 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 border shadow-2xs ${
+                        showActualContainer || showShippingLine || showDestination || showSource || showStatus
+                          ? 'bg-amber-100 text-amber-950 border-amber-300'
+                          : 'bg-slate-900 hover:bg-slate-800 text-white border-slate-950'
+                      }`}
+                      title="Carrier container, shipping line, destination, source, and current status"
+                    >
+                      {showActualContainer || showShippingLine || showDestination || showSource || showStatus ? (
+                        <>
+                          <EyeOff className="w-3.5 h-3.5 text-amber-700" />
+                          <span>Hide Logistics (5 Columns)</span>
+                        </>
+                      ) : (
+                        <>
+                          <Eye className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Quick Reveal Logistics</span>
+                        </>
+                      )}
+                    </button>
                   </div>
 
-                  <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2 py-1 rounded-lg border border-slate-200 hover:bg-slate-50">
-                    <input
-                      type="checkbox"
-                      checked={showActualContainer}
-                      onChange={(e) => setShowActualContainer(e.target.checked)}
-                      className="w-3.5 h-3.5 rounded text-red-600 accent-red-600"
-                    />
-                    <span className="font-semibold text-slate-700">Carrier Container</span>
-                  </label>
-
-                  <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2 py-1 rounded-lg border border-slate-200 hover:bg-slate-50">
-                    <input
-                      type="checkbox"
-                      checked={showShippingLine}
-                      onChange={(e) => setShowShippingLine(e.target.checked)}
-                      className="w-3.5 h-3.5 rounded text-red-600 accent-red-600"
-                    />
-                    <span className="font-semibold text-slate-700">Shipping Line</span>
-                  </label>
-
-                  <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2 py-1 rounded-lg border border-slate-200 hover:bg-slate-50">
-                    <input
-                      type="checkbox"
-                      checked={showSource}
-                      onChange={(e) => setShowSource(e.target.checked)}
-                      className="w-3.5 h-3.5 rounded text-red-600 accent-red-600"
-                    />
-                    <span className="font-semibold text-slate-700">Source (Warehouse)</span>
-                  </label>
-
-                  <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2 py-1 rounded-lg border border-slate-200 hover:bg-slate-50">
-                    <input
-                      type="checkbox"
-                      checked={showDestination}
-                      onChange={(e) => setShowDestination(e.target.checked)}
-                      className="w-3.5 h-3.5 rounded text-red-600 accent-red-600"
-                    />
-                    <span className="font-semibold text-slate-700">Destination</span>
-                  </label>
-
-                  <label className="inline-flex items-center space-x-1.5 cursor-pointer bg-white px-2 py-1 rounded-lg border border-slate-200 hover:bg-slate-50">
-                    <input
-                      type="checkbox"
-                      checked={showStatus}
-                      onChange={(e) => setShowStatus(e.target.checked)}
-                      className="w-3.5 h-3.5 rounded text-red-600 accent-red-600"
-                    />
-                    <span className="font-semibold text-slate-700">Current Status</span>
-                  </label>
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    <label className={`inline-flex items-center space-x-1.5 cursor-pointer px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition select-none ${showMarks ? 'bg-blue-50 text-blue-900 border-blue-200' : 'bg-slate-50 text-slate-400 border-slate-200 line-through opacity-60'}`}>
+                      <input type="checkbox" checked={showMarks} onChange={(e) => setShowMarks(e.target.checked)} className="w-3.5 h-3.5 rounded text-blue-600" />
+                      <span>Mark (★/◆)</span>
+                    </label>
+                    <label className={`inline-flex items-center space-x-1.5 cursor-pointer px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition select-none ${showMainMark ? 'bg-blue-50 text-blue-900 border-blue-200' : 'bg-slate-50 text-slate-400 border-slate-200 line-through opacity-60'}`}>
+                      <input type="checkbox" checked={showMainMark} onChange={(e) => setShowMainMark(e.target.checked)} className="w-3.5 h-3.5 rounded text-blue-600" />
+                      <span>Main Mark</span>
+                    </label>
+                    <label className={`inline-flex items-center space-x-1.5 cursor-pointer px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition select-none ${showSubMark ? 'bg-blue-50 text-blue-900 border-blue-200' : 'bg-slate-50 text-slate-400 border-slate-200 line-through opacity-60'}`}>
+                      <input type="checkbox" checked={showSubMark} onChange={(e) => setShowSubMark(e.target.checked)} className="w-3.5 h-3.5 rounded text-blue-600" />
+                      <span>Sub Mark</span>
+                    </label>
+                    <label className={`inline-flex items-center space-x-1.5 cursor-pointer px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition select-none ${showReceiptNo ? 'bg-blue-50 text-blue-900 border-blue-200' : 'bg-slate-50 text-slate-400 border-slate-200 line-through opacity-60'}`}>
+                      <input type="checkbox" checked={showReceiptNo} onChange={(e) => setShowReceiptNo(e.target.checked)} className="w-3.5 h-3.5 rounded text-blue-600" />
+                      <span>Receipt No</span>
+                    </label>
+                    <label className={`inline-flex items-center space-x-1.5 cursor-pointer px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition select-none ${showContainer ? 'bg-blue-50 text-blue-900 border-blue-200' : 'bg-slate-50 text-slate-400 border-slate-200 line-through opacity-60'}`}>
+                      <input type="checkbox" checked={showContainer} onChange={(e) => setShowContainer(e.target.checked)} className="w-3.5 h-3.5 rounded text-blue-600" />
+                      <span>Container Alias</span>
+                    </label>
+                    <label className={`inline-flex items-center space-x-1.5 cursor-pointer px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition select-none ${showActualContainer ? 'bg-blue-50 text-blue-900 border-blue-200' : 'bg-slate-50 text-slate-400 border-slate-200 line-through opacity-60'}`}>
+                      <input type="checkbox" checked={showActualContainer} onChange={(e) => setShowActualContainer(e.target.checked)} className="w-3.5 h-3.5 rounded text-blue-600" />
+                      <span>Carrier Container</span>
+                    </label>
+                    <label className={`inline-flex items-center space-x-1.5 cursor-pointer px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition select-none ${showShippingLine ? 'bg-blue-50 text-blue-900 border-blue-200' : 'bg-slate-50 text-slate-400 border-slate-200 line-through opacity-60'}`}>
+                      <input type="checkbox" checked={showShippingLine} onChange={(e) => setShowShippingLine(e.target.checked)} className="w-3.5 h-3.5 rounded text-blue-600" />
+                      <span>Shipping Line</span>
+                    </label>
+                    <label className={`inline-flex items-center space-x-1.5 cursor-pointer px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition select-none ${showCommodity ? 'bg-blue-50 text-blue-900 border-blue-200' : 'bg-slate-50 text-slate-400 border-slate-200 line-through opacity-60'}`}>
+                      <input type="checkbox" checked={showCommodity} onChange={(e) => setShowCommodity(e.target.checked)} className="w-3.5 h-3.5 rounded text-blue-600" />
+                      <span>Commodity</span>
+                    </label>
+                    <label className={`inline-flex items-center space-x-1.5 cursor-pointer px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition select-none ${showCargoMetrics ? 'bg-blue-50 text-blue-900 border-blue-200' : 'bg-slate-50 text-slate-400 border-slate-200 line-through opacity-60'}`}>
+                      <input type="checkbox" checked={showCargoMetrics} onChange={(e) => setShowCargoMetrics(e.target.checked)} className="w-3.5 h-3.5 rounded text-blue-600" />
+                      <span>Cargo (CTN/KGS/CBM)</span>
+                    </label>
+                    <label className={`inline-flex items-center space-x-1.5 cursor-pointer px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition select-none ${showReceiptDate ? 'bg-blue-50 text-blue-900 border-blue-200' : 'bg-slate-50 text-slate-400 border-slate-200 line-through opacity-60'}`}>
+                      <input type="checkbox" checked={showReceiptDate} onChange={(e) => setShowReceiptDate(e.target.checked)} className="w-3.5 h-3.5 rounded text-blue-600" />
+                      <span>Receipt Date</span>
+                    </label>
+                    <label className={`inline-flex items-center space-x-1.5 cursor-pointer px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition select-none ${showEtaDate ? 'bg-blue-50 text-blue-900 border-blue-200' : 'bg-slate-50 text-slate-400 border-slate-200 line-through opacity-60'}`}>
+                      <input type="checkbox" checked={showEtaDate} onChange={(e) => setShowEtaDate(e.target.checked)} className="w-3.5 h-3.5 rounded text-blue-600" />
+                      <span>ETA Date</span>
+                    </label>
+                    <label className={`inline-flex items-center space-x-1.5 cursor-pointer px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition select-none ${showDaysToDeliver ? 'bg-blue-50 text-blue-900 border-blue-200' : 'bg-slate-50 text-slate-400 border-slate-200 line-through opacity-60'}`}>
+                      <input type="checkbox" checked={showDaysToDeliver} onChange={(e) => setShowDaysToDeliver(e.target.checked)} className="w-3.5 h-3.5 rounded text-blue-600" />
+                      <span>Days to Deliver</span>
+                    </label>
+                    <label className={`inline-flex items-center space-x-1.5 cursor-pointer px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition select-none ${showStatus ? 'bg-blue-50 text-blue-900 border-blue-200' : 'bg-slate-50 text-slate-400 border-slate-200 line-through opacity-60'}`}>
+                      <input type="checkbox" checked={showStatus} onChange={(e) => setShowStatus(e.target.checked)} className="w-3.5 h-3.5 rounded text-blue-600" />
+                      <span>Status</span>
+                    </label>
+                    <label className={`inline-flex items-center space-x-1.5 cursor-pointer px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition select-none ${showDestination ? 'bg-blue-50 text-blue-900 border-blue-200' : 'bg-slate-50 text-slate-400 border-slate-200 line-through opacity-60'}`}>
+                      <input type="checkbox" checked={showDestination} onChange={(e) => setShowDestination(e.target.checked)} className="w-3.5 h-3.5 rounded text-blue-600" />
+                      <span>Destination</span>
+                    </label>
+                    <label className={`inline-flex items-center space-x-1.5 cursor-pointer px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition select-none ${showSource ? 'bg-blue-50 text-blue-900 border-blue-200' : 'bg-slate-50 text-slate-400 border-slate-200 line-through opacity-60'}`}>
+                      <input type="checkbox" checked={showSource} onChange={(e) => setShowSource(e.target.checked)} className="w-3.5 h-3.5 rounded text-blue-600" />
+                      <span>Source (Warehouse)</span>
+                    </label>
+                  </div>
                 </div>
 
                 <div className="flex items-center space-x-3">
@@ -1828,76 +1870,86 @@ export default function InternalEmployeeViewPage() {
                 <thead>
                   <tr className="bg-slate-100 text-slate-700 text-[10px] font-bold uppercase tracking-wider border-b border-slate-200 select-none">
                     {/* 1. Mark */}
-                    <th className="py-3 px-3 text-center w-12">
-                      <div className="flex items-center justify-center">
-                        <span>Mark</span>
-                        <MultiSelectDropdown
-                          label="Mark"
-                          options={rowMarkOptions}
-                          selected={selectedRowMarks}
-                          onChange={setSelectedRowMarks}
-                          compact
-                        />
-                      </div>
-                    </th>
+                    {showMarks && (
+                      <th className="py-3 px-3 text-center w-12">
+                        <div className="flex items-center justify-center">
+                          <span>Mark</span>
+                          <MultiSelectDropdown
+                            label="Mark"
+                            options={rowMarkOptions}
+                            selected={selectedRowMarks}
+                            onChange={setSelectedRowMarks}
+                            compact
+                          />
+                        </div>
+                      </th>
+                    )}
 
                     {/* 2. Main Mark */}
-                    <th className="py-3 px-3 text-left">
-                      <div className="flex items-center">
-                        <span>★ Main Mark</span>
-                        <MultiSelectDropdown
-                          label="Main Mark"
-                          options={uniqueMainMarks}
-                          selected={selectedMainMarks}
-                          onChange={setSelectedMainMarks}
-                          counts={mainMarkCounts}
-                          compact
-                        />
-                      </div>
-                    </th>
+                    {showMainMark && (
+                      <th className="py-3 px-3 text-left">
+                        <div className="flex items-center">
+                          <span>★ Main Mark</span>
+                          <MultiSelectDropdown
+                            label="Main Mark"
+                            options={uniqueMainMarks}
+                            selected={selectedMainMarks}
+                            onChange={setSelectedMainMarks}
+                            counts={mainMarkCounts}
+                            compact
+                          />
+                        </div>
+                      </th>
+                    )}
 
                     {/* 3. Sub Mark */}
-                    <th className="py-3 px-3 text-left">
-                      <div className="flex items-center">
-                        <span>◆ Sub Mark</span>
-                        <MultiSelectDropdown
-                          label="Sub Mark"
-                          options={uniqueSubMarks}
-                          selected={selectedSubMarks}
-                          onChange={setSelectedSubMarks}
-                          counts={subMarkCounts}
-                          compact
-                        />
-                      </div>
-                    </th>
+                    {showSubMark && (
+                      <th className="py-3 px-3 text-left">
+                        <div className="flex items-center">
+                          <span>◆ Sub Mark</span>
+                          <MultiSelectDropdown
+                            label="Sub Mark"
+                            options={uniqueSubMarks}
+                            selected={selectedSubMarks}
+                            onChange={setSelectedSubMarks}
+                            counts={subMarkCounts}
+                            compact
+                          />
+                        </div>
+                      </th>
+                    )}
 
                     {/* 4. Receipt No */}
-                    <th className="py-3 px-4 text-left">
-                      <div className="flex items-center">
-                        <span>Receipt No</span>
-                        <MultiSelectDropdown
-                          label="Receipt"
-                          options={uniqueReceipts}
-                          selected={selectedReceipts}
-                          onChange={setSelectedReceipts}
-                          compact
-                        />
-                      </div>
-                    </th>
+                    {showReceiptNo && (
+                      <th className="py-3 px-4 text-left">
+                        <div className="flex items-center">
+                          <span>Receipt No</span>
+                          <MultiSelectDropdown
+                            label="Receipt"
+                            options={uniqueReceipts}
+                            selected={selectedReceipts}
+                            onChange={setSelectedReceipts}
+                            compact
+                          />
+                        </div>
+                      </th>
+                    )}
 
                     {/* 5. Container Alias */}
-                    <th className="py-3 px-4 text-left">
-                      <div className="flex items-center">
-                        <span>Container Alias</span>
-                        <MultiSelectDropdown
-                          label="Container"
-                          options={uniqueContainers}
-                          selected={selectedContainers}
-                          onChange={setSelectedContainers}
-                          compact
-                        />
-                      </div>
-                    </th>
+                    {showContainer && (
+                      <th className="py-3 px-4 text-left">
+                        <div className="flex items-center">
+                          <span>Container Alias</span>
+                          <MultiSelectDropdown
+                            label="Container"
+                            options={uniqueContainers}
+                            selected={selectedContainers}
+                            onChange={setSelectedContainers}
+                            compact
+                          />
+                        </div>
+                      </th>
+                    )}
 
                     {/* 6. Actual Carrier Container (Optional) */}
                     {showActualContainer && (
@@ -1933,21 +1985,23 @@ export default function InternalEmployeeViewPage() {
                     )}
 
                     {/* 8. Commodity Description */}
-                    <th className="py-3 px-4 text-left">
-                      <div className="flex items-center">
-                        <span>Commodity</span>
-                        <MultiSelectDropdown
-                          label="Commodity"
-                          options={uniqueCommodities}
-                          selected={selectedCommodities}
-                          onChange={setSelectedCommodities}
-                          compact
-                        />
-                      </div>
-                    </th>
+                    {showCommodity && (
+                      <th className="py-3 px-4 text-left">
+                        <div className="flex items-center">
+                          <span>Commodity</span>
+                          <MultiSelectDropdown
+                            label="Commodity"
+                            options={uniqueCommodities}
+                            selected={selectedCommodities}
+                            onChange={setSelectedCommodities}
+                            compact
+                          />
+                        </div>
+                      </th>
+                    )}
 
                     {/* 9. Cartons (CTN) / Weight / Volume */}
-                    <th className="py-3 px-4 text-left">Cartons (CTN) / KGS / CBM</th>
+                    {showCargoMetrics && <th className="py-3 px-4 text-left">Cartons (CTN) / KGS / CBM</th>}
 
                     {/* 10. Receipt Date (Date of Receipt in DB) */}
                     {showReceiptDate && (
@@ -1959,25 +2013,29 @@ export default function InternalEmployeeViewPage() {
                     )}
 
                     {/* 11. ETA Arrival Date */}
-                    <th className="py-3 px-4 text-left">
-                      <div className="flex items-center">
-                        <span>ETA Date</span>
-                      </div>
-                    </th>
+                    {showEtaDate && (
+                      <th className="py-3 px-4 text-left">
+                        <div className="flex items-center">
+                          <span>ETA Date</span>
+                        </div>
+                      </th>
+                    )}
 
                     {/* 12. Days to Deliver / Turnaround */}
-                    <th className="py-3 px-4 text-left">
-                      <div className="flex items-center">
-                        <span>Days to Deliver</span>
-                        <MultiSelectDropdown
-                          label="Turnaround"
-                          options={turnaroundOptions}
-                          selected={selectedTurnaroundStatuses}
-                          onChange={setSelectedTurnaroundStatuses}
-                          compact
-                        />
-                      </div>
-                    </th>
+                    {showDaysToDeliver && (
+                      <th className="py-3 px-4 text-left">
+                        <div className="flex items-center">
+                          <span>Days to Deliver</span>
+                          <MultiSelectDropdown
+                            label="Turnaround"
+                            options={turnaroundOptions}
+                            selected={selectedTurnaroundStatuses}
+                            onChange={setSelectedTurnaroundStatuses}
+                            compact
+                          />
+                        </div>
+                      </th>
+                    )}
 
                     {/* 13. Status */}
                     {showStatus && (
@@ -2045,87 +2103,97 @@ export default function InternalEmployeeViewPage() {
                         }`}
                       >
                         {/* 1. Mark Toggle */}
-                        <td className="py-2.5 px-3 text-center">
-                          <button
-                            onClick={() => cycleRowMark(item._id)}
-                            title={
-                              mark === 'none'
-                                ? 'Click to Primary Mark (★)'
-                                : mark === 'bold'
-                                ? 'Click to Sub-Mark (◆)'
-                                : 'Click to Unmark'
-                            }
-                            className="w-7 h-7 rounded-lg flex items-center justify-center transition hover:scale-110 mx-auto"
-                          >
-                            {mark === 'bold' ? (
-                              <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
-                            ) : mark === 'sub' ? (
-                              <Bookmark className="w-4 h-4 fill-blue-500 text-blue-500" />
-                            ) : (
-                              <Star className="w-4 h-4 text-slate-200 hover:text-slate-400" />
-                            )}
-                          </button>
-                        </td>
+                        {showMarks && (
+                          <td className="py-2.5 px-3 text-center">
+                            <button
+                              onClick={() => cycleRowMark(item._id)}
+                              title={
+                                mark === 'none'
+                                  ? 'Click to Primary Mark (★)'
+                                  : mark === 'bold'
+                                  ? 'Click to Sub-Mark (◆)'
+                                  : 'Click to Unmark'
+                              }
+                              className="w-7 h-7 rounded-lg flex items-center justify-center transition hover:scale-110 mx-auto"
+                            >
+                              {mark === 'bold' ? (
+                                <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
+                              ) : mark === 'sub' ? (
+                                <Bookmark className="w-4 h-4 fill-blue-500 text-blue-500" />
+                              ) : (
+                                <Star className="w-4 h-4 text-slate-200 hover:text-slate-400" />
+                              )}
+                            </button>
+                          </td>
+                        )}
 
                         {/* 2. Main Mark */}
-                        <td className="py-2.5 px-3 whitespace-nowrap">
-                          {item.mainMarka ? (
-                            <span
-                              className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300 max-w-[100px] truncate"
-                              title={item.mainMarka}
-                            >
-                              ★ {item.mainMarka}
-                            </span>
-                          ) : (
-                            <span className="text-slate-300 text-[10px]">—</span>
-                          )}
-                        </td>
+                        {showMainMark && (
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            {item.mainMarka ? (
+                              <span
+                                className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300 max-w-[100px] truncate"
+                                title={item.mainMarka}
+                              >
+                                ★ {item.mainMarka}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300 text-[10px]">—</span>
+                            )}
+                          </td>
+                        )}
 
                         {/* 3. Sub Mark */}
-                        <td className="py-2.5 px-3 whitespace-nowrap">
-                          {item.subMarka ? (
-                            <span
-                              className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-black bg-blue-100 text-blue-900 border border-blue-300 max-w-[100px] truncate"
-                              title={item.subMarka}
-                            >
-                              ◆ {item.subMarka}
-                            </span>
-                          ) : (
-                            <span className="text-slate-300 text-[10px]">—</span>
-                          )}
-                        </td>
+                        {showSubMark && (
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            {item.subMarka ? (
+                              <span
+                                className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-black bg-blue-100 text-blue-900 border border-blue-300 max-w-[100px] truncate"
+                                title={item.subMarka}
+                              >
+                                ◆ {item.subMarka}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300 text-[10px]">—</span>
+                            )}
+                          </td>
+                        )}
 
                         {/* 4. Receipt No */}
-                        <td className="py-2.5 px-4 font-mono font-black text-slate-950 whitespace-nowrap">
-                          <span>{item.receipt}</span>
-                          {item.party && (
-                            <div className="font-sans font-medium text-[10px] text-slate-500 truncate max-w-[130px]" title={item.party}>
-                              {item.party}
-                            </div>
-                          )}
-                          {receiptContainers.get(item.receipt) && receiptContainers.get(item.receipt)!.size > 1 ? (
-                            <span
-                              className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 inline-flex items-center"
-                              title={`Split Cargo: Loaded in ${receiptContainers.get(item.receipt)!.size} containers: ${Array.from(receiptContainers.get(item.receipt)!).join(', ')}`}
-                            >
-                              Split ({receiptContainers.get(item.receipt)!.size} Ctr)
-                            </span>
-                          ) : (receiptCounts[item.receipt] || 0) > 1 ? (
-                            <span
-                              className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-300 inline-flex items-center"
-                              title={`${receiptCounts[item.receipt]} items under this receipt`}
-                            >
-                              Multi ({receiptCounts[item.receipt]})
-                            </span>
-                          ) : null}
-                        </td>
+                        {showReceiptNo && (
+                          <td className="py-2.5 px-4 font-mono font-black text-slate-950 whitespace-nowrap">
+                            <span>{item.receipt}</span>
+                            {item.party && (
+                              <div className="font-sans font-medium text-[10px] text-slate-500 truncate max-w-[130px]" title={item.party}>
+                                {item.party}
+                              </div>
+                            )}
+                            {receiptContainers.get(item.receipt) && receiptContainers.get(item.receipt)!.size > 1 ? (
+                              <span
+                                className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 inline-flex items-center"
+                                title={`Split Cargo: Loaded in ${receiptContainers.get(item.receipt)!.size} containers: ${Array.from(receiptContainers.get(item.receipt)!).join(', ')}`}
+                              >
+                                Split ({receiptContainers.get(item.receipt)!.size} Ctr)
+                              </span>
+                            ) : (receiptCounts[item.receipt] || 0) > 1 ? (
+                              <span
+                                className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-300 inline-flex items-center"
+                                title={`${receiptCounts[item.receipt]} items under this receipt`}
+                              >
+                                Multi ({receiptCounts[item.receipt]})
+                              </span>
+                            ) : null}
+                          </td>
+                        )}
 
                         {/* 5. Container Alias */}
-                        <td className="py-2.5 px-4 whitespace-nowrap">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 text-slate-800 border border-slate-200">
-                            {item.container}
-                          </span>
-                        </td>
+                        {showContainer && (
+                          <td className="py-2.5 px-4 whitespace-nowrap">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 text-slate-800 border border-slate-200">
+                              {item.container}
+                            </span>
+                          </td>
+                        )}
 
                         {/* 6. Actual Carrier Container */}
                         {showActualContainer && (
@@ -2144,24 +2212,28 @@ export default function InternalEmployeeViewPage() {
                         )}
 
                         {/* 8. Commodity Description */}
-                        <td className="py-2.5 px-4 max-w-[220px]">
-                          <div className="font-bold text-slate-900 truncate">
-                            {item.english || item.commodity}
-                          </div>
-                          {item.commodity && item.commodity !== item.english && (
-                            <div className="text-[10px] text-slate-400 truncate">{item.commodity}</div>
-                          )}
-                        </td>
+                        {showCommodity && (
+                          <td className="py-2.5 px-4 max-w-[220px]">
+                            <div className="font-bold text-slate-900 truncate">
+                              {item.english || item.commodity}
+                            </div>
+                            {item.commodity && item.commodity !== item.english && (
+                              <div className="text-[10px] text-slate-400 truncate">{item.commodity}</div>
+                            )}
+                          </td>
+                        )}
 
                         {/* 9. Cartons (CTN) / KGS / CBM */}
-                        <td className="py-2.5 px-4 whitespace-nowrap text-[11px] text-slate-600">
-                          <div>
-                            <strong className="text-slate-900 font-bold">{item.quantity ?? '-'}</strong> CTN
-                          </div>
-                          <div className="text-slate-500 font-mono text-[10px]">
-                            {item.weight ?? '-'} KGS | {item.volume ?? '-'} CBM
-                          </div>
-                        </td>
+                        {showCargoMetrics && (
+                          <td className="py-2.5 px-4 whitespace-nowrap text-[11px] text-slate-600">
+                            <div>
+                              <strong className="text-slate-900 font-bold">{item.quantity ?? '-'}</strong> CTN
+                            </div>
+                            <div className="text-slate-500 font-mono text-[10px]">
+                              {item.weight ?? '-'} KGS | {item.volume ?? '-'} CBM
+                            </div>
+                          </td>
+                        )}
 
                         {/* 10. Receipt Date */}
                         {showReceiptDate && (
@@ -2174,22 +2246,26 @@ export default function InternalEmployeeViewPage() {
                         )}
 
                         {/* 11. ETA Date */}
-                        <td className="py-2.5 px-4 whitespace-nowrap">
-                          <div className="flex items-center space-x-1 font-bold text-slate-950">
-                            <Clock className="w-3 h-3 text-blue-500" />
-                            <span>{formatGlobalDate(item.eta)}</span>
-                          </div>
-                        </td>
+                        {showEtaDate && (
+                          <td className="py-2.5 px-4 whitespace-nowrap">
+                            <div className="flex items-center space-x-1 font-bold text-slate-950">
+                              <Clock className="w-3 h-3 text-blue-500" />
+                              <span>{formatGlobalDate(item.eta)}</span>
+                            </div>
+                          </td>
+                        )}
 
                         {/* 12. Days to Deliver (Turnaround) */}
-                        <td className="py-2.5 px-4 whitespace-nowrap">
-                          <span
-                            className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] border ${deliveryInfo.badgeClass}`}
-                          >
-                            <TrendingUp className="w-3 h-3 mr-1 shrink-0" />
-                            {deliveryInfo.label}
-                          </span>
-                        </td>
+                        {showDaysToDeliver && (
+                          <td className="py-2.5 px-4 whitespace-nowrap">
+                            <span
+                              className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] border ${deliveryInfo.badgeClass}`}
+                            >
+                              <TrendingUp className="w-3 h-3 mr-1 shrink-0" />
+                              {deliveryInfo.label}
+                            </span>
+                          </td>
+                        )}
 
                         {/* 13. Status */}
                         {showStatus && (
@@ -2209,7 +2285,7 @@ export default function InternalEmployeeViewPage() {
                         {/* 14. Destination */}
                         {showDestination && (
                           <td className="py-2.5 px-4 whitespace-nowrap font-medium text-slate-700 text-[11px]">
-                            {item.shippedTo || 'Nhava Sheva / Mundra, India'}
+                            {item.shippedTo || 'India Port'}
                           </td>
                         )}
 
