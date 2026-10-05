@@ -962,9 +962,9 @@ export default function InternalEmployeeViewPage() {
       if (showShippingLine) row['Shipping Line'] = s.shippingLine || '';
       row['Commodity (English)'] = s.english || s.commodity || '';
       row['Commodity (Chinese)'] = s.commodity || '';
-      row['Quantity'] = s.quantity ?? '';
-      row['Weight (kg)'] = s.weight ?? '';
-      row['Volume (cbm)'] = s.volume ?? '';
+      row['Cartons (CTN)'] = s.quantity ?? '';
+      row['Weight (KGS)'] = s.weight ?? '';
+      row['Volume (CBM)'] = s.volume ?? '';
       if (showReceiptDate) row['Receipt Date'] = s.date || 'N/A';
       row['ETA Date'] = s.eta || '';
       row['Days to Deliver'] = deliveryInfo.label;
@@ -1044,7 +1044,7 @@ export default function InternalEmployeeViewPage() {
       const headers = ['Mark', 'Main Mark', 'Sub Mark', 'Receipt No', 'Container'];
       if (showActualContainer) headers.push('Actual Container');
       if (showShippingLine) headers.push('Line');
-      headers.push('Commodity');
+      headers.push('Commodity', 'CTN', 'Weight (KGS)', 'CBM');
       if (showReceiptDate) headers.push('Receipt Date');
       headers.push('ETA Date', 'Days to Deliver');
       if (showStatus) headers.push('Status');
@@ -1057,7 +1057,12 @@ export default function InternalEmployeeViewPage() {
         const row = [mark, s.mainMarka || '-', s.subMarka || '-', s.receipt || '', s.container || ''];
         if (showActualContainer) row.push(s.containerNumber || '-');
         if (showShippingLine) row.push(s.shippingLine || '-');
-        row.push(s.english || s.commodity || '');
+        row.push(
+          s.english || s.commodity || '',
+          s.quantity ? `${s.quantity} CTN` : '-',
+          s.weight ? `${s.weight} KGS` : '-',
+          s.volume ? `${s.volume} CBM` : '-'
+        );
         if (showReceiptDate) row.push(s.date || '-');
         row.push(
           s.eta || 'Pending',
@@ -1947,8 +1952,8 @@ export default function InternalEmployeeViewPage() {
                       </div>
                     </th>
 
-                    {/* 9. Qty / Weight / Vol */}
-                    <th className="py-3 px-4 text-left">Qty / Wt / Vol</th>
+                    {/* 9. Cartons (CTN) / Weight / Volume */}
+                    <th className="py-3 px-4 text-left">Cartons (CTN) / KGS / CBM</th>
 
                     {/* 10. Receipt Date (Date of Receipt in DB) */}
                     {showReceiptDate && (

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { closeDeliveryModal, markContainerDelivered, setStatusFilter } from '@/store/cargoMasterSlice';
+import { closeDeliveryModal, markContainerDelivered, setStatusFilter, fetchCargoFleet } from '@/store/cargoMasterSlice';
 import { formatGlobalDate, calculateDaysBetween } from '@/lib/dateUtils';
 import { X, CheckCircle2, Calendar, Clock, AlertTriangle, Truck, RotateCcw } from 'lucide-react';
 
@@ -68,34 +68,44 @@ export default function MarkDeliveredModal() {
     (activeContainerForDelivery.status && activeContainerForDelivery.status.toLowerCase().includes('deliver'))
   );
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!deliveryDate) {
       alert('Delivery Date is strictly mandatory.');
       return;
     }
 
-    dispatch(
-      markContainerDelivered({
-        container: activeContainerForDelivery.container,
-        deliveryDate,
-        isDelivered: true,
-        excludedReceipts: Array.from(excludedReceipts),
-      })
-    );
-    dispatch(setStatusFilter('delivered'));
-  };
-
-  const handleRevert = () => {
-    if (confirm(`Revert container ${activeContainerForDelivery.container} back to 'In Transit'?`)) {
-      dispatch(
+    try {
+      await dispatch(
         markContainerDelivered({
           container: activeContainerForDelivery.container,
-          deliveryDate: '',
-          isDelivered: false,
+          deliveryDate,
+          isDelivered: true,
+          excludedReceipts: Array.from(excludedReceipts),
         })
-      );
-      dispatch(setStatusFilter('in-transit'));
+      ).unwrap();
+      dispatch(setStatusFilter('delivered'));
+      dispatch(fetchCargoFleet());
+    } catch (err: any) {
+      alert(err || 'Failed to update delivery');
+    }
+  };
+
+  const handleRevert = async () => {
+    if (confirm(`Revert container ${activeContainerForDelivery.container} back to 'In Transit'?`)) {
+      try {
+        await dispatch(
+          markContainerDelivered({
+            container: activeContainerForDelivery.container,
+            deliveryDate: '',
+            isDelivered: false,
+          })
+        ).unwrap();
+        dispatch(setStatusFilter('in-transit'));
+        dispatch(fetchCargoFleet());
+      } catch (err: any) {
+        alert(err || 'Failed to revert delivery');
+      }
     }
   };
 
