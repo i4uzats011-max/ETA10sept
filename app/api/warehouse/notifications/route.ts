@@ -56,6 +56,7 @@ export async function GET(req: NextRequest) {
       const regex = new RegExp(escaped, 'i');
       query.$or = [
         { receipt: regex },
+        { warehouseEntry: regex },
         { mainMarka: regex },
         { subMarka: regex },
         { party: regex },
@@ -125,6 +126,7 @@ export async function GET(req: NextRequest) {
         _id: String(r._id),
         receipt: r.receipt || '',
         warehouse: r.warehouse || 'RS-21 Warehouse',
+        warehouseEntry: r.warehouseEntry || '',
         date: r.date || '',
         mainMarka: r.mainMarka || '',
         subMarka: r.subMarka || '',
@@ -368,6 +370,36 @@ export async function POST(req: NextRequest) {
         success: true,
         phone: cleanPhone,
         message: `Mobile number ${cleanPhone} saved for Mark '${effectiveMarka || receipt}' for future reference!`,
+      });
+    }
+
+    // ACTION 4: Save Warehouse Entry Record #
+    if (action === 'save-entry') {
+      const { receiptId, receipt, warehouseEntry } = body;
+      const cleanEntry = String(warehouseEntry || '').trim();
+
+      if (receiptId) {
+        await WarehouseReceipt.findByIdAndUpdate(receiptId, {
+          $set: { warehouseEntry: cleanEntry },
+        });
+      } else if (receipt) {
+        await WarehouseReceipt.updateMany(
+          { receipt: receipt.trim() },
+          { $set: { warehouseEntry: cleanEntry } }
+        );
+      }
+
+      if (receipt) {
+        await Shipment.updateMany(
+          { receipt: receipt.trim() },
+          { $set: { warehouseEntry: cleanEntry } }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        warehouseEntry: cleanEntry,
+        message: `Warehouse Entry #${cleanEntry} saved successfully!`,
       });
     }
 

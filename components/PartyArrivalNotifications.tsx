@@ -18,6 +18,9 @@ import {
   Send,
   Sparkles,
   AlertCircle,
+  Building2,
+  Warehouse,
+  Hash,
 } from 'lucide-react';
 import { formatGlobalDate } from '@/lib/dateUtils';
 
@@ -25,6 +28,7 @@ export interface NotificationReceipt {
   _id: string;
   receipt: string;
   warehouse: string;
+  warehouseEntry?: string;
   date: string;
   mainMarka?: string;
   subMarka?: string;
@@ -73,10 +77,18 @@ export default function PartyArrivalNotifications({ initialDate, onClose }: Prop
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'sent'>('all');
 
+  // Choice state: 'both' (Warehouse + Entry) | 'warehouse' (Warehouse Only) | 'entry' (Entry Only)
+  const [warehouseOption, setWarehouseOption] = useState<'both' | 'warehouse' | 'entry'>('both');
+
   // Local phone inputs per receipt
   const [phoneInputs, setPhoneInputs] = useState<Record<string, string>>({});
   const [savingPhoneId, setSavingPhoneId] = useState<string | null>(null);
   const [phoneSaveSuccess, setPhoneSaveSuccess] = useState<Record<string, boolean>>({});
+
+  // Local warehouse entry inputs per receipt
+  const [entryInputs, setEntryInputs] = useState<Record<string, string>>({});
+  const [savingEntryId, setSavingEntryId] = useState<string | null>(null);
+  const [entrySaveSuccess, setEntrySaveSuccess] = useState<Record<string, boolean>>({});
 
   // Copy status per receipt
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -117,10 +129,13 @@ export default function PartyArrivalNotifications({ initialDate, onClose }: Prop
 
         // Initialize phone inputs
         const initialPhones: Record<string, string> = {};
+        const initialEntries: Record<string, string> = {};
         (data.receipts || []).forEach((r: NotificationReceipt) => {
           if (r.phone) initialPhones[r._id] = r.phone;
+          if (r.warehouseEntry) initialEntries[r._id] = r.warehouseEntry;
         });
         setPhoneInputs((prev) => ({ ...initialPhones, ...prev }));
+        setEntryInputs((prev) => ({ ...initialEntries, ...prev }));
       }
     } catch (err: any) {
       console.error('Failed to fetch notification receipts:', err);
@@ -133,7 +148,7 @@ export default function PartyArrivalNotifications({ initialDate, onClose }: Prop
     fetchReceipts();
   }, [selectedDate, fetchReceipts]);
 
-  // Construct message according to user's exact specification
+  // Construct message according to user's choice: Warehouse, Warehouse Entry, or Both
   const generateMessage = (r: NotificationReceipt): string => {
     const wh = (r.warehouse && r.warehouse.trim() && r.warehouse.trim() !== 'China Warehouse')
       ? r.warehouse.trim()
@@ -141,6 +156,7 @@ export default function PartyArrivalNotifications({ initialDate, onClose }: Prop
     
     // Ensure warehouse formatting
     const effectiveWarehouse = wh.toLowerCase().includes('warehouse') ? wh : `${wh} Warehouse`;
+    const entry = (entryInputs[r._id] !== undefined ? entryInputs[r._id] : (r.warehouseEntry || '')).trim();
     const dateStr = r.date || selectedDate || new Date().toISOString().slice(0, 10);
     const mark = [r.mainMarka, r.subMarka].filter(Boolean).join(' / ') || r.party || '-';
     const desc = r.english || r.commodity || (r.chinese ? `${r.chinese}` : 'General Goods');
@@ -148,8 +164,28 @@ export default function PartyArrivalNotifications({ initialDate, onClose }: Prop
     const wt = r.weight || '0';
     const vol = r.volume || '0';
 
-    return `Item Arrival Notification 📦 Item with following details has arrived in ${effectiveWarehouse} on* ${dateStr}
-Receipt ID: ${r.receipt || ''}
+    // Header destination line depending on user's choice:
+    // Option 'both': includes both Warehouse and Warehouse Entry
+    // Option 'warehouse': includes Warehouse only
+    // Option 'entry': includes Warehouse Entry only
+    let arrivalLocation = effectiveWarehouse;
+    if (warehouseOption === 'entry') {
+      arrivalLocation = entry ? `Entry ${entry}` : effectiveWarehouse;
+    } else if (warehouseOption === 'both' && entry) {
+      arrivalLocation = `${effectiveWarehouse} (${entry})`;
+    }
+
+    const detailLines: string[] = [];
+    detailLines.push(`Receipt ID: ${r.receipt || ''}`);
+
+    if (warehouseOption === 'both') {
+      if (entry) detailLines.push(`Warehouse Entry: ${entry}`);
+    } else if (warehouseOption === 'entry') {
+      if (entry) detailLines.push(`Warehouse Entry: ${entry}`);
+    }
+
+    return `Item Arrival Notification 📦 Item with following details has arrived in ${arrivalLocation} on* ${dateStr}
+${detailLines.join('\n')}
 Mark: ${mark}
 Description ${desc}
 CTN ${ctn}
@@ -158,6 +194,44 @@ Volume: ${vol}
 Please share the Warehouse Slip , Packing List ,Item Name and Item Image for our records.
 
 Please note without above details goods will not be load`;
+  };
+
+  // Save warehouse entry record # to database
+  const handleSaveWarehouseEntry = async (r: NotificationReceipt) => {
+    const entryVal = entryInputs[r._id] !== undefined ? entryInputs[r._id] : r.warehouseEntry || '';
+    setSavingEntryId(r._id);
+    try {
+      const res = await fetch('/api/warehouse/notifications', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save-entry',
+          receiptId: r._id,
+          receipt: r.receipt,
+          warehouseEntry: entryVal.trim(),
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save warehouse entry');
+
+      // Update receipts locally with saved entry
+      setReceipts((prev) =>
+        prev.map((item) => (item._id === r._id ? { ...item, warehouseEntry: entryVal.trim() } : item))
+      );
+
+      setEntrySaveSuccess((prev) => ({ ...prev, [r._id]: true }));
+      setTimeout(() => {
+        setEntrySaveSuccess((prev) => ({ ...prev, [r._id]: false }));
+      }, 3000);
+
+      setActionMessage(`Warehouse Entry #${entryVal.trim() || '—'} saved for Receipt ${r.receipt}!`);
+      setTimeout(() => setActionMessage(null), 4000);
+    } catch (err: any) {
+      alert(err.message || 'Error saving warehouse entry');
+    } finally {
+      setSavingEntryId(null);
+    }
   };
 
   // Copy message & mark as sent
@@ -510,16 +584,84 @@ Please note without above details goods will not be load`;
 
           {/* Warehouse Name Setting */}
           <div className="md:col-span-4">
-            <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">
-              Warehouse Name in Message
+            <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5 flex items-center space-x-1">
+              <Building2 className="w-3.5 h-3.5 text-blue-600" />
+              <span>Warehouse Name in Message</span>
             </label>
             <input
               type="text"
               value={customWarehouse}
               onChange={(e) => setCustomWarehouse(e.target.value)}
               placeholder="e.g. RS-21 Warehouse"
-              className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-2xs"
+              disabled={warehouseOption === 'entry'}
+              className={`w-full px-3 py-2.5 rounded-xl border text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-2xs ${
+                warehouseOption === 'entry'
+                  ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                  : 'bg-white text-slate-800 border-slate-300'
+              }`}
             />
+          </div>
+
+          {/* User Choice Selector: Warehouse value, warehouseEntry value, or Both */}
+          <div className="md:col-span-12 bg-white/95 p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center space-x-2">
+                <Warehouse className="w-4 h-4 text-emerald-600 shrink-0" />
+                <div>
+                  <span className="text-xs font-black text-slate-900 uppercase tracking-wide">
+                    Include in Arrival Message (मैसेज में क्या शामिल करें):
+                  </span>
+                  <span className="text-[11px] text-slate-500 block sm:inline sm:ml-2">
+                    Choose Warehouse value, Warehouse Entry value, or Both
+                  </span>
+                </div>
+              </div>
+
+              {/* 3-Button Toggle: Both | Warehouse Only | Entry Only */}
+              <div className="flex items-center space-x-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setWarehouseOption('both')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 ${
+                    warehouseOption === 'both'
+                      ? 'bg-emerald-600 text-white shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+                  }`}
+                  title="Include both Warehouse Name and Warehouse Entry Record #"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Both (Warehouse + Entry #)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setWarehouseOption('warehouse')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 ${
+                    warehouseOption === 'warehouse'
+                      ? 'bg-blue-600 text-white shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+                  }`}
+                  title="Include Warehouse Name only"
+                >
+                  <Building2 className="w-3.5 h-3.5" />
+                  <span>Warehouse Only</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setWarehouseOption('entry')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 ${
+                    warehouseOption === 'entry'
+                      ? 'bg-purple-600 text-white shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+                  }`}
+                  title="Include Warehouse Entry Record # only"
+                >
+                  <Hash className="w-3.5 h-3.5" />
+                  <span>Warehouse Entry Only</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -661,9 +803,12 @@ Please note without above details goods will not be load`;
             {filteredReceipts.map((r) => {
               const messageText = generateMessage(r);
               const currentPhone = phoneInputs[r._id] !== undefined ? phoneInputs[r._id] : r.phone || '';
+              const currentEntry = entryInputs[r._id] !== undefined ? entryInputs[r._id] : r.warehouseEntry || '';
               const isCopied = copiedId === r._id;
               const isSaved = phoneSaveSuccess[r._id];
               const isSaving = savingPhoneId === r._id;
+              const isEntrySaved = entrySaveSuccess[r._id];
+              const isSavingEntry = savingEntryId === r._id;
 
               return (
                 <div
@@ -691,8 +836,24 @@ Please note without above details goods will not be load`;
                         </span>
                       </div>
 
+                      <div className="flex items-center space-x-1.5">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase">Warehouse:</span>
+                        <span className="font-mono text-xs font-bold text-blue-900 px-2 py-0.5 rounded bg-blue-50 border border-blue-200">
+                          {r.warehouse || customWarehouse}
+                        </span>
+                      </div>
+
+                      {currentEntry && (
+                        <div className="flex items-center space-x-1.5">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase">Entry #:</span>
+                          <span className="font-mono text-xs font-black text-purple-900 px-2 py-0.5 rounded bg-purple-50 border border-purple-200">
+                            {currentEntry}
+                          </span>
+                        </div>
+                      )}
+
                       <span className="text-[11px] font-medium text-slate-500">
-                        {r.warehouse || customWarehouse} • {formatGlobalDate(r.date)}
+                        {formatGlobalDate(r.date)}
                       </span>
                     </div>
 
@@ -746,6 +907,58 @@ Please note without above details goods will not be load`;
                         {r.chinese && (
                           <p className="text-[11px] text-slate-500 font-medium mt-0.5">{r.chinese}</p>
                         )}
+                      </div>
+
+                      {/* Warehouse Entry Record # (Editable & Saves to DB) */}
+                      <div className="p-3.5 bg-blue-50/60 rounded-xl border border-blue-200 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[11px] font-black text-blue-950 uppercase flex items-center space-x-1.5">
+                            <Hash className="w-3.5 h-3.5 text-blue-600" />
+                            <span>Warehouse Entry Record # (गोदाम प्रविष्टि संख्या)</span>
+                          </label>
+                          {currentEntry && (
+                            <span className="text-[10px] font-bold text-blue-800 bg-blue-100 px-2 py-0.2 rounded font-mono">
+                              Entry: {currentEntry}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center space-x-1.5">
+                          <input
+                            type="text"
+                            value={currentEntry}
+                            onChange={(e) =>
+                              setEntryInputs((prev) => ({ ...prev, [r._id]: e.target.value }))
+                            }
+                            placeholder="Entry Record # (e.g. YW-55, UK-55)"
+                            className="flex-1 px-3 py-1.5 rounded-lg border border-blue-300 text-xs font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono shadow-2xs"
+                          />
+
+                          <button
+                            type="button"
+                            onClick={() => handleSaveWarehouseEntry(r)}
+                            disabled={isSavingEntry}
+                            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1 shadow-2xs shrink-0 disabled:opacity-50"
+                            title="Save warehouse entry # to database for this receipt"
+                          >
+                            {isEntrySaved ? (
+                              <>
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Saved!</span>
+                              </>
+                            ) : isSavingEntry ? (
+                              <span>Saving...</span>
+                            ) : (
+                              <>
+                                <Save className="w-3.5 h-3.5" />
+                                <span>Save Entry</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-blue-800">
+                          Updates message preview live. Click &lsquo;Save Entry&rsquo; to persist in database.
+                        </p>
                       </div>
 
                       {/* Party Mobile Number & Optional Save for Future Reference */}
