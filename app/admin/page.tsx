@@ -614,7 +614,7 @@ export default function AdminDashboardPage() {
 
       setContainerUpdateStatus({
         type: 'success',
-        message: `Mapped alias '${selectedContainer}' to actual container '${actualContainerNo}' (${shippingLine}) and fetched live ETA from JSONCargo! (${data.syncedTracking.eta})`,
+        message: `Mapped alias '${selectedContainer}' to actual container '${actualContainerNo}' (${shippingLine}) and updated tracking records successfully!` + (data.syncedTracking?.eta ? ` (ETA: ${data.syncedTracking.eta})` : ''),
       });
 
       setActualContainerNo('');
@@ -667,7 +667,7 @@ export default function AdminDashboardPage() {
 
       setManualSyncStatus({
         type: 'success',
-        message: `Selected '${data.publicAlias}' → Found Actual Container '${data.containerNumber}' (${data.shippingLine}) in Database → Called JSONCargo API → Updated ETA to '${data.eta}'${data.loadingDate ? ` & Loading Date to '${data.loadingDate}'` : ''} in Database!`,
+        message: `Selected '${data.publicAlias}' → Found Actual Container '${data.containerNumber}' (${data.shippingLine}) in Database → Updated ETA to '${data.eta}'${data.loadingDate ? ` & Loading Date to '${data.loadingDate}'` : ''} in Database!`,
       });
 
       setLiveJsonCargoDetails(data.dataDetails);
@@ -675,7 +675,7 @@ export default function AdminDashboardPage() {
 
       if (searchQuery) handleSearch();
     } catch (err: any) {
-      setManualSyncStatus({ type: 'error', message: err.message || 'Failed to sync ETA via JSONCargo' });
+      setManualSyncStatus({ type: 'error', message: err.message || 'Failed to sync container ETA' });
     } finally {
       setIsManualSyncing(false);
     }
@@ -1303,23 +1303,16 @@ export default function AdminDashboardPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-            {/* JSONCargo API Stats Badge */}
-            {apiStats && (
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveAdminTab('api-sync');
-                  fetchApiStats();
-                }}
-                className="flex items-center space-x-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 px-2.5 py-1.5 rounded-xl text-xs transition cursor-pointer shadow-xs"
-                title="Click to view API calls & quota monitor"
-              >
-                <Activity className="w-3.5 h-3.5 text-blue-600" />
-                <span className="text-slate-700">
-                  Calls: <strong className="text-blue-700 font-mono font-black">{apiStats.requests_made ?? 0}</strong>
-                </span>
-              </button>
-            )}
+            {/* Direct Engine Badge */}
+            <div
+              className="flex items-center space-x-1.5 bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 rounded-xl text-xs shadow-xs"
+              title="System container tracking active (Zero external API dependency)"
+            >
+              <Activity className="w-3.5 h-3.5 text-emerald-600" />
+              <span className="text-emerald-800 font-bold">
+                Tracking: <strong className="text-emerald-700 font-black">Direct</strong>
+              </span>
+            </div>
 
             <button
               onClick={handleTriggerCronSync}
@@ -1488,7 +1481,7 @@ export default function AdminDashboardPage() {
               }`}
             >
               <Zap className="w-4 h-4 shrink-0" />
-              <span className="truncate">API Sync</span>
+              <span className="truncate">Container Mapping</span>
             </button>
 
             <button
@@ -1538,7 +1531,7 @@ export default function AdminDashboardPage() {
                         </span>
                       </div>
                       <p className="text-xs text-amber-900 mt-1 font-medium leading-relaxed">
-                        Containers under <strong>{outage.shippingLine}</strong> have failed automated &amp; manual API tracking <strong>{outage.failureCount} times</strong> within the past week (threshold: &gt;5). Please reach out to the <strong>{outage.shippingLine} sales/tech support team</strong> or JSONCargo support to check integration status.
+                        Containers under <strong>{outage.shippingLine}</strong> have tracking alerts ({outage.failureCount} entries recorded). You can adjust container dates and carrier assignments in Manual ETA Entry or Shipping Lines management.
                       </p>
                       <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-amber-800">
                         <span className="font-bold">Affected Containers ({outage.affectedCount}):</span>
@@ -2674,24 +2667,24 @@ export default function AdminDashboardPage() {
         {/* ── TAB 5: JSONCARGO API SYNC & 3-COLUMN MAPPING ── */}
         {activeAdminTab === 'api-sync' && (
           <div className="max-w-5xl mx-auto space-y-6 animate-fadeIn">
-            {/* JSONCargo API Calls & Plan Quota Monitor Card */}
+            {/* Direct Container Tracking & Fleet Mapping Card */}
             <div className="bg-gradient-to-br from-slate-900 via-slate-950 to-blue-950 text-white rounded-3xl p-6 sm:p-7 shadow-xl border border-slate-800 space-y-5 animate-fadeIn">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
                 <div className="flex items-center space-x-3">
-                  <div className="w-12 h-12 rounded-2xl bg-blue-600/30 border border-blue-500/40 text-blue-400 flex items-center justify-center shadow-inner">
-                    <Activity className="w-6 h-6 text-blue-400" />
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-600/30 border border-emerald-500/40 text-emerald-400 flex items-center justify-center shadow-inner">
+                    <Activity className="w-6 h-6 text-emerald-400" />
                   </div>
                   <div>
                     <div className="flex items-center space-x-2">
                       <h3 className="text-base font-black text-white tracking-tight">
-                        JSON Cargo API Quota &amp; Call Counter
+                        Direct Container Tracking &amp; Fleet Mapping
                       </h3>
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-500/20 text-blue-300 border border-blue-400/30">
-                        {apiStats?.plan || 'MARINER PLAN'}
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                        DIRECT SYSTEM MODE
                       </span>
                     </div>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      Real-time tracker of carrier tracking requests consumed, quota remaining, and zero-cost protection.
+                      Self-contained container tracking &amp; automated ETA calculation. Zero external API dependency, zero subscription limits.
                     </p>
                   </div>
                 </div>
@@ -2699,163 +2692,62 @@ export default function AdminDashboardPage() {
                 <div className="flex items-center space-x-2.5">
                   <button
                     type="button"
-                    onClick={fetchApiStats}
+                    onClick={fetchContainerFleet}
                     className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 border border-slate-700 shadow-sm"
-                    title="Refresh live API counter from JSONCargo"
+                    title="Refresh container fleet records"
                   >
                     <RefreshCw className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Refresh Counter</span>
+                    <span>Refresh Fleet</span>
                   </button>
-                  <a
-                    href="https://jsoncargo.com"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-md shadow-blue-600/20"
-                  >
-                    <span>JSONCargo Portal ↗</span>
-                  </a>
                 </div>
               </div>
-
-              {/* API Key Status / Inactive Warning */}
-              {apiStats?.status === 'invalid_key' && (
-                <div className="bg-rose-950/60 border border-rose-500/50 rounded-2xl p-4 text-xs text-rose-200 flex items-start space-x-3">
-                  <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
-                  <div>
-                    <strong className="text-white text-sm font-black">JSONCargo API Key Rejected:</strong>
-                    <p className="mt-1 text-rose-200">{apiStats.error || 'The API key configured in server environment does not exist in JSONCargo.'}</p>
-                    <p className="mt-1 text-slate-300">Enter a valid API key below to enable live container tracking and restore quota balance.</p>
-                  </div>
-                </div>
-              )}
 
               {/* 3 Metric Badges */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-2xl space-y-1">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">API Calls Consumed</span>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Tracked Containers</span>
                   <div className="flex items-baseline space-x-2">
                     <span className="text-2xl sm:text-3xl font-black font-mono text-blue-400">
-                      {apiStats?.usedCalls ?? apiStats?.requests_made ?? 0}
+                      {containerFleet.length}
                     </span>
-                    <span className="text-xs text-slate-500 font-semibold">requests used</span>
+                    <span className="text-xs text-slate-500 font-semibold">in fleet</span>
                   </div>
                 </div>
 
                 <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-2xl space-y-1">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Calls Remaining</span>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">External API Fees</span>
                   <div className="flex items-baseline space-x-2">
-                    <span className={`text-2xl sm:text-3xl font-black font-mono ${
-                      (apiStats?.remainingCalls ?? apiStats?.requests_available ?? 0) > 0 ? 'text-emerald-400' : 'text-rose-400'
-                    }`}>
-                      {apiStats?.remainingCalls ?? apiStats?.requests_available ?? 0}
+                    <span className="text-2xl sm:text-3xl font-black font-mono text-emerald-400">
+                      Free / Unlimited
                     </span>
-                    <span className="text-xs text-slate-500 font-semibold">available credits</span>
+                    <span className="text-xs text-slate-500 font-semibold">0 external API calls</span>
                   </div>
                 </div>
 
                 <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-2xl space-y-1">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total Plan Allowance</span>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Shipping Line Companies</span>
                   <div className="flex items-baseline space-x-2">
                     <span className="text-2xl sm:text-3xl font-black font-mono text-white">
-                      {apiStats?.totalCalls ?? apiStats?.requests_total ?? (apiStats?.status === 'invalid_key' ? 0 : 1000)}
+                      {dynamicShippingLines.length}
                     </span>
-                    <span className="text-xs text-slate-500 font-semibold">total / month</span>
+                    <span className="text-xs text-slate-500 font-semibold">configured</span>
                   </div>
                 </div>
-              </div>
-
-              {/* Progress Bar */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-xs font-semibold">
-                  <span className="text-slate-400">Quota Consumed</span>
-                  <span className="text-blue-300 font-mono font-bold">
-                    {(apiStats?.totalCalls ?? apiStats?.requests_total)
-                      ? `${Math.round(((apiStats?.usedCalls ?? apiStats?.requests_made ?? 0) / (apiStats?.totalCalls ?? apiStats?.requests_total)) * 100)}% Used`
-                      : '0% Used'}
-                  </span>
-                </div>
-                <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full transition-all duration-500"
-                    style={{
-                      width: `${
-                        (apiStats?.totalCalls ?? apiStats?.requests_total)
-                          ? Math.min(100, Math.max(2, Math.round(((apiStats?.usedCalls ?? apiStats?.requests_made ?? 0) / (apiStats?.totalCalls ?? apiStats?.requests_total)) * 100)))
-                          : 0
-                      }%`,
-                    }}
-                  ></div>
-                </div>
-              </div>
-
-              {/* API Key Configuration Form */}
-              <div className="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div>
-                    <h4 className="text-xs font-black uppercase text-slate-300 tracking-wider flex items-center space-x-2">
-                      <Lock className="w-3.5 h-3.5 text-blue-400" />
-                      <span>JSONCargo API Key Configuration</span>
-                    </h4>
-                    <p className="text-[11px] text-slate-400">
-                      Active Key: <span className="font-mono text-slate-200">{apiStats?.keyMasked || 'None'}</span>
-                      {' • '}Status: <span className={`font-bold ${apiStats?.status === 'configured' ? 'text-emerald-400' : 'text-rose-400'}`}>{apiStats?.status === 'configured' ? 'Active ✓' : 'Inactive / Rejected ✗'}</span>
-                    </p>
-                  </div>
-                </div>
-
-                <form onSubmit={handleUpdateApiKey} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                  <input
-                    type="text"
-                    value={newApiKeyInput}
-                    onChange={(e) => setNewApiKeyInput(e.target.value)}
-                    placeholder="Paste new JSONCargo API key to verify and save..."
-                    className="flex-1 px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <button
-                    type="submit"
-                    disabled={isUpdatingApiKey || !newApiKeyInput.trim()}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition flex items-center justify-center space-x-1.5 shrink-0 shadow-sm"
-                  >
-                    {isUpdatingApiKey ? (
-                      <>
-                        <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                        <span>Verifying...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Check className="w-3.5 h-3.5" />
-                        <span>Save &amp; Verify API Key</span>
-                      </>
-                    )}
-                  </button>
-                </form>
-
-                {apiKeyUpdateStatus && (
-                  <div
-                    className={`p-2.5 rounded-xl text-xs font-semibold ${
-                      apiKeyUpdateStatus.type === 'success'
-                        ? 'bg-emerald-950/80 text-emerald-200 border border-emerald-500/40'
-                        : 'bg-rose-950/80 text-rose-200 border border-rose-500/40'
-                    }`}
-                  >
-                    {apiKeyUpdateStatus.message}
-                  </div>
-                )}
               </div>
 
               {/* Zero-Cost & Quota Protection Guide */}
               <div className="p-3.5 rounded-2xl bg-blue-950/40 border border-blue-900/60 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-slate-300">
                 <div className="flex items-start space-x-2">
-                  <span className="text-emerald-400 font-black">✓ 0 API Calls:</span>
-                  <span>Public searches &amp; Excel uploads cost 0 credits (direct MongoDB read).</span>
+                  <span className="text-emerald-400 font-black">✓ Direct Tracking:</span>
+                  <span>Public searches &amp; tracking read directly from MongoDB with zero latency.</span>
                 </div>
                 <div className="flex items-start space-x-2">
-                  <span className="text-blue-400 font-black">⏰ 7:00 AM Cron:</span>
-                  <span>Queries active en-route containers once daily per smart schedule.</span>
+                  <span className="text-blue-400 font-black">⏰ Smart Turnaround:</span>
+                  <span>Tracks days from China loading to delivery with late container detection (&gt;35d).</span>
                 </div>
                 <div className="flex items-start space-x-2">
-                  <span className="text-amber-400 font-black">📦 Delivered:</span>
-                  <span>Marking container delivered permanently stops API calls for that container.</span>
+                  <span className="text-amber-400 font-black">📦 Flexible Carriers:</span>
+                  <span>Add, edit, or remove shipping companies (CMA, Evergreen, etc.) in the Shipping Lines tab.</span>
                 </div>
               </div>
             </div>
@@ -2867,8 +2759,8 @@ export default function AdminDashboardPage() {
                   <Clock className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <h4 className="font-bold text-sm text-slate-900">Daily Automated Sync at 7:00 AM IST</h4>
-                  <p className="text-xs text-slate-500">Scheduled sync queries JSONCargo API every morning at 7:00 AM. Manual fetch available below.</p>
+                  <h4 className="font-bold text-sm text-slate-900">Daily Automated Schedule at 7:00 AM IST</h4>
+                  <p className="text-xs text-slate-500">Automated job recalculates delivery turnaround days, status milestones, and late alerts across active containers.</p>
                 </div>
               </div>
               <span className="px-3 py-1 bg-white text-blue-700 border border-slate-200 rounded-full text-xs font-mono font-bold shadow-xs">

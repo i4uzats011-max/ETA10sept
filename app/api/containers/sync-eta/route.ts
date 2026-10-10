@@ -193,7 +193,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `Successfully fetched live ETA & tracking via JSONCargo API for '${publicAlias}' (Actual: ${finalTrackingNumber}, Company: ${carrierCompany})`,
+      message: `Successfully synced ETA & container details for '${publicAlias}' (Actual: ${finalTrackingNumber}, Company: ${carrierCompany})`,
       publicAlias,
       containerNumber: finalTrackingNumber,
       shippingLine: carrierCompany,
@@ -219,7 +219,7 @@ export async function POST(req: NextRequest) {
       try {
         cleanErr = typeof error === 'object' ? JSON.stringify(error) : String(error);
       } catch {
-        cleanErr = 'Manual JSONCargo ETA sync failed';
+        cleanErr = 'Container ETA sync failed';
       }
     }
 

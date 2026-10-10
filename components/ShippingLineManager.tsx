@@ -801,13 +801,31 @@ export default function ShippingLineManager({ onLinesUpdated }: Props) {
               </div>
             </div>
 
-            <p className="text-xs text-slate-600 leading-relaxed">
-              Are you sure you want to delete shipping line{' '}
-              <strong className="text-slate-900 font-mono px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200">
-                {lineToDelete.name}
-              </strong>
-              ? Since this shipping line is not mapped to any container or shipment, it can be safely removed.
-            </p>
+            {lineToDelete.isMapped ? (
+              <div className="space-y-2 text-xs">
+                <p className="text-slate-700 leading-relaxed">
+                  Are you sure you want to remove shipping line{' '}
+                  <strong className="text-slate-900 font-mono px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200">
+                    {lineToDelete.name}
+                  </strong>
+                  ?
+                </p>
+                <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 flex items-start space-x-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <span>
+                    This company is referenced in <strong>{lineToDelete.containerCount} container(s)</strong> and <strong>{lineToDelete.shipmentCount} shipment(s)</strong>. It will be removed from your active carrier directory and dropdowns. Existing container tracking records will retain their data.
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Are you sure you want to delete shipping line{' '}
+                <strong className="text-slate-900 font-mono px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200">
+                  {lineToDelete.name}
+                </strong>
+                ? It will be permanently removed from your shipping lines directory.
+              </p>
+            )}
 
             <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100">
               <button

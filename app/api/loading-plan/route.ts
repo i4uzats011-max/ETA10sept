@@ -657,13 +657,8 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // If API could not find container / no loading date and user did not enter manually
-      if (!cleanLoadingDate) {
-        return NextResponse.json(
-          { error: 'Carrier API could not find loading date for this container. Please enter the Loading Date manually.' },
-          { status: 400 }
-        );
-      }
+      // Ensure cleanLoadingDate is a string
+      cleanLoadingDate = cleanLoadingDate || '';
 
       const now = new Date();
       let cleanBufferDays = etaBufferDays !== undefined ? parseInt(String(etaBufferDays), 10) : (targetContainer.etaBufferDays !== undefined ? targetContainer.etaBufferDays : 10);

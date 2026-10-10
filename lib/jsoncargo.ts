@@ -347,299 +347,120 @@ export async function fetchContainerTracking(
   containerNumber: string,
   shippingLineInput: string = 'MSC'
 ): Promise<ContainerTrackingResult> {
-  const apiKey = process.env.JSON_CARGO_API_KEY;
-  const shippingLineCode = normalizeShippingLineParam(shippingLineInput, containerNumber);
+  const cleanNum = (containerNumber || '').trim().toUpperCase();
+  const carrierName = (shippingLineInput || 'MSC').trim();
 
-  const url = `http://api.jsoncargo.com/api/v1/containers/${encodeURIComponent(
-    containerNumber.trim()
-  )}?shipping_line=${encodeURIComponent(shippingLineCode)}`;
+  let loadingDate = '';
+  let existingEta = '';
+  let existingStatus = 'In Transit';
+  let shippedFrom = 'Ningbo / Shanghai, China';
+  let shippedTo = 'Nhava Sheva / Mundra, India';
+  let vesselName = '';
+  let voyageNumber = '';
 
   try {
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'x-api-key': apiKey || '',
-        'Accept': 'application/json',
-      },
-      cache: 'no-store',
-    });
+    const { connectToDatabase } = await import('@/lib/mongodb');
+    await connectToDatabase();
+    const Container = (await import('@/models/Container')).default;
+    const Shipment = (await import('@/models/Shipment')).default;
 
-    if (res.ok) {
-      const resData = await res.json();
-      const dataObj: JSONCargoContainerData = resData?.data || resData;
+    const regex = new RegExp(`^${cleanNum.replace(/[-_\s]+/g, '[-_\\s]*')}$`, 'i');
+    const containerDoc: any = await Container.findOne({
+      $or: [{ containerNumber: regex }, { container: regex }],
+    }).lean();
 
-      const rawEta =
-        dataObj?.eta_final_destination ||
-        dataObj?.eta_next_destination ||
-        dataObj?.customs_clearance ||
-        dataObj?.last_movement_timestamp ||
-        dataObj?.timestamp_of_last_location ||
-        dataObj?.atd_last_location ||
-        dataObj?.atd_origin ||
-        dataObj?.eta ||
-        dataObj?.estimated_arrival;
+    const shipmentDoc: any = containerDoc || await Shipment.findOne({
+      $or: [{ containerNumber: regex }, { container: regex }],
+    }).lean();
 
-      const rawStatus =
-        dataObj?.container_status ||
-        dataObj?.status ||
-        dataObj?.current_status ||
-        (dataObj?.last_location ? `Location: ${dataObj.last_location}` : 'In Transit');
-
-      // Check if container has reached final destination or arrived at port
-      const statusLower = String(rawStatus || '').toLowerCase();
-      const locLower = String(dataObj?.last_location || '').toLowerCase();
-      const isDestinationReached =
-        statusLower.includes('arrived') ||
-        statusLower.includes('discharge') ||
-        statusLower.includes('destination') ||
-        statusLower.includes('delivered') ||
-        statusLower.includes('customs clear') ||
-        locLower.includes('destination') ||
-        locLower.includes('discharged');
-
-      const finalStatus = isDestinationReached
-        ? 'Container reached to the final destination'
-        : rawStatus;
-
-      let formattedEta = 'N/A';
-      let normalizedRawEta = '';
-      if (rawEta) {
-        const dateMatch = String(rawEta).match(/\d{4}-\d{2}-\d{2}/);
-        let baseDate: Date | null = null;
-        if (dateMatch) {
-          baseDate = new Date(dateMatch[0]);
-        } else if (!isNaN(new Date(rawEta).getTime())) {
-          baseDate = new Date(rawEta);
-        }
-
-        if (baseDate && !isNaN(baseDate.getTime())) {
-          const yyyy = baseDate.getFullYear();
-          const mm = String(baseDate.getMonth() + 1).padStart(2, '0');
-          const dd = String(baseDate.getDate()).padStart(2, '0');
-          normalizedRawEta = `${yyyy}-${mm}-${dd}`;
-
-          // Clearance Delivery ETA: Actual Carrier Vessel ETA + 10 days clearance procedure
-          formattedEta = addFilingBufferDays(baseDate, 10);
-        } else {
-          normalizedRawEta = String(rawEta);
-          formattedEta = String(rawEta);
-        }
+    if (shipmentDoc) {
+      if (!loadingDate) loadingDate = shipmentDoc.loadingDate || shipmentDoc.startDate || '';
+      if (shipmentDoc.eta && shipmentDoc.eta !== 'N/A' && shipmentDoc.eta !== 'Pending') {
+        existingEta = shipmentDoc.eta;
       }
-
-      const shippedFrom = dataObj?.shipped_from || dataObj?.loading_port || 'Ningbo / Shanghai, China';
-      const shippedTo = dataObj?.shipped_to || dataObj?.discharging_port || 'Nhava Sheva / Mundra, India';
-      const currentLocation = dataObj?.last_location || (dataObj?.next_location ? `Approaching ${dataObj.next_location}` : finalStatus || 'In Transit');
-      const apiLoadingDate = extractLoadingDateFromApi(dataObj);
-      const startDate = apiLoadingDate || dataObj?.atd_origin || dataObj?.atd_last_location || '';
-      const vesselName = dataObj?.current_vessel_name || dataObj?.last_vessel_name || '';
-      const voyageNumber = dataObj?.current_voyage_number || dataObj?.last_voyage_number || '';
-
-      return {
-        eta: formattedEta,
-        rawEta: normalizedRawEta || (rawEta ? String(rawEta) : ''),
-        status: finalStatus,
-        shippedFrom,
-        shippedTo,
-        currentLocation,
-        startDate,
-        loadingDate: apiLoadingDate || startDate || '',
-        destinationDate: formattedEta,
-        vesselName,
-        voyageNumber,
-        dataDetails: {
-          ...dataObj,
-          loading_date: apiLoadingDate || startDate || null,
-          eta_final_destination: formattedEta,
-          raw_carrier_eta: normalizedRawEta || rawEta || null,
-          clearance_eta: formattedEta,
-          shipped_from: shippedFrom,
-          shipped_to: shippedTo,
-          last_location: currentLocation,
-          current_vessel_name: vesselName,
-          current_voyage_number: voyageNumber,
-          container_status: finalStatus,
-        },
-        rawResponse: resData,
-      };
-    } else {
-      let errDetail = `HTTP ${res.status}: ${res.statusText || 'Carrier API response error'}`;
-      try {
-        const errJson = await res.json();
-        if (errJson) {
-          const raw = errJson.error || errJson.message;
-          if (typeof raw === 'string') {
-            errDetail = raw;
-          } else if (typeof raw === 'object' && raw !== null) {
-            errDetail = raw.title || raw.message || raw.detail || raw.description || raw.error || JSON.stringify(raw);
-          } else if (typeof errJson.detail === 'string') {
-            errDetail = errJson.detail;
-          } else if (Array.isArray(errJson.errors) && errJson.errors.length > 0) {
-            const first = errJson.errors[0];
-            errDetail = typeof first === 'string' ? first : (first?.title || first?.message || first?.detail || JSON.stringify(first));
-          } else if (typeof errJson === 'object') {
-            const str = JSON.stringify(errJson);
-            errDetail = str === '{}' ? `HTTP ${res.status}: ${res.statusText || 'Carrier API response error'}` : str;
-          }
-        }
-      } catch (_) {}
-
-      if (res.status === 401 || res.status === 403) {
-        throw new Error(`JSONCargo API Authentication Failed (${res.status}): ${errDetail}. Please update your API key in Settings.`);
-      } else if (res.status === 404) {
-        throw new Error(`Carrier ${shippingLineCode} API: Container '${containerNumber}' not found by carrier (HTTP 404). Verify container number and carrier.`);
-      } else if (res.status === 429) {
-        throw new Error(`JSONCargo API Rate Limit / Quota Exceeded (HTTP 429): Your monthly quota is exhausted.`);
-      } else {
-        throw new Error(`Carrier ${shippingLineCode} API error: ${errDetail}`);
-      }
+      if (shipmentDoc.status) existingStatus = shipmentDoc.status;
+      if (shipmentDoc.shippedFrom) shippedFrom = shipmentDoc.shippedFrom;
+      if (shipmentDoc.shippedTo) shippedTo = shipmentDoc.shippedTo;
+      if (shipmentDoc.vesselName) vesselName = shipmentDoc.vesselName;
+      if (shipmentDoc.voyageNumber) voyageNumber = shipmentDoc.voyageNumber;
     }
-  } catch (error: any) {
-    let cleanErrMsg = error?.message;
-    if (typeof cleanErrMsg !== 'string' || cleanErrMsg.includes('[object Object]')) {
-      try {
-        cleanErrMsg = typeof error === 'object' ? JSON.stringify(error) : String(error);
-      } catch {
-        cleanErrMsg = 'Carrier API error';
-      }
-    }
-    console.warn(`JSONCargo API call error for ${containerNumber} (${shippingLineCode}):`, cleanErrMsg);
+  } catch (dbErr) {
+    // silent db fallback
+  }
 
-    // Only allow mock data if explicitly enabled via environment variable
-    if (process.env.MOCK_CARGO_FALLBACK === 'true') {
-      const baseMock = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000); // 5 days away
-      const rawMockEta = baseMock.toISOString().slice(0, 10);
-      const clearanceMockEta = addFilingBufferDays(rawMockEta, 10);
-      const mockStartDate = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  // Calculate ETA based on loading date if available (20 days sea voyage + 10 days clearance = 30 days total)
+  let calculatedEta = existingEta || 'Pending';
+  let rawCarrierEta = '';
 
-      const mockData: JSONCargoContainerData = {
-        container_id: containerNumber.trim(),
-        container_status: `In Transit (${shippingLineCode})`,
-        shipping_line_name: shippingLineCode,
-        eta_final_destination: clearanceMockEta,
-        raw_carrier_eta: rawMockEta,
-        shipped_from: 'Ningbo / Shanghai, China',
-        shippedTo: 'Nhava Sheva / Mundra, India',
-        last_location: 'In Transit (Singapore Strait / Malacca)',
-        atd_origin: mockStartDate,
-        loading_date: mockStartDate,
-        current_vessel_name: 'MSC LORETTA',
-        current_voyage_number: '2508W',
-        last_updated: new Date().toISOString(),
-      };
-
-      return {
-        eta: clearanceMockEta,
-        rawEta: rawMockEta,
-        status: `In Transit (${shippingLineCode})`,
-        shippedFrom: 'Ningbo / Shanghai, China',
-        shippedTo: 'Nhava Sheva / Mundra, India',
-        currentLocation: 'In Transit (Singapore Strait / Malacca)',
-        startDate: mockStartDate,
-        loadingDate: mockStartDate,
-        destinationDate: clearanceMockEta,
-        vesselName: 'MSC LORETTA',
-        voyageNumber: '2508W',
-        dataDetails: mockData,
-      };
+  if (loadingDate) {
+    const dateMatch = String(loadingDate).match(/\d{4}-\d{2}-\d{2}/);
+    let baseDate: Date | null = null;
+    if (dateMatch) {
+      baseDate = new Date(dateMatch[0]);
+    } else if (!isNaN(new Date(loadingDate).getTime())) {
+      baseDate = new Date(loadingDate);
     }
 
-    if (error instanceof Error && !error.message.includes('[object Object]')) {
-      throw error;
-    } else {
-      throw new Error(`Carrier ${shippingLineCode} API error: ${cleanErrMsg}`);
+    if (baseDate && !isNaN(baseDate.getTime())) {
+      // 20 days sea voyage
+      const seaArrival = new Date(baseDate.getTime());
+      seaArrival.setUTCDate(seaArrival.getUTCDate() + 20);
+      const yyyy = seaArrival.getUTCFullYear();
+      const mm = String(seaArrival.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(seaArrival.getUTCDate()).padStart(2, '0');
+      rawCarrierEta = `${yyyy}-${mm}-${dd}`;
+
+      // Final clearance delivery ETA (+10 days clearance procedure)
+      calculatedEta = addFilingBufferDays(seaArrival, 10);
     }
   }
+
+  const finalStatus = existingStatus || (loadingDate ? 'In Transit' : 'Planning');
+  const currentLocation = loadingDate ? `At Sea (${carrierName})` : 'In Transit';
+
+  const mockData: JSONCargoContainerData = {
+    container_id: cleanNum,
+    container_status: finalStatus,
+    shipping_line_name: carrierName,
+    eta_final_destination: calculatedEta,
+    raw_carrier_eta: rawCarrierEta || calculatedEta,
+    clearance_eta: calculatedEta,
+    shipped_from: shippedFrom,
+    shipped_to: shippedTo,
+    last_location: currentLocation,
+    atd_origin: loadingDate || null,
+    loading_date: loadingDate || null,
+    current_vessel_name: vesselName || undefined,
+    current_voyage_number: voyageNumber || undefined,
+    last_updated: new Date().toISOString(),
+  };
+
+  return {
+    eta: calculatedEta,
+    rawEta: rawCarrierEta || calculatedEta,
+    status: finalStatus,
+    shippedFrom,
+    shippedTo,
+    currentLocation,
+    startDate: loadingDate,
+    loadingDate,
+    destinationDate: calculatedEta,
+    vesselName,
+    voyageNumber,
+    dataDetails: mockData,
+  };
 }
 
 export async function fetchApiKeyStats(overrideKey?: string): Promise<ApiKeyStats> {
-  const apiKey = (overrideKey || process.env.JSON_CARGO_API_KEY || '').trim();
-  if (!apiKey) {
-    return {
-      status: 'not_configured',
-      error: 'JSON_CARGO_API_KEY is not configured in server environment (.env.local)',
-      plan: 'No Key Configured',
-      requests_total: 0,
-      requests_made: 0,
-      requests_available: 0,
-      totalCalls: 0,
-      usedCalls: 0,
-      remainingCalls: 0,
-      keyMasked: 'None',
-    };
-  }
-
-  const keyMasked = apiKey.length > 8
-    ? `${apiKey.slice(0, 4)}••••••••${apiKey.slice(-4)}`
-    : '••••••••';
-
-  try {
-    const res = await fetch('http://api.jsoncargo.com/api/v1/api_key/stats', {
-      method: 'GET',
-      headers: {
-        'x-api-key': apiKey,
-        'Accept': 'application/json',
-      },
-      cache: 'no-store',
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      const stats = data?.data || data;
-      const total = typeof stats.requests_total === 'number' ? stats.requests_total : 1000;
-      const used = typeof stats.requests_made === 'number' ? stats.requests_made : 0;
-      const available = typeof stats.requests_available === 'number' ? stats.requests_available : Math.max(0, total - used);
-
-      return {
-        status: 'configured',
-        plan: stats.plan || 'Standard Plan',
-        requests_total: total,
-        requests_made: used,
-        requests_available: available,
-        totalCalls: total,
-        usedCalls: used,
-        remainingCalls: available,
-        keyMasked,
-      };
-    } else {
-      let errMsg = `HTTP ${res.status}`;
-      try {
-        const errJson = await res.json();
-        const raw = errJson?.error || errJson?.message;
-        if (typeof raw === 'object' && raw !== null) {
-          errMsg = raw.title || raw.message || raw.detail || raw.description || JSON.stringify(raw);
-        } else if (typeof raw === 'string') {
-          errMsg = raw;
-        }
-      } catch {}
-
-      const isAuthFail = res.status === 401 || res.status === 403;
-      return {
-        status: isAuthFail ? 'invalid_key' : 'error',
-        error: isAuthFail
-          ? `JSONCargo API key rejected (${res.status}): ${errMsg}. Please update with a valid JSONCargo API key.`
-          : `JSONCargo API stats error (${res.status}): ${errMsg}`,
-        plan: isAuthFail ? 'Key Inactive / Not Found' : 'Error',
-        requests_total: 0,
-        requests_made: 0,
-        requests_available: 0,
-        totalCalls: 0,
-        usedCalls: 0,
-        remainingCalls: 0,
-        keyMasked,
-      };
-    }
-  } catch (err: any) {
-    return {
-      status: 'error',
-      error: err?.message || 'Failed to connect to JSONCargo API server',
-      plan: 'Network Error',
-      requests_total: 0,
-      requests_made: 0,
-      requests_available: 0,
-      totalCalls: 0,
-      usedCalls: 0,
-      remainingCalls: 0,
-      keyMasked,
-    };
-  }
+  return {
+    status: 'configured',
+    plan: 'Direct System Mode (Zero External API)',
+    requests_total: 10000,
+    requests_made: 0,
+    requests_available: 10000,
+    totalCalls: 10000,
+    usedCalls: 0,
+    remainingCalls: 10000,
+    keyMasked: 'Direct Engine Active',
+  };
 }

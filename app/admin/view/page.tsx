@@ -347,7 +347,21 @@ export default function InternalEmployeeViewPage() {
   const [isSavingDates, setIsSavingDates] = useState(false);
   const [setDatesFeedback, setSetDatesFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const SHIPPING_LINES_LIST = ['MSC', 'MAERSK', 'CMA_CGM', 'HAPAG_LLOYD', 'COSCO', 'ONE', 'EVERGREEN', 'YANG_MING', 'HMM', 'ZIM', 'PIL', 'WAN_HAI', 'OOCL'];
+  const [shippingLinesList, setShippingLinesList] = useState<string[]>([
+    'MSC', 'MAERSK', 'CMA_CGM', 'HAPAG_LLOYD', 'COSCO', 'ONE', 'EVERGREEN', 'YANG_MING', 'HMM', 'ZIM', 'PIL', 'WAN_HAI', 'OOCL'
+  ]);
+
+  useEffect(() => {
+    fetch('/api/admin/shipping-lines')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d && d.success && Array.isArray(d.shippingLines)) {
+          const names = d.shippingLines.filter((l: any) => l.active !== false).map((l: any) => l.name);
+          if (names.length > 0) setShippingLinesList(names);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Fetch Container Fleet
   const fetchContainerFleet = async () => {

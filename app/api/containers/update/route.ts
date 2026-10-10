@@ -59,56 +59,54 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    let cleanLoadingDate = (loadingDate || '').trim();
+    await connectToDatabase();
 
-    // 1. Trigger API lookup to retrieve live carrier ETA and loading date
+    let cleanLoadingDate = (loadingDate || '').trim();
+    if (!cleanLoadingDate) {
+      const existing: any = await Container.findOne({ container: container.trim() }).lean();
+      if (existing?.loadingDate || existing?.startDate) {
+        cleanLoadingDate = existing.loadingDate || existing.startDate;
+      }
+    }
+
+    // Retrieve local tracking details
     let trackingInfo: any = null;
     try {
       trackingInfo = await fetchContainerTracking(
         actualContainerNo.trim(),
         shippingLine.trim()
       );
-      // If API returns a live loading date, get it from the API
-      if (trackingInfo?.loadingDate) {
-        cleanLoadingDate = trackingInfo.loadingDate;
-      }
-    } catch (apiErr: any) {
-      console.warn('Carrier API lookup warning:', apiErr?.message);
+    } catch {
+      // silent
     }
-
-    // If API could not search/find container and user did not enter loading date manually
-    if (!cleanLoadingDate) {
-      return NextResponse.json(
-        { error: 'Carrier API could not find loading date for this container. Please enter the Loading Date manually.' },
-        { status: 400 }
-      );
-    }
-
-    await connectToDatabase();
 
     const now = new Date();
 
     const updateFields: Record<string, any> = {
       containerNumber: actualContainerNo.trim(),
       shippingLine: shippingLine.trim(),
-      loadingDate: cleanLoadingDate,
-      startDate: cleanLoadingDate,
     };
 
+    if (cleanLoadingDate) {
+      updateFields.loadingDate = cleanLoadingDate;
+      updateFields.startDate = cleanLoadingDate;
+    }
+
     if (trackingInfo) {
-      updateFields.eta = trackingInfo.eta;
-      updateFields.rawEta = trackingInfo.rawEta || '';
-      updateFields.status = trackingInfo.status;
-      updateFields.shippedFrom = trackingInfo.shippedFrom;
-      updateFields.shippedTo = trackingInfo.shippedTo;
-      updateFields.currentLocation = trackingInfo.currentLocation;
-      updateFields.destinationDate = trackingInfo.destinationDate;
-      updateFields.vesselName = trackingInfo.vesselName;
-      updateFields.voyageNumber = trackingInfo.voyageNumber;
+      if (trackingInfo.eta && trackingInfo.eta !== 'Pending') {
+        updateFields.eta = trackingInfo.eta;
+        updateFields.destinationDate = trackingInfo.destinationDate;
+      }
+      if (trackingInfo.rawEta) updateFields.rawEta = trackingInfo.rawEta;
+      if (trackingInfo.status) updateFields.status = trackingInfo.status;
+      if (trackingInfo.shippedFrom) updateFields.shippedFrom = trackingInfo.shippedFrom;
+      if (trackingInfo.shippedTo) updateFields.shippedTo = trackingInfo.shippedTo;
+      if (trackingInfo.currentLocation) updateFields.currentLocation = trackingInfo.currentLocation;
+      if (trackingInfo.vesselName) updateFields.vesselName = trackingInfo.vesselName;
+      if (trackingInfo.voyageNumber) updateFields.voyageNumber = trackingInfo.voyageNumber;
       updateFields.jsonCargoData = trackingInfo.dataDetails;
       updateFields.lastApiSync = now;
       updateFields.etaUpdatedAt = now;
-      updateFields.apiCalled = true;
     }
 
     // 2. Execute updateMany for all matching records with the target container alias
