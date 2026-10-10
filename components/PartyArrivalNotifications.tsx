@@ -40,6 +40,7 @@ export interface NotificationReceipt {
   weight: string | number;
   volume: string | number;
   phone?: string;
+  rate?: string;
   messageSent: boolean;
   messageSentAt?: string | null;
   messageSentDate?: string;
@@ -90,6 +91,15 @@ export default function PartyArrivalNotifications({ initialDate, onClose }: Prop
   const [savingEntryId, setSavingEntryId] = useState<string | null>(null);
   const [entrySaveSuccess, setEntrySaveSuccess] = useState<Record<string, boolean>>({});
 
+  // Local freight / shipping rate inputs per receipt (Optional, e.g. '23k')
+  const [rateInputs, setRateInputs] = useState<Record<string, string>>({});
+  const [savingRateId, setSavingRateId] = useState<string | null>(null);
+  const [rateSaveSuccess, setRateSaveSuccess] = useState<Record<string, boolean>>({});
+
+  // Option to include/omit rate in SMS messages & quick batch applicator
+  const [includeRateGlobal, setIncludeRateGlobal] = useState<boolean>(true);
+  const [quickRateInput, setQuickRateInput] = useState<string>('');
+
   // Copy status per receipt
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
@@ -127,15 +137,18 @@ export default function PartyArrivalNotifications({ initialDate, onClose }: Prop
           }
         }
 
-        // Initialize phone inputs
+        // Initialize phone, entry, and rate inputs
         const initialPhones: Record<string, string> = {};
         const initialEntries: Record<string, string> = {};
+        const initialRates: Record<string, string> = {};
         (data.receipts || []).forEach((r: NotificationReceipt) => {
           if (r.phone) initialPhones[r._id] = r.phone;
           if (r.warehouseEntry) initialEntries[r._id] = r.warehouseEntry;
+          if (r.rate) initialRates[r._id] = r.rate;
         });
         setPhoneInputs((prev) => ({ ...initialPhones, ...prev }));
         setEntryInputs((prev) => ({ ...initialEntries, ...prev }));
+        setRateInputs((prev) => ({ ...initialRates, ...prev }));
       }
     } catch (err: any) {
       console.error('Failed to fetch notification receipts:', err);
@@ -184,13 +197,25 @@ export default function PartyArrivalNotifications({ initialDate, onClose }: Prop
       if (entry) detailLines.push(`Warehouse Entry: ${entry}`);
     }
 
+    // Optional Rate: User can mention rate or send without rate
+    // If entered (e.g. '23k'), outputs "Rate 23k" directly after Volume details
+    const currentRate = (rateInputs[r._id] !== undefined ? rateInputs[r._id] : (r.rate || '')).trim();
+    let rateLine = '';
+    if (includeRateGlobal && currentRate) {
+      if (/^rate[:\s]*/i.test(currentRate)) {
+        rateLine = `\n${currentRate}`;
+      } else {
+        rateLine = `\nRate ${currentRate}`;
+      }
+    }
+
     return `Item Arrival Notification 📦 Item with following details has arrived in ${arrivalLocation} on* ${dateStr}
 ${detailLines.join('\n')}
 Mark: ${mark}
 Description ${desc}
 CTN ${ctn}
 Weight: ${wt}
-Volume: ${vol}
+Volume: ${vol}${rateLine}
 Please share the Warehouse Slip , Packing List ,Item Name and Item Image for our records.
 
 Please note without above details goods will not be load`;
@@ -232,6 +257,68 @@ Please note without above details goods will not be load`;
     } finally {
       setSavingEntryId(null);
     }
+  };
+
+  // Save Freight / Shipping Rate to database for this receipt
+  const handleSaveRate = async (r: NotificationReceipt) => {
+    const rateVal = (rateInputs[r._id] !== undefined ? rateInputs[r._id] : r.rate || '').trim();
+    setSavingRateId(r._id);
+    try {
+      const res = await fetch('/api/warehouse/notifications', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save-rate',
+          receiptId: r._id,
+          receipt: r.receipt,
+          rate: rateVal,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save rate');
+
+      // Update receipts locally with saved rate
+      setReceipts((prev) =>
+        prev.map((item) => (item._id === r._id ? { ...item, rate: rateVal } : item))
+      );
+
+      setRateSaveSuccess((prev) => ({ ...prev, [r._id]: true }));
+      setTimeout(() => {
+        setRateSaveSuccess((prev) => ({ ...prev, [r._id]: false }));
+      }, 3000);
+
+      setActionMessage(`Rate "${rateVal || 'None'}" saved for Receipt ${r.receipt}!`);
+      setTimeout(() => setActionMessage(null), 4000);
+    } catch (err: any) {
+      alert(err.message || 'Error saving rate');
+    } finally {
+      setSavingRateId(null);
+    }
+  };
+
+  // Apply quick rate across all currently visible receipts
+  const handleApplyQuickRate = () => {
+    if (!quickRateInput.trim()) return;
+    const cleanRate = quickRateInput.trim();
+    const updated: Record<string, string> = {};
+    filteredReceipts.forEach((r) => {
+      updated[r._id] = cleanRate;
+    });
+    setRateInputs((prev) => ({ ...prev, ...updated }));
+    setActionMessage(`Applied rate "${cleanRate}" to all ${filteredReceipts.length} items! (Click 'Save Rate' to persist)`);
+    setTimeout(() => setActionMessage(null), 4000);
+  };
+
+  // Clear rate for all visible receipts
+  const handleClearAllRates = () => {
+    const updated: Record<string, string> = {};
+    filteredReceipts.forEach((r) => {
+      updated[r._id] = '';
+    });
+    setRateInputs((prev) => ({ ...prev, ...updated }));
+    setActionMessage('Cleared rates for all items! Messages will format without rate.');
+    setTimeout(() => setActionMessage(null), 4000);
   };
 
   // Copy message & mark as sent
@@ -663,6 +750,70 @@ Please note without above details goods will not be load`;
               </div>
             </div>
           </div>
+
+          {/* Rate Options Toolbar: Toggle rate inclusion & Quick Batch Rate applicator */}
+          <div className="md:col-span-12 bg-white/95 p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div className="flex items-center space-x-3">
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includeRateGlobal}
+                    onChange={(e) => setIncludeRateGlobal(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                </label>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs font-black text-slate-900 uppercase tracking-wide">
+                      Include Rate in SMS / Message (मैसेज में रेट जोड़ें)
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      includeRateGlobal ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
+                    }`}>
+                      {includeRateGlobal ? 'Enabled' : 'Disabled (Without Rate)'}
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-slate-500">
+                    {includeRateGlobal
+                      ? 'When enabled, rate is added after Volume details (e.g. Rate 23k). Leave empty per item to omit.'
+                      : 'Messages will format without any rate details.'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Quick Batch Rate Applicator */}
+              {includeRateGlobal && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-bold text-slate-600 shrink-0">Quick Rate:</span>
+                  <input
+                    type="text"
+                    value={quickRateInput}
+                    onChange={(e) => setQuickRateInput(e.target.value)}
+                    placeholder="e.g. 23k or 25,000"
+                    className="w-36 px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono shadow-2xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleApplyQuickRate}
+                    className="px-3 py-1.5 bg-slate-900 hover:bg-black text-white rounded-lg text-xs font-bold transition shadow-2xs shrink-0"
+                    title="Apply this rate to all visible receipts"
+                  >
+                    Apply to All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearAllRates}
+                    className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold transition shrink-0"
+                    title="Clear rates for all items"
+                  >
+                    Clear All
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Search & Filter Controls */}
@@ -804,11 +955,14 @@ Please note without above details goods will not be load`;
               const messageText = generateMessage(r);
               const currentPhone = phoneInputs[r._id] !== undefined ? phoneInputs[r._id] : r.phone || '';
               const currentEntry = entryInputs[r._id] !== undefined ? entryInputs[r._id] : r.warehouseEntry || '';
+              const currentRate = rateInputs[r._id] !== undefined ? rateInputs[r._id] : r.rate || '';
               const isCopied = copiedId === r._id;
               const isSaved = phoneSaveSuccess[r._id];
               const isSaving = savingPhoneId === r._id;
               const isEntrySaved = entrySaveSuccess[r._id];
               const isSavingEntry = savingEntryId === r._id;
+              const isRateSaved = rateSaveSuccess[r._id];
+              const isSavingRate = savingRateId === r._id;
 
               return (
                 <div
@@ -1010,6 +1164,62 @@ Please note without above details goods will not be load`;
                         </div>
                         <p className="text-[10px] text-amber-800">
                           Saving is optional. If saved, future goods for Mark &lsquo;{r.mainMarka || r.party || r.receipt}&rsquo; will auto-fill this number.
+                        </p>
+                      </div>
+
+                      {/* Freight / Shipping Rate (Optional / ऐच्छिक - e.g. 23k) */}
+                      <div className="p-3.5 bg-emerald-50/60 rounded-xl border border-emerald-200 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[11px] font-black text-emerald-950 uppercase flex items-center space-x-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Rate / दर (Optional - e.g. 23k)</span>
+                          </label>
+                          {currentRate && (
+                            <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded font-mono">
+                              Rate: {currentRate}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center space-x-1.5">
+                          <input
+                            type="text"
+                            value={currentRate}
+                            onChange={(e) =>
+                              setRateInputs((prev) => ({ ...prev, [r._id]: e.target.value }))
+                            }
+                            placeholder="Rate (e.g. 23k or 25,000)"
+                            className="flex-1 px-3 py-1.5 rounded-lg border border-emerald-300 text-xs font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono shadow-2xs"
+                          />
+
+                          <button
+                            type="button"
+                            onClick={() => handleSaveRate(r)}
+                            disabled={isSavingRate}
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1 shadow-2xs shrink-0 disabled:opacity-50"
+                            title="Save rate to database for this receipt"
+                          >
+                            {isRateSaved ? (
+                              <>
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Saved!</span>
+                              </>
+                            ) : isSavingRate ? (
+                              <span>Saving...</span>
+                            ) : (
+                              <>
+                                <Save className="w-3.5 h-3.5" />
+                                <span>Save Rate</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-emerald-800">
+                          {includeRateGlobal ? (
+                            <>Optional. When filled, adds <strong>Rate {currentRate || '23k'}</strong> directly after Volume details. Clear to omit.</>
+                          ) : (
+                            <span className="text-slate-500 italic">Rate inclusion is currently disabled in toolbar above.</span>
+                          )}
                         </p>
                       </div>
                     </div>

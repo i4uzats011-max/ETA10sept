@@ -38,6 +38,7 @@ export interface IWarehouseReceipt extends Document {
   notes?: string;               // Optional notes or remarks from warehouse
   phone?: string;               // Party contact / WhatsApp mobile
   partyPhone?: string;          // Party phone
+  rate?: string;                // Party shipping/freight rate (e.g. '23k', '25,000')
   messageSent?: boolean;        // Arrival notification sent status
   messageSentAt?: Date | null;  // Timestamp of message sent
   messageSentDate?: string;     // Formatted message sent date/time
@@ -93,6 +94,7 @@ const WarehouseReceiptSchema = new Schema<IWarehouseReceipt>(
     notes: { type: String, default: '' },
     phone: { type: String, default: '', trim: true },
     partyPhone: { type: String, default: '', trim: true },
+    rate: { type: String, default: '', trim: true },
     messageSent: { type: Boolean, default: false, index: true },
     messageSentAt: { type: Date, default: null },
     messageSentDate: { type: String, default: '' },

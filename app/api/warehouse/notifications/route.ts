@@ -138,6 +138,7 @@ export async function GET(req: NextRequest) {
         weight: r.weight || '0',
         volume: r.volume || '0',
         phone: resolvedPhone,
+        rate: r.rate || '',
         messageSent: isSent,
         messageSentAt: r.messageSentAt ? new Date(r.messageSentAt).toISOString() : null,
         messageSentDate: r.messageSentDate || (r.messageSentAt ? formatGlobalDate(r.messageSentAt) : ''),
@@ -400,6 +401,36 @@ export async function POST(req: NextRequest) {
         success: true,
         warehouseEntry: cleanEntry,
         message: `Warehouse Entry #${cleanEntry} saved successfully!`,
+      });
+    }
+
+    // ACTION 5: Save Freight / Shipping Rate for Receipt
+    if (action === 'save-rate') {
+      const { receiptId, receipt, rate } = body;
+      const cleanRate = String(rate || '').trim();
+
+      if (receiptId) {
+        await WarehouseReceipt.findByIdAndUpdate(receiptId, {
+          $set: { rate: cleanRate },
+        });
+      } else if (receipt) {
+        await WarehouseReceipt.updateMany(
+          { receipt: receipt.trim() },
+          { $set: { rate: cleanRate } }
+        );
+      }
+
+      if (receipt) {
+        await Shipment.updateMany(
+          { receipt: receipt.trim() },
+          { $set: { rate: cleanRate } }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        rate: cleanRate,
+        message: `Rate "${cleanRate || 'None'}" saved for Receipt ${receipt || receiptId}!`,
       });
     }
 
