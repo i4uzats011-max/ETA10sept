@@ -16,6 +16,7 @@ import { addFilingBufferDays } from '@/lib/jsoncargo';
 import CargoMasterTable from '@/components/CargoMasterTable';
 import LoaderHub from '@/components/LoaderHub';
 import PartyArrivalNotifications from '@/components/PartyArrivalNotifications';
+import ShippingLineManager from '@/components/ShippingLineManager';
 import { ReduxProvider } from '@/store/ReduxProvider';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
