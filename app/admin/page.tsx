@@ -227,8 +227,27 @@ export default function AdminDashboardPage() {
   const [manualSyncStatus, setManualSyncStatus] = useState<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null);
   const [liveJsonCargoDetails, setLiveJsonCargoDetails] = useState<any | null>(null);
 
+  // Dynamic Shipping Lines State
+  const [dynamicShippingLines, setDynamicShippingLines] = useState<string[]>(SHIPPING_LINES);
+  const fetchDynamicShippingLines = async () => {
+    try {
+      const res = await fetch('/api/admin/shipping-lines');
+      const data = await res.json();
+      if (res.ok && data.success && Array.isArray(data.shippingLines)) {
+        const names = data.shippingLines
+          .filter((l: any) => l.active !== false)
+          .map((l: any) => l.name);
+        if (names.length > 0) {
+          setDynamicShippingLines(names);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load dynamic shipping lines:', err);
+    }
+  };
+
   // Modern Modular Menu Bar Tabs state
-  type AdminTab = 'loader-hub' | 'shipments' | 'containers' | 'api-sync' | 'manual-eta' | 'alerts' | 'notifications';
+  type AdminTab = 'loader-hub' | 'shipping-lines' | 'notifications' | 'shipments' | 'containers' | 'manual-eta' | 'api-sync' | 'alerts';
   const [activeAdminTab, setActiveAdminTab] = useState<AdminTab>('loader-hub');
 
   // Container Fleet Directory state (Table view)
@@ -398,6 +417,7 @@ export default function AdminDashboardPage() {
             fetchApiStats();
             fetchLateContainers();
             fetchSyncAlerts();
+            fetchDynamicShippingLines();
           }
         }
       })
@@ -1355,7 +1375,7 @@ export default function AdminDashboardPage() {
 
         {/* ── MODERN ADMIN MENU BAR (Zero Scrollbars - Responsive Grid) ── */}
         <div className="bg-white border border-slate-200 rounded-2xl p-2 shadow-sm">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2 w-full">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 w-full">
             <button
               type="button"
               onClick={() => setActiveAdminTab('loader-hub')}
@@ -1367,6 +1387,26 @@ export default function AdminDashboardPage() {
             >
               <Warehouse className="w-4 h-4 shrink-0" />
               <span className="truncate">Loader Hub</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveAdminTab('shipping-lines')}
+              className={`px-3 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 w-full ${
+                activeAdminTab === 'shipping-lines'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
+              }`}
+            >
+              <Anchor className="w-4 h-4 shrink-0" />
+              <span className="truncate">Shipping Lines</span>
+              {dynamicShippingLines.length > 0 && (
+                <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                  activeAdminTab === 'shipping-lines' ? 'bg-indigo-700 text-white' : 'bg-slate-200 text-slate-700'
+                }`}>
+                  {dynamicShippingLines.length}
+                </span>
+              )}
             </button>
 
             <button
@@ -2535,7 +2575,7 @@ export default function AdminDashboardPage() {
                     onChange={(e) => setManualShippingCompany(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-bold bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-xs"
                   >
-                    {SHIPPING_LINES.map((line) => (
+                    {dynamicShippingLines.map((line) => (
                       <option key={line} value={line}>{line}</option>
                     ))}
                   </select>
@@ -2919,7 +2959,7 @@ export default function AdminDashboardPage() {
                       }}
                       className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-sm font-medium text-slate-800 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      {SHIPPING_LINES.map((line) => (
+                      {dynamicShippingLines.map((line) => (
                         <option key={line} value={line}>
                           {line}
                         </option>
@@ -3114,6 +3154,13 @@ export default function AdminDashboardPage() {
             <ReduxProvider>
               <LoaderHub />
             </ReduxProvider>
+          </div>
+        )}
+
+        {/* ── TAB: SHIPPING LINE COMPANIES MANAGEMENT ── */}
+        {activeAdminTab === 'shipping-lines' && (
+          <div className="animate-fadeIn">
+            <ShippingLineManager onLinesUpdated={fetchDynamicShippingLines} />
           </div>
         )}
 
@@ -3647,7 +3694,7 @@ export default function AdminDashboardPage() {
                   onChange={(e) => setEditingShipment({ ...editingShipment, shippingLine: e.target.value })}
                   className="w-full p-2.5 border rounded-lg mt-1 text-sm font-medium"
                 >
-                  {SHIPPING_LINES.map((line) => (
+                  {dynamicShippingLines.map((line) => (
                     <option key={line} value={line}>{line}</option>
                   ))}
                 </select>
@@ -3779,7 +3826,7 @@ export default function AdminDashboardPage() {
                   className="w-full p-2.5 border rounded-lg mt-1"
                 >
                   <option value="">-- Keep Existing Shipping Line --</option>
-                  {SHIPPING_LINES.map((line) => (
+                  {dynamicShippingLines.map((line) => (
                     <option key={line} value={line}>{line}</option>
                   ))}
                 </select>
@@ -3910,7 +3957,7 @@ export default function AdminDashboardPage() {
                   onChange={(e) => setNewEntryData({ ...newEntryData, shippingLine: e.target.value })}
                   className="w-full p-2.5 border rounded-lg mt-1 text-sm font-medium"
                 >
-                  {SHIPPING_LINES.map((line) => (
+                  {dynamicShippingLines.map((line) => (
                     <option key={line} value={line}>{line}</option>
                   ))}
                 </select>

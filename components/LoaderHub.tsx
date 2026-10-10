@@ -127,6 +127,20 @@ export default function LoaderHub() {
   const [activeSubTab, setActiveSubTab] = useState<'stock' | 'plans' | 'uploads' | 'notifications'>('stock');
   const [notificationReceiptDate, setNotificationReceiptDate] = useState<string>('');
 
+  // Dynamic Shipping Carriers state
+  const [dynamicCarriers, setDynamicCarriers] = useState<string[]>(SHIPPING_CARRIERS);
+  useEffect(() => {
+    fetch('/api/admin/shipping-lines')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d && d.success && Array.isArray(d.shippingLines)) {
+          const names = d.shippingLines.filter((l: any) => l.active !== false).map((l: any) => l.name);
+          if (names.length > 0) setDynamicCarriers(names);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Local state for Create Plan modal
   const [isCreatePlanOpen, setIsCreatePlanOpen] = useState(false);
   const [newPlanAlias, setNewPlanAlias] = useState('');
@@ -4293,7 +4307,7 @@ export default function LoaderHub() {
                   onChange={(e) => setAllotCarrierInput(e.target.value)}
                   className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500"
                 >
-                  {SHIPPING_CARRIERS.map((c) => (
+                  {dynamicCarriers.map((c) => (
                     <option key={c} value={c}>
                       {c}
                     </option>
@@ -7118,7 +7132,7 @@ export default function LoaderHub() {
                     onChange={(e) => setAlterShippingLine(e.target.value)}
                     className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 focus:bg-white text-slate-900"
                   >
-                    {SHIPPING_CARRIERS.map((sc) => (
+                    {dynamicCarriers.map((sc) => (
                       <option key={sc} value={sc}>
                         {sc}
                       </option>
