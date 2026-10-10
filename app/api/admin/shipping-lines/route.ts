@@ -20,15 +20,18 @@ export async function GET(req: NextRequest) {
   try {
     await connectToDatabase();
 
-    // 1. Check if shipping lines exist, seed defaults if empty
+    // 1. Check if shipping lines exist, seed defaults ONLY on initial first run
     const count = await ShippingLine.countDocuments();
     if (count === 0) {
-      await ShippingLine.insertMany(
-        DEFAULT_SHIPPING_LINES.map((item) => ({
-          ...item,
-          active: true,
-        }))
-      );
+      const existingContainers = await Container.countDocuments();
+      if (existingContainers === 0) {
+        await ShippingLine.insertMany(
+          DEFAULT_SHIPPING_LINES.map((item) => ({
+            ...item,
+            active: true,
+          }))
+        );
+      }
     }
 
     // 2. Fetch all shipping lines
@@ -249,7 +252,7 @@ export async function PUT(req: NextRequest) {
   }
 }
 
-// DELETE: Delete shipping line company ONLY IF not mapped in any company/container
+// DELETE: Delete shipping line company (removes from active shipping lines list)
 export async function DELETE(req: NextRequest) {
   if (!isStaffOrAdminAuthenticated(req)) {
     return NextResponse.json({ error: 'Unauthorized: Staff or Admin role required' }, { status: 401 });
@@ -269,8 +272,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Shipping line not found' }, { status: 404 });
     }
 
-    // CHECK REFERENTIAL INTEGRITY:
-    // User can delete ONLY IF user has not mapped that shipping line in any container / shipment / company
+    // Check count of mapped containers/shipments
     const [containerCount, shipmentCount] = await Promise.all([
       Container.countDocuments({
         shippingLine: { $regex: new RegExp(`^${escapeRegex(line.name)}$`, 'i') },
@@ -280,26 +282,19 @@ export async function DELETE(req: NextRequest) {
       }),
     ]);
 
-    if (containerCount > 0 || shipmentCount > 0) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: `Cannot delete shipping line "${line.name}": It is currently mapped to ${containerCount} container(s) and ${shipmentCount} shipment record(s). Deletion is prohibited because this shipping line is in active use. You can only delete a shipping line if it is not mapped in any company or container.`,
-          isMapped: true,
-          containerCount,
-          shipmentCount,
-        },
-        { status: 400 }
-      );
-    }
-
-    // If completely unmapped, safe to delete!
+    // Delete shipping line from collection
     await ShippingLine.findByIdAndDelete(id);
 
     return NextResponse.json({
       success: true,
-      message: `Shipping line "${line.name}" deleted successfully!`,
+      message: `Shipping line "${line.name}" deleted successfully!${
+        containerCount > 0 || shipmentCount > 0
+          ? ` (${containerCount} container(s) retain historical records)`
+          : ''
+      }`,
       deletedId: id,
+      containerCount,
+      shipmentCount,
     });
   } catch (error: any) {
     console.error('Error deleting shipping line:', error);

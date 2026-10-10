@@ -207,14 +207,6 @@ export default function ShippingLineManager({ onLinesUpdated }: Props) {
 
   // Trigger Delete
   const handleRequestDelete = (line: ShippingLineItem) => {
-    if (line.isMapped) {
-      alert(
-        `⛔ CANNOT DELETE SHIPPING LINE "${line.name}":\n\n` +
-          `This shipping line is currently mapped to ${line.containerCount} container(s) and ${line.shipmentCount} shipment(s).\n\n` +
-          `Per referential integrity rules, you can only delete a shipping line if it has NOT been mapped in any container or company.`
-      );
-      return;
-    }
     setLineToDelete(line);
   };
 
