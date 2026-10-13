@@ -9,8 +9,24 @@ export interface ReceiptItem {
   packaging?: string;
   weight?: string;
   volume?: string;
+  rate?: number | string;
+  rateUnit?: string;
+  cost?: number | string;
+  remarks?: string;
   mainMarka?: string;
   subMarka?: string;
+}
+
+export interface GoodsRateItem {
+  _id?: string;
+  name: string;
+  rate?: number | string;
+  rateUnit?: string;
+  ctn: number;
+  cbm?: string | number;
+  weight?: string | number;
+  cost?: number | string;
+  remarks?: string;
 }
 
 export interface WarehouseReceiptItem {
@@ -37,6 +53,13 @@ export interface WarehouseReceiptItem {
   deliveryDate?: string;
   isDelivered?: boolean;
   notes?: string;
+  remarks?: string;
+  isLabblerGoods?: boolean;
+  rate?: string;
+  rateFixed?: boolean;
+  totalCost?: number | string;
+  cost?: number | string;
+  goodsItems?: GoodsRateItem[];
   uploadedAt: string;
   containers?: Array<{
     container: string;
@@ -49,6 +72,7 @@ export interface WarehouseReceiptItem {
 export interface LoadingItemAllocation {
   _id: string;
   receipt: string;
+  receiptId?: string;
   party?: string;
   container: string;
   containerNumber?: string;
@@ -77,6 +101,13 @@ export interface LoadingItemAllocation {
   etaBufferDays?: number;
   etaUpdatedAt?: string | null;
   status?: string;
+  rate?: string;
+  rateFixed?: boolean;
+  totalCost?: number | string;
+  cost?: number | string;
+  remarks?: string;
+  isLabblerGoods?: boolean;
+  goodsItems?: GoodsRateItem[];
 }
 
 export interface LoadingPlanItem {
@@ -658,6 +689,43 @@ export const deleteUploadBatch = createAsyncThunk(
       return { uploadId, message: data.message };
     } catch (err: any) {
       return rejectWithValue(err.message || 'Failed to delete upload batch');
+    }
+  }
+);
+
+// 19. Save / Edit Rate of Goods and Cargo Breakdown (One or more items, CTN, CBM, Weight, Cost, Remarks)
+export const saveRateOfGoods = createAsyncThunk(
+  'loadingPlan/saveRateOfGoods',
+  async (
+    payload: {
+      shipmentId?: string;
+      receiptId?: string;
+      receipt: string;
+      container?: string;
+      warehouse?: string;
+      goodsItems: GoodsRateItem[];
+      rate?: string;
+      rateFixed?: boolean;
+      totalCost?: number | string;
+      remarks?: string;
+      isLabblerGoods?: boolean;
+    },
+    { rejectWithValue }
+  ) => {
+    try {
+      const res = await fetch('/api/loading-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save-rate-of-goods',
+          ...payload,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save rate of goods');
+      return data;
+    } catch (err: any) {
+      return rejectWithValue(err.message || 'Error saving rate of goods');
     }
   }
 );
