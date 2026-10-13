@@ -824,6 +824,26 @@ export async function POST(req: NextRequest) {
       const fileEta = etaHeader && row[etaHeader] !== undefined ? String(row[etaHeader]).trim() : '';
       const fileStatus = statusHeader && row[statusHeader] !== undefined ? String(row[statusHeader]).trim() : '';
 
+      const rowRate = rateHeader && row[rateHeader] !== undefined ? String(row[rateHeader]).trim() : '';
+      const rowRateUnit = rateUnitHeader && row[rateUnitHeader] !== undefined ? String(row[rateUnitHeader]).trim() : 'CTN';
+      const rowCost = costHeader && row[costHeader] !== undefined ? String(row[costHeader]).trim() : '';
+      const rowRemarks = remarksHeader && row[remarksHeader] !== undefined ? String(row[remarksHeader]).trim() : '';
+      const rowRateFixed = rateFixedHeader && row[rateFixedHeader] !== undefined ? Boolean(row[rateFixedHeader]) : false;
+      const rowIsLabbler = Boolean(rowRemarks || (remarksHeader && /labell?er/i.test(rowRemarks)));
+
+      const finalItemName = finalEnglish || rawCommodity || 'General Goods';
+      const rowQtyNum = parseInt(String(row[quantityHeader] || 0), 10) || 0;
+      const rowGoodsItems = [{
+        name: finalItemName,
+        rate: rowRate,
+        rateUnit: rowRateUnit,
+        ctn: rowQtyNum,
+        cbm: volumeHeader && row[volumeHeader] !== undefined ? String(row[volumeHeader]).trim() : '',
+        weight: weightHeader && row[weightHeader] !== undefined ? String(row[weightHeader]).trim() : '',
+        cost: rowCost,
+        remarks: rowRemarks,
+      }];
+
       const updatePayload: Record<string, any> = {
         receipt: receiptVal,
         party: partyVal,
@@ -838,13 +858,20 @@ export async function POST(req: NextRequest) {
         quantity: quantityHeader && row[quantityHeader] !== undefined ? String(row[quantityHeader]).trim() : '',
         weight: weightHeader && row[weightHeader] !== undefined ? String(row[weightHeader]).trim() : '',
         volume: volumeHeader && row[volumeHeader] !== undefined ? String(row[volumeHeader]).trim() : '',
-        commodity: finalEnglish,
+        commodity: finalItemName,
         chinese: finalChinese,
-        english: finalEnglish,
+        english: finalItemName,
         packaging: finalPackaging,
         subMarka: finalSubMark,
         mainMarka: finalMainMark,
         shippedTo: destVal,
+        rate: rowRate,
+        rateFixed: rowRateFixed,
+        totalCost: rowCost,
+        cost: rowCost,
+        remarks: rowRemarks,
+        isLabblerGoods: rowIsLabbler,
+        goodsItems: rowGoodsItems,
       };
 
       const rowKey = `${finalWarehouse.toLowerCase()}___${receiptVal.toLowerCase()}`;
@@ -854,6 +881,8 @@ export async function POST(req: NextRequest) {
       updatePayload.isSplit = Boolean(isSplitItem);
       updatePayload.originalTotalQuantity = wh ? String(wh.quantity) : updatePayload.quantity;
       if (wh?._id) updatePayload.receiptId = wh._id;
+      if (!updatePayload.rate && wh?.rate) updatePayload.rate = wh.rate;
+      if (updatePayload.rateFixed === false && wh?.rateFixed) updatePayload.rateFixed = wh.rateFixed;
 
       if (fileEta && fileEta !== 'N/A') updatePayload.eta = fileEta;
       if (fileStatus) updatePayload.status = fileStatus;
@@ -903,15 +932,36 @@ export async function POST(req: NextRequest) {
     const countInserted = (bulkResult.insertedCount || 0) + (bulkResult.upsertedCount || 0);
     const countModified = bulkResult.modifiedCount || 0;
 
-    // 4. Synchronously update WarehouseReceipt loaded quantities and remaining stock balances
+    // 4. Synchronously update WarehouseReceipt loaded quantities, volume, weight, and remaining stock balances
     for (const [key, loadedQty] of fileQtyByKey.entries()) {
       const wh = whReceiptMap.get(key);
       if (wh) {
+        const loadedCbm = fileCbmByKey.get(key) || 0;
+        const loadedWeight = fileWeightByKey.get(key) || 0;
+
         const newLoaded = (wh.loadedQuantity || 0) + loadedQty;
         const newRemaining = Math.max(0, wh.quantity - newLoaded);
+
+        const origCbm = parseMetricNumber(wh.volume);
+        const origWeight = parseMetricNumber(wh.weight);
+
+        const newLoadedCbm = Number(((parseMetricNumber(wh.loadedVolume) || 0) + loadedCbm).toFixed(3));
+        const newRemainingCbm = Math.max(0, Number((origCbm - newLoadedCbm).toFixed(3)));
+
+        const newLoadedWeight = Number(((parseMetricNumber(wh.loadedWeight) || 0) + loadedWeight).toFixed(3));
+        const newRemainingWeight = Math.max(0, Number((origWeight - newLoadedWeight).toFixed(3)));
+
         const hasDelivered = Boolean(wh.isDelivered || wh.status === 'Partially Delivered' || wh.status === 'Delivered');
         const newStatus = hasDelivered ? 'Partially Delivered' : (newRemaining === 0 ? 'Fully Loaded' : 'Partially Loaded');
         const newStockStatus = hasDelivered ? 'Partially Delivered' : (newRemaining === 0 ? 'Dispatched' : 'Partially Dispatched');
+
+        const originalName = wh.commodity || wh.english || 'General Goods';
+        const balanceItem = {
+          name: originalName,
+          ctn: newRemaining,
+          cbm: newRemainingCbm,
+          weight: newRemainingWeight,
+        };
 
         await WarehouseReceipt.updateOne(
           { _id: wh._id },
@@ -919,6 +969,11 @@ export async function POST(req: NextRequest) {
             $set: {
               loadedQuantity: newLoaded,
               remainingQuantity: newRemaining,
+              loadedVolume: newLoadedCbm,
+              remainingVolume: newRemainingCbm,
+              loadedWeight: newLoadedWeight,
+              remainingWeight: newRemainingWeight,
+              balanceItem,
               status: newStatus,
               stockstatus: newStockStatus,
               isDelivered: false,
@@ -1028,6 +1083,10 @@ export async function POST(req: NextRequest) {
         quantity: quantityHeader,
         weight: weightHeader,
         volume: volumeHeader,
+        rate: rateHeader,
+        rateUnit: rateUnitHeader,
+        cost: costHeader,
+        remarks: remarksHeader,
       },
     });
   } catch (error: any) {

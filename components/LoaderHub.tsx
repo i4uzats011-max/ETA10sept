@@ -608,6 +608,10 @@ export default function LoaderHub() {
   const [excelUploadWarehouse, setExcelUploadWarehouse] = useState('');
   const [excelPreviewRows, setExcelPreviewRows] = useState<any[]>([]);
   const [excelTotalRows, setExcelTotalRows] = useState(0);
+  const [excelHeaders, setExcelHeaders] = useState<string[]>([]);
+  const [excelRawRows, setExcelRawRows] = useState<Record<string, any>[]>([]);
+  const [excelColumnMapping, setExcelColumnMapping] = useState<Record<string, string>>({});
+  const [isColumnMappingOpen, setIsColumnMappingOpen] = useState(true);
   const [isUploadingExcel, setIsUploadingExcel] = useState(false);
   const [excelUploadStatus, setExcelUploadStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [excelUploadResult, setExcelUploadResult] = useState<{
@@ -2033,6 +2037,70 @@ export default function LoaderHub() {
     }
   };
 
+  const SYSTEM_MAPPING_FIELDS = useMemo(
+    () => [
+      { key: 'receipt', label: 'Receipt # / Bill No', mandatory: true, hint: '单号, 收据号, 入库单号' },
+      { key: 'commodity', label: 'Item / Commodity Name', mandatory: true, hint: '品名, 货物名称, item name' },
+      { key: 'quantity', label: 'Cartons / Qty (CTN)', mandatory: true, hint: '件数, 数量, 箱数' },
+      { key: 'volume', label: 'Volume (CBM)', mandatory: false, hint: '体积, 方数, cbm' },
+      { key: 'weight', label: 'Weight (KG)', mandatory: false, hint: '重量, 毛重, kg' },
+      { key: 'rate', label: 'Rate of Goods', mandatory: false, hint: '单价, 费率, price' },
+      { key: 'rateUnit', label: 'Rate Unit (CTN / CBM / KG / Fixed)', mandatory: false, hint: '单位, 计费单位' },
+      { key: 'cost', label: 'Cost of Item / Total Amount', mandatory: false, hint: '金额, 费用, 成本' },
+      { key: 'remarks', label: 'Remarks / Labeller Goods', mandatory: false, hint: '备注, 说明, 贴标' },
+      { key: 'party', label: 'Party / Customer Name', mandatory: false, hint: '客户, 货主, 发货人' },
+      { key: 'date', label: 'Receipt / Entry Date', mandatory: false, hint: '日期, 入库日期' },
+      { key: 'container', label: 'Container / Plan No', mandatory: false, hint: '柜号, 箱号 (For Loading Plans)' },
+    ],
+    []
+  );
+
+  const buildExcelPreview = (rows: Record<string, any>[], mapping: Record<string, string>) => {
+    const preview = rows.slice(0, 5).map((row, idx) => {
+      const getVal = (fieldKey: string) => {
+        const mappedHeader = mapping[fieldKey];
+        if (mappedHeader && row[mappedHeader] !== undefined && String(row[mappedHeader]).trim() !== '') {
+          return String(row[mappedHeader]).trim();
+        }
+        return '';
+      };
+
+      const rawReceipt = getVal('receipt') || `Auto-REC-${idx + 1}`;
+      const rawParty = getVal('party') || 'General Party';
+      const rawComm = getVal('commodity') || 'General Goods';
+      const trans = translateCommodity(rawComm);
+      const rawQty = getVal('quantity') || '1';
+      const rawVol = getVal('volume');
+      const rawWt = getVal('weight');
+      const rawRate = getVal('rate');
+      const rawRateUnit = getVal('rateUnit') || 'CTN';
+      const rawCost = getVal('cost');
+      const rawRemarks = getVal('remarks');
+
+      return {
+        idx: idx + 1,
+        receipt: rawReceipt,
+        party: rawParty,
+        chineseCommodity: rawComm,
+        englishCommodity: trans.english || rawComm,
+        qty: rawQty,
+        volume: rawVol,
+        weight: rawWt,
+        rate: rawRate,
+        rateUnit: rawRateUnit,
+        cost: rawCost,
+        remarks: rawRemarks,
+      };
+    });
+    setExcelPreviewRows(preview);
+  };
+
+  const handleUpdateMappingField = (fieldKey: string, chosenHeader: string) => {
+    const updated = { ...excelColumnMapping, [fieldKey]: chosenHeader };
+    setExcelColumnMapping(updated);
+    buildExcelPreview(excelRawRows, updated);
+  };
+
   // Chinese Excel File Select & Live Translation Preview
   const handleExcelFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -2045,36 +2113,37 @@ export default function LoaderHub() {
       const sheet = wb.Sheets[wb.SheetNames[0]];
       const rows: Record<string, any>[] = XLSX.utils.sheet_to_json(sheet, { defval: '' });
       setExcelTotalRows(rows.length);
+      setExcelRawRows(rows);
 
-      // Generate preview for first 5 rows with live translation
-      const preview = rows.slice(0, 5).map((row, idx) => {
-        const rKey = Object.keys(row).find((k) => /receipt|单号|收据|单据/i.test(k));
-        const pKey = Object.keys(row).find((k) => /party|客户|货主|shipper|发货人/i.test(k));
-        const cKey = Object.keys(row).find((k) => /commodity|品名|货物|goods|item|中文|货名/i.test(k));
-        const qKey = Object.keys(row).find((k) => /qty|quantity|件数|数量|箱数|件/i.test(k));
-        const pkgKey = Object.keys(row).find((k) => /pack|pkg|包装/i.test(k));
-        const whKey = Object.keys(row).find((k) => /warehouse|仓库|仓位/i.test(k));
+      const rawHeaders = rows.length > 0 ? Object.keys(rows[0]) : [];
+      setExcelHeaders(rawHeaders);
 
-        const rawComm = cKey ? String(row[cKey] || '') : '';
-        const trans = translateCommodity(rawComm);
-        const rawPkg = pkgKey ? String(row[pkgKey] || '') : '';
-        const transPkg = translatePackaging(rawPkg);
-        const rawWh = whKey ? String(row[whKey] || '') : '';
-        const transWh = translateWarehouse(rawWh);
+      // Auto-detect best column matches
+      const autoMapping: Record<string, string> = {};
+      const findBestHeader = (patterns: RegExp[]) => {
+        return (
+          rawHeaders.find((h) => {
+            const cleaned = h.trim().replace(/^[\uFEFF\uFFFE]/, '');
+            return patterns.some((p) => p.test(cleaned));
+          }) || ''
+        );
+      };
 
-        return {
-          idx: idx + 1,
-          receipt: rKey ? String(row[rKey] || '') : `Auto-REC-${idx + 1}`,
-          party: pKey ? String(row[pKey] || '') : 'General Party',
-          chineseCommodity: rawComm,
-          englishCommodity: trans.english,
-          qty: qKey ? String(row[qKey] || '') : '1',
-          packaging: transPkg,
-          warehouse: transWh,
-        };
-      });
+      autoMapping.receipt = findBestHeader([/receipt|bill|单号|收据|入库单|提单|票号|运单|凭证/i]);
+      autoMapping.commodity = findBestHeader([/commodity|item|goods|cargo|品名|货物|商品|货名|中文/i]);
+      autoMapping.quantity = findBestHeader([/qty|quantity|ctn|carton|件数|数量|箱数|件|包数/i]);
+      autoMapping.volume = findBestHeader([/volume|vol|cbm|m3|体积|方数|立方/i]);
+      autoMapping.weight = findBestHeader([/weight|wt|gross|gw|kgs|重量|毛重/i]);
+      autoMapping.rate = findBestHeader([/rate|price|单价|费率|价格/i]);
+      autoMapping.rateUnit = findBestHeader([/rateunit|rate_unit|unit|basis|单位|计费/i]);
+      autoMapping.cost = findBestHeader([/cost|amount|total|金额|费用|总价|成本/i]);
+      autoMapping.remarks = findBestHeader([/remark|note|label|备注|说明|标签|贴标/i]);
+      autoMapping.party = findBestHeader([/party|shipper|customer|client|客户|货主|发货人|供应商/i]);
+      autoMapping.date = findBestHeader([/date|time|日期|收货日期|入库日期/i]);
+      autoMapping.container = findBestHeader([/container|cntr|柜号|箱号|集装箱/i]);
 
-      setExcelPreviewRows(preview);
+      setExcelColumnMapping(autoMapping);
+      buildExcelPreview(rows, autoMapping);
     } catch (err: any) {
       setExcelUploadStatus({ type: 'error', message: err?.message || 'Failed to read Excel file' });
     }
@@ -2108,6 +2177,9 @@ export default function LoaderHub() {
       formData.append('warehouse', excelUploadWarehouse);
       formData.append('mode', 'append');
       formData.append('uploadType', excelUploadType);
+      if (Object.keys(excelColumnMapping).length > 0) {
+        formData.append('mapping', JSON.stringify(excelColumnMapping));
+      }
       if (excelUploadType === 'plan') {
         formData.append('targetContainer', excelTargetContainer.trim().toUpperCase());
       }
@@ -2154,6 +2226,9 @@ export default function LoaderHub() {
         confirmedFormData.append('mode', 'append');
         confirmedFormData.append('confirmSplit', 'true');
         confirmedFormData.append('uploadType', excelUploadType);
+        if (Object.keys(excelColumnMapping).length > 0) {
+          confirmedFormData.append('mapping', JSON.stringify(excelColumnMapping));
+        }
         if (excelUploadType === 'plan') {
           confirmedFormData.append('targetContainer', excelTargetContainer.trim().toUpperCase());
         }
