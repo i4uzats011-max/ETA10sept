@@ -12,6 +12,7 @@ import {
   translateMark,
 } from '@/lib/translate';
 import { indexSingleWarehouseReceipt, deleteSingleWarehouseReceipt } from '@/lib/typesense';
+import { calculateReceiptBalance } from '@/lib/metricUtils';
 
 export const dynamic = 'force-dynamic';
 
@@ -80,11 +81,11 @@ export async function GET(req: NextRequest) {
         })),
       ],
     })
-      .select('receipt receiptId warehouse container containerNumber shippingLine quantity isDelivered deliveryDate status')
+      .select('receipt receiptId warehouse container containerNumber shippingLine quantity weight volume commodity english goodsItems isDelivered deliveryDate status')
       .lean();
 
-    const containerMapById = new Map<string, Array<{ container: string; containerNumber?: string; shippingLine?: string; quantity: string | number; warehouse?: string; isDelivered?: boolean; deliveryDate?: string; status?: string }>>();
-    const containerMapByWarehouseAndNum = new Map<string, Array<{ container: string; containerNumber?: string; shippingLine?: string; quantity: string | number; warehouse?: string; isDelivered?: boolean; deliveryDate?: string; status?: string }>>();
+    const containerMapById = new Map<string, Array<any>>();
+    const containerMapByWarehouseAndNum = new Map<string, Array<any>>();
 
     for (const s of activeShipments) {
       const entry = {
@@ -92,6 +93,11 @@ export async function GET(req: NextRequest) {
         containerNumber: s.containerNumber || '',
         shippingLine: s.shippingLine || 'MSC',
         quantity: s.quantity || '0',
+        weight: s.weight || '',
+        volume: s.volume || '',
+        commodity: s.commodity || '',
+        english: s.english || '',
+        goodsItems: s.goodsItems || [],
         warehouse: s.warehouse || '',
         isDelivered: Boolean(s.isDelivered),
         deliveryDate: s.deliveryDate || '',
@@ -123,29 +129,25 @@ export async function GET(req: NextRequest) {
         ? rawContainers
         : (containerMapByWarehouseAndNum.get(compositeKey) || []);
 
-      // Calculate actual loaded and delivered cartons from active shipments
-      let actualLoaded = 0;
+      const bal = calculateReceiptBalance(r, containers);
+
+      // Calculate actual delivered cartons
       let actualDelivered = 0;
       for (const c of containers) {
-        const q = parseInt(String(c.quantity || 0), 10);
-        if (!isNaN(q)) {
-          actualLoaded += q;
-          if (c.isDelivered) {
-            actualDelivered += q;
-          }
+        if (c.isDelivered) {
+          const q = parseInt(String(c.quantity || 0), 10);
+          if (!isNaN(q)) actualDelivered += q;
         }
       }
 
       const totalQty = r.quantity || 0;
-      const hasContainers = containers.length > 0 && actualLoaded > 0;
-      const loaded = hasContainers ? actualLoaded : 0;
-      const remaining = Math.max(0, totalQty - loaded);
+      const loaded = bal.loadedQty;
+      const remaining = bal.balanceQty;
 
       let status = 'Received in Warehouse';
       let isDelivered = false;
 
       if (actualDelivered > 0) {
-        // Some or all goods were delivered
         if (actualDelivered >= totalQty && totalQty > 0 && remaining === 0) {
           status = 'Delivered';
           isDelivered = true;
@@ -153,7 +155,7 @@ export async function GET(req: NextRequest) {
           status = 'Partially Delivered';
           isDelivered = false;
         }
-      } else if (hasContainers) {
+      } else if (containers.length > 0 && loaded > 0) {
         if (loaded >= totalQty && totalQty > 0) {
           status = 'Fully Loaded';
         } else {
@@ -166,6 +168,17 @@ export async function GET(req: NextRequest) {
         loadedQuantity: loaded,
         remainingQuantity: remaining,
         deliveredQuantity: actualDelivered,
+        loadedVolume: bal.loadedCbm,
+        remainingVolume: bal.balanceCbm,
+        loadedWeight: bal.loadedWeight,
+        remainingWeight: bal.balanceWeight,
+        balanceItem: {
+          name: bal.balanceName,
+          ctn: bal.balanceQty,
+          cbm: bal.balanceCbm,
+          weight: bal.balanceWeight,
+        },
+        loadedItems: bal.loadedItems,
         isDelivered,
         status,
         containers,

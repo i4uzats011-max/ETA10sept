@@ -40,7 +40,26 @@ export interface WarehouseReceiptItem {
   loadedQuantity: number;
   remainingQuantity: number;
   weight?: string;
+  loadedWeight?: number | string;
+  remainingWeight?: number | string;
   volume?: string;
+  loadedVolume?: number | string;
+  remainingVolume?: number | string;
+  balanceItem?: {
+    name: string;
+    ctn: number;
+    cbm: number;
+    weight: number;
+  };
+  loadedItems?: Array<{
+    name: string;
+    ctn: number;
+    cbm: number;
+    weight: number;
+    container?: string;
+    rate?: number | string;
+    cost?: number | string;
+  }>;
   commodity?: string;
   chinese?: string;
   english?: string;

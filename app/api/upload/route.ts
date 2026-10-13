@@ -18,6 +18,7 @@ import {
   translateWarehouse,
   translateMark,
 } from '@/lib/translate';
+import { parseMetricNumber } from '@/lib/metricUtils';
 
 export const dynamic = 'force-dynamic';
 
@@ -191,6 +192,26 @@ export async function POST(req: NextRequest) {
       'shippedto', 'shipped to', 'destination', 'dest', 'destination port', 'port of discharge', 'pod',
       '目的港', '目的地', '目的国', '卸货港', '到达港'
     ]);
+    const rateHeader = getResolvedHeader('rate', [
+      'rate', 'goods_rate', 'rate_of_goods', 'item_rate', 'price', 'unit_rate', 'unit rate', 'goods rate', 'rate of goods',
+      '单价', '费率', '价格', '单价(元)', '单价(₹)', '运费单价'
+    ]);
+    const rateUnitHeader = getResolvedHeader('rateUnit', [
+      'rateunit', 'rate_unit', 'rate_basis', 'basis', 'unit', 'unit_type',
+      '单位', '计费单位', '价格单位'
+    ]);
+    const costHeader = getResolvedHeader('cost', [
+      'cost', 'total_cost', 'cargo_cost', 'item_cost', 'amount', 'total_amount', 'total cost', 'cargo cost', 'item cost',
+      '金额', '费用', '总价', '成本', '货款', '总费用', '总金额'
+    ]);
+    const remarksHeader = getResolvedHeader('remarks', [
+      'remarks', 'remark', 'notes', 'note', 'labeller', 'labeller_goods', 'comments', 'comment',
+      '备注', '说明', '标签', '贴标', '贴标货物'
+    ]);
+    const rateFixedHeader = getResolvedHeader('rateFixed', [
+      'rate_fixed', 'ratefixed', 'is_fixed', 'fixed_rate', 'fixed',
+      '固定单价', '固定汇率', '包干', '是否固定'
+    ]);
 
     await connectToDatabase();
 
@@ -354,7 +375,10 @@ export async function POST(req: NextRequest) {
           const itCn = tCn || (hasChineseCharacters(rCommodity) ? rCommodity : '');
           const itPkg = translatePackaging(packagingHeader && r[packagingHeader] !== undefined ? String(r[packagingHeader]).trim() : '');
           const itWt = weightHeader && r[weightHeader] !== undefined ? String(r[weightHeader]).trim() : '';
-          const itVol = volumeHeader && r[volumeHeader] !== undefined ? String(r[volumeHeader]).trim() : '';
+          const itRate = rateHeader && r[rateHeader] !== undefined ? String(r[rateHeader]).trim() : '';
+          const itRateUnit = rateUnitHeader && r[rateUnitHeader] !== undefined ? String(r[rateUnitHeader]).trim() : 'CTN';
+          const itCost = costHeader && r[costHeader] !== undefined ? String(r[costHeader]).trim() : '';
+          const itRemarks = remarksHeader && r[remarksHeader] !== undefined ? String(r[remarksHeader]).trim() : '';
 
           receiptItems.push({
             itemName: itEn || rCommodity || 'General Goods',
@@ -364,6 +388,10 @@ export async function POST(req: NextRequest) {
             packaging: itPkg || 'Carton',
             weight: itWt,
             volume: itVol,
+            rate: itRate,
+            rateUnit: itRateUnit,
+            cost: itCost,
+            remarks: itRemarks,
             mainMarka: translateMark(mainMarkHeader && r[mainMarkHeader] !== undefined ? String(r[mainMarkHeader]).trim() : ''),
             subMarka: translateMark(subMarkHeader && r[subMarkHeader] !== undefined ? String(r[subMarkHeader]).trim() : ''),
           });
@@ -383,6 +411,27 @@ export async function POST(req: NextRequest) {
           : (receiptItems[0]?.itemName || 'General Goods');
         const compositeChinese = receiptItems.map((ri) => ri.chinese).filter(Boolean).join(', ');
 
+        const topRate = receiptItems.find((i) => i.rate)?.rate || (rateHeader && primaryRow[rateHeader] !== undefined ? String(primaryRow[rateHeader]).trim() : '');
+        const topRateUnit = receiptItems.find((i) => i.rateUnit)?.rateUnit || (rateUnitHeader && primaryRow[rateUnitHeader] !== undefined ? String(primaryRow[rateUnitHeader]).trim() : 'CTN');
+        const topRemarks = receiptItems.find((i) => i.remarks)?.remarks || (remarksHeader && primaryRow[remarksHeader] !== undefined ? String(primaryRow[remarksHeader]).trim() : '');
+        const topCost = costHeader && primaryRow[costHeader] !== undefined ? String(primaryRow[costHeader]).trim() : (receiptItems.find((i) => i.cost)?.cost || '');
+        const topRateFixed = rateFixedHeader && primaryRow[rateFixedHeader] !== undefined ? Boolean(primaryRow[rateFixedHeader]) : false;
+        const isLabblerGoods = Boolean(topRemarks || (remarksHeader && /labell?er/i.test(topRemarks)));
+
+        const goodsItemsList = receiptItems.map((it) => ({
+          name: it.itemName,
+          rate: it.rate,
+          rateUnit: it.rateUnit || 'CTN',
+          ctn: it.quantity,
+          cbm: it.volume,
+          weight: it.weight,
+          cost: it.cost,
+          remarks: it.remarks,
+        }));
+
+        const primaryVol = volumeHeader && primaryRow[volumeHeader] !== undefined ? String(primaryRow[volumeHeader]).trim() : '';
+        const primaryWt = weightHeader && primaryRow[weightHeader] !== undefined ? String(primaryRow[weightHeader]).trim() : '';
+
         const receiptDoc = {
           receipt: item.receiptVal,
           party: partyVal,
@@ -392,8 +441,18 @@ export async function POST(req: NextRequest) {
           quantity: totalQty,
           loadedQuantity: 0,
           remainingQuantity: totalQty,
-          weight: weightHeader && primaryRow[weightHeader] !== undefined ? String(primaryRow[weightHeader]).trim() : '',
-          volume: volumeHeader && primaryRow[volumeHeader] !== undefined ? String(primaryRow[volumeHeader]).trim() : '',
+          weight: primaryWt,
+          loadedWeight: 0,
+          remainingWeight: primaryWt,
+          volume: primaryVol,
+          loadedVolume: 0,
+          remainingVolume: primaryVol,
+          balanceItem: {
+            name: compositeCommodity,
+            ctn: totalQty,
+            cbm: parseMetricNumber(primaryVol),
+            weight: parseMetricNumber(primaryWt),
+          },
           commodity: compositeCommodity,
           chinese: compositeChinese,
           english: compositeCommodity,
@@ -401,6 +460,13 @@ export async function POST(req: NextRequest) {
           subMarka: finalSubMark,
           mainMarka: finalMainMark,
           items: receiptItems,
+          goodsItems: goodsItemsList,
+          rate: topRate,
+          rateFixed: topRateFixed,
+          totalCost: topCost,
+          cost: topCost,
+          remarks: topRemarks,
+          isLabblerGoods,
           status: 'Received in Warehouse',
           stockstatus: 'In Stock',
           uploadBatchId,
@@ -555,9 +621,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1. Gather all requested receipts & sum quantities in uploaded file by (WAREHOUSE, RECEIPT)
+    // 1. Gather all requested receipts & sum quantities, volume, and weight in uploaded file by (WAREHOUSE, RECEIPT)
     // Rule: First check warehouse name, then receipt number!
     const fileQtyByKey = new Map<string, number>();
+    const fileCbmByKey = new Map<string, number>();
+    const fileWeightByKey = new Map<string, number>();
     const fileReceiptRows = new Map<string, number[]>();
     const fileKeyToMeta = new Map<string, { warehouse: string; receipt: string }>();
 
@@ -577,10 +645,14 @@ export async function POST(req: NextRequest) {
       const cleanR = rVal.trim();
       const rawQ = quantityHeader && row[quantityHeader] !== undefined ? String(row[quantityHeader]).trim() : '0';
       const q = parseInt(rawQ, 10) || 0;
+      const rawCbm = volumeHeader && row[volumeHeader] !== undefined ? parseMetricNumber(row[volumeHeader]) : 0;
+      const rawWeight = weightHeader && row[weightHeader] !== undefined ? parseMetricNumber(row[weightHeader]) : 0;
 
       const compoundKey = `${rowWarehouse.toLowerCase()}___${cleanR.toLowerCase()}`;
 
       fileQtyByKey.set(compoundKey, (fileQtyByKey.get(compoundKey) || 0) + q);
+      fileCbmByKey.set(compoundKey, (fileCbmByKey.get(compoundKey) || 0) + rawCbm);
+      fileWeightByKey.set(compoundKey, (fileWeightByKey.get(compoundKey) || 0) + rawWeight);
       if (!fileReceiptRows.has(compoundKey)) fileReceiptRows.set(compoundKey, []);
       fileReceiptRows.get(compoundKey)!.push(index + 1);
       if (!fileKeyToMeta.has(compoundKey)) {

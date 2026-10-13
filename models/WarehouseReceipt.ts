@@ -27,7 +27,13 @@ export interface IWarehouseReceipt extends Document {
   loadedQuantity: number;       // Cumulative quantity loaded across loading plans / containers
   remainingQuantity: number;    // Remaining stock in warehouse (quantity - loadedQuantity)
   weight?: string;              // Total weight
+  loadedWeight?: number | string; // Cumulative weight loaded into containers
+  remainingWeight?: number | string; // Remaining weight in warehouse
   volume?: string;              // Total volume (CBM)
+  loadedVolume?: number | string; // Cumulative CBM loaded into containers
+  remainingVolume?: number | string; // Remaining CBM in warehouse
+  balanceItem?: any;            // Internal balance item details ({ name, ctn, cbm, weight })
+  loadedItems?: any[];          // Breakdown of loaded items ({ name, ctn, cbm, weight, container })
   commodity?: string;           // Commodity type
   chinese?: string;             // Chinese Commodity Name (中文品名)
   english?: string;             // Detailed item description in English
@@ -88,7 +94,13 @@ const WarehouseReceiptSchema = new Schema<IWarehouseReceipt>(
     loadedQuantity: { type: Number, default: 0 },
     remainingQuantity: { type: Number, default: 0 },
     weight: { type: String, default: '' },
+    loadedWeight: { type: Schema.Types.Mixed, default: 0 },
+    remainingWeight: { type: Schema.Types.Mixed, default: '' },
     volume: { type: String, default: '' },
+    loadedVolume: { type: Schema.Types.Mixed, default: 0 },
+    remainingVolume: { type: Schema.Types.Mixed, default: '' },
+    balanceItem: { type: Schema.Types.Mixed, default: null },
+    loadedItems: { type: [Schema.Types.Mixed], default: [] },
     commodity: { type: String, default: '' },
     chinese: { type: String, default: '' },
     english: { type: String, default: '' },
