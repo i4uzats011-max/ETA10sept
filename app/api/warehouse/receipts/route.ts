@@ -272,6 +272,10 @@ export async function POST(req: NextRequest) {
           packaging: translatePackaging(it.packaging || packaging || 'Carton'),
           weight: it.weight ? String(it.weight).trim() : '',
           volume: it.volume ? String(it.volume).trim() : '',
+          rate: it.rate !== undefined ? it.rate : '',
+          rateUnit: it.rateUnit || 'CTN',
+          cost: it.cost !== undefined ? it.cost : '',
+          remarks: it.remarks ? String(it.remarks).trim() : '',
           mainMarka: it.mainMarka ? translateMark(it.mainMarka) : finalMainMark,
           subMarka: it.subMarka ? translateMark(it.subMarka) : finalSubMark,
         };
