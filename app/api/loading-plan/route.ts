@@ -1411,6 +1411,203 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // ----------------------------------------------------
+    // Action: Save / Edit Rate of Goods, Items Breakdown, and Remarks
+    // ----------------------------------------------------
+    if (action === 'save-rate-of-goods' || action === 'update-rate-of-goods') {
+      const {
+        shipmentId,
+        receiptId,
+        receipt,
+        container,
+        warehouse,
+        goodsItems,
+        rate,
+        rateFixed,
+        totalCost,
+        cost,
+        remarks,
+        isLabblerGoods,
+      } = body;
+
+      const cleanReceipt = (receipt || '').trim();
+      const cleanContainer = (container || '').trim();
+
+      if (!shipmentId && !receiptId && !cleanReceipt) {
+        return NextResponse.json(
+          { error: 'Shipment ID, Receipt ID, or Receipt number is required' },
+          { status: 400 }
+        );
+      }
+
+      // 1. Find Shipment if loaded in container
+      let shipment: any = null;
+      if (shipmentId) {
+        shipment = await Shipment.findById(shipmentId);
+      }
+      if (!shipment && cleanReceipt) {
+        const query: any = {
+          receipt: new RegExp(`^${cleanReceipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        };
+        if (cleanContainer) {
+          query.container = new RegExp(`^${cleanContainer.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+        }
+        shipment = await Shipment.findOne(query);
+      }
+
+      // 2. Find Warehouse Receipt
+      let whReceipt: any = null;
+      if (receiptId) {
+        whReceipt = await WarehouseReceipt.findById(receiptId);
+      }
+      if (!whReceipt && shipment?.receiptId) {
+        whReceipt = await WarehouseReceipt.findById(shipment.receiptId);
+      }
+      if (!whReceipt && cleanReceipt) {
+        const whQuery: any = {
+          receipt: new RegExp(`^${cleanReceipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        };
+        if (warehouse && warehouse !== 'ALL') {
+          whQuery.warehouse = new RegExp(`^${warehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+        }
+        whReceipt = await WarehouseReceipt.findOne(whQuery);
+      }
+
+      if (!shipment && !whReceipt) {
+        return NextResponse.json(
+          { error: `Receipt cargo #${cleanReceipt || shipmentId} not found in database` },
+          { status: 404 }
+        );
+      }
+
+      // Format goodsItems cleanly
+      const formattedItems = Array.isArray(goodsItems)
+        ? goodsItems.map((item: any) => {
+            const itemName = (item.name || item.itemName || '').trim();
+            const rateVal = item.rate !== undefined && item.rate !== '' ? item.rate : '';
+            const rateUnit = item.rateUnit || 'CTN';
+            const ctn = Number(item.ctn) || Number(item.quantity) || 0;
+            const cbm = item.cbm !== undefined ? String(item.cbm).trim() : '';
+            const weight = item.weight !== undefined ? String(item.weight).trim() : '';
+            const costVal = item.cost !== undefined && item.cost !== '' ? item.cost : '';
+            const itemRemarks = (item.remarks || '').trim();
+
+            return {
+              name: itemName,
+              rate: rateVal,
+              rateUnit,
+              ctn,
+              cbm,
+              weight,
+              cost: costVal,
+              remarks: itemRemarks,
+            };
+          })
+        : [];
+
+      const finalRemarks = (remarks || '').trim();
+      const hasRemarks = finalRemarks.length > 0 || formattedItems.some((it: any) => it.remarks && it.remarks.length > 0);
+      const isLabbler = Boolean(isLabblerGoods || hasRemarks);
+      const finalRate = rate !== undefined && String(rate).trim() !== '' ? String(rate).trim() : (shipment?.rate || whReceipt?.rate || '');
+      const finalCost = totalCost !== undefined && totalCost !== '' ? totalCost : (cost !== undefined && cost !== '' ? cost : (shipment?.totalCost || ''));
+      const isRateFixed = Boolean(rateFixed);
+
+      const primaryCommodity = formattedItems.length > 0 && formattedItems[0].name
+        ? formattedItems.map((it: any) => it.name).filter(Boolean).join(', ')
+        : '';
+
+      // Update Shipment if present
+      if (shipment) {
+        shipment.goodsItems = formattedItems;
+        shipment.rate = finalRate;
+        shipment.rateFixed = isRateFixed;
+        shipment.totalCost = finalCost;
+        shipment.cost = finalCost;
+        shipment.remarks = finalRemarks;
+        shipment.isLabblerGoods = isLabbler;
+        if (primaryCommodity && (!shipment.commodity || shipment.commodity === 'Cargo' || formattedItems.length === 1)) {
+          shipment.commodity = primaryCommodity;
+          shipment.english = primaryCommodity;
+        }
+        await shipment.save();
+      }
+
+      // Update WarehouseReceipt if present
+      if (whReceipt) {
+        whReceipt.goodsItems = formattedItems;
+        whReceipt.rate = finalRate;
+        whReceipt.rateFixed = isRateFixed;
+        whReceipt.totalCost = finalCost;
+        whReceipt.cost = finalCost;
+        whReceipt.remarks = finalRemarks;
+        whReceipt.notes = finalRemarks || whReceipt.notes;
+        whReceipt.isLabblerGoods = isLabbler;
+
+        if (formattedItems.length > 0) {
+          whReceipt.items = formattedItems.map((it: any) => ({
+            itemName: it.name,
+            quantity: it.ctn,
+            weight: it.weight,
+            volume: it.cbm,
+            rate: it.rate,
+            rateUnit: it.rateUnit,
+            cost: it.cost,
+            remarks: it.remarks,
+            packaging: whReceipt.packaging || 'Carton',
+          }));
+        }
+
+        if (primaryCommodity && (!whReceipt.commodity || whReceipt.commodity === 'Cargo' || formattedItems.length === 1)) {
+          whReceipt.commodity = primaryCommodity;
+          whReceipt.english = primaryCommodity;
+        }
+        await whReceipt.save();
+      }
+
+      // If updating from warehouse stock and shipments already exist for this receipt, sync to all existing shipments as well
+      if (whReceipt && !shipment) {
+        await Shipment.updateMany(
+          {
+            $or: [
+              { receiptId: whReceipt._id },
+              { receipt: new RegExp(`^${whReceipt.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+            ],
+          },
+          {
+            $set: {
+              goodsItems: formattedItems,
+              rate: finalRate,
+              rateFixed: isRateFixed,
+              totalCost: finalCost,
+              cost: finalCost,
+              remarks: finalRemarks,
+              isLabblerGoods: isLabbler,
+            },
+          }
+        );
+      }
+
+      const returnShipment = shipment || {
+        _id: whReceipt?._id,
+        receipt: whReceipt?.receipt,
+        container: cleanContainer || 'Warehouse Stock',
+        rate: finalRate,
+        rateFixed: isRateFixed,
+        totalCost: finalCost,
+        cost: finalCost,
+        remarks: finalRemarks,
+        isLabblerGoods: isLabbler,
+        goodsItems: formattedItems,
+      };
+
+      return NextResponse.json({
+        success: true,
+        message: `Rate of goods, items breakdown, and remarks saved successfully for Receipt #${returnShipment.receipt}${returnShipment.container ? ` (${returnShipment.container})` : ''}`,
+        shipment: returnShipment,
+        receipt: whReceipt,
+      });
+    }
+
     return NextResponse.json({ error: `Invalid action '${action}'` }, { status: 400 });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Loading plan operation failed' }, { status: 500 });
