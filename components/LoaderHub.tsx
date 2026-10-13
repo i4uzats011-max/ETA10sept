@@ -31,6 +31,7 @@ import {
   unloadContainer,
   fetchUploadHistory,
   deleteUploadBatch,
+  saveRateOfGoods,
   WarehouseReceiptItem,
   LoadingPlanItem,
   UploadHistoryItem,
@@ -70,6 +71,9 @@ import {
   RotateCcw,
   Zap,
   MessageSquare,
+  Calculator,
+  Tag,
+  Coins,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import PartyArrivalNotifications from '@/components/PartyArrivalNotifications';
@@ -328,6 +332,237 @@ export default function LoaderHub() {
       return sum + q;
     }, 0);
   }, [receiveItems]);
+
+  // Dedicated State & Handlers for Rate of Goods & Multi-Item Cargo Breakdown (CTN, CBM, Weight, Rate, Cost, Remarks)
+  const [isRateModalOpen, setIsRateModalOpen] = useState(false);
+  const [rateCargoTarget, setRateCargoTarget] = useState<any>(null);
+  const [rateModalItems, setRateModalItems] = useState<Array<{
+    id: string;
+    name: string;
+    rate: string;
+    rateUnit: 'CTN' | 'CBM' | 'KG' | 'Fixed';
+    ctn: number | '';
+    cbm: string;
+    weight: string;
+    cost: string;
+    remarks: string;
+  }>>([]);
+  const [rateModalFixedRate, setRateModalFixedRate] = useState<string>('');
+  const [rateModalIsFixed, setRateModalIsFixed] = useState<boolean>(false);
+  const [rateModalRemarks, setRateModalRemarks] = useState<string>('');
+  const [isSavingRateOfGoods, setIsSavingRateOfGoods] = useState<boolean>(false);
+
+  const handleOpenRateModal = (itemOrReceipt: any) => {
+    setRateCargoTarget(itemOrReceipt);
+
+    const existingGoods =
+      itemOrReceipt.goodsItems && Array.isArray(itemOrReceipt.goodsItems) && itemOrReceipt.goodsItems.length > 0
+        ? itemOrReceipt.goodsItems
+        : itemOrReceipt.items && Array.isArray(itemOrReceipt.items) && itemOrReceipt.items.length > 0
+        ? itemOrReceipt.items
+        : null;
+
+    const baseName =
+      itemOrReceipt.name ||
+      itemOrReceipt.itemName ||
+      itemOrReceipt.english ||
+      itemOrReceipt.commodity ||
+      itemOrReceipt.chinese ||
+      'Cargo Goods';
+    const baseCtn =
+      typeof itemOrReceipt.quantity === 'number'
+        ? itemOrReceipt.quantity
+        : parseInt(String(itemOrReceipt.quantity || 0), 10) || '';
+    const baseCbm = itemOrReceipt.volume || itemOrReceipt.cbm || '';
+    const baseWeight = itemOrReceipt.weight || '';
+    const baseRate = itemOrReceipt.rate !== undefined && itemOrReceipt.rate !== '' ? String(itemOrReceipt.rate) : '';
+    const baseRemarks = itemOrReceipt.remarks || itemOrReceipt.notes || '';
+
+    if (existingGoods && existingGoods.length > 0) {
+      setRateModalItems(
+        existingGoods.map((g: any, idx: number) => ({
+          id: g._id ? String(g._id) : `rate-item-${Date.now()}-${idx}`,
+          name: g.name || g.itemName || baseName,
+          rate: g.rate !== undefined && g.rate !== '' ? String(g.rate) : baseRate,
+          rateUnit: (g.rateUnit as any) || 'CTN',
+          ctn:
+            g.ctn !== undefined && g.ctn !== ''
+              ? g.ctn
+              : g.quantity !== undefined && g.quantity !== ''
+              ? g.quantity
+              : '',
+          cbm: g.cbm !== undefined ? String(g.cbm) : g.volume !== undefined ? String(g.volume) : '',
+          weight: g.weight !== undefined ? String(g.weight) : '',
+          cost: g.cost !== undefined ? String(g.cost) : '',
+          remarks: g.remarks || '',
+        }))
+      );
+    } else {
+      setRateModalItems([
+        {
+          id: `rate-item-${Date.now()}-0`,
+          name: baseName,
+          rate: baseRate,
+          rateUnit: 'CTN',
+          ctn: baseCtn,
+          cbm: baseCbm ? String(baseCbm) : '',
+          weight: baseWeight ? String(baseWeight) : '',
+          cost: itemOrReceipt.cost !== undefined && itemOrReceipt.cost !== '' ? String(itemOrReceipt.cost) : itemOrReceipt.totalCost !== undefined ? String(itemOrReceipt.totalCost) : '',
+          remarks: baseRemarks,
+        },
+      ]);
+    }
+
+    setRateModalFixedRate(baseRate);
+    setRateModalIsFixed(Boolean(itemOrReceipt.rateFixed));
+    setRateModalRemarks(baseRemarks);
+    setIsRateModalOpen(true);
+  };
+
+  const handleAddRateItem = () => {
+    const baseName =
+      rateCargoTarget?.name ||
+      rateCargoTarget?.itemName ||
+      rateCargoTarget?.english ||
+      rateCargoTarget?.commodity ||
+      '';
+    setRateModalItems((prev) => [
+      ...prev,
+      {
+        id: `rate-item-${Date.now()}-${prev.length}`,
+        name: prev.length === 0 && baseName ? baseName : '',
+        rate: rateModalFixedRate || '',
+        rateUnit: 'CTN',
+        ctn: '',
+        cbm: '',
+        weight: '',
+        cost: '',
+        remarks: '',
+      },
+    ]);
+  };
+
+  const handleRemoveRateItem = (id: string) => {
+    if (rateModalItems.length <= 1) return;
+    setRateModalItems((prev) => prev.filter((it) => it.id !== id));
+  };
+
+  const handleUpdateRateItem = (
+    id: string,
+    field: string,
+    value: any
+  ) => {
+    setRateModalItems((prev) =>
+      prev.map((it) => {
+        if (it.id !== id) return it;
+        const updated: any = { ...it, [field]: value };
+
+        // Auto-calculate cost when rate, rateUnit, ctn, cbm, or weight changes
+        if (field !== 'cost') {
+          const r = parseFloat(updated.rate);
+          if (!isNaN(r) && r > 0) {
+            let autoCost: number | null = null;
+            if (updated.rateUnit === 'CTN') {
+              const q = typeof updated.ctn === 'number' ? updated.ctn : parseFloat(String(updated.ctn));
+              if (!isNaN(q) && q > 0) autoCost = r * q;
+            } else if (updated.rateUnit === 'CBM') {
+              const v = parseFloat(updated.cbm);
+              if (!isNaN(v) && v > 0) autoCost = r * v;
+            } else if (updated.rateUnit === 'KG') {
+              const w = parseFloat(updated.weight);
+              if (!isNaN(w) && w > 0) autoCost = r * w;
+            } else if (updated.rateUnit === 'Fixed') {
+              autoCost = r;
+            }
+
+            if (autoCost !== null) {
+              updated.cost = String(Math.round(autoCost * 100) / 100);
+            }
+          }
+        }
+        return updated;
+      })
+    );
+  };
+
+  const totalRateItemsCtn = useMemo(() => {
+    return rateModalItems.reduce(
+      (sum, it) => sum + (typeof it.ctn === 'number' ? it.ctn : parseFloat(String(it.ctn || 0)) || 0),
+      0
+    );
+  }, [rateModalItems]);
+
+  const totalRateItemsCbm = useMemo(() => {
+    return rateModalItems.reduce(
+      (sum, it) => sum + (parseFloat(String(it.cbm || 0)) || 0),
+      0
+    );
+  }, [rateModalItems]);
+
+  const totalRateItemsWeight = useMemo(() => {
+    return rateModalItems.reduce(
+      (sum, it) => sum + (parseFloat(String(it.weight || 0)) || 0),
+      0
+    );
+  }, [rateModalItems]);
+
+  const totalRateItemsCost = useMemo(() => {
+    return rateModalItems.reduce(
+      (sum, it) => sum + (parseFloat(String(it.cost || 0)) || 0),
+      0
+    );
+  }, [rateModalItems]);
+
+  const handleSaveRateOfGoods = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rateCargoTarget) return;
+
+    setIsSavingRateOfGoods(true);
+    try {
+      const formattedGoods = rateModalItems.map((it) => ({
+        name: it.name.trim(),
+        rate: it.rate.trim(),
+        rateUnit: it.rateUnit,
+        ctn: typeof it.ctn === 'number' ? it.ctn : parseInt(String(it.ctn || 0), 10) || 0,
+        cbm: it.cbm.trim(),
+        weight: it.weight.trim(),
+        cost: it.cost.trim(),
+        remarks: it.remarks.trim(),
+      }));
+
+      const finalRemarks = rateModalRemarks.trim() || formattedGoods.map((g) => g.remarks).filter(Boolean).join('; ');
+      const isLabbler = Boolean(finalRemarks.length > 0 || formattedGoods.some((g) => g.remarks.length > 0));
+
+      const totalCostNum = formattedGoods.reduce((sum, it) => sum + (parseFloat(it.cost) || 0), 0);
+
+      const res = await dispatch(
+        saveRateOfGoods({
+          shipmentId: rateCargoTarget.container ? rateCargoTarget._id : undefined,
+          receiptId: rateCargoTarget.receiptId || rateCargoTarget._id,
+          receipt: rateCargoTarget.receipt,
+          container: rateCargoTarget.container,
+          warehouse: rateCargoTarget.warehouse,
+          goodsItems: formattedGoods,
+          rate: rateModalFixedRate.trim() || (formattedGoods[0]?.rate || ''),
+          rateFixed: rateModalIsFixed,
+          totalCost: totalCostNum > 0 ? String(totalCostNum) : (formattedGoods[0]?.cost || ''),
+          remarks: finalRemarks,
+          isLabblerGoods: isLabbler,
+        })
+      );
+
+      if (saveRateOfGoods.fulfilled.match(res)) {
+        setIsRateModalOpen(false);
+        setRateCargoTarget(null);
+        dispatch(fetchLoadingPlans());
+        dispatch(fetchWarehouseReceipts());
+      } else {
+        alert((res.payload as string) || 'Failed to save rate of goods');
+      }
+    } finally {
+      setIsSavingRateOfGoods(false);
+    }
+  };
 
   // Local state for Alter / Rename Container Database-Wide
   const [isAlterContainerOpen, setIsAlterContainerOpen] = useState(false);
