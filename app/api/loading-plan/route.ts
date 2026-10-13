@@ -5,6 +5,7 @@ import Shipment from '@/models/Shipment';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
 import { isStaffOrAdminAuthenticated, isSuperAdminAuthenticated } from '@/lib/auth';
 import { fetchContainerTracking, addFilingBufferDays } from '@/lib/jsoncargo';
+import { parseMetricNumber } from '@/lib/metricUtils';
 
 export const dynamic = 'force-dynamic';
 
@@ -380,10 +381,33 @@ export async function POST(req: NextRequest) {
         targetContainer.planStatus = 'Loaded';
       }
 
-      // 4. Update Warehouse Receipt loaded & remaining quantities for this specific warehouse receipt
+      // 4. Update Warehouse Receipt loaded & remaining quantities, CBM, and weight for this specific warehouse receipt
       const hasDeliveredShipments = activeShipmentsForReceipt.some((s: any) => Boolean(s.isDelivered));
       whReceipt.loadedQuantity = actualLoadedSoFar + qtyToLoad;
       whReceipt.remainingQuantity = Math.max(0, whReceipt.quantity - whReceipt.loadedQuantity);
+
+      const loadedCbm = parseMetricNumber(volumeToLoad);
+      const loadedWeight = parseMetricNumber(weightToLoad);
+      const origCbm = parseMetricNumber(whReceipt.volume);
+      const origWeight = parseMetricNumber(whReceipt.weight);
+
+      const newLoadedCbm = Number(((parseMetricNumber(whReceipt.loadedVolume) || 0) + loadedCbm).toFixed(3));
+      const newRemainingCbm = Math.max(0, Number((origCbm - newLoadedCbm).toFixed(3)));
+      const newLoadedWeight = Number(((parseMetricNumber(whReceipt.loadedWeight) || 0) + loadedWeight).toFixed(3));
+      const newRemainingWeight = Math.max(0, Number((origWeight - newLoadedWeight).toFixed(3)));
+
+      whReceipt.loadedVolume = newLoadedCbm;
+      whReceipt.remainingVolume = newRemainingCbm;
+      whReceipt.loadedWeight = newLoadedWeight;
+      whReceipt.remainingWeight = newRemainingWeight;
+
+      const origName = whReceipt.commodity || whReceipt.english || 'General Goods';
+      whReceipt.balanceItem = {
+        name: origName,
+        ctn: whReceipt.remainingQuantity,
+        cbm: newRemainingCbm,
+        weight: newRemainingWeight,
+      };
 
       if (hasDeliveredShipments) {
         whReceipt.isDelivered = false;
@@ -481,9 +505,34 @@ export async function POST(req: NextRequest) {
           (sum: number, s: any) => sum + (parseInt(String(s.quantity || 0), 10) || 0),
           0
         );
+        const actualLoadedCbm = remainingShipments.reduce(
+          (sum: number, s: any) => sum + parseMetricNumber(s.volume),
+          0
+        );
+        const actualLoadedWt = remainingShipments.reduce(
+          (sum: number, s: any) => sum + parseMetricNumber(s.weight),
+          0
+        );
 
         whReceipt.loadedQuantity = actualLoaded;
         whReceipt.remainingQuantity = Math.max(0, (whReceipt.quantity || 0) - actualLoaded);
+
+        const origCbm = parseMetricNumber(whReceipt.volume);
+        const origWeight = parseMetricNumber(whReceipt.weight);
+
+        whReceipt.loadedVolume = Number(actualLoadedCbm.toFixed(3));
+        whReceipt.remainingVolume = Math.max(0, Number((origCbm - actualLoadedCbm).toFixed(3)));
+        whReceipt.loadedWeight = Number(actualLoadedWt.toFixed(3));
+        whReceipt.remainingWeight = Math.max(0, Number((origWeight - actualLoadedWt).toFixed(3)));
+
+        const origName = whReceipt.commodity || whReceipt.english || 'General Goods';
+        whReceipt.balanceItem = {
+          name: origName,
+          ctn: whReceipt.remainingQuantity,
+          cbm: whReceipt.remainingVolume,
+          weight: whReceipt.remainingWeight,
+        };
+
         if (whReceipt.loadedQuantity <= 0) {
           whReceipt.status = 'Received in Warehouse';
           whReceipt.stockstatus = 'In Stock';
