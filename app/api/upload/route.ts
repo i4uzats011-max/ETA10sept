@@ -375,6 +375,7 @@ export async function POST(req: NextRequest) {
           const itCn = tCn || (hasChineseCharacters(rCommodity) ? rCommodity : '');
           const itPkg = translatePackaging(packagingHeader && r[packagingHeader] !== undefined ? String(r[packagingHeader]).trim() : '');
           const itWt = weightHeader && r[weightHeader] !== undefined ? String(r[weightHeader]).trim() : '';
+          const itVol = volumeHeader && r[volumeHeader] !== undefined ? String(r[volumeHeader]).trim() : '';
           const itRate = rateHeader && r[rateHeader] !== undefined ? String(r[rateHeader]).trim() : '';
           const itRateUnit = rateUnitHeader && r[rateUnitHeader] !== undefined ? String(r[rateUnitHeader]).trim() : 'CTN';
           const itCost = costHeader && r[costHeader] !== undefined ? String(r[costHeader]).trim() : '';
@@ -832,7 +833,7 @@ export async function POST(req: NextRequest) {
       const rowIsLabbler = Boolean(rowRemarks || (remarksHeader && /labell?er/i.test(rowRemarks)));
 
       const finalItemName = finalEnglish || rawCommodity || 'General Goods';
-      const rowQtyNum = parseInt(String(row[quantityHeader] || 0), 10) || 0;
+      const rowQtyNum = parseInt(String((quantityHeader && row[quantityHeader]) || 0), 10) || 0;
       const rowGoodsItems = [{
         name: finalItemName,
         rate: rowRate,

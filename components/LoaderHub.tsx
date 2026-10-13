@@ -2035,6 +2035,8 @@ export default function LoaderHub() {
     } finally {
       setIsSyncingPlanContainer(null);
     }
+  };
+
   const resetExcelUploadState = () => {
     setIsExcelUploadOpen(false);
     setExcelFile(null);
@@ -8670,6 +8672,16 @@ export default function LoaderHub() {
                       <>
                         <Trash2 className="w-3.5 h-3.5" />
                         <span>Delete All Receipts &amp; Warehouse</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL: RATE OF GOODS & MULTI-ITEM CARGO BREAKDOWN */}
       {isRateModalOpen && rateCargoTarget && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-fadeIn">
