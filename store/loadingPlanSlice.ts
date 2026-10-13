@@ -1237,6 +1237,100 @@ export const loadingPlanSlice = createSlice({
         text: (action.payload as string) || 'Failed to delete upload batch',
       };
     });
+
+    // 19. saveRateOfGoods
+    builder.addCase(saveRateOfGoods.pending, (state) => {
+      state.actionLoading = true;
+      state.actionMessage = null;
+    });
+    builder.addCase(saveRateOfGoods.fulfilled, (state, action) => {
+      state.actionLoading = false;
+      state.actionMessage = {
+        type: 'success',
+        text: action.payload.message || 'Rate of goods and details saved successfully!',
+      };
+
+      const updated = action.payload.shipment;
+      if (updated) {
+        // Update in activePlan.items
+        if (state.activePlan && state.activePlan.items) {
+          state.activePlan.items = state.activePlan.items.map((item) => {
+            const matchesId = updated._id && String(item._id) === String(updated._id);
+            const matchesReceipt =
+              item.receipt &&
+              updated.receipt &&
+              item.receipt.trim().toUpperCase() === updated.receipt.trim().toUpperCase() &&
+              (!updated.container || (item.container && item.container.trim().toUpperCase() === updated.container.trim().toUpperCase()));
+            if (matchesId || matchesReceipt) {
+              return {
+                ...item,
+                rate: updated.rate !== undefined ? updated.rate : item.rate,
+                rateFixed: updated.rateFixed !== undefined ? updated.rateFixed : item.rateFixed,
+                totalCost: updated.totalCost !== undefined ? updated.totalCost : item.totalCost,
+                cost: updated.cost !== undefined ? updated.cost : item.cost,
+                remarks: updated.remarks !== undefined ? updated.remarks : item.remarks,
+                isLabblerGoods: updated.isLabblerGoods !== undefined ? updated.isLabblerGoods : item.isLabblerGoods,
+                goodsItems: updated.goodsItems || item.goodsItems,
+              };
+            }
+            return item;
+          });
+        }
+
+        // Update in loadingPlans
+        state.loadingPlans = state.loadingPlans.map((plan) => {
+          if (!plan.items) return plan;
+          return {
+            ...plan,
+            items: plan.items.map((item) => {
+              const matchesId = updated._id && String(item._id) === String(updated._id);
+              const matchesReceipt =
+                item.receipt &&
+                updated.receipt &&
+                item.receipt.trim().toUpperCase() === updated.receipt.trim().toUpperCase() &&
+                (!updated.container || (item.container && item.container.trim().toUpperCase() === updated.container.trim().toUpperCase()));
+              if (matchesId || matchesReceipt) {
+                return {
+                  ...item,
+                  rate: updated.rate !== undefined ? updated.rate : item.rate,
+                  rateFixed: updated.rateFixed !== undefined ? updated.rateFixed : item.rateFixed,
+                  totalCost: updated.totalCost !== undefined ? updated.totalCost : item.totalCost,
+                  cost: updated.cost !== undefined ? updated.cost : item.cost,
+                  remarks: updated.remarks !== undefined ? updated.remarks : item.remarks,
+                  isLabblerGoods: updated.isLabblerGoods !== undefined ? updated.isLabblerGoods : item.isLabblerGoods,
+                  goodsItems: updated.goodsItems || item.goodsItems,
+                };
+              }
+              return item;
+            }),
+          };
+        });
+
+        // Also update matching warehouseReceipts
+        state.warehouseReceipts = state.warehouseReceipts.map((r) => {
+          if (updated.receipt && r.receipt && r.receipt.trim().toUpperCase() === updated.receipt.trim().toUpperCase()) {
+            return {
+              ...r,
+              rate: updated.rate !== undefined ? updated.rate : r.rate,
+              rateFixed: updated.rateFixed !== undefined ? updated.rateFixed : r.rateFixed,
+              totalCost: updated.totalCost !== undefined ? updated.totalCost : r.totalCost,
+              cost: updated.cost !== undefined ? updated.cost : r.cost,
+              remarks: updated.remarks !== undefined ? updated.remarks : r.remarks,
+              isLabblerGoods: updated.isLabblerGoods !== undefined ? updated.isLabblerGoods : r.isLabblerGoods,
+              goodsItems: updated.goodsItems || r.goodsItems,
+            };
+          }
+          return r;
+        });
+      }
+    });
+    builder.addCase(saveRateOfGoods.rejected, (state, action) => {
+      state.actionLoading = false;
+      state.actionMessage = {
+        type: 'error',
+        text: (action.payload as string) || 'Failed to save rate of goods',
+      };
+    });
   },
 });
 
