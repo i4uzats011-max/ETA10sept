@@ -1414,10 +1414,31 @@ export default function LoaderHub() {
         })
       );
       if (allocateReceiptSplit.fulfilled.match(res)) {
+        const loadedReceipt = selectedContainerWiseReceipt;
+        const targetPlan = containerWisePlan;
         setIsContainerWiseLoadOpen(false);
         setContainerWisePlan(null);
         dispatch(fetchLoadingPlans());
         dispatch(fetchWarehouseReceipts());
+
+        setTimeout(() => {
+          handleOpenRateModal({
+            receipt: loadedReceipt.receipt,
+            receiptId: loadedReceipt._id,
+            container: targetPlan.container,
+            warehouse: loadedReceipt.warehouse,
+            quantity: qtyNum,
+            weight: containerWiseWeight.trim() || loadedReceipt.weight,
+            volume: containerWiseVolume.trim() || loadedReceipt.volume,
+            commodity: loadedReceipt.commodity || loadedReceipt.english,
+            english: loadedReceipt.english,
+            chinese: loadedReceipt.chinese,
+            party: loadedReceipt.party,
+            rate: loadedReceipt.rate,
+            remarks: loadedReceipt.remarks || loadedReceipt.notes,
+            goodsItems: loadedReceipt.goodsItems,
+          });
+        }, 250);
       }
     } finally {
       setIsContainerWiseLoading(false);
@@ -1707,8 +1728,30 @@ export default function LoaderHub() {
     );
 
     if (allocateReceiptSplit.fulfilled.match(res)) {
+      const loadedReceipt = activeReceiptForSplit;
+      const targetPlan = selectedPlanForAllocation;
       dispatch(fetchWarehouseReceipts());
       dispatch(fetchLoadingPlans());
+      dispatch(closeSplitModal());
+
+      setTimeout(() => {
+        handleOpenRateModal({
+          receipt: loadedReceipt.receipt,
+          receiptId: loadedReceipt._id,
+          container: targetPlan,
+          warehouse: loadedReceipt.warehouse,
+          quantity: qty,
+          weight: splitWeightInput || loadedReceipt.weight,
+          volume: splitVolumeInput || loadedReceipt.volume,
+          commodity: loadedReceipt.commodity || loadedReceipt.english,
+          english: loadedReceipt.english,
+          chinese: loadedReceipt.chinese,
+          party: loadedReceipt.party,
+          rate: loadedReceipt.rate,
+          remarks: loadedReceipt.remarks || loadedReceipt.notes,
+          goodsItems: loadedReceipt.goodsItems,
+        });
+      }, 250);
     }
   };
 
@@ -2775,6 +2818,20 @@ export default function LoaderHub() {
 
               <button
                 type="button"
+                onClick={() => handleOpenRateModal(r)}
+                title="Save or edit Rate of Goods, multi-items, CTN, CBM, weight, cost, remarks"
+                className={`inline-flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-bold transition shadow-2xs ${
+                  (r.goodsItems && r.goodsItems.length > 0) || r.rate || r.remarks
+                    ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300'
+                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300'
+                }`}
+              >
+                <Coins className="w-3.5 h-3.5" />
+                <span>{(r.goodsItems && r.goodsItems.length > 0) || r.rate ? 'Edit Rate' : 'Rate'}</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => handleOpenSingleEdit(r)}
                 title="Edit warehouse receipt details (Change cartons, commodity, marks)"
                 className="inline-flex items-center p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 transition"
@@ -2810,7 +2867,7 @@ export default function LoaderHub() {
     ];
   }, [filteredReceipts, selectedReceiptIds]);
 
-  // TanStack Columns for Active Plan Manifest Items
+  // TanStack Columns for Active Plan Manifest Items (Loaded Cargo)
   const manifestColumns = useMemo<ColumnDef<any>[]>(() => {
     return [
       {
@@ -2840,20 +2897,101 @@ export default function LoaderHub() {
         ),
       },
       {
-        id: 'isSplit',
-        header: () => <div className="text-center">Split Status</div>,
+        id: 'rateAndGoods',
+        header: 'Rate of Goods & Items',
         cell: ({ row }) => {
           const item = row.original;
+          const goods = item.goodsItems && Array.isArray(item.goodsItems) && item.goodsItems.length > 0 ? item.goodsItems : null;
+          const hasRate = Boolean(item.rate && String(item.rate).trim());
+          const isFixed = Boolean(item.rateFixed);
+
           return (
-            <div className="text-center">
-              {item.isSplit ? (
-                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800">
-                  <Split className="w-2.5 h-2.5" />
-                  <span>Split Part #{item.splitIndex || 1} (of {item.originalTotalQuantity} CTN)</span>
-                </span>
+            <div className="space-y-1 py-0.5">
+              {goods && goods.length > 0 ? (
+                <div>
+                  <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-indigo-100 text-indigo-800 border border-indigo-200">
+                      {goods.length} {goods.length === 1 ? 'Item' : 'Items'}
+                    </span>
+                    {isFixed && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                        Rate Fixed
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 text-[11px] text-slate-700 font-medium space-y-0.5">
+                    {goods.slice(0, 2).map((g: any, idx: number) => (
+                      <div key={idx} className="truncate max-w-[220px]">
+                        <span className="font-semibold text-slate-900">{g.name || 'Item'}</span>: {g.rate ? `₹${g.rate}/${g.rateUnit || 'CTN'}` : 'No Rate'} {g.ctn ? `(${g.ctn} CTN)` : ''}
+                      </div>
+                    ))}
+                    {goods.length > 2 && (
+                      <span className="text-[10px] text-indigo-600 font-bold">+{goods.length - 2} more items</span>
+                    )}
+                  </div>
+                </div>
+              ) : hasRate ? (
+                <div className="flex items-center space-x-1">
+                  <span className="font-mono font-bold text-slate-900 text-xs">₹{item.rate}</span>
+                  {isFixed && (
+                    <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                      Fixed
+                    </span>
+                  )}
+                </div>
               ) : (
-                <span className="text-[10px] text-slate-400">Full Load</span>
+                <span className="text-slate-400 italic text-[11px]">No Rate Set</span>
               )}
+            </div>
+          );
+        },
+      },
+      {
+        id: 'costAndMetrics',
+        header: 'Cargo Cost & Metrics',
+        cell: ({ row }) => {
+          const item = row.original;
+          const costVal = item.totalCost || item.cost;
+          return (
+            <div className="space-y-0.5 py-0.5">
+              {costVal ? (
+                <div className="font-mono font-black text-emerald-700 text-xs">
+                  ₹{Number(costVal) ? Number(costVal).toLocaleString() : costVal}
+                </div>
+              ) : (
+                <span className="text-slate-400 text-[11px] italic">Cost: —</span>
+              )}
+              <div className="text-[10px] text-slate-500 font-medium">
+                {[item.volume ? `${item.volume} CBM` : '', item.weight ? `${item.weight} KG` : '']
+                  .filter(Boolean)
+                  .join(' • ') || 'Metrics: —'}
+              </div>
+            </div>
+          );
+        },
+      },
+      {
+        id: 'remarksAndLabeller',
+        header: 'Remarks / Labeller',
+        cell: ({ row }) => {
+          const item = row.original;
+          const remarks = (item.remarks || '').trim();
+          const isLabbler = Boolean(item.isLabblerGoods || remarks);
+          return (
+            <div className="space-y-1 py-0.5 max-w-[180px]">
+              {isLabbler && (
+                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-300">
+                  <Tag className="w-2.5 h-2.5 text-amber-700" />
+                  <span>Labeller Goods</span>
+                </span>
+              )}
+              {remarks ? (
+                <p className="text-[11px] text-slate-600 truncate font-medium" title={remarks}>
+                  {remarks}
+                </p>
+              ) : !isLabbler ? (
+                <span className="text-slate-300 text-xs">—</span>
+              ) : null}
             </div>
           );
         },
@@ -2866,30 +3004,47 @@ export default function LoaderHub() {
         ),
       },
       {
-        id: 'marks',
-        header: 'Marks',
-        cell: ({ row }) => (
-          <span className="text-slate-500 font-mono text-[11px]">
-            {[row.original.mainMarka ? `M:${row.original.mainMarka}` : '', row.original.subMarka ? `S:${row.original.subMarka}` : '']
-              .filter(Boolean)
-              .join(' ') || '-'}
-          </span>
-        ),
-      },
-      {
         id: 'action',
         header: () => <div className="text-right">Action</div>,
-        cell: ({ row }) => (
-          <div className="text-right">
-            <button
-              onClick={() => handleDeallocateItem(row.original._id)}
-              className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50 transition"
-              title="Remove item and return quantity to warehouse stock"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          </div>
-        ),
+        cell: ({ row }) => {
+          const item = row.original;
+          const hasSavedRate = Boolean((item.goodsItems && item.goodsItems.length > 0) || item.rate || item.totalCost || item.cost || item.remarks);
+
+          return (
+            <div className="flex items-center justify-end space-x-1.5">
+              <button
+                type="button"
+                onClick={() => handleOpenRateModal(item)}
+                className={`inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-bold transition shadow-xs ${
+                  hasSavedRate
+                    ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300'
+                    : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm'
+                }`}
+                title={hasSavedRate ? 'Edit saved rate of goods, items, cost, and remarks' : 'Save rate of goods, items, cost, and remarks'}
+              >
+                {hasSavedRate ? (
+                  <>
+                    <Pencil className="w-3 h-3 text-amber-700" />
+                    <span>Edit Rate</span>
+                  </>
+                ) : (
+                  <>
+                    <Calculator className="w-3 h-3 text-emerald-200" />
+                    <span>+ Set Rate</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                onClick={() => handleDeallocateItem(row.original._id)}
+                className="text-red-500 hover:text-red-700 p-1.5 rounded-lg hover:bg-red-50 transition border border-transparent hover:border-red-200"
+                title="Remove item and return quantity to warehouse stock"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          );
+        },
       },
     ];
   }, []);
