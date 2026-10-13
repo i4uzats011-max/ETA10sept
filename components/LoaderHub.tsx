@@ -8457,12 +8457,373 @@ export default function LoaderHub() {
                       <>
                         <Trash2 className="w-3.5 h-3.5" />
                         <span>Delete All Receipts &amp; Warehouse</span>
+      {/* MODAL: RATE OF GOODS & MULTI-ITEM CARGO BREAKDOWN */}
+      {isRateModalOpen && rateCargoTarget && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-fadeIn">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-4xl w-full border border-slate-200 overflow-hidden my-auto max-h-[92vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-600/40 border border-indigo-400/50 flex items-center justify-center shadow-inner">
+                  <Calculator className="w-5 h-5 text-indigo-300" />
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <h3 className="text-base sm:text-lg font-black tracking-tight">Rate of Goods &amp; Multi-Item Breakdown</h3>
+                    {(rateModalRemarks || rateModalItems.some((it) => it.remarks) || rateCargoTarget.isLabblerGoods) && (
+                      <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-400 text-slate-950 shadow-xs">
+                        <Tag className="w-2.5 h-2.5" />
+                        <span>Labeller Goods</span>
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-300 font-mono mt-0.5">
+                    Receipt #{rateCargoTarget.receipt}
+                    {rateCargoTarget.container ? ` • Plan: ${rateCargoTarget.container}` : ` • ${rateCargoTarget.warehouse || 'Warehouse Stock'}`}
+                    {rateCargoTarget.party ? ` • Shipper: ${rateCargoTarget.party}` : ''}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsRateModalOpen(false);
+                  setRateCargoTarget(null);
+                }}
+                className="text-white/70 hover:text-white p-1.5 rounded-xl hover:bg-white/10 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Form Content */}
+            <form onSubmit={handleSaveRateOfGoods} className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5">
+              {/* Reference Baseline Banner */}
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div className="flex items-center space-x-4 flex-wrap gap-y-1">
+                  <div>
+                    <span className="text-slate-400 font-medium">Receipt Inward/Loaded Qty:</span>{' '}
+                    <strong className="text-slate-900 font-black font-mono">{rateCargoTarget.quantity || 0} CTN</strong>
+                  </div>
+                  {rateCargoTarget.volume && (
+                    <div>
+                      <span className="text-slate-400 font-medium">Volume:</span>{' '}
+                      <strong className="text-slate-800 font-mono">{rateCargoTarget.volume} CBM</strong>
+                    </div>
+                  )}
+                  {rateCargoTarget.weight && (
+                    <div>
+                      <span className="text-slate-400 font-medium">Weight:</span>{' '}
+                      <strong className="text-slate-800 font-mono">{rateCargoTarget.weight} KG</strong>
+                    </div>
+                  )}
+                </div>
+                <div className="text-[11px] text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-xl font-medium">
+                  Commodity: <strong className="font-bold">{rateCargoTarget.english || rateCargoTarget.commodity || 'Cargo Goods'}</strong>
+                </div>
+              </div>
+
+              {/* Dynamic Goods Items List (One or More Items per Receipt) */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-black text-slate-900 flex items-center space-x-1.5">
+                      <span>Receipt Goods Items ({rateModalItems.length})</span>
+                      <span className="text-[11px] font-medium text-slate-500">(1 or more items supported)</span>
+                    </h4>
+                    <p className="text-[11px] text-slate-500">
+                      Use existing / last name or edit name. Enter rate, cartons, CBM, weight, and cost for each item.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAddRateItem}
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1 shadow-sm"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Add Another Item</span>
+                  </button>
+                </div>
+
+                <div className="space-y-3.5">
+                  {rateModalItems.map((item, index) => (
+                    <div
+                      key={item.id}
+                      className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs space-y-3 relative group hover:border-indigo-300 transition"
+                    >
+                      {/* Item Header */}
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                        <div className="flex items-center space-x-2">
+                          <span className="w-6 h-6 rounded-lg bg-indigo-100 text-indigo-700 text-xs font-black flex items-center justify-center font-mono">
+                            {index + 1}
+                          </span>
+                          <span className="text-xs font-bold text-slate-800">
+                            Item #{index + 1} {item.name ? `— ${item.name}` : ''}
+                          </span>
+                        </div>
+                        {rateModalItems.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveRateItem(item.id)}
+                            className="text-red-500 hover:text-red-700 p-1 rounded-lg hover:bg-red-50 transition"
+                            title="Remove this line item"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Row 1: Item Name (Same or Edit), Rate, Rate Unit */}
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 text-xs">
+                        <div className="sm:col-span-6 space-y-1">
+                          <label className="font-bold text-slate-700 flex items-center justify-between">
+                            <span>Item / Goods Name *</span>
+                            <span className="text-[10px] text-slate-400 font-normal">Use last name or edit name</span>
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={item.name}
+                            onChange={(e) => handleUpdateRateItem(item.id, 'name', e.target.value)}
+                            placeholder="e.g. Shoes, Baby Clothes, Electronic Accessories"
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                        </div>
+
+                        <div className="sm:col-span-3 space-y-1">
+                          <label className="font-bold text-slate-700">Rate of Item</label>
+                          <input
+                            type="text"
+                            value={item.rate}
+                            onChange={(e) => handleUpdateRateItem(item.id, 'rate', e.target.value)}
+                            placeholder="e.g. 50 or 25k"
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                          />
+                        </div>
+
+                        <div className="sm:col-span-3 space-y-1">
+                          <label className="font-bold text-slate-700">Rate Basis</label>
+                          <select
+                            value={item.rateUnit}
+                            onChange={(e) => handleUpdateRateItem(item.id, 'rateUnit', e.target.value)}
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          >
+                            <option value="CTN">per CTN (Cartons)</option>
+                            <option value="CBM">per CBM (Volume)</option>
+                            <option value="KG">per KG (Weight)</option>
+                            <option value="Fixed">Fixed Rate</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Row 2: CTN, CBM, Weight, Cost of Item */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                        <div className="space-y-1">
+                          <label className="font-bold text-slate-700">Cartons (CTN)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            value={item.ctn}
+                            onChange={(e) =>
+                              handleUpdateRateItem(
+                                item.id,
+                                'ctn',
+                                e.target.value === '' ? '' : parseInt(e.target.value, 10) || 0
+                              )
+                            }
+                            placeholder="e.g. 10"
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="font-bold text-slate-700">Volume (CBM)</label>
+                          <input
+                            type="text"
+                            value={item.cbm}
+                            onChange={(e) => handleUpdateRateItem(item.id, 'cbm', e.target.value)}
+                            placeholder="e.g. 0.45"
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="font-bold text-slate-700">Weight (KG)</label>
+                          <input
+                            type="text"
+                            value={item.weight}
+                            onChange={(e) => handleUpdateRateItem(item.id, 'weight', e.target.value)}
+                            placeholder="e.g. 120"
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="font-bold text-slate-700 flex items-center justify-between">
+                            <span>Cost of Item</span>
+                            <span className="text-[10px] text-emerald-600 font-semibold">Rate fixed / total</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={item.cost}
+                            onChange={(e) => handleUpdateRateItem(item.id, 'cost', e.target.value)}
+                            placeholder="e.g. 500"
+                            className="w-full px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-black text-emerald-950 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Row 3: Item Remarks (Labeller Notes) */}
+                      <div className="space-y-1 text-xs">
+                        <label className="font-bold text-slate-700 flex items-center space-x-1">
+                          <Tag className="w-3 h-3 text-amber-600" />
+                          <span>Item Remarks / Labeller Notes (Marks as Labeller Goods)</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={item.remarks}
+                          onChange={(e) => handleUpdateRateItem(item.id, 'remarks', e.target.value)}
+                          placeholder="e.g. Fragile goods, Special label sticker required, Brand marking #A"
+                          className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Total Calculation Summary Card */}
+              <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white rounded-2xl p-4 shadow-sm flex flex-wrap items-center justify-between gap-4 text-xs">
+                <div className="flex items-center space-x-6 flex-wrap gap-y-2">
+                  <div>
+                    <span className="text-slate-400 text-[11px] block">Items Total CTN:</span>
+                    <strong className="text-base font-black font-mono text-white">
+                      {totalRateItemsCtn} CTN
+                    </strong>
+                    {rateCargoTarget.quantity && totalRateItemsCtn !== Number(rateCargoTarget.quantity) && (
+                      <span className="text-[10px] text-amber-300 block font-medium">
+                        (Diff: {totalRateItemsCtn - Number(rateCargoTarget.quantity)} CTN vs receipt inward)
+                      </span>
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-slate-400 text-[11px] block">Total CBM:</span>
+                    <strong className="text-sm font-bold font-mono text-slate-200">
+                      {totalRateItemsCbm > 0 ? totalRateItemsCbm.toFixed(3) : '—'} CBM
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 text-[11px] block">Total Weight:</span>
+                    <strong className="text-sm font-bold font-mono text-slate-200">
+                      {totalRateItemsWeight > 0 ? totalRateItemsWeight.toFixed(2) : '—'} KG
+                    </strong>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <span className="text-indigo-300 text-[11px] uppercase tracking-wider font-bold block">
+                    Total Cargo Cost
+                  </span>
+                  <div className="text-xl font-black font-mono text-emerald-400">
+                    ₹{totalRateItemsCost > 0 ? totalRateItemsCost.toLocaleString() : '0.00'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Overall Rate Fixed & Labeller Remarks Section */}
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3.5">
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 text-xs">
+                  <div className="sm:col-span-6 space-y-1">
+                    <label className="font-bold text-slate-700 flex items-center justify-between">
+                      <span>Overall / Receipt Freight Rate</span>
+                      <span className="text-[10px] text-slate-400">Fixed rate applied across receipt</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={rateModalFixedRate}
+                      onChange={(e) => setRateModalFixedRate(e.target.value)}
+                      placeholder="e.g. 25k, 50, 25000"
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-6 flex items-center pt-5">
+                    <label className="flex items-center space-x-2.5 cursor-pointer bg-white px-3.5 py-2 rounded-xl border border-slate-200 hover:border-slate-300 w-full">
+                      <input
+                        type="checkbox"
+                        checked={rateModalIsFixed}
+                        onChange={(e) => setRateModalIsFixed(e.target.checked)}
+                        className="w-4 h-4 rounded text-indigo-600 accent-indigo-600 cursor-pointer"
+                      />
+                      <div>
+                        <span className="font-bold text-slate-900 text-xs block">Rate Fixed (Fixed Cargo Rate)</span>
+                        <span className="text-[10px] text-slate-400 block">Marks this cargo rate as fixed and finalized</span>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Overall Remarks / Labeller Goods */}
+                <div className="space-y-1.5 text-xs">
+                  <div className="flex items-center justify-between">
+                    <label className="font-bold text-slate-800 flex items-center space-x-1.5">
+                      <Tag className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Labeller Goods Remarks / Notes</span>
+                    </label>
+                    {(rateModalRemarks || rateModalItems.some((it) => it.remarks)) && (
+                      <span className="text-[10px] font-bold text-amber-700 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full">
+                        🏷️ Marked as Labeller Goods
+                      </span>
+                    )}
+                  </div>
+                  <textarea
+                    rows={2}
+                    value={rateModalRemarks}
+                    onChange={(e) => setRateModalRemarks(e.target.value)}
+                    placeholder="Enter remarks for labeller goods (e.g. Labeller branding required, custom box packaging, client special notes). Remarks will be permanently saved."
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                  />
+                  <p className="text-[11px] text-slate-500">
+                    💡 Entering remarks permanently marks these goods as <strong>Labeller Goods</strong>. Remarks are saved in the database and visible on all manifests and receipts.
+                  </p>
+                </div>
+              </div>
+
+              {/* Modal Action Buttons */}
+              <div className="pt-2 flex items-center justify-between border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsRateModalOpen(false);
+                    setRateCargoTarget(null);
+                  }}
+                  disabled={isSavingRateOfGoods}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
+                >
+                  Cancel
+                </button>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="submit"
+                    disabled={isSavingRateOfGoods}
+                    className="px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black rounded-xl shadow-md transition flex items-center space-x-1.5 disabled:opacity-50"
+                  >
+                    {isSavingRateOfGoods ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Saving Rate &amp; Items...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>Save Rate of Goods</span>
                       </>
                     )}
                   </button>
                 </div>
               </div>
-            </div>
+            </form>
           </div>
         </div>
       )}
