@@ -2035,6 +2035,19 @@ export default function LoaderHub() {
     } finally {
       setIsSyncingPlanContainer(null);
     }
+  const resetExcelUploadState = () => {
+    setIsExcelUploadOpen(false);
+    setExcelFile(null);
+    setExcelHeaders([]);
+    setExcelRawRows([]);
+    setExcelColumnMapping({});
+    setExcelPreviewRows([]);
+    setExcelTotalRows(0);
+    setExcelUploadType('stock');
+    setExcelTargetContainer('');
+    setExcelUploadStatus(null);
+    setExcelUploadResult(null);
+    setUploadErrorDetails([]);
   };
 
   const SYSTEM_MAPPING_FIELDS = useMemo(
@@ -2285,15 +2298,7 @@ export default function LoaderHub() {
         });
 
         setTimeout(() => {
-          setIsExcelUploadOpen(false);
-          setExcelFile(null);
-          setExcelPreviewRows([]);
-          setExcelTotalRows(0);
-          setExcelUploadType('stock');
-          setExcelTargetContainer('');
-          setExcelUploadStatus(null);
-          setExcelUploadResult(null);
-          setUploadErrorDetails([]);
+          resetExcelUploadState();
         }, 1500);
         return;
       }
@@ -2329,14 +2334,7 @@ export default function LoaderHub() {
       });
 
       setTimeout(() => {
-        setIsExcelUploadOpen(false);
-        setExcelFile(null);
-        setExcelPreviewRows([]);
-        setExcelTotalRows(0);
-        setExcelUploadType('stock');
-        setExcelTargetContainer('');
-        setExcelUploadStatus(null);
-        setExcelUploadResult(null);
+        resetExcelUploadState();
       }, 1500);
     } catch (err: any) {
       setExcelUploadStatus({ type: 'error', message: err?.message || 'Upload error' });
@@ -2652,30 +2650,71 @@ export default function LoaderHub() {
       },
       {
         accessorKey: 'loadedQuantity',
-        header: () => <div className="text-center">Loaded</div>,
-        cell: ({ row }) => (
-          <div className="text-center font-semibold text-emerald-600">
-            {row.original.loadedQuantity || 0} CTN
-          </div>
-        ),
+        header: () => <div className="text-center">Loaded Goods</div>,
+        cell: ({ row }) => {
+          const r = row.original;
+          const loadedQty = r.loadedQuantity || 0;
+          const loadedItems = r.loadedItems && Array.isArray(r.loadedItems) && r.loadedItems.length > 0 ? r.loadedItems : null;
+          const loadedCbm = r.loadedVolume !== undefined && r.loadedVolume !== null ? r.loadedVolume : null;
+          const loadedWt = r.loadedWeight !== undefined && r.loadedWeight !== null ? r.loadedWeight : null;
+
+          return (
+            <div className="text-center space-y-0.5 py-0.5 min-w-[110px]">
+              <div className="font-bold text-emerald-600 text-xs">
+                {loadedQty} CTN
+              </div>
+              {(loadedCbm !== null || loadedWt !== null) && (
+                <div className="text-[10px] text-slate-500 font-mono">
+                  {[loadedCbm !== null && loadedCbm !== '' && loadedCbm !== 0 ? `${loadedCbm} CBM` : '', loadedWt !== null && loadedWt !== '' && loadedWt !== 0 ? `${loadedWt} KG` : ''].filter(Boolean).join(' • ') || 'Metrics: 0'}
+                </div>
+              )}
+              {loadedItems && loadedItems.length > 0 && (
+                <div className="text-[10px] text-slate-700 max-w-[160px] mx-auto truncate font-medium bg-emerald-50/60 px-1 py-0.5 rounded border border-emerald-200/60" title={loadedItems.map((li: any) => `${li.name} (${li.ctn} CTN${li.cbm ? `, ${li.cbm} CBM` : ''}${li.weight ? `, ${li.weight} KG` : ''})`).join('; ')}>
+                  {loadedItems.map((li: any) => `${li.name} (${li.ctn})`).join(', ')}
+                </div>
+              )}
+            </div>
+          );
+        },
       },
       {
         id: 'remainingQuantity',
-        header: () => <div className="text-center">Remaining Stock</div>,
+        header: () => <div className="text-center">Remaining Balance (Internal)</div>,
         cell: ({ row }) => {
           const r = row.original;
           const avail = r.remainingQuantity !== undefined ? r.remainingQuantity : r.quantity - (r.loadedQuantity || 0);
+          const origName = r.balanceItem?.name || r.english || r.commodity || 'General Goods';
+          const remCbm = r.remainingVolume !== undefined && r.remainingVolume !== null && r.remainingVolume !== '' ? r.remainingVolume : (r.volume || '—');
+          const remWt = r.remainingWeight !== undefined && r.remainingWeight !== null && r.remainingWeight !== '' ? r.remainingWeight : (r.weight || '—');
+
           return (
-            <div className="text-center">
-              <span
-                className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-black ${
-                  avail > 0
-                    ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-300'
-                    : 'bg-slate-100 text-slate-400'
-                }`}
-              >
-                {avail} CTN
-              </span>
+            <div className="text-center space-y-1 py-0.5 min-w-[140px]">
+              <div className="flex items-center justify-center space-x-1.5">
+                <span
+                  className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-black ${
+                    avail > 0
+                      ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-300'
+                      : 'bg-slate-100 text-slate-400'
+                  }`}
+                >
+                  {avail} CTN
+                </span>
+                <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase tracking-wider bg-slate-900 text-white shadow-2xs" title="Internal Warehouse Cargo Balance">
+                  Internal
+                </span>
+              </div>
+              {avail > 0 ? (
+                <div className="text-[11px] font-semibold text-slate-700 bg-amber-50/70 p-1.5 rounded-lg border border-amber-200">
+                  <div className="font-bold text-slate-900 truncate" title={`Receipt #${r.receipt} Original: ${origName}`}>
+                    Balance: {origName}
+                  </div>
+                  <div className="text-[10px] text-slate-600 font-mono mt-0.5">
+                    {remCbm !== '—' ? `${remCbm} CBM` : ''}{remCbm !== '—' && remWt !== '—' ? ' • ' : ''}{remWt !== '—' ? `${remWt} KG` : ''}
+                  </div>
+                </div>
+              ) : (
+                <span className="text-[10px] text-slate-400 italic block">Fully Loaded (0 Balance)</span>
+              )}
             </div>
           );
         },
@@ -3073,10 +3112,43 @@ export default function LoaderHub() {
       },
       {
         id: 'commodity',
-        header: 'Commodity',
-        cell: ({ row }) => (
-          <span className="font-semibold text-slate-700">{row.original.english || row.original.commodity || 'Cargo'}</span>
-        ),
+        header: 'Loaded Item Name(s)',
+        cell: ({ row }) => {
+          const item = row.original;
+          const goods = item.goodsItems && Array.isArray(item.goodsItems) && item.goodsItems.length > 0 ? item.goodsItems : null;
+          const currentName = item.english || item.commodity || 'General Cargo';
+
+          if (goods && goods.length > 0) {
+            return (
+              <div className="space-y-1 py-0.5 max-w-[240px]">
+                <div className="flex items-center space-x-1.5 flex-wrap">
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                    New Item{goods.length > 1 ? `s (${goods.length})` : ''}
+                  </span>
+                </div>
+                <div className="space-y-0.5">
+                  {goods.map((g: any, idx: number) => (
+                    <div key={idx} className="text-xs font-bold text-slate-900 truncate">
+                      • {g.name || 'Item'} <span className="font-normal text-slate-500">({g.ctn || item.quantity || 1} CTN{g.cbm ? `, ${g.cbm} CBM` : ''}{g.weight ? `, ${g.weight} KG` : ''})</span>
+                    </div>
+                  ))}
+                </div>
+                {item.chinese && <div className="text-[10px] text-slate-400 truncate">{item.chinese}</div>}
+              </div>
+            );
+          }
+
+          return (
+            <div className="space-y-0.5 py-0.5 max-w-[200px]">
+              <div className="font-bold text-slate-900 text-xs truncate" title={currentName}>
+                {currentName}
+              </div>
+              {item.chinese && (
+                <div className="text-[10px] text-slate-400 truncate">{item.chinese}</div>
+              )}
+            </div>
+          );
+        },
       },
       {
         id: 'action',
@@ -5159,14 +5231,7 @@ export default function LoaderHub() {
                 </div>
               </div>
               <button
-                onClick={() => {
-                  setIsExcelUploadOpen(false);
-                  setExcelFile(null);
-                  setExcelPreviewRows([]);
-                  setExcelUploadStatus(null);
-                  setExcelUploadResult(null);
-                  setUploadErrorDetails([]);
-                }}
+                onClick={resetExcelUploadState}
                 className="text-slate-400 hover:text-white p-1 rounded-lg"
               >
                 <X className="w-4 h-4" />
@@ -5528,27 +5593,106 @@ export default function LoaderHub() {
                         </button>
                       </div>
 
+                      {/* Column-Wise Field Mapping Accordion */}
+                      {excelHeaders.length > 0 && (
+                        <div className="rounded-2xl border border-indigo-200 bg-indigo-50/40 overflow-hidden shadow-xs">
+                          <button
+                            type="button"
+                            onClick={() => setIsColumnMappingOpen(!isColumnMappingOpen)}
+                            className="w-full p-3 flex items-center justify-between text-left hover:bg-indigo-50/80 transition"
+                          >
+                            <div className="flex items-center space-x-2">
+                              <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
+                              <span className="text-xs font-black uppercase tracking-wider text-indigo-950">
+                                Column-Wise Field Mapping ({Object.values(excelColumnMapping).filter(Boolean).length} mapped)
+                              </span>
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                ✓ Auto-Matched
+                              </span>
+                            </div>
+                            <span className="text-[11px] font-bold text-indigo-700 hover:text-indigo-900">
+                              {isColumnMappingOpen ? 'Hide Mapping ▲' : 'Customize Mapping ▼'}
+                            </span>
+                          </button>
+
+                          {isColumnMappingOpen && (
+                            <div className="p-3 bg-white border-t border-indigo-100 space-y-2 animate-fadeIn">
+                              <p className="text-[11px] text-slate-500 mb-2">
+                                Map Excel/CSV columns to system cargo fields. Any detected column can be changed or mapped:
+                              </p>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-56 overflow-y-auto pr-1">
+                                {SYSTEM_MAPPING_FIELDS.map((f) => {
+                                  const currentMapped = excelColumnMapping[f.key] || '';
+                                  const sampleVal = currentMapped && excelRawRows[0] ? String(excelRawRows[0][currentMapped] || '') : '';
+
+                                  return (
+                                    <div
+                                      key={f.key}
+                                      className={`p-2 rounded-xl border text-xs flex flex-col justify-between space-y-1 transition ${
+                                        currentMapped
+                                          ? 'border-indigo-200 bg-indigo-50/20'
+                                          : f.mandatory
+                                          ? 'border-red-200 bg-red-50/30'
+                                          : 'border-slate-200 bg-slate-50/40'
+                                      }`}
+                                    >
+                                      <div className="flex items-center justify-between">
+                                        <span className="font-bold text-slate-800 flex items-center space-x-1">
+                                          <span>{f.label}</span>
+                                          {f.mandatory && <span className="text-red-600">*</span>}
+                                        </span>
+                                        {sampleVal && (
+                                          <span className="text-[10px] text-slate-500 truncate max-w-[120px]" title={`Sample: ${sampleVal}`}>
+                                            Sample: {sampleVal}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <select
+                                        value={currentMapped}
+                                        onChange={(e) => handleUpdateMappingField(f.key, e.target.value)}
+                                        className="w-full text-xs font-semibold px-2 py-1 rounded-lg border border-slate-300 bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                      >
+                                        <option value="">-- Do Not Map / Not in File --</option>
+                                        {excelHeaders.map((h) => (
+                                          <option key={h} value={h}>
+                                            {h}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {/* Live Translation Preview */}
                       {excelPreviewRows.length > 0 && (
                         <div className="space-y-1.5">
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-bold text-slate-700">
-                              Live Translation Preview (First {excelPreviewRows.length} rows):
+                              Live Translation &amp; Field Preview (First {excelPreviewRows.length} rows):
                             </span>
                             <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
                               Chinese ➔ Clean English
                             </span>
                           </div>
 
-                          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white text-xs shadow-inner">
+                          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white text-xs shadow-inner max-h-52 overflow-y-auto">
                             <table className="w-full text-left">
-                              <thead className="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-200">
+                              <thead className="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-200 sticky top-0">
                                 <tr>
                                   <th className="p-2">Receipt</th>
                                   <th className="p-2">Party</th>
                                   <th className="p-2">Original Chinese</th>
-                                  <th className="p-2 text-emerald-800 bg-emerald-50/50">Translated English</th>
-                                  <th className="p-2">Qty / Pkg</th>
+                                  <th className="p-2 text-emerald-800 bg-emerald-50/50">Item Name</th>
+                                  <th className="p-2">Qty</th>
+                                  <th className="p-2">Metrics</th>
+                                  <th className="p-2">Rate</th>
+                                  <th className="p-2">Cost</th>
+                                  <th className="p-2">Remarks</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100 text-[11px]">
@@ -5558,14 +5702,26 @@ export default function LoaderHub() {
                                       {r.receipt}
                                     </td>
                                     <td className="p-2 text-slate-600 whitespace-nowrap">{r.party}</td>
-                                    <td className="p-2 font-medium text-slate-500 max-w-[120px] truncate">
+                                    <td className="p-2 font-medium text-slate-500 max-w-[100px] truncate">
                                       {r.chineseCommodity || '—'}
                                     </td>
-                                    <td className="p-2 font-bold text-emerald-800 bg-emerald-50/30 max-w-[180px] truncate">
+                                    <td className="p-2 font-bold text-emerald-800 bg-emerald-50/30 max-w-[140px] truncate">
                                       {r.englishCommodity}
                                     </td>
-                                    <td className="p-2 whitespace-nowrap text-slate-600">
-                                      <strong>{r.qty}</strong> {r.packaging}
+                                    <td className="p-2 whitespace-nowrap text-slate-700 font-bold">
+                                      {r.qty} CTN
+                                    </td>
+                                    <td className="p-2 whitespace-nowrap text-slate-500 text-[10px] font-mono">
+                                      {[r.volume ? `${r.volume} CBM` : '', r.weight ? `${r.weight} KG` : ''].filter(Boolean).join(' • ') || '—'}
+                                    </td>
+                                    <td className="p-2 whitespace-nowrap font-mono text-slate-700 font-semibold">
+                                      {r.rate ? `₹${r.rate}/${r.rateUnit || 'CTN'}` : '—'}
+                                    </td>
+                                    <td className="p-2 whitespace-nowrap font-mono text-emerald-700 font-bold">
+                                      {r.cost ? `₹${r.cost}` : '—'}
+                                    </td>
+                                    <td className="p-2 text-slate-500 max-w-[100px] truncate">
+                                      {r.remarks || '—'}
                                     </td>
                                   </tr>
                                 ))}
@@ -5587,11 +5743,7 @@ export default function LoaderHub() {
                   <button
                     type="button"
                     onClick={() => {
-                      setIsExcelUploadOpen(false);
-                      setExcelFile(null);
-                      setExcelPreviewRows([]);
-                      setExcelUploadStatus(null);
-                      setExcelUploadResult(null);
+                      resetExcelUploadState();
                       setActiveSubTab('uploads');
                     }}
                     className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition flex items-center space-x-1.5"
@@ -5601,13 +5753,7 @@ export default function LoaderHub() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      setIsExcelUploadOpen(false);
-                      setExcelFile(null);
-                      setExcelPreviewRows([]);
-                      setExcelUploadStatus(null);
-                      setExcelUploadResult(null);
-                    }}
+                    onClick={resetExcelUploadState}
                     className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition"
                   >
                     Done
@@ -5625,15 +5771,7 @@ export default function LoaderHub() {
                   <div className="flex items-center space-x-2">
                     <button
                       type="button"
-                      onClick={() => {
-                        setIsExcelUploadOpen(false);
-                        setExcelFile(null);
-                        setExcelPreviewRows([]);
-                        setExcelUploadType('stock');
-                        setExcelTargetContainer('');
-                        setExcelUploadStatus(null);
-                        setExcelUploadResult(null);
-                      }}
+                      onClick={resetExcelUploadState}
                       className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl transition"
                     >
                       Cancel
