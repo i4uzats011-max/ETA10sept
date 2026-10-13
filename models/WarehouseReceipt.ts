@@ -9,6 +9,10 @@ export interface IReceiptItem {
   packaging?: string;          // Packaging type (Carton, Box, etc.)
   weight?: string;             // Weight for this item
   volume?: string;             // Volume (CBM) for this item
+  rate?: number | string;      // Rate of item
+  rateUnit?: string;           // Rate calculation basis ('CTN' | 'CBM' | 'KG' | 'Fixed')
+  cost?: number | string;      // Cost of each item
+  remarks?: string;            // Remarks for this item
   mainMarka?: string;          // Shipping mark
   subMarka?: string;
 }
@@ -36,9 +40,15 @@ export interface IWarehouseReceipt extends Document {
   deliveryDate?: string;        // Final delivery date
   isDelivered?: boolean;        // Delivery status
   notes?: string;               // Optional notes or remarks from warehouse
+  remarks?: string;             // Remarks / Labeller goods notes
+  isLabblerGoods?: boolean;     // Flag indicating labbler goods
   phone?: string;               // Party contact / WhatsApp mobile
   partyPhone?: string;          // Party phone
   rate?: string;                // Party shipping/freight rate (e.g. '23k', '25,000')
+  rateFixed?: boolean;          // Whether rate is fixed
+  totalCost?: number | string;  // Total cost of cargo
+  cost?: number | string;       // Cost alias
+  goodsItems?: any[];           // Goods rate items breakdown
   messageSent?: boolean;        // Arrival notification sent status
   messageSentAt?: Date | null;  // Timestamp of message sent
   messageSentDate?: string;     // Formatted message sent date/time
@@ -57,6 +67,10 @@ const ReceiptItemSchema = new Schema(
     packaging: { type: String, default: 'Carton', trim: true },
     weight: { type: String, default: '', trim: true },
     volume: { type: String, default: '', trim: true },
+    rate: { type: Schema.Types.Mixed, default: '' },
+    rateUnit: { type: String, default: 'CTN', trim: true },
+    cost: { type: Schema.Types.Mixed, default: '' },
+    remarks: { type: String, default: '', trim: true },
     mainMarka: { type: String, default: '', trim: true },
     subMarka: { type: String, default: '', trim: true },
   },
@@ -92,9 +106,15 @@ const WarehouseReceiptSchema = new Schema<IWarehouseReceipt>(
     deliveryDate: { type: String, default: '' },
     isDelivered: { type: Boolean, default: false },
     notes: { type: String, default: '' },
+    remarks: { type: String, default: '', trim: true },
+    isLabblerGoods: { type: Boolean, default: false },
     phone: { type: String, default: '', trim: true },
     partyPhone: { type: String, default: '', trim: true },
     rate: { type: String, default: '', trim: true },
+    rateFixed: { type: Boolean, default: false },
+    totalCost: { type: Schema.Types.Mixed, default: '' },
+    cost: { type: Schema.Types.Mixed, default: '' },
+    goodsItems: { type: [Schema.Types.Mixed], default: [] },
     messageSent: { type: Boolean, default: false, index: true },
     messageSentAt: { type: Date, default: null },
     messageSentDate: { type: String, default: '' },

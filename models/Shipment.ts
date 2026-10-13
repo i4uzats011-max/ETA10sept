@@ -1,5 +1,17 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
+export interface IGoodsRateItem {
+  _id?: any;
+  name: string;                 // Item Name / Description (may be same or changed)
+  rate?: number | string;       // Rate of goods
+  rateUnit?: string;            // 'CTN' | 'CBM' | 'KG' | 'Fixed'
+  ctn?: number;                 // Cartons count for this item
+  cbm?: number | string;        // CBM volume
+  weight?: number | string;     // Weight in KG
+  cost?: number | string;       // Cost of item (rate fixed / calculated)
+  remarks?: string;             // Item remarks / notes
+}
+
 export interface IShipment extends Document {
   // Identification & Search Fields
   receipt: string;              // Receipt/Bill number (Indexed for fast search)
@@ -51,7 +63,13 @@ export interface IShipment extends Document {
   etaBufferDays?: number;       // Clearance procedure buffer days added to raw ETA (default: 10)
   phone?: string;               // Party contact / WhatsApp mobile
   partyPhone?: string;          // Party phone
-  rate?: string;                // Party freight/shipping rate (e.g. '23k')
+  rate?: string;                // Party freight/shipping rate (e.g. '23k', '500')
+  rateFixed?: boolean;          // Rate fixed flag
+  totalCost?: number | string;  // Total cost of cargo items
+  cost?: number | string;       // Cost alias
+  remarks?: string;             // Remarks / Labeller goods notes
+  isLabblerGoods?: boolean;     // Whether marked as labbler goods via remarks
+  goodsItems?: IGoodsRateItem[];// Breakdown of one or more goods items on receipt
   messageSent?: boolean;        // Arrival notification sent status
   messageSentAt?: Date | null;  // Timestamp of message sent
   messageSentDate?: string;     // Formatted message sent date/time
@@ -83,6 +101,26 @@ const ShipmentSchema = new Schema<IShipment>({
   phone: { type: String, default: '', trim: true },
   partyPhone: { type: String, default: '', trim: true },
   rate: { type: String, default: '', trim: true },
+  rateFixed: { type: Boolean, default: false },
+  totalCost: { type: Schema.Types.Mixed, default: '' },
+  cost: { type: Schema.Types.Mixed, default: '' },
+  remarks: { type: String, default: '', trim: true },
+  isLabblerGoods: { type: Boolean, default: false },
+  goodsItems: {
+    type: [
+      {
+        name: { type: String, default: '', trim: true },
+        rate: { type: Schema.Types.Mixed, default: '' },
+        rateUnit: { type: String, default: 'CTN', trim: true },
+        ctn: { type: Number, default: 0 },
+        cbm: { type: Schema.Types.Mixed, default: '' },
+        weight: { type: Schema.Types.Mixed, default: '' },
+        cost: { type: Schema.Types.Mixed, default: '' },
+        remarks: { type: String, default: '', trim: true },
+      },
+    ],
+    default: [],
+  },
   messageSent: { type: Boolean, default: false, index: true },
   messageSentAt: { type: Date, default: null },
   messageSentDate: { type: String, default: '' },
