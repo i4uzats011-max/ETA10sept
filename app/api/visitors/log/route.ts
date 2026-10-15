@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
       isTablet: device.isTablet,
       isDesktop: device.isDesktop,
       brand: device.brand,
-      model: device.model,
+      deviceModel: device.deviceModel || device.model,
       os: device.os,
       osVersion: device.osVersion,
       browser: device.browser,

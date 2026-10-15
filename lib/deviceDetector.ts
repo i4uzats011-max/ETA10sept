@@ -5,6 +5,7 @@ export interface ParsedDeviceInfo {
   isDesktop: boolean;
   brand: string;
   model: string;
+  deviceModel: string;
   os: string;
   osVersion: string;
   browser: string;
@@ -196,6 +197,7 @@ export function parseUserAgent(uaString: string = '', screenRes: string = ''): P
     isDesktop,
     brand,
     model,
+    deviceModel: model,
     os,
     osVersion,
     browser,

@@ -1,6 +1,7 @@
-import mongoose, { Schema, Document, Model } from 'mongoose';
+import mongoose, { Schema, Model } from 'mongoose';
 
-export interface IVisitorLog extends Document {
+export interface IVisitorLog {
+  _id?: any;
   ip: string;
   visitorId: string;
   sessionCount: number;
@@ -26,7 +27,7 @@ export interface IVisitorLog extends Document {
   isTablet: boolean;
   isDesktop: boolean;
   brand: string;
-  model: string;
+  deviceModel: string;
   os: string;
   osVersion: string;
   browser: string;
@@ -42,8 +43,8 @@ export interface IVisitorLog extends Document {
   networkEffectiveType: string;
   language: string;
 
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 const VisitorLogSchema: Schema = new Schema<IVisitorLog>(
@@ -78,7 +79,7 @@ const VisitorLogSchema: Schema = new Schema<IVisitorLog>(
     isTablet: { type: Boolean, default: false },
     isDesktop: { type: Boolean, default: false },
     brand: { type: String, default: 'Unknown', index: true, trim: true },
-    model: { type: String, default: 'Unknown', trim: true },
+    deviceModel: { type: String, default: 'Unknown', trim: true },
     os: { type: String, default: 'Unknown', index: true, trim: true },
     osVersion: { type: String, default: '', trim: true },
     browser: { type: String, default: 'Unknown', index: true, trim: true },

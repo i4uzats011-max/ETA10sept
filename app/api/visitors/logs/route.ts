@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
         { city: searchRegex },
         { region: searchRegex },
         { country: searchRegex },
-        { model: searchRegex },
+        { deviceModel: searchRegex },
         { brand: searchRegex },
         { browser: searchRegex },
         { os: searchRegex },
