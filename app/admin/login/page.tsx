@@ -96,6 +96,16 @@ export default function AdminLoginPage() {
                 <span className="font-bold text-emerald-400 block mb-0.5">Dispatcher (डिस्पैचर)</span>
                 <span>Add Vehicle No & Mark Goods Dispatched</span>
               </div>
+              <Link
+                href="/admin/visitors/login"
+                className="col-span-2 bg-cyan-950/40 border border-cyan-800/60 rounded-xl p-2.5 text-slate-300 hover:bg-cyan-950/60 transition flex items-center justify-between"
+              >
+                <div>
+                  <span className="font-bold text-cyan-400 block mb-0.5">Developer Admin (Visitor Logs & Telemetry)</span>
+                  <span className="text-slate-400 text-[10px]">Track website visitors, IP addresses & mobile details</span>
+                </div>
+                <span className="text-cyan-400 font-bold text-xs">Console →</span>
+              </Link>
             </div>
           </div>
 

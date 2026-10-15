@@ -58,6 +58,7 @@ import {
   Copy,
   Boxes,
   MessageSquare,
+  Smartphone,
 } from 'lucide-react';
 
 const SHIPPING_LINES = [
@@ -1441,6 +1442,15 @@ export default function AdminDashboardPage() {
               className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-300 transition flex items-center space-x-1"
             >
               <span>Dispatcher (डिस्पैचर)</span>
+            </Link>
+
+            <Link
+              href="/admin/visitors"
+              className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-cyan-50 hover:bg-cyan-100 text-cyan-800 text-xs font-bold border border-cyan-300 transition flex items-center space-x-1"
+              title="View Visitor Logs & Mobile Details (Developer Admin)"
+            >
+              <Smartphone className="w-3.5 h-3.5 text-cyan-600" />
+              <span>Visitor Logs</span>
             </Link>
 
             <Link
