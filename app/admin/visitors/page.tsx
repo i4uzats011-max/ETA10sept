@@ -56,7 +56,8 @@ interface VisitorLogItem {
   isTablet: boolean;
   isDesktop: boolean;
   brand: string;
-  model: string;
+  deviceModel: string;
+  model?: string;
   os: string;
   osVersion: string;
   browser: string;
@@ -263,7 +264,7 @@ export default function VisitorLogsPage() {
       `"${l.deviceType}"`,
       `"${l.isMobile ? 'Mobile' : 'Desktop'}"`,
       `"${l.brand}"`,
-      `"${l.model}"`,
+      `"${l.deviceModel || l.model || ''}"`,
       `"${l.os}"`,
       `"${l.osVersion || ''}"`,
       `"${l.browser}"`,
@@ -759,7 +760,7 @@ export default function VisitorLogsPage() {
                                 </span>
                               )}
                               <span className="text-xs font-semibold text-white">
-                                {log.model !== 'Unknown' ? log.model : log.brand}
+                                {(log.deviceModel || log.model) !== 'Unknown' ? (log.deviceModel || log.model) : log.brand}
                               </span>
                             </div>
 
@@ -1135,7 +1136,7 @@ export default function VisitorLogsPage() {
                   </div>
                   <div>
                     <span className="text-slate-500 block text-[10px]">Phone Model:</span>
-                    <span className="font-bold text-emerald-400">{selectedLog.model}</span>
+                    <span className="font-bold text-emerald-400">{selectedLog.deviceModel || selectedLog.model}</span>
                   </div>
                   <div>
                     <span className="text-slate-500 block text-[10px]">Operating System:</span>

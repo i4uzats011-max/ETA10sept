@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
           country: { $last: '$country' },
           city: { $last: '$city' },
           isp: { $last: '$isp' },
-          latestDevice: { $last: '$model' },
+          latestDevice: { $last: '$deviceModel' },
           isMobile: { $last: '$isMobile' },
           browser: { $last: '$browser' },
         },
@@ -112,7 +112,7 @@ export async function GET(req: NextRequest) {
       { $match: { ...matchFilter, isMobile: true } },
       {
         $group: {
-          _id: '$model',
+          _id: '$deviceModel',
           count: { $sum: 1 },
           brand: { $first: '$brand' },
         },
