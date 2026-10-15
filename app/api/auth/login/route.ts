@@ -63,28 +63,11 @@ export async function POST(req: NextRequest) {
           );
         }
       } else {
-        // Bootstrap check for initial accounts before DB seeding
-        if (cleanUsername === 'developer' && isDefaultRolePassword('developer', password)) {
-          authenticatedRole = 'developer';
-          authenticatedUser = { username: 'developer', name: 'Lead Developer' };
-          // Auto create in DB
-          try {
-            const devDoc = await User.create({
-              username: 'developer',
-              name: 'Lead Developer',
-              passwordHash: hashPassword(password),
-              role: 'developer',
-              isActive: true,
-              createdBy: 'system',
-              lastLoginAt: new Date(),
-            });
-            authenticatedUser.id = devDoc._id.toString();
-          } catch (e) {
-            // Already created
-          }
-        } else if (cleanUsername === 'admin' && (password === (process.env.ADMIN_PASSWORD || 'Afsana1234'))) {
-          authenticatedRole = 'admin';
-          authenticatedUser = { username: 'admin', name: 'Super Admin' };
+        // Bootstrap / fallback check for role names entered as username
+        const matchedRole = ALL_ROLES.find((r) => r === cleanUsername);
+        if (matchedRole && (await verifyRolePassword(matchedRole, password))) {
+          authenticatedRole = matchedRole;
+          authenticatedUser = { username: cleanUsername, name: cleanUsername.toUpperCase() };
         } else {
           return NextResponse.json(
             { error: 'Invalid username or password.' },

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import User from '@/models/User';
 import { isDeveloperAuthenticated } from '@/lib/auth';
-import { hashPassword } from '@/lib/passwordManager';
+import { hashPassword, setRolePassword } from '@/lib/passwordManager';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,6 +38,13 @@ export async function POST(req: NextRequest) {
     const cleanPassword = newPassword.trim();
     user.passwordHash = hashPassword(cleanPassword);
     await user.save();
+
+    // Also sync RoleCredential for that role
+    try {
+      await setRolePassword(user.role, cleanPassword, user.username);
+    } catch (e) {
+      // Ignore if role credential sync is non-blocking
+    }
 
     return NextResponse.json({
       success: true,
