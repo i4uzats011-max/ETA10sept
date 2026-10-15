@@ -2,6 +2,8 @@ import './globals.css';
 import type { Metadata, Viewport } from 'next';
 import { ReduxProvider } from '@/store/ReduxProvider';
 
+import VisitorTracker from '@/components/VisitorTracker';
+
 export const metadata: Metadata = {
   title: 'Cargo & Container Tracking Portal | US International Logistics',
   description: 'Real-time China to India container tracking, cargo manifest and logistics portal',
@@ -24,6 +26,7 @@ export default function RootLayout({
     <html lang="en" className="scroll-smooth">
       <body className="antialiased font-sans text-slate-900 bg-slate-50 min-h-screen selection:bg-red-500 selection:text-white overscroll-none">
         <ReduxProvider>
+          <VisitorTracker />
           {children}
         </ReduxProvider>
       </body>
