@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminTokenFromRequest, verifyAdminToken, UserRole } from '@/lib/auth';
+import { connectToDatabase } from '@/lib/mongodb';
+import User from '@/models/User';
 import {
   verifyRolePassword,
   setRolePassword,
   getAllRolesStatus,
   getRoleDisplayName,
+  hashPassword,
   ALL_ROLES,
 } from '@/lib/passwordManager';
 
@@ -93,6 +96,18 @@ export async function POST(req: NextRequest) {
 
       await setRolePassword(roleToChange, cleanNewPassword, callerRole);
 
+      // Also sync User collection in MongoDB for this role
+      try {
+        await connectToDatabase();
+        const usersToSync = await User.find({ role: roleToChange });
+        for (const u of usersToSync) {
+          u.passwordHash = hashPassword(cleanNewPassword);
+          await u.save();
+        }
+      } catch (err) {
+        console.warn('Could not sync User model:', err);
+      }
+
       return NextResponse.json({
         success: true,
         message: `Password for ${getRoleDisplayName(roleToChange)} has been updated successfully!`,
@@ -117,6 +132,27 @@ export async function POST(req: NextRequest) {
     }
 
     await setRolePassword(callerRole, cleanNewPassword, callerRole);
+
+    // Also sync User collection in MongoDB for caller
+    try {
+      await connectToDatabase();
+      let callerUser = null;
+      if (payload.userId) {
+        callerUser = await User.findById(payload.userId);
+      }
+      if (!callerUser && payload.username) {
+        callerUser = await User.findOne({ username: payload.username });
+      }
+      if (!callerUser) {
+        callerUser = await User.findOne({ role: callerRole });
+      }
+      if (callerUser) {
+        callerUser.passwordHash = hashPassword(cleanNewPassword);
+        await callerUser.save();
+      }
+    } catch (err) {
+      console.warn('Could not sync User model for self change:', err);
+    }
 
     return NextResponse.json({
       success: true,

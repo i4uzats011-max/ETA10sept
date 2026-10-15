@@ -170,7 +170,7 @@ export default function UserManager() {
   }, [users]);
 
   // Helpers
-  const generatePassword = (target: 'create' | 'reset') => {
+  const generatePassword = (target: 'create' | 'reset' | 'self') => {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%';
     let res = '';
     for (let i = 0; i < 10; i++) {
@@ -179,6 +179,10 @@ export default function UserManager() {
     if (target === 'create') {
       setCreatePassword(res);
       setShowCreatePassword(true);
+    } else if (target === 'self') {
+      setSelfNewPassword(res);
+      setSelfConfirmPassword(res);
+      setShowSelfNew(true);
     } else {
       setResetNewPassword(res);
       setResetConfirmPassword(res);
@@ -490,10 +494,10 @@ export default function UserManager() {
           <button
             onClick={() => setShowSelfResetModal(true)}
             className="px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 hover:border-cyan-500 text-slate-200 hover:text-white text-xs font-bold transition flex items-center gap-2 shadow-sm"
-            title="Reset your own Developer Admin password"
+            title="Change your own Developer Admin password"
           >
-            <Lock className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Reset Self Password</span>
+            <Key className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Change Own Password</span>
           </button>
 
           <button
@@ -1226,9 +1230,19 @@ export default function UserManager() {
 
               {/* New Password */}
               <div>
-                <label className="block text-xs font-mono uppercase tracking-wider text-slate-300 mb-1.5">
-                  New Developer Password <span className="text-red-400">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-mono uppercase tracking-wider text-slate-300">
+                    New Developer Password <span className="text-red-400">*</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => generatePassword('self')}
+                    className="text-cyan-400 hover:text-cyan-300 text-[11px] font-mono flex items-center gap-1"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    <span>Generate Strong</span>
+                  </button>
+                </div>
                 <div className="relative">
                   <input
                     type={showSelfNew ? 'text' : 'password'}

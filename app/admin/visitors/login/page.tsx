@@ -136,9 +136,6 @@ export default function DeveloperAdminLoginPage() {
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
-            <p className="mt-2 text-[11px] font-mono text-slate-500">
-              Default password: <code className="text-cyan-400 font-bold">developer2026</code>
-            </p>
           </div>
 
           <button
