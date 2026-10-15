@@ -264,7 +264,7 @@ export default function InternalEmployeeViewPage() {
   const tableRef = useRef<HTMLDivElement>(null);
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
-  const [userRole, setUserRole] = useState<'admin' | 'staff'>('staff');
+  const [userRole, setUserRole] = useState<'admin' | 'staff' | 'developer'>('staff');
 
   const [shipments, setShipments] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -1177,6 +1177,14 @@ export default function InternalEmployeeViewPage() {
                 className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-sm"
               >
                 Super Admin
+              </Link>
+            )}
+            {(userRole === 'admin' || userRole === 'developer') && (
+              <Link
+                href="/admin/visitors"
+                className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-cyan-50 hover:bg-cyan-100 text-cyan-900 border border-cyan-300 text-xs font-bold transition flex items-center space-x-1"
+              >
+                <span>Visitor Logs</span>
               </Link>
             )}
             <Link
