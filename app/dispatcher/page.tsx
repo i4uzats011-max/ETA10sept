@@ -34,7 +34,9 @@ import {
   Calculator,
   Percent,
   X,
+  Key,
 } from 'lucide-react';
+import ChangePasswordModal from '@/components/ChangePasswordModal';
 import { generateBillPDF, generateConsolidatedMarkaPDF, BillPdfData } from '@/lib/billPdf';
 import { INDIAN_STATES, getStateCodeByName, getStateByGstinOrCode } from '@/lib/states';
 
@@ -125,6 +127,7 @@ interface MarkaAddressRecord {
 
 export default function DispatcherPortalPage() {
   const router = useRouter();
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   // Data lists
   const [bills, setBills] = useState<BillItem[]>([]);
@@ -875,6 +878,14 @@ export default function DispatcherPortalPage() {
               <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
               <span>Admin</span>
             </Link>
+            <button
+              onClick={() => setShowPasswordModal(true)}
+              className="inline-flex items-center space-x-1 sm:space-x-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-amber-950/40 hover:bg-amber-900/50 border border-amber-800/40 text-amber-300 text-xs font-semibold transition"
+              title="Change Password"
+            >
+              <Key className="w-3.5 h-3.5" />
+              <span>Password</span>
+            </button>
             <button
               onClick={handleLogout}
               className="inline-flex items-center space-x-1 sm:space-x-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-red-950/40 hover:bg-red-900/50 border border-red-800/40 text-red-300 text-xs font-semibold transition"
@@ -2061,6 +2072,13 @@ export default function DispatcherPortalPage() {
           </div>
         </div>
       )}
+
+      {/* Change Password Modal */}
+      <ChangePasswordModal
+        isOpen={showPasswordModal}
+        onClose={() => setShowPasswordModal(false)}
+        currentRole="dispatcher"
+      />
     </div>
   );
 }

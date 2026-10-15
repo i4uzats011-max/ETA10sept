@@ -41,7 +41,9 @@ import {
   AlertTriangle,
   Scale,
   Calculator,
+  Key,
 } from 'lucide-react';
+import ChangePasswordModal from '@/components/ChangePasswordModal';
 import { generateBillPDF } from '@/lib/billPdf';
 import { INDIAN_STATES, getStateCode, getStateName, getStateCodeByName, getStateByGstinOrCode, detectStateFromAddress } from '@/lib/states';
 import { inferHsnByItemName, findHsnSuggestions, MASTER_HSN_CATALOG } from '@/lib/hsnCatalog';
@@ -163,6 +165,7 @@ const COMMON_COMMODITIES = [
 
 export default function BillerPortalPage() {
   const router = useRouter();
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'excel' | 'manual'>('excel');
 
   // Bills list state
@@ -2926,6 +2929,14 @@ export default function BillerPortalPage() {
               <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
               <span>Admin</span>
             </Link>
+            <button
+              onClick={() => setShowPasswordModal(true)}
+              className="inline-flex items-center space-x-1 sm:space-x-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-amber-950/40 hover:bg-amber-900/50 border border-amber-800/40 text-amber-300 text-xs font-semibold transition"
+              title="Change Password"
+            >
+              <Key className="w-3.5 h-3.5" />
+              <span>Password</span>
+            </button>
             <button
               onClick={handleLogout}
               className="inline-flex items-center space-x-1 sm:space-x-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-red-950/40 hover:bg-red-900/50 border border-red-800/40 text-red-300 text-xs font-semibold transition"
@@ -6754,6 +6765,13 @@ export default function BillerPortalPage() {
           </div>
         </div>
       )}
+
+      {/* Change Password Modal */}
+      <ChangePasswordModal
+        isOpen={showPasswordModal}
+        onClose={() => setShowPasswordModal(false)}
+        currentRole="biller"
+      />
     </div>
   );
 }

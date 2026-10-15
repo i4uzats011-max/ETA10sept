@@ -1,37 +1,152 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { signAdminToken, UserRole } from '@/lib/auth';
-import { verifyRolePassword, ALL_ROLES } from '@/lib/passwordManager';
+import { connectToDatabase } from '@/lib/mongodb';
+import User from '@/models/User';
+import {
+  verifyRolePassword,
+  verifyPassword,
+  hashPassword,
+  isDefaultRolePassword,
+  ALL_ROLES,
+} from '@/lib/passwordManager';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { password, role: requestedRole } = body;
+    const { username, password, role: requestedRole } = body;
 
     if (!password || typeof password !== 'string') {
       return NextResponse.json({ error: 'Password is required' }, { status: 400 });
     }
 
-    let authenticatedRole: UserRole | null = null;
+    await connectToDatabase();
 
-    // If explicit role is provided in request
-    if (requestedRole && ALL_ROLES.includes(requestedRole as UserRole)) {
-      const match = await verifyRolePassword(requestedRole as UserRole, password);
-      if (match) {
-        authenticatedRole = requestedRole as UserRole;
+    let authenticatedRole: UserRole | null = null;
+    let authenticatedUser: { id?: string; username?: string; name?: string } | null = null;
+
+    // CASE 1: Username is provided (User account login)
+    if (username && typeof username === 'string' && username.trim().length > 0) {
+      const cleanUsername = username.trim().toLowerCase();
+      const user = await User.findOne({ username: cleanUsername });
+
+      if (user) {
+        if (!user.isActive) {
+          return NextResponse.json(
+            { error: 'This user account has been deactivated. Please contact the Developer Admin.' },
+            { status: 403 }
+          );
+        }
+
+        let isMatch = verifyPassword(password, user.passwordHash);
+        // Fallback for default developer password if unchanged
+        if (!isMatch && user.role === 'developer') {
+          isMatch = isDefaultRolePassword('developer', password);
+        }
+
+        if (isMatch) {
+          authenticatedRole = user.role;
+          authenticatedUser = {
+            id: user._id.toString(),
+            username: user.username,
+            name: user.name,
+          };
+
+          // Update last login timestamp
+          user.lastLoginAt = new Date();
+          await user.save();
+        } else {
+          return NextResponse.json(
+            { error: 'Invalid username or password.' },
+            { status: 401 }
+          );
+        }
+      } else {
+        // Bootstrap check for initial accounts before DB seeding
+        if (cleanUsername === 'developer' && isDefaultRolePassword('developer', password)) {
+          authenticatedRole = 'developer';
+          authenticatedUser = { username: 'developer', name: 'Lead Developer' };
+          // Auto create in DB
+          try {
+            const devDoc = await User.create({
+              username: 'developer',
+              name: 'Lead Developer',
+              passwordHash: hashPassword(password),
+              role: 'developer',
+              isActive: true,
+              createdBy: 'system',
+              lastLoginAt: new Date(),
+            });
+            authenticatedUser.id = devDoc._id.toString();
+          } catch (e) {
+            // Already created
+          }
+        } else if (cleanUsername === 'admin' && (password === (process.env.ADMIN_PASSWORD || 'Afsana1234'))) {
+          authenticatedRole = 'admin';
+          authenticatedUser = { username: 'admin', name: 'Super Admin' };
+        } else {
+          return NextResponse.json(
+            { error: 'Invalid username or password.' },
+            { status: 401 }
+          );
+        }
       }
     }
 
-    // If not authenticated yet, check in priority order:
-    // developer -> admin -> staff -> biller -> dispatcher
+    // CASE 2: No username provided (Legacy passkey login)
     if (!authenticatedRole) {
-      const checkOrder: UserRole[] = ['developer', 'admin', 'staff', 'biller', 'dispatcher'];
-      for (const r of checkOrder) {
-        const match = await verifyRolePassword(r, password);
-        if (match) {
-          authenticatedRole = r;
+      // 1. Check if password matches a developer user in DB
+      const devUsers = await User.find({ role: 'developer', isActive: true });
+      for (const dev of devUsers) {
+        if (verifyPassword(password, dev.passwordHash)) {
+          authenticatedRole = 'developer';
+          authenticatedUser = {
+            id: dev._id.toString(),
+            username: dev.username,
+            name: dev.name,
+          };
+          dev.lastLoginAt = new Date();
+          await dev.save();
           break;
+        }
+      }
+
+      // 2. Check if explicit role requested matches
+      if (!authenticatedRole && requestedRole && ALL_ROLES.includes(requestedRole as UserRole)) {
+        const match = await verifyRolePassword(requestedRole as UserRole, password);
+        if (match) {
+          authenticatedRole = requestedRole as UserRole;
+        }
+      }
+
+      // 3. Check role credentials in priority order: developer -> admin -> staff -> biller -> dispatcher
+      if (!authenticatedRole) {
+        const checkOrder: UserRole[] = ['developer', 'admin', 'staff', 'biller', 'dispatcher'];
+        for (const r of checkOrder) {
+          const match = await verifyRolePassword(r, password);
+          if (match) {
+            authenticatedRole = r;
+            break;
+          }
+        }
+      }
+
+      // 4. Fallback check: Did user type their personal password into the passkey box?
+      if (!authenticatedRole) {
+        const activeUsers = await User.find({ isActive: true }).limit(50);
+        for (const u of activeUsers) {
+          if (verifyPassword(password, u.passwordHash)) {
+            authenticatedRole = u.role;
+            authenticatedUser = {
+              id: u._id.toString(),
+              username: u.username,
+              name: u.name,
+            };
+            u.lastLoginAt = new Date();
+            await u.save();
+            break;
+          }
         }
       }
     }
@@ -40,13 +155,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error:
-            'Invalid password. Please enter valid Developer Admin, Super Admin, Employee, Biller, or Dispatcher credentials.',
+            'Invalid credentials. Please enter a valid Username & Password or role passkey.',
         },
         { status: 401 }
       );
     }
 
-    const token = signAdminToken(authenticatedRole);
+    const token = signAdminToken(authenticatedRole, authenticatedUser || undefined);
 
     let redirectTo = '/admin';
     let roleName = 'Super Admin';
@@ -66,8 +181,9 @@ export async function POST(req: NextRequest) {
 
     const response = NextResponse.json({
       success: true,
-      message: `Authenticated as ${roleName}`,
+      message: `Authenticated as ${roleName}${authenticatedUser?.username ? ` (${authenticatedUser.username})` : ''}`,
       role: authenticatedRole,
+      user: authenticatedUser,
       redirectTo,
     });
 
@@ -81,6 +197,7 @@ export async function POST(req: NextRequest) {
 
     return response;
   } catch (error: any) {
+    console.error('Login error:', error);
     return NextResponse.json(
       { error: error?.message || 'Server error' },
       { status: 500 }

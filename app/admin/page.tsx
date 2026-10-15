@@ -18,6 +18,7 @@ import LoaderHub from '@/components/LoaderHub';
 import PartyArrivalNotifications from '@/components/PartyArrivalNotifications';
 import ShippingLineManager from '@/components/ShippingLineManager';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
+import UserManager from '@/components/UserManager';
 import { ReduxProvider } from '@/store/ReduxProvider';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -60,6 +61,7 @@ import {
   Boxes,
   MessageSquare,
   Smartphone,
+  Users,
 } from 'lucide-react';
 
 const SHIPPING_LINES = [
@@ -250,7 +252,7 @@ export default function AdminDashboardPage() {
   };
 
   // Modern Modular Menu Bar Tabs state
-  type AdminTab = 'loader-hub' | 'shipping-lines' | 'notifications' | 'shipments' | 'containers' | 'manual-eta' | 'api-sync' | 'alerts';
+  type AdminTab = 'loader-hub' | 'shipping-lines' | 'notifications' | 'shipments' | 'containers' | 'manual-eta' | 'api-sync' | 'alerts' | 'users';
   const [activeAdminTab, setActiveAdminTab] = useState<AdminTab>('loader-hub');
 
   // Container Fleet Directory state (Table view)
@@ -1449,10 +1451,10 @@ export default function AdminDashboardPage() {
             <Link
               href="/admin/visitors"
               className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-cyan-50 hover:bg-cyan-100 text-cyan-800 text-xs font-bold border border-cyan-300 transition flex items-center space-x-1"
-              title="View Visitor Logs & Mobile Details (Developer Admin)"
+              title="Developer Console: User Management, Roles & Visitor Logs"
             >
               <Smartphone className="w-3.5 h-3.5 text-cyan-600" />
-              <span>Visitor Logs</span>
+              <span>Developer Console</span>
             </Link>
 
             <Link
@@ -1495,7 +1497,7 @@ export default function AdminDashboardPage() {
 
         {/* ── MODERN ADMIN MENU BAR (Zero Scrollbars - Responsive Grid) ── */}
         <div className="bg-white border border-slate-200 rounded-2xl p-2 shadow-sm">
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 w-full">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-9 gap-2 w-full">
             <button
               type="button"
               onClick={() => setActiveAdminTab('loader-hub')}
@@ -1631,6 +1633,19 @@ export default function AdminDashboardPage() {
                   {lateContainers.length + needsSyncContainers.length + carrierOutageAlerts.length}
                 </span>
               )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveAdminTab('users')}
+              className={`px-3 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 w-full ${
+                activeAdminTab === 'users'
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
+              }`}
+            >
+              <Users className="w-4 h-4 shrink-0" />
+              <span className="truncate">Users & Roles</span>
             </button>
           </div>
         </div>
@@ -3405,6 +3420,13 @@ export default function AdminDashboardPage() {
         {activeAdminTab === 'notifications' && (
           <div className="animate-fadeIn">
             <PartyArrivalNotifications />
+          </div>
+        )}
+
+        {/* ── TAB: USERS & ROLES (ASSIGN ROLES & PASSWORD MANAGEMENT) ── */}
+        {activeAdminTab === 'users' && (
+          <div className="animate-fadeIn">
+            <UserManager />
           </div>
         )}
 

@@ -432,13 +432,13 @@ export default function ChangePasswordModal({
                     roles.length > 0
                       ? roles
                       : [
-                          { role: 'admin', roleName: 'Super Admin', isCustom: false },
-                          { role: 'developer', roleName: 'Developer Admin', isCustom: false },
-                          { role: 'staff', roleName: 'Internal Employee', isCustom: false },
-                          { role: 'biller', roleName: 'Biller', isCustom: false },
-                          { role: 'dispatcher', roleName: 'Dispatcher', isCustom: false },
+                          { role: 'admin' as const, roleName: 'Super Admin', isCustom: false, updatedAt: null, updatedBy: null },
+                          { role: 'developer' as const, roleName: 'Developer Admin', isCustom: false, updatedAt: null, updatedBy: null },
+                          { role: 'staff' as const, roleName: 'Internal Employee', isCustom: false, updatedAt: null, updatedBy: null },
+                          { role: 'biller' as const, roleName: 'Biller', isCustom: false, updatedAt: null, updatedBy: null },
+                          { role: 'dispatcher' as const, roleName: 'Dispatcher', isCustom: false, updatedAt: null, updatedBy: null },
                         ]
-                  ).map((r) => {
+                  ).map((r: RoleStatusItem) => {
                     const isSelected = selectedTargetRole === r.role;
                     return (
                       <button

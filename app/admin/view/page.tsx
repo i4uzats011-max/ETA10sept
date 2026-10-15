@@ -12,7 +12,7 @@ import {
   AlertTriangle, FileSpreadsheet, Image as ImageIcon, FileText,
   X, SlidersHorizontal, FileType, Star, Bookmark, ChevronDown,
   LayoutGrid, Filter, Check, CheckCircle2, Clock, TrendingUp, ArrowUpDown,
-  CheckSquare, Square, Eye, EyeOff, Lock
+  CheckSquare, Square, Eye, EyeOff, Lock, Key
 } from 'lucide-react';
 import {
   calculateDaysToDeliver,
@@ -23,6 +23,7 @@ import {
   getDeliveryTurnaroundStatus
 } from '@/lib/dateUtils';
 import CargoMasterTable from '@/components/CargoMasterTable';
+import ChangePasswordModal from '@/components/ChangePasswordModal';
 import { ReduxProvider } from '@/store/ReduxProvider';
 
 // Mark types for row marking
@@ -265,6 +266,7 @@ export default function InternalEmployeeViewPage() {
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [userRole, setUserRole] = useState<'admin' | 'staff' | 'developer'>('staff');
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   const [shipments, setShipments] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -1193,6 +1195,14 @@ export default function InternalEmployeeViewPage() {
             >
               Public Tracker
             </Link>
+            <button
+              onClick={() => setShowPasswordModal(true)}
+              className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl border border-amber-200 hover:bg-amber-50 text-amber-700 text-xs font-bold transition flex items-center space-x-1"
+              title="Change Password"
+            >
+              <Key className="w-3.5 h-3.5 text-amber-600" />
+              <span>Password</span>
+            </button>
             <button
               onClick={handleLogout}
               className="p-1.5 sm:p-2 rounded-xl border border-slate-200 hover:bg-red-50 text-slate-500 hover:text-red-600 transition"
@@ -2348,6 +2358,13 @@ export default function InternalEmployeeViewPage() {
           <span className="font-mono text-slate-400 hidden md:inline">USI LOGISTICS V2.0</span>
         </div>
       </div>
+
+      {/* Change Password Modal */}
+      <ChangePasswordModal
+        isOpen={showPasswordModal}
+        onClose={() => setShowPasswordModal(false)}
+        currentRole={userRole}
+      />
     </div>
   );
 }

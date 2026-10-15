@@ -1,17 +1,15 @@
 import mongoose, { Schema, Model } from 'mongoose';
-
-export type UserRole = 'admin' | 'staff' | 'biller' | 'dispatcher' | 'developer';
+import { UserRole } from '@/lib/auth';
 
 export interface IUser {
   _id?: any;
   username: string;
   name?: string;
   passwordHash: string;
-  salt: string;
   role: UserRole;
   isActive: boolean;
   createdBy?: string;
-  lastLoginAt?: Date;
+  lastLoginAt?: Date | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -32,10 +30,6 @@ const UserSchema: Schema = new Schema<IUser>(
       trim: true,
     },
     passwordHash: {
-      type: String,
-      required: true,
-    },
-    salt: {
       type: String,
       required: true,
     },

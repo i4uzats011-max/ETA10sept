@@ -6,6 +6,7 @@ import { Terminal, Shield, Lock, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import Link from 'next/link';
 
 export default function DeveloperAdminLoginPage() {
+  const [username, setUsername] = useState('developer');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -21,7 +22,10 @@ export default function DeveloperAdminLoginPage() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({
+          username: username.trim() || undefined,
+          password,
+        }),
       });
 
       const data = await res.json();
@@ -90,10 +94,26 @@ export default function DeveloperAdminLoginPage() {
         )}
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-2">
-              Developer Passkey
+            <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
+              Developer Username
+            </label>
+            <div className="relative">
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="developer"
+                className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-2xl text-white font-mono text-sm placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition"
+                autoComplete="username"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
+              Developer Password / Passkey
             </label>
             <div className="relative">
               <div className="absolute left-4 top-3.5 text-slate-500">
