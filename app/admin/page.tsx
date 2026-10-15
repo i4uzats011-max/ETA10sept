@@ -276,6 +276,13 @@ export default function AdminDashboardPage() {
   const [manualEtaStatus, setManualEtaStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [manualEtaLastUpdated, setManualEtaLastUpdated] = useState<string | null>(null);
 
+  // Container Remarks & Status Timeline state (Container-wise chronological records)
+  const [containerRemarks, setContainerRemarks] = useState<Array<{ _id?: string; date: string; remarks: string; createdAt?: string; createdBy?: string }>>([]);
+  const [remarkDateInput, setRemarkDateInput] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [remarkTextInput, setRemarkTextInput] = useState<string>('');
+  const [isSavingRemark, setIsSavingRemark] = useState<boolean>(false);
+  const [remarkFeedback, setRemarkFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
   // Correction & New Container Creation state
   const [isNewContainerMode, setIsNewContainerMode] = useState(false);
   const [newContainerInput, setNewContainerInput] = useState('');
@@ -532,6 +539,9 @@ export default function AdminDashboardPage() {
     setIsEditingContainerNumber(false);
     setDatePasteInput('');
     setDetectedPasteDate(null);
+    setContainerRemarks([]);
+    setRemarkTextInput('');
+    setRemarkFeedback(null);
     if (!alias) return;
 
     try {
@@ -558,6 +568,7 @@ export default function AdminDashboardPage() {
         else setManualDeliveryDate('');
         if (data.etaBufferDays !== undefined) setManualBufferDays(data.etaBufferDays);
         setManualEtaLastUpdated(data.etaUpdatedAt || data.lastApiSync || null);
+        setContainerRemarks(data.remarks || []);
       }
     } catch {
       // Fallback
@@ -703,6 +714,91 @@ export default function AdminDashboardPage() {
     }
   };
 
+  // 3.5 Handle Adding Container-Wise Status Remark ("Done" / "Add Remark")
+  const handleAddContainerRemark = async () => {
+    let targetContainer = manualEtaContainer.trim();
+    if (!targetContainer && containerSearchInput.trim()) {
+      targetContainer = containerSearchInput.trim();
+    }
+    const effectiveContainer = isNewContainerMode ? newContainerInput.trim() : targetContainer;
+
+    if (!effectiveContainer) {
+      setRemarkFeedback({ type: 'error', message: 'Please select or enter a container identifier above first.' });
+      return;
+    }
+
+    if (!remarkDateInput.trim()) {
+      setRemarkFeedback({ type: 'error', message: 'Please enter a valid status date.' });
+      return;
+    }
+
+    if (!remarkTextInput.trim()) {
+      setRemarkFeedback({ type: 'error', message: 'Please enter container status / remarks text.' });
+      return;
+    }
+
+    setIsSavingRemark(true);
+    setRemarkFeedback(null);
+
+    try {
+      const res = await fetch('/api/containers/remarks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          container: effectiveContainer,
+          date: remarkDateInput.trim(),
+          remarks: remarkTextInput.trim(),
+          createdBy: 'Admin',
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save container remark');
+
+      setContainerRemarks(data.remarks || []);
+      setRemarkTextInput('');
+      setRemarkFeedback({
+        type: 'success',
+        message: data.message || `Status remark recorded for container '${effectiveContainer}'!`,
+      });
+      setTimeout(() => setRemarkFeedback(null), 4000);
+    } catch (err: any) {
+      setRemarkFeedback({ type: 'error', message: err.message || 'Failed to record remark' });
+    } finally {
+      setIsSavingRemark(false);
+    }
+  };
+
+  // Handle Deleting a Container Remark
+  const handleDeleteContainerRemark = async (remarkId: string) => {
+    let targetContainer = manualEtaContainer.trim() || (isNewContainerMode ? newContainerInput.trim() : containerSearchInput.trim());
+    if (!targetContainer || !remarkId) return;
+
+    if (!confirm('Are you sure you want to delete this container remark record?')) return;
+
+    try {
+      const res = await fetch('/api/containers/remarks', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          container: targetContainer,
+          remarkId,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setContainerRemarks(data.remarks || []);
+        setRemarkFeedback({ type: 'success', message: 'Container remark deleted successfully.' });
+        setTimeout(() => setRemarkFeedback(null), 3000);
+      } else {
+        throw new Error(data.error || 'Failed to delete remark');
+      }
+    } catch (err: any) {
+      setRemarkFeedback({ type: 'error', message: err.message || 'Delete remark failed' });
+    }
+  };
+
   // 4. Handle Manual ETA Date & Container Update/Create Override (Zero API Dependency)
   const handleManualEtaOverrideSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -764,6 +860,10 @@ export default function AdminDashboardPage() {
           shippingLine: manualShippingCompany,
           applyFilingBuffer,
           isNewContainer: isNewContainerMode,
+          newRemark: remarkTextInput.trim() ? {
+            date: remarkDateInput.trim(),
+            remarks: remarkTextInput.trim(),
+          } : undefined,
         }),
       });
 
@@ -772,6 +872,11 @@ export default function AdminDashboardPage() {
       if (!res.ok) throw new Error(data.error || 'Failed to update container dates');
 
       const savedAlias = data.container || effectiveContainer;
+
+      if (data.remarks) {
+        setContainerRemarks(data.remarks);
+        setRemarkTextInput('');
+      }
 
       setManualEtaStatus({
         type: 'success',
