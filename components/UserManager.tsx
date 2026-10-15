@@ -1099,6 +1099,9 @@ export default function UserManager() {
                 <span>Account Role:</span>
                 <span className="font-bold text-white uppercase">{selectedUser.role}</span>
               </div>
+              <div className="p-2.5 bg-cyan-950/30 rounded-xl border border-cyan-800/40 text-[11px] text-cyan-300 flex items-center gap-1.5 font-mono">
+                <span>⚡ Updates account password in database & synchronizes environment credentials (.env).</span>
+              </div>
 
               {/* New Password */}
               <div>
@@ -1208,14 +1211,14 @@ export default function UserManager() {
               {/* Current Password */}
               <div>
                 <label className="block text-xs font-mono uppercase tracking-wider text-slate-300 mb-1.5">
-                  Current Developer Password / Passkey
+                  Current Developer Password
                 </label>
                 <div className="relative">
                   <input
                     type={showSelfCurrent ? 'text' : 'password'}
                     value={selfCurrentPassword}
                     onChange={(e) => setSelfCurrentPassword(e.target.value)}
-                    placeholder="Enter current developer passkey..."
+                    placeholder="Enter current developer password..."
                     className="w-full pl-4 pr-10 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono text-sm placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-500"
                   />
                   <button

@@ -200,21 +200,57 @@ export default function VisitorLogsPage() {
     }
   }, [page, period, deviceFilter, search, filterIp, router]);
 
-  // Initial load & filter effect
+  // Developer Authorization State
+  const [isAuthorizedDeveloper, setIsAuthorizedDeveloper] = useState(false);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
+
+  // Authenticate Developer on Mount: Strictly Developer Only
   useEffect(() => {
+    let active = true;
+    async function verifyDeveloperAuth() {
+      try {
+        const res = await fetch('/api/auth/me');
+        if (!res.ok) {
+          router.push('/admin/visitors/login');
+          return;
+        }
+        const data = await res.json();
+        if (active) {
+          if (data.authenticated && data.role === 'developer') {
+            setIsAuthorizedDeveloper(true);
+            setIsAuthChecking(false);
+          } else {
+            router.push('/admin/visitors/login');
+          }
+        }
+      } catch (e) {
+        if (active) {
+          router.push('/admin/visitors/login');
+        }
+      }
+    }
+    verifyDeveloperAuth();
+    return () => {
+      active = false;
+    };
+  }, [router]);
+
+  // Initial load & filter effect (only when authorized as developer)
+  useEffect(() => {
+    if (!isAuthorizedDeveloper) return;
     fetchStats();
     fetchLogs();
-  }, [fetchStats, fetchLogs]);
+  }, [isAuthorizedDeveloper, fetchStats, fetchLogs]);
 
   // Auto-refresh interval (every 10s)
   useEffect(() => {
-    if (!autoRefresh) return;
+    if (!isAuthorizedDeveloper || !autoRefresh) return;
     const interval = setInterval(() => {
       fetchLogs(true);
       fetchStats();
     }, 10000);
     return () => clearInterval(interval);
-  }, [autoRefresh, fetchLogs, fetchStats]);
+  }, [isAuthorizedDeveloper, autoRefresh, fetchLogs, fetchStats]);
 
   // Clear Logs handler
   const handleClearLogs = async () => {
@@ -297,6 +333,22 @@ export default function VisitorLogsPage() {
       .map((char) => 127397 + char.charCodeAt(0));
     return String.fromCodePoint(...codePoints);
   };
+
+  if (isAuthChecking || !isAuthorizedDeveloper) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 selection:bg-cyan-500 selection:text-black">
+        <div className="flex flex-col items-center space-y-4">
+          <div className="w-9 h-9 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-cyan-400 font-mono text-sm tracking-wide">
+            Verifying Developer Authorization...
+          </p>
+          <p className="text-slate-500 font-mono text-xs">
+            Restricted exclusively to Developer Login
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-black">

@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { connectToDatabase } from '@/lib/mongodb';
 import RoleCredential from '@/models/RoleCredential';
 import { UserRole } from '@/lib/auth';
@@ -92,6 +94,60 @@ export async function verifyRolePassword(role: UserRole, candidatePassword: stri
   return isDefaultRolePassword(role, candidatePassword);
 }
 
+export function updateEnvPassword(role: UserRole, newPassword: string): void {
+  const roleEnvMap: Record<UserRole, string[]> = {
+    developer: ['DEV_ADMIN_PASSWORD', 'DEVELOPER_PASSWORD'],
+    admin: ['ADMIN_PASSWORD'],
+    staff: ['EADMIN_PASSWORD', 'STAFF_PASSWORD', 'ADMIN2_PASSWORD'],
+    biller: ['BILLER_PASSWORD'],
+    dispatcher: ['DISPATCHER_PASSWORD'],
+  };
+
+  const keys = roleEnvMap[role] || [];
+  if (keys.length === 0) return;
+
+  // 1. Update in-memory process.env
+  keys.forEach((k) => {
+    process.env[k] = newPassword;
+  });
+
+  // 2. Update files on disk: .env and .env.local
+  const filesToUpdate = ['.env', '.env.local'];
+  const projectRoot = process.cwd();
+
+  for (const fileName of filesToUpdate) {
+    const filePath = path.join(projectRoot, fileName);
+    if (!fs.existsSync(filePath)) continue;
+
+    try {
+      let content = fs.readFileSync(filePath, 'utf-8');
+      let changed = false;
+
+      for (const key of keys) {
+        const regex = new RegExp(`^${key}=.*$`, 'm');
+        if (regex.test(content)) {
+          content = content.replace(regex, `${key}=${newPassword}`);
+          changed = true;
+        }
+      }
+
+      // If primary key wasn't found in file, append it
+      const primaryKey = keys[0];
+      const primaryRegex = new RegExp(`^${primaryKey}=.*$`, 'm');
+      if (!primaryRegex.test(content)) {
+        content += (content.endsWith('\n') ? '' : '\n') + `${primaryKey}=${newPassword}\n`;
+        changed = true;
+      }
+
+      if (changed) {
+        fs.writeFileSync(filePath, content, 'utf-8');
+      }
+    } catch (err) {
+      console.warn(`[updateEnvPassword] Could not update ${fileName}:`, err);
+    }
+  }
+}
+
 export async function setRolePassword(
   role: UserRole,
   newPassword: string,
@@ -115,6 +171,13 @@ export async function setRolePassword(
     },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
+
+  // Synchronize new password to .env and .env.local on disk
+  try {
+    updateEnvPassword(role, newPassword);
+  } catch (envErr) {
+    console.warn('[setRolePassword] Could not update .env password:', envErr);
+  }
 }
 
 export interface RoleStatusItem {

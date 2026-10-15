@@ -18,12 +18,18 @@ export default function DeveloperAdminLoginPage() {
     setLoading(true);
     setError(null);
 
+    if (!username.trim()) {
+      setError('Developer username is mandatory.');
+      setLoading(false);
+      return;
+    }
+
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username: username.trim() || undefined,
+          username: username.trim(),
           password,
         }),
       });
@@ -31,11 +37,11 @@ export default function DeveloperAdminLoginPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || 'Authentication failed. Invalid Developer Admin credentials.');
+        throw new Error(data.error || 'Authentication failed. Invalid Developer credentials.');
       }
 
-      if (data.role !== 'developer' && data.role !== 'admin') {
-        throw new Error('Access denied. This console is restricted exclusively to Developer Admins.');
+      if (data.role !== 'developer') {
+        throw new Error('Access denied. Developer Console and Visitor details are strictly restricted to Developer login only.');
       }
 
       router.push('/admin/visitors');
@@ -64,10 +70,10 @@ export default function DeveloperAdminLoginPage() {
               <h2 className="text-sm font-black tracking-wider uppercase text-white flex items-center gap-1.5">
                 Developer Console
                 <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
-                  ROOT
+                  DEVELOPER ONLY
                 </span>
               </h2>
-              <p className="text-[11px] text-slate-400 font-mono">Visitor & Device Telemetry</p>
+              <p className="text-[11px] text-slate-400 font-mono">Visitor Telemetry & User Manager</p>
             </div>
           </div>
           <div className="flex space-x-1.5">
@@ -81,8 +87,8 @@ export default function DeveloperAdminLoginPage() {
         <div className="mb-6 bg-slate-950/80 border border-slate-800 rounded-2xl p-4 flex items-start space-x-3">
           <Shield className="w-5 h-5 text-cyan-400 flex-shrink-0 mt-0.5" />
           <div className="text-xs text-slate-300">
-            <span className="font-semibold text-white block mb-0.5">Developer Admin Authentication</span>
-            Enter the Developer Admin passkey to inspect live visitor IP addresses, location geo-maps, and mobile hardware telemetry.
+            <span className="font-semibold text-white block mb-0.5">Developer Only Authentication</span>
+            Access is strictly restricted to Developer accounts. Enter your developer credentials to inspect visitor telemetry and user management.
           </div>
         </div>
 
@@ -97,7 +103,7 @@ export default function DeveloperAdminLoginPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
-              Developer Username
+              Developer Username <span className="text-cyan-400 font-bold">*</span>
             </label>
             <div className="relative">
               <input
@@ -106,6 +112,7 @@ export default function DeveloperAdminLoginPage() {
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="developer"
                 className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-2xl text-white font-mono text-sm placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition"
+                required
                 autoComplete="username"
               />
             </div>
@@ -113,7 +120,7 @@ export default function DeveloperAdminLoginPage() {
 
           <div>
             <label className="block text-xs font-mono uppercase tracking-wider text-slate-400 mb-1.5">
-              Developer Password / Passkey
+              Developer Password <span className="text-cyan-400 font-bold">*</span>
             </label>
             <div className="relative">
               <div className="absolute left-4 top-3.5 text-slate-500">

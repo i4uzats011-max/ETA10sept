@@ -18,12 +18,18 @@ export default function AdminLoginPage() {
     setIsLoading(true);
     setError(null);
 
+    if (!username.trim()) {
+      setError('Username is mandatory. Please enter your username.');
+      setIsLoading(false);
+      return;
+    }
+
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username: username.trim() || undefined,
+          username: username.trim(),
           password,
         }),
       });
@@ -72,15 +78,16 @@ export default function AdminLoginPage() {
           {/* Username Input */}
           <div className="space-y-1.5">
             <label className="block text-xs font-bold uppercase tracking-wider text-slate-300">
-              Username <span className="text-[10px] font-normal text-slate-500 lowercase">(optional for passkey)</span>
+              Username <span className="text-red-500 font-bold">*</span>
             </label>
             <div className="relative">
               <input
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="Enter username (or leave blank if using passkey)..."
+                placeholder="Enter your username..."
                 className="w-full pl-11 pr-4 py-3 rounded-2xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-red-600 focus:border-transparent text-sm font-semibold"
+                required
                 autoComplete="username"
               />
               <div className="absolute left-4 top-3.5 text-slate-500">
@@ -92,7 +99,7 @@ export default function AdminLoginPage() {
           {/* Password Input */}
           <div className="space-y-1.5">
             <label className="block text-xs font-bold uppercase tracking-wider text-slate-300">
-              Password / Passkey
+              Password <span className="text-red-500 font-bold">*</span>
             </label>
             <div className="relative">
               <input
@@ -140,10 +147,10 @@ export default function AdminLoginPage() {
               className="col-span-2 bg-cyan-950/40 border border-cyan-800/60 rounded-xl p-2.5 text-slate-300 hover:bg-cyan-950/60 transition flex items-center justify-between"
             >
               <div>
-                <span className="font-bold text-cyan-400 block mb-0.5">Developer Admin Console</span>
-                <span className="text-slate-400 text-[10px]">User & Role Management, Visitors & Telemetry</span>
+                <span className="font-bold text-cyan-400 block mb-0.5">Developer Console</span>
+                <span className="text-slate-400 text-[10px]">Restricted exclusively to Developer Login</span>
               </div>
-              <span className="text-cyan-400 font-bold text-xs">Console →</span>
+              <span className="text-cyan-400 font-bold text-xs">Developer Login →</span>
             </Link>
           </div>
 

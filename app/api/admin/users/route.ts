@@ -2,24 +2,61 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import User from '@/models/User';
 import { getAdminTokenFromRequest, verifyAdminToken, isDeveloperAuthenticated } from '@/lib/auth';
+import RoleCredential from '@/models/RoleCredential';
 import { hashPassword } from '@/lib/passwordManager';
+import { UserRole } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
-// Seed initial developer if DB has no developer user yet
-async function ensureInitialDeveloper() {
-  const existingDev = await User.findOne({ role: 'developer' });
-  if (!existingDev) {
-    const devPass =
-      process.env.DEV_ADMIN_PASSWORD || process.env.DEVELOPER_PASSWORD || 'Hello$1256';
-    await User.create({
+// Seed default users if DB has no records for them yet
+async function ensureDefaultUsers() {
+  const defaultAccounts: { role: UserRole; username: string; name: string; defaultPass: string }[] = [
+    {
+      role: 'developer',
       username: 'developer',
       name: 'Lead Developer',
-      passwordHash: hashPassword(devPass),
-      role: 'developer',
-      isActive: true,
-      createdBy: 'system',
-    });
+      defaultPass: process.env.DEV_ADMIN_PASSWORD || process.env.DEVELOPER_PASSWORD || 'Hello$1256',
+    },
+    {
+      role: 'admin',
+      username: 'admin',
+      name: 'Super Admin',
+      defaultPass: process.env.ADMIN_PASSWORD || 'Afsana1234',
+    },
+    {
+      role: 'staff',
+      username: 'staff',
+      name: 'Internal Employee',
+      defaultPass: process.env.EADMIN_PASSWORD || process.env.STAFF_PASSWORD || 'Afsana4321',
+    },
+    {
+      role: 'biller',
+      username: 'biller',
+      name: 'Biller',
+      defaultPass: process.env.BILLER_PASSWORD || 'biller123',
+    },
+    {
+      role: 'dispatcher',
+      username: 'dispatcher',
+      name: 'Dispatcher',
+      defaultPass: process.env.DISPATCHER_PASSWORD || 'dispatch123',
+    },
+  ];
+
+  for (const acc of defaultAccounts) {
+    const existing = await User.findOne({ username: acc.username });
+    if (!existing) {
+      const cred = await RoleCredential.findOne({ role: acc.role }).lean();
+      const passwordHash = cred?.passwordHash || hashPassword(acc.defaultPass);
+      await User.create({
+        username: acc.username,
+        name: acc.name,
+        passwordHash,
+        role: acc.role,
+        isActive: true,
+        createdBy: 'system',
+      });
+    }
   }
 }
 
@@ -28,13 +65,13 @@ export async function GET(req: NextRequest) {
   try {
     if (!isDeveloperAuthenticated(req)) {
       return NextResponse.json(
-        { error: 'Unauthorized. Developer Admin access required.' },
+        { error: 'Unauthorized. Developer access required. Only the Developer can access user management.' },
         { status: 401 }
       );
     }
 
     await connectToDatabase();
-    await ensureInitialDeveloper();
+    await ensureDefaultUsers();
 
     const users = await User.find({})
       .select('-passwordHash')
@@ -306,6 +343,15 @@ export async function DELETE(req: NextRequest) {
           { status: 400 }
         );
       }
+    }
+
+    // Prevent deleting default root role accounts
+    const rootUsernames = ['developer', 'admin', 'staff', 'biller', 'dispatcher'];
+    if (rootUsernames.includes(user.username.toLowerCase())) {
+      return NextResponse.json(
+        { error: `Default system account "${user.username}" cannot be deleted. You can reset its password or deactivate it.` },
+        { status: 400 }
+      );
     }
 
     await User.findByIdAndDelete(userId);

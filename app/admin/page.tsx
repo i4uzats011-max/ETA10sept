@@ -214,6 +214,7 @@ function AdminMultiSelectDropdown({
 export default function AdminDashboardPage() {
   const router = useRouter();
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   // 3-Column Container Update state
@@ -424,6 +425,7 @@ export default function AdminDashboardPage() {
             router.push('/admin/view');
           } else {
             setIsAuthenticated(true);
+            setCurrentUserRole(data.role || null);
             fetchDistinctContainers();
             fetchContainerFleet();
             fetchApiStats();
@@ -1448,14 +1450,16 @@ export default function AdminDashboardPage() {
               <span>Dispatcher (डिस्पैचर)</span>
             </Link>
 
-            <Link
-              href="/admin/visitors"
-              className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-cyan-50 hover:bg-cyan-100 text-cyan-800 text-xs font-bold border border-cyan-300 transition flex items-center space-x-1"
-              title="Developer Console: User Management, Roles & Visitor Logs"
-            >
-              <Smartphone className="w-3.5 h-3.5 text-cyan-600" />
-              <span>Developer Console</span>
-            </Link>
+            {currentUserRole === 'developer' && (
+              <Link
+                href="/admin/visitors"
+                className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-cyan-50 hover:bg-cyan-100 text-cyan-800 text-xs font-bold border border-cyan-300 transition flex items-center space-x-1"
+                title="Developer Console: User Management, Roles & Visitor Logs"
+              >
+                <Smartphone className="w-3.5 h-3.5 text-cyan-600" />
+                <span>Developer Console</span>
+              </Link>
+            )}
 
             <Link
               href="/admin/view"
@@ -1635,18 +1639,20 @@ export default function AdminDashboardPage() {
               )}
             </button>
 
-            <button
-              type="button"
-              onClick={() => setActiveAdminTab('users')}
-              className={`px-3 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 w-full ${
-                activeAdminTab === 'users'
-                  ? 'bg-purple-600 text-white shadow-sm'
-                  : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
-              }`}
-            >
-              <Users className="w-4 h-4 shrink-0" />
-              <span className="truncate">Users & Roles</span>
-            </button>
+            {currentUserRole === 'developer' && (
+              <button
+                type="button"
+                onClick={() => setActiveAdminTab('users')}
+                className={`px-3 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 w-full ${
+                  activeAdminTab === 'users'
+                    ? 'bg-purple-600 text-white shadow-sm'
+                    : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
+                }`}
+              >
+                <Users className="w-4 h-4 shrink-0" />
+                <span className="truncate">Users & Roles</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -3423,8 +3429,8 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
-        {/* ── TAB: USERS & ROLES (ASSIGN ROLES & PASSWORD MANAGEMENT) ── */}
-        {activeAdminTab === 'users' && (
+        {/* ── TAB: USERS & ROLES (DEVELOPER ONLY) ── */}
+        {activeAdminTab === 'users' && currentUserRole === 'developer' && (
           <div className="animate-fadeIn">
             <UserManager />
           </div>

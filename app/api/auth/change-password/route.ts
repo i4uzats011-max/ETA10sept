@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    const canManageAll = payload.role === 'admin' || payload.role === 'developer';
+    const canManageAll = payload.role === 'developer';
 
     if (canManageAll) {
       const roles = await getAllRolesStatus();
@@ -79,9 +79,9 @@ export async function POST(req: NextRequest) {
 
     // Mode: Admin/Developer changing another role's password ("assinroal able change any one passwrod")
     if (action === 'change_any' || (targetRole && targetRole !== callerRole)) {
-      if (callerRole !== 'admin' && callerRole !== 'developer') {
+      if (callerRole !== 'developer') {
         return NextResponse.json(
-          { error: 'Access denied. Only Super Admin or Developer Admin can change passwords for other roles.' },
+          { error: 'Access denied. Only the Developer can change or reset passwords for other roles.' },
           { status: 403 }
         );
       }

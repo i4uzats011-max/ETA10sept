@@ -1181,7 +1181,7 @@ export default function InternalEmployeeViewPage() {
                 Super Admin
               </Link>
             )}
-            {(userRole === 'admin' || userRole === 'developer') && (
+            {userRole === 'developer' && (
               <Link
                 href="/admin/visitors"
                 className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-cyan-50 hover:bg-cyan-100 text-cyan-900 border border-cyan-300 text-xs font-bold transition flex items-center space-x-1"

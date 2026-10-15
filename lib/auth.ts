@@ -89,7 +89,7 @@ export function isDeveloperAuthenticated(req: NextRequest): boolean {
   const token = getAdminTokenFromRequest(req);
   if (!token) return false;
   const payload = verifyAdminToken(token);
-  return payload !== null && (payload.role === 'developer' || payload.role === 'admin');
+  return payload !== null && payload.role === 'developer';
 }
 
 export function isAdminAuthenticated(req: NextRequest): boolean {
