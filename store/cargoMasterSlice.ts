@@ -32,6 +32,7 @@ export interface ContainerMasterItem {
   rawEta?: string;
   lastApiSync?: string | null;
   etaUpdatedAt?: string | null;
+  remarks?: Array<{ _id?: any; date: string; remarks: string; createdAt?: Date | string; createdBy?: string }>;
 }
 
 export type StatusFilterType =
