@@ -61,6 +61,7 @@ export async function GET(req: NextRequest) {
       status: doc.status || 'In Transit',
       isDelivered: Boolean(doc.isDelivered),
       shipmentCount: doc.shipmentCount || 0,
+      remarks: doc.remarks || doc.containerRemarks || [],
     });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Failed to fetch details' }, { status: 500 });

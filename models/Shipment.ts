@@ -68,6 +68,7 @@ export interface IShipment extends Document {
   totalCost?: number | string;  // Total cost of cargo items
   cost?: number | string;       // Cost alias
   remarks?: string;             // Remarks / Labeller goods notes
+  containerRemarks?: Array<{ _id?: any; date: string; remarks: string; createdAt?: Date; createdBy?: string }>; // Container-wise status & remarks log
   isLabblerGoods?: boolean;     // Whether marked as labbler goods via remarks
   goodsItems?: IGoodsRateItem[];// Breakdown of one or more goods items on receipt
   messageSent?: boolean;        // Arrival notification sent status
@@ -150,7 +151,18 @@ const ShipmentSchema = new Schema<IShipment>({
   apiCalled: { type: Boolean, default: false, index: true },
   apiCallCount: { type: Number, default: 0 },
   uploadBatchId: { type: String, default: '', index: true },
-  uploadedAt: { type: Date, default: Date.now }
+  uploadedAt: { type: Date, default: Date.now },
+  containerRemarks: {
+    type: [
+      {
+        date: { type: String, required: true, trim: true },
+        remarks: { type: String, required: true, trim: true },
+        createdAt: { type: Date, default: Date.now },
+        createdBy: { type: String, default: 'Admin' },
+      },
+    ],
+    default: [],
+  },
 }, {
   timestamps: true,
   strict: false // Allows flexibility if extra legacy columns are present

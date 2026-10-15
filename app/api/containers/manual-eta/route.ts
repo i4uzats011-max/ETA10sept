@@ -36,6 +36,9 @@ export async function POST(req: NextRequest) {
       isNewContainer = false,
       deliveryDate,
       isDelivered,
+      newRemark,
+      remarkDate,
+      remarkText,
     } = body;
 
     const queryInput = (container || '').trim();

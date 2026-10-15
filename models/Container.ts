@@ -1,5 +1,13 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
+export interface IContainerRemark {
+  _id?: any;
+  date: string;            // Record date (e.g. 'YYYY-MM-DD')
+  remarks: string;         // Status of container in text / remarks
+  createdAt?: Date;        // Timestamp when recorded
+  createdBy?: string;      // Admin / User identifier
+}
+
 export interface IContainer extends Document {
   container: string;            // Public container alias (e.g. 'USI-01', 'USI-03') - User visible
   containerNumber: string;      // Actual carrier container number (e.g. 'MSCU1234567') - Admin-only/Masked
@@ -20,6 +28,8 @@ export interface IContainer extends Document {
   daysToDeliver?: number | null; // Calculated turnaround days from loading/receipt to delivery
   isDelivered?: boolean;        // Whether container is delivered
   shipmentCount?: number;       // Number of shipments inside container
+  // Container Remarks & Status History (Container-wise chronological records)
+  remarks?: IContainerRemark[];
   // Loading Plan & Multi-Warehouse Workflow Fields
   planNumber?: string;          // Loading Plan identifier (defaults to container alias)
   warehouse?: string;           // China origin loading warehouse (e.g. 'Guangzhou', 'Yiwu')
@@ -81,6 +91,17 @@ const ContainerSchema = new Schema<IContainer>(
     totalQuantity: { type: Number, default: 0 },
     totalWeight: { type: String, default: '' },
     totalVolume: { type: String, default: '' },
+    remarks: {
+      type: [
+        {
+          date: { type: String, required: true, trim: true },
+          remarks: { type: String, required: true, trim: true },
+          createdAt: { type: Date, default: Date.now },
+          createdBy: { type: String, default: 'Admin' },
+        },
+      ],
+      default: [],
+    },
   },
   {
     timestamps: true,
