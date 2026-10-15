@@ -4,7 +4,7 @@ import { NextRequest } from 'next/server';
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_jwt_secret_key_12345';
 const COOKIE_NAME = 'admin_token';
 
-export type UserRole = 'admin' | 'staff' | 'biller' | 'dispatcher';
+export type UserRole = 'admin' | 'staff' | 'biller' | 'dispatcher' | 'developer';
 
 export interface AdminPayload {
   role: UserRole;
@@ -73,6 +73,13 @@ export function isSuperAdminAuthenticated(req: NextRequest): boolean {
   if (!token) return false;
   const payload = verifyAdminToken(token);
   return payload !== null && payload.role === 'admin';
+}
+
+export function isDeveloperAuthenticated(req: NextRequest): boolean {
+  const token = getAdminTokenFromRequest(req);
+  if (!token) return false;
+  const payload = verifyAdminToken(token);
+  return payload !== null && (payload.role === 'developer' || payload.role === 'admin');
 }
 
 export function isAdminAuthenticated(req: NextRequest): boolean {

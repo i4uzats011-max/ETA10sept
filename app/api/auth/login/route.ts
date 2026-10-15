@@ -12,10 +12,13 @@ export async function POST(req: NextRequest) {
     const expectedEmployeePassword = process.env.EADMIN_PASSWORD || 'Afsana4321';
     const expectedBillerPassword = process.env.BILLER_PASSWORD || 'biller123';
     const expectedDispatcherPassword = process.env.DISPATCHER_PASSWORD || 'dispatch123';
+    const expectedDevPassword = process.env.DEV_ADMIN_PASSWORD || process.env.DEVELOPER_PASSWORD || 'developer2026';
 
-    let role: 'admin' | 'staff' | 'biller' | 'dispatcher' | null = null;
+    let role: 'admin' | 'staff' | 'biller' | 'dispatcher' | 'developer' | null = null;
 
-    if (password === expectedAdminPassword) {
+    if (password === expectedDevPassword) {
+      role = 'developer';
+    } else if (password === expectedAdminPassword) {
       role = 'admin';
     } else if (
       password === expectedEmployeePassword ||
@@ -31,7 +34,7 @@ export async function POST(req: NextRequest) {
 
     if (!role) {
       return NextResponse.json(
-        { error: 'Invalid password. Please enter valid Super Admin, Employee, Biller, or Dispatcher credentials.' },
+        { error: 'Invalid password. Please enter valid Developer Admin, Super Admin, Employee, Biller, or Dispatcher credentials.' },
         { status: 401 }
       );
     }
@@ -40,7 +43,10 @@ export async function POST(req: NextRequest) {
 
     let redirectTo = '/admin';
     let roleName = 'Super Admin';
-    if (role === 'staff') {
+    if (role === 'developer') {
+      redirectTo = '/admin/visitors';
+      roleName = 'Developer Admin';
+    } else if (role === 'staff') {
       redirectTo = '/admin/view';
       roleName = 'Internal Employee';
     } else if (role === 'biller') {
