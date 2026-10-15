@@ -42,11 +42,11 @@ export function verifyPassword(password: string, stored: string): boolean {
 export function isDefaultRolePassword(role: UserRole, candidate: string): boolean {
   switch (role) {
     case 'developer':
+      if (candidate === 'developer2026') return false;
       return (
         candidate === (process.env.DEV_ADMIN_PASSWORD || '') ||
         candidate === (process.env.DEVELOPER_PASSWORD || '') ||
-        candidate === 'Hello$1256' ||
-        candidate === 'developer2026'
+        candidate === 'Hello$1256'
       );
     case 'admin':
       return (

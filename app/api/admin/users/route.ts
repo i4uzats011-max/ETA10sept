@@ -11,7 +11,7 @@ async function ensureInitialDeveloper() {
   const existingDev = await User.findOne({ role: 'developer' });
   if (!existingDev) {
     const devPass =
-      process.env.DEV_ADMIN_PASSWORD || process.env.DEVELOPER_PASSWORD || 'developer2026';
+      process.env.DEV_ADMIN_PASSWORD || process.env.DEVELOPER_PASSWORD || 'Hello$1256';
     await User.create({
       username: 'developer',
       name: 'Lead Developer',

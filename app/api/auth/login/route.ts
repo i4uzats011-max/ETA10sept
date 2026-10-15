@@ -21,6 +21,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Password is required' }, { status: 400 });
     }
 
+    // Permanently block developer2026
+    if (password.trim() === 'developer2026') {
+      return NextResponse.json(
+        { error: 'The default passkey "developer2026" is permanently disabled. Please use your updated developer credentials.' },
+        { status: 401 }
+      );
+    }
+
     await connectToDatabase();
 
     let authenticatedRole: UserRole | null = null;
