@@ -875,7 +875,11 @@ export default function CargoMasterTable({
                     `• Actual Vessel ETA (Carrier): ${c.rawEta ? formatGlobalDate(c.rawEta) : 'Pending API'}\n` +
                     `• Clearance ETA (+10d): ${c.eta ? formatGlobalDate(c.eta) : 'Pending'}\n` +
                     `• ETA Last Updated Date: ${etaLastUpdated ? formatGlobalDate(etaLastUpdated) : 'Not Updated'}\n` +
-                    `• Final Delivery Date: ${c.deliveryDate ? formatGlobalDate(c.deliveryDate) : 'In Transit'}`
+                    `• Final Delivery Date: ${c.deliveryDate ? formatGlobalDate(c.deliveryDate) : 'In Transit'}` +
+                    (c.remarks && c.remarks.length > 0
+                      ? `\n\n• Container Status Remarks (${c.remarks.length} logs):\n` +
+                        c.remarks.slice(-3).map((r: any) => `   - [${formatGlobalDate(r.date) || r.date}]: ${r.remarks}`).join('\n')
+                      : '')
                   );
                 }}
                 className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold transition flex items-center space-x-1"
