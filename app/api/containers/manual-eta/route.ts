@@ -164,6 +164,37 @@ export async function POST(req: NextRequest) {
       containerSetFields.shipmentCount = updateResult.matchedCount;
     }
 
+    let remarkToPush: any = null;
+    if (newRemark && newRemark.date && newRemark.remarks) {
+      remarkToPush = {
+        date: String(newRemark.date).trim(),
+        remarks: String(newRemark.remarks).trim(),
+        createdAt: new Date(),
+        createdBy: 'Admin',
+      };
+    } else if (remarkDate && remarkText && String(remarkText).trim()) {
+      remarkToPush = {
+        date: String(remarkDate).trim(),
+        remarks: String(remarkText).trim(),
+        createdAt: new Date(),
+        createdBy: 'Admin',
+      };
+    }
+
+    const containerUpdateOps: any = {
+      $set: containerSetFields,
+      $setOnInsert: {
+        warehouse: 'China Warehouse',
+        planStatus: 'Planning',
+        isFinalized: Boolean(finalContainerNo),
+        allottedActualAt: finalContainerNo ? new Date() : null,
+      },
+    };
+
+    if (remarkToPush) {
+      containerUpdateOps.$push = { remarks: remarkToPush };
+    }
+
     const savedContainer = await Container.findOneAndUpdate(
       {
         $or: [
@@ -172,17 +203,23 @@ export async function POST(req: NextRequest) {
           ...(finalContainerNo ? [{ containerNumber: finalContainerNo }] : []),
         ],
       },
-      {
-        $set: containerSetFields,
-        $setOnInsert: {
-          warehouse: 'China Warehouse',
-          planStatus: 'Planning',
-          isFinalized: Boolean(finalContainerNo),
-          allottedActualAt: finalContainerNo ? new Date() : null,
-        },
-      },
+      containerUpdateOps,
       { upsert: true, new: true }
     );
+
+    if (remarkToPush) {
+      await Shipment.updateMany(
+        {
+          $or: [
+            { container: regex },
+            { containerNumber: regex },
+          ],
+        },
+        {
+          $push: { containerRemarks: remarkToPush },
+        }
+      ).catch(() => {});
+    }
 
     const message = isNewContainer
       ? `Successfully registered new container '${effectiveTargetAlias}' (${finalContainerNo || 'No Carrier Number'}) in fleet.`
@@ -203,6 +240,7 @@ export async function POST(req: NextRequest) {
       status: updateFields.status || savedContainer?.status || 'In Transit',
       etaUpdatedAt: now.toISOString(),
       updatedCount: updateResult.modifiedCount,
+      remarks: savedContainer?.remarks || [],
     });
   } catch (error: any) {
     console.error('Error updating manual container ETA:', error);
