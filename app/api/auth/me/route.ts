@@ -17,5 +17,8 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     authenticated: true,
     role: payload.role || 'admin',
+    username: payload.username || null,
+    name: payload.name || null,
+    userId: payload.userId || null,
   });
 }

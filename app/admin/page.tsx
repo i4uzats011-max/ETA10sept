@@ -17,6 +17,7 @@ import CargoMasterTable from '@/components/CargoMasterTable';
 import LoaderHub from '@/components/LoaderHub';
 import PartyArrivalNotifications from '@/components/PartyArrivalNotifications';
 import ShippingLineManager from '@/components/ShippingLineManager';
+import ChangePasswordModal from '@/components/ChangePasswordModal';
 import { ReduxProvider } from '@/store/ReduxProvider';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -211,6 +212,7 @@ function AdminMultiSelectDropdown({
 export default function AdminDashboardPage() {
   const router = useRouter();
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   // 3-Column Container Update state
   const [distinctContainers, setDistinctContainers] = useState<string[]>([]);
@@ -1466,6 +1468,16 @@ export default function AdminDashboardPage() {
             >
               Public Site
             </Link>
+
+            <button
+              type="button"
+              onClick={() => setShowPasswordModal(true)}
+              className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold border border-amber-300 transition flex items-center space-x-1"
+              title="Change Password & Manage User Role Credentials"
+            >
+              <Key className="w-3.5 h-3.5 text-amber-600" />
+              <span className="hidden sm:inline">Passwords</span>
+            </button>
 
             <button
               onClick={handleLogout}
@@ -4306,6 +4318,13 @@ export default function AdminDashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Change Password Modal */}
+      <ChangePasswordModal
+        isOpen={showPasswordModal}
+        onClose={() => setShowPasswordModal(false)}
+        currentRole="admin"
+      />
     </div>
   );
 }

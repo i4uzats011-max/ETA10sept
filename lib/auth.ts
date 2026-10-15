@@ -8,12 +8,22 @@ export type UserRole = 'admin' | 'staff' | 'biller' | 'dispatcher' | 'developer'
 
 export interface AdminPayload {
   role: UserRole;
+  userId?: string;
+  username?: string;
+  name?: string;
   iat: number;
   exp: number;
 }
 
-export function signAdminToken(role: UserRole = 'admin'): string {
-  return jwt.sign({ role }, JWT_SECRET, { expiresIn: '7d' });
+export function signAdminToken(
+  role: UserRole = 'admin',
+  user?: { id?: string; username?: string; name?: string }
+): string {
+  const payload: any = { role };
+  if (user?.id) payload.userId = user.id;
+  if (user?.username) payload.username = user.username;
+  if (user?.name) payload.name = user.name;
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
 }
 
 export function verifyAdminToken(token: string): AdminPayload | null {

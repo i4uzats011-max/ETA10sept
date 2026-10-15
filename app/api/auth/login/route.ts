@@ -1,58 +1,65 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { signAdminToken } from '@/lib/auth';
+import { signAdminToken, UserRole } from '@/lib/auth';
+import { verifyRolePassword, ALL_ROLES } from '@/lib/passwordManager';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { password } = body;
+    const { password, role: requestedRole } = body;
 
-    const expectedAdminPassword = process.env.ADMIN_PASSWORD || 'Afsana1234';
-    const expectedEmployeePassword = process.env.EADMIN_PASSWORD || 'Afsana4321';
-    const expectedBillerPassword = process.env.BILLER_PASSWORD || 'biller123';
-    const expectedDispatcherPassword = process.env.DISPATCHER_PASSWORD || 'dispatch123';
-    const expectedDevPassword = process.env.DEV_ADMIN_PASSWORD || process.env.DEVELOPER_PASSWORD || 'developer2026';
-
-    let role: 'admin' | 'staff' | 'biller' | 'dispatcher' | 'developer' | null = null;
-
-    if (password === expectedDevPassword) {
-      role = 'developer';
-    } else if (password === expectedAdminPassword) {
-      role = 'admin';
-    } else if (
-      password === expectedEmployeePassword ||
-      password === process.env.STAFF_PASSWORD ||
-      password === process.env.ADMIN2_PASSWORD
-    ) {
-      role = 'staff';
-    } else if (password === expectedBillerPassword) {
-      role = 'biller';
-    } else if (password === expectedDispatcherPassword) {
-      role = 'dispatcher';
+    if (!password || typeof password !== 'string') {
+      return NextResponse.json({ error: 'Password is required' }, { status: 400 });
     }
 
-    if (!role) {
+    let authenticatedRole: UserRole | null = null;
+
+    // If explicit role is provided in request
+    if (requestedRole && ALL_ROLES.includes(requestedRole as UserRole)) {
+      const match = await verifyRolePassword(requestedRole as UserRole, password);
+      if (match) {
+        authenticatedRole = requestedRole as UserRole;
+      }
+    }
+
+    // If not authenticated yet, check in priority order:
+    // developer -> admin -> staff -> biller -> dispatcher
+    if (!authenticatedRole) {
+      const checkOrder: UserRole[] = ['developer', 'admin', 'staff', 'biller', 'dispatcher'];
+      for (const r of checkOrder) {
+        const match = await verifyRolePassword(r, password);
+        if (match) {
+          authenticatedRole = r;
+          break;
+        }
+      }
+    }
+
+    if (!authenticatedRole) {
       return NextResponse.json(
-        { error: 'Invalid password. Please enter valid Developer Admin, Super Admin, Employee, Biller, or Dispatcher credentials.' },
+        {
+          error:
+            'Invalid password. Please enter valid Developer Admin, Super Admin, Employee, Biller, or Dispatcher credentials.',
+        },
         { status: 401 }
       );
     }
 
-    const token = signAdminToken(role);
+    const token = signAdminToken(authenticatedRole);
 
     let redirectTo = '/admin';
     let roleName = 'Super Admin';
-    if (role === 'developer') {
+    if (authenticatedRole === 'developer') {
       redirectTo = '/admin/visitors';
       roleName = 'Developer Admin';
-    } else if (role === 'staff') {
+    } else if (authenticatedRole === 'staff') {
       redirectTo = '/admin/view';
       roleName = 'Internal Employee';
-    } else if (role === 'biller') {
+    } else if (authenticatedRole === 'biller') {
       redirectTo = '/biller';
       roleName = 'Biller';
-    } else if (role === 'dispatcher') {
+    } else if (authenticatedRole === 'dispatcher') {
       redirectTo = '/dispatcher';
       roleName = 'Dispatcher';
     }
@@ -60,7 +67,7 @@ export async function POST(req: NextRequest) {
     const response = NextResponse.json({
       success: true,
       message: `Authenticated as ${roleName}`,
-      role,
+      role: authenticatedRole,
       redirectTo,
     });
 
