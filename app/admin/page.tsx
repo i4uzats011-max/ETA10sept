@@ -2742,6 +2742,224 @@ export default function AdminDashboardPage() {
                 )}
               </div>
 
+              {/* ── SECTION 6: CONTAINER REMARKS & STATUS LOG (CONTAINER-WISE) ── */}
+              <div className="bg-gradient-to-br from-slate-50 via-white to-amber-50/30 p-5 sm:p-6 rounded-2xl border-2 border-slate-200 shadow-sm space-y-4">
+                {/* Header */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-200 gap-2">
+                  <div className="flex items-center space-x-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-700 flex items-center justify-center font-bold">
+                      <MessageSquare className="w-4 h-4 text-amber-600" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-black text-slate-900 tracking-tight">
+                        Container Remarks &amp; Status Log (कंटेनर रिमार्क्स व स्टेटस लॉग)
+                      </h3>
+                      <p className="text-[11px] text-slate-500">
+                        Record chronological status updates &amp; remarks over time for this container. Saved container-wise.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                      Container:{' '}
+                      <strong className="font-mono text-slate-900">
+                        {isNewContainerMode
+                          ? newContainerInput.trim() || 'New Container'
+                          : manualEtaContainer || containerSearchInput.trim() || 'None Selected'}
+                      </strong>
+                    </span>
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
+                      {containerRemarks.length} {containerRemarks.length === 1 ? 'Record' : 'Records'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Feedback Notification if any */}
+                {remarkFeedback && (
+                  <div
+                    className={`p-3 rounded-xl text-xs font-bold flex items-center space-x-2 animate-fadeIn ${
+                      remarkFeedback.type === 'success'
+                        ? 'bg-emerald-50 text-emerald-900 border border-emerald-300'
+                        : 'bg-red-50 text-red-900 border border-red-300'
+                    }`}
+                  >
+                    {remarkFeedback.type === 'success' ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                    )}
+                    <span>{remarkFeedback.message}</span>
+                  </div>
+                )}
+
+                {/* Input Fields Area */}
+                {!(manualEtaContainer || newContainerInput || containerSearchInput.trim()) ? (
+                  <div className="p-4 bg-amber-50/60 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-center space-x-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Please select or enter a container identifier in Section 1 above to record and view container-wise remarks.</span>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                      {/* Field 1: Date */}
+                      <div className="md:col-span-4 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center space-x-1">
+                            <Calendar className="w-3.5 h-3.5 text-slate-500" />
+                            <span>Record Date * (तारीख)</span>
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setRemarkDateInput(new Date().toISOString().slice(0, 10))}
+                            className="text-[10px] font-bold text-amber-700 hover:text-amber-900 underline"
+                          >
+                            Today
+                          </button>
+                        </div>
+                        <input
+                          type="date"
+                          value={remarkDateInput}
+                          onChange={(e) => setRemarkDateInput(e.target.value)}
+                          className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs"
+                        />
+                      </div>
+
+                      {/* Field 2: Remarks / Status text */}
+                      <div className="md:col-span-6 space-y-1">
+                        <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center space-x-1">
+                          <MessageSquare className="w-3.5 h-3.5 text-slate-500" />
+                          <span>Container Status / Remarks * (स्टेटस व रिमार्क्स)</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={remarkTextInput}
+                          onChange={(e) => setRemarkTextInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleAddContainerRemark();
+                            }
+                          }}
+                          placeholder="e.g. Vessel departed Shanghai, Customs hold, Cleared JNPT, Out for delivery..."
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs font-medium text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs"
+                        />
+                      </div>
+
+                      {/* Action Button: Make Done / Add Remark */}
+                      <div className="md:col-span-2">
+                        <button
+                          type="button"
+                          onClick={handleAddContainerRemark}
+                          disabled={isSavingRemark || !remarkTextInput.trim()}
+                          className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-xs transition flex items-center justify-center space-x-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                          title="Record status remark for this container"
+                        >
+                          {isSavingRemark ? (
+                            <>
+                              <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                              <span>Saving...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Check className="w-3.5 h-3.5" />
+                              <span>Done</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Quick Preset Status Chips for Rapid Entry */}
+                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                      <span className="text-[10px] font-bold text-slate-400">Quick Status:</span>
+                      {[
+                        '🚢 Vessel Departed Port',
+                        '🌊 In Transit (Mid-Sea)',
+                        '⚓ Arrived at Destination Port',
+                        '🔍 Customs Clearance Underway',
+                        '✅ Customs Out of Charge (OOC)',
+                        '🚚 Dispatched to Warehouse',
+                      ].map((chip) => (
+                        <button
+                          key={chip}
+                          type="button"
+                          onClick={() => setRemarkTextInput(chip)}
+                          className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 hover:bg-amber-100 text-slate-700 hover:text-amber-900 border border-slate-200 transition"
+                        >
+                          {chip}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Container-wise Remarks History / Timeline Display */}
+                    <div className="mt-4 pt-4 border-t border-slate-200 space-y-2">
+                      <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                        <span className="flex items-center space-x-1.5">
+                          <Clock className="w-3.5 h-3.5 text-slate-500" />
+                          <span>Container Remarks History (टाइमलाइन इतिहास)</span>
+                        </span>
+                        <span className="text-[11px] font-normal text-slate-500">
+                          {containerRemarks.length === 0 ? 'No entries' : `${containerRemarks.length} entries recorded`}
+                        </span>
+                      </div>
+
+                      {containerRemarks.length === 0 ? (
+                        <div className="p-4 rounded-xl border border-dashed border-slate-200 text-center text-xs text-slate-400 bg-slate-50/50">
+                          No status remarks entered yet for container{' '}
+                          <span className="font-mono font-bold text-slate-600">
+                            {manualEtaContainer || newContainerInput || 'this container'}
+                          </span>
+                          . Enter a date and status text above and click &ldquo;Done&rdquo; to add.
+                        </div>
+                      ) : (
+                        <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                          {[...containerRemarks]
+                            .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+                            .map((rem, idx) => (
+                              <div
+                                key={rem._id || idx}
+                                className="p-3 bg-white rounded-xl border border-slate-200 hover:border-amber-300 shadow-2xs flex items-start justify-between gap-3 transition"
+                              >
+                                <div className="flex items-start space-x-3 min-w-0">
+                                  <div className="shrink-0 mt-0.5">
+                                    <span className="px-2 py-1 rounded-md text-[10px] font-black font-mono bg-blue-50 text-blue-700 border border-blue-200 inline-flex items-center space-x-1">
+                                      <Calendar className="w-3 h-3 text-blue-600" />
+                                      <span>{formatGlobalDate(rem.date) || rem.date}</span>
+                                    </span>
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="text-xs font-semibold text-slate-900 break-words leading-relaxed">
+                                      {rem.remarks}
+                                    </p>
+                                    {rem.createdAt && (
+                                      <span className="text-[10px] text-slate-400 block mt-0.5">
+                                        Recorded on {new Date(rem.createdAt).toLocaleDateString()} at{' '}
+                                        {new Date(rem.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {rem._id && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteContainerRemark(rem._id!)}
+                                    className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition shrink-0"
+                                    title="Delete this remark record"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Submit Button */}
               <button
                 type="submit"

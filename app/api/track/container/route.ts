@@ -132,6 +132,7 @@ export async function GET(req: NextRequest) {
       status: isDelivered ? (target.status || 'Delivered') : 'In Transit',
       daysToDeliver: target.daysToDeliver ?? null,
       etaUpdatedAt: null,
+      remarks: target.remarks || target.containerRemarks || [],
     });
   } catch (error: any) {
     return NextResponse.json(
