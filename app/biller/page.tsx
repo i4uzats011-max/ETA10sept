@@ -2241,6 +2241,55 @@ export default function BillerPortalPage() {
     }
   };
 
+  // ---- PREFILL RANDOM DATA ----
+  const PREFILL_COMPANIES = [
+    { name: 'Delhi Trading Company', gstin: '07AABCD1234E1Z5', state: 'Delhi', stateCode: '07', phone: '9811234567' },
+    { name: 'Shiv Trading Co.', gstin: '07AABCS5678F1Z3', state: 'Delhi', stateCode: '07', phone: '9899876543' },
+    { name: 'Vishnu Trading Company', gstin: '09AABCV9012G1Z1', state: 'Uttar Pradesh', stateCode: '09', phone: '9412345678' },
+    { name: 'Aggarwal Trading Company', gstin: '07AABCA3456H1Z9', state: 'Delhi', stateCode: '07', phone: '9871122334' },
+    { name: 'Kamakhya Trading Company', gstin: '18AABCK7890J1Z7', state: 'Assam', stateCode: '18', phone: '9435567890' },
+    { name: 'Krishna Trading Company', gstin: '09AABCK2345K1Z5', state: 'Uttar Pradesh', stateCode: '09', phone: '9837654321' },
+    { name: 'Aggarwal Brothers & Sons', gstin: '07AABCA6789L1Z3', state: 'Delhi', stateCode: '07', phone: '9818899776' },
+  ];
+
+  const PREFILL_ADDRESSES = [
+    'SHOP NO -17/18, MAIN ROAD, SADAR BAZAR, DELHI - 110006',
+    'SHOP NO -17/18, MAIN ROAD, GANDHI NAGAR, DELHI - 110031',
+    'SHOP NO -17/18, MAIN ROAD, KAROL BAGH, NEW DELHI - 110005',
+    'SHOP NO -17/18, MAIN ROAD, CHANDNI CHOWK, DELHI - 110006',
+    'SHOP NO -17/18, MAIN ROAD, LAJPAT NAGAR, NEW DELHI - 110024',
+    'SHOP NO -17/18, MAIN ROAD, TILAK NAGAR, NEW DELHI - 110018',
+    'SHOP NO -17/18, MAIN ROAD, KAMLA NAGAR, DELHI - 110007',
+  ];
+
+  const handlePrefillRandomData = () => {
+    const randomCompany = PREFILL_COMPANIES[Math.floor(Math.random() * PREFILL_COMPANIES.length)];
+    const randomAddress = PREFILL_ADDRESSES[Math.floor(Math.random() * PREFILL_ADDRESSES.length)];
+
+    // Fill Purchaser / Consignee details
+    setPurchaserName(randomCompany.name);
+    setPurchaserGstin(randomCompany.gstin);
+    setConsigneeAddress(randomAddress);
+    setPurchaserAddress(randomAddress);
+    setConsigneeState(randomCompany.state);
+    setConsigneeStateCode(randomCompany.stateCode);
+    setPurchaserPhone(randomCompany.phone);
+    setRegistrationType('Registered');
+
+    // Fill Buyer details (same as consignee)
+    setBuyerName(randomCompany.name);
+    setBuyerAddress(randomAddress);
+    setBuyerGstin(randomCompany.gstin);
+    setBuyerState(randomCompany.state);
+    setBuyerStateCode(randomCompany.stateCode);
+    setSameAsConsignee(true);
+
+    // Switch to "new" address mode so the filled data is visible
+    setAddressMode('new');
+
+    setLookupMessage(`✓ Prefilled: ${randomCompany.name} — ${randomAddress.substring(0, 50)}...`);
+  };
+
   // Instant save current address and party name for selected Marka directly from form
   const handleInstantSaveMarkaAddress = async () => {
     const rawMarka = (mainMarka || subMarka || singleSelectedMarka).trim();
@@ -4280,35 +4329,48 @@ export default function BillerPortalPage() {
                   </div>
 
                   {/* Primary Option: Select Saved Address vs Add New Address & Party */}
-                  <div className="flex bg-slate-900 border border-slate-700/80 p-1 rounded-2xl shrink-0">
+                  <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                    <div className="flex bg-slate-900 border border-slate-700/80 p-1 rounded-2xl">
+                      <button
+                        type="button"
+                        onClick={() => setAddressMode('select')}
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 ${
+                          addressMode === 'select'
+                            ? 'bg-gradient-to-r from-sky-600 to-cyan-600 text-white shadow-md'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <MapPin className="w-3.5 h-3.5" />
+                        <span>📍 सहेजा पता चुनें (Select Address)</span>
+                        {currentMarkaAddresses.length > 0 && (
+                          <span className="ml-1 px-1.5 py-0.2 bg-white/20 text-white rounded-full text-[10px]">
+                            {currentMarkaAddresses.length}
+                          </span>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAddressMode('new')}
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 ${
+                          addressMode === 'new'
+                            ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>➕ नया पता व पार्टी जोड़ें (Add Address)</span>
+                      </button>
+                    </div>
+
+                    {/* PREFILL RANDOM DATA BUTTON */}
                     <button
                       type="button"
-                      onClick={() => setAddressMode('select')}
-                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 ${
-                        addressMode === 'select'
-                          ? 'bg-gradient-to-r from-sky-600 to-cyan-600 text-white shadow-md'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
+                      onClick={handlePrefillRandomData}
+                      className="px-3.5 py-2 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white rounded-xl text-xs font-black transition flex items-center space-x-1.5 shadow-lg shadow-amber-950/40 border border-amber-500/50 animate-pulse hover:animate-none"
+                      title="ऑटो-फ़िल: रैंडम कंपनी का नाम और पता भरें (Prefill random company name & address)"
                     >
-                      <MapPin className="w-3.5 h-3.5" />
-                      <span>📍 सहेजा पता चुनें (Select Address)</span>
-                      {currentMarkaAddresses.length > 0 && (
-                        <span className="ml-1 px-1.5 py-0.2 bg-white/20 text-white rounded-full text-[10px]">
-                          {currentMarkaAddresses.length}
-                        </span>
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAddressMode('new')}
-                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 ${
-                        addressMode === 'new'
-                          ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>➕ नया पता व पार्टी जोड़ें (Add Address)</span>
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>⚡ Prefill (ऑटो-फ़िल)</span>
                     </button>
                   </div>
                 </div>
