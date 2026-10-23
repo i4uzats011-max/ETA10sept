@@ -30,21 +30,31 @@ export async function GET(req: NextRequest) {
     // 2. Fetch distinct warehouses currently used in Warehouse Receipts
     const receiptWarehouses = await WarehouseReceipt.distinct('warehouse');
 
-    // 3. Merge, deduplicate, and sort
-    const set = new Set<string>();
-    receiptWarehouses.forEach((w) => {
-      if (w && typeof w === 'string' && w.trim()) set.add(w.trim());
-    });
+    // 3. Merge, deduplicate (strictly case-insensitive: YW = yw = Yw = yW), and sort
+    const canonicalMap = new Map<string, string>(); // lowerKey -> canonical
     customWarehouses.forEach((w: any) => {
-      if (w.name && typeof w.name === 'string' && w.name.trim()) set.add(w.name.trim());
+      if (w.name && typeof w.name === 'string' && w.name.trim()) {
+        const key = w.name.trim().toLowerCase();
+        if (!canonicalMap.has(key)) {
+          canonicalMap.set(key, w.name.trim());
+        }
+      }
+    });
+    receiptWarehouses.forEach((w) => {
+      if (w && typeof w === 'string' && w.trim()) {
+        const key = w.trim().toLowerCase();
+        if (!canonicalMap.has(key)) {
+          canonicalMap.set(key, w.trim());
+        }
+      }
     });
 
     // Only populate defaults if database is completely empty (fresh initialization)
-    if (set.size === 0) {
-      DEFAULT_WAREHOUSES.forEach((w) => set.add(w));
+    if (canonicalMap.size === 0) {
+      DEFAULT_WAREHOUSES.forEach((w) => canonicalMap.set(w.toLowerCase(), w));
     }
 
-    const sortedList = Array.from(set).sort((a, b) => a.localeCompare(b));
+    const sortedList = Array.from(canonicalMap.values()).sort((a, b) => a.localeCompare(b));
 
     return NextResponse.json({
       success: true,
@@ -59,7 +69,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST: Create a new China Warehouse
+// POST: Create a new China Warehouse (strictly prevents duplicates: YW = yw = Yw = yW)
 export async function POST(req: NextRequest) {
   if (!isSuperAdminAuthenticated(req)) {
     return NextResponse.json(
@@ -84,18 +94,22 @@ export async function POST(req: NextRequest) {
     const rawClean = name.trim();
     const translatedName = translateWarehouse(rawClean);
 
-    // Check if warehouse already exists (case-insensitive)
-    const existing = await Warehouse.findOne({
-      name: new RegExp(`^${translatedName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-    });
+    // Check if warehouse already exists (strictly case-insensitive: YW = yw = Yw = yW)
+    const escapedPattern = new RegExp(`^${translatedName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+    const existingInWh = await Warehouse.findOne({ name: escapedPattern });
+    const existingInReceipt = await WarehouseReceipt.findOne({ warehouse: escapedPattern });
 
-    if (existing) {
-      return NextResponse.json({
-        success: true,
-        message: `Warehouse '${existing.name}' is already registered and ready for use.`,
-        warehouse: existing,
-        alreadyExisted: true,
-      });
+    if (existingInWh || existingInReceipt) {
+      const existingName = existingInWh?.name || existingInReceipt?.warehouse || translatedName;
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Warehouse '${existingName}' already exists. Duplicate warehouses (e.g. YW = yw = Yw) are not allowed.`,
+          alreadyExisted: true,
+          existingName,
+        },
+        { status: 400 }
+      );
     }
 
     const newWarehouse = await Warehouse.create({
@@ -121,7 +135,99 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// DELETE: Delete a warehouse only if NO data is mapped to it
+// PUT: Edit / Rename / Merge a China Warehouse
+export async function PUT(req: NextRequest) {
+  if (!isSuperAdminAuthenticated(req)) {
+    return NextResponse.json(
+      { error: 'Forbidden: Any change in data can only be made by Super Admin.' },
+      { status: 403 }
+    );
+  }
+
+  try {
+    const body = await req.json();
+    const { oldName, newName, code, city, address, contact, mergeWithExisting } = body;
+
+    if (!oldName || !oldName.trim()) {
+      return NextResponse.json({ error: 'Current warehouse name (oldName) is required' }, { status: 400 });
+    }
+    if (!newName || !newName.trim()) {
+      return NextResponse.json({ error: 'New warehouse name is required' }, { status: 400 });
+    }
+
+    await connectToDatabase();
+
+    const cleanOld = oldName.trim();
+    const cleanNew = newName.trim();
+    const oldRegex = new RegExp(`^${cleanOld.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+    const newRegex = new RegExp(`^${cleanNew.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+
+    if (cleanOld.toLowerCase() === cleanNew.toLowerCase()) {
+      // Just update metadata (code, city, address, contact)
+      await Warehouse.findOneAndUpdate(
+        { name: oldRegex },
+        {
+          $set: {
+            code: code !== undefined ? String(code).trim().toUpperCase() : undefined,
+            city: city !== undefined ? String(city).trim() : undefined,
+            address: address !== undefined ? String(address).trim() : undefined,
+            contact: contact !== undefined ? String(contact).trim() : undefined,
+          },
+        }
+      );
+      return NextResponse.json({ success: true, message: `Warehouse '${cleanOld}' details updated successfully.` });
+    }
+
+    // Check if new name already exists case-insensitively
+    const existingNew = await Warehouse.findOne({ name: newRegex });
+    const existingNewInReceipts = await WarehouseReceipt.findOne({ warehouse: newRegex });
+
+    if (!mergeWithExisting && (existingNew || existingNewInReceipts)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Warehouse '${existingNew?.name || cleanNew}' already exists (YW = yw = Yw are identical). Cannot rename to an existing warehouse. Use Merge option if you wish to combine them.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    // If merging or renaming: update all receipts, container plans, and shipments
+    await WarehouseReceipt.updateMany({ warehouse: oldRegex }, { $set: { warehouse: cleanNew } });
+    await Shipment.updateMany({ warehouse: oldRegex }, { $set: { warehouse: cleanNew } });
+    await Container.updateMany({ warehouse: oldRegex }, { $set: { warehouse: cleanNew } });
+
+    // Update or remove old Warehouse collection entry
+    if (mergeWithExisting) {
+      await Warehouse.deleteOne({ name: oldRegex });
+    } else {
+      await Warehouse.findOneAndUpdate(
+        { name: oldRegex },
+        {
+          $set: {
+            name: cleanNew,
+            code: code ? String(code).trim().toUpperCase() : undefined,
+            city: city ? String(city).trim() : undefined,
+            address: address ? String(address).trim() : undefined,
+            contact: contact ? String(contact).trim() : undefined,
+          },
+        },
+        { upsert: true }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: mergeWithExisting
+        ? `Warehouse '${cleanOld}' successfully merged into '${cleanNew}'.`
+        : `Warehouse '${cleanOld}' successfully renamed to '${cleanNew}'.`,
+    });
+  } catch (error: any) {
+    return NextResponse.json({ error: error?.message || 'Failed to update warehouse' }, { status: 500 });
+  }
+}
+
+// DELETE: Delete a warehouse ONLY if NO data exists in that warehouse
 export async function DELETE(req: NextRequest) {
   if (!isSuperAdminAuthenticated(req)) {
     return NextResponse.json(
@@ -134,14 +240,12 @@ export async function DELETE(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     let name = searchParams.get('name')?.trim();
     let id = searchParams.get('id')?.trim();
-    let deleteAllReceiptsFirst = searchParams.get('deleteAllReceiptsFirst') === 'true' || searchParams.get('force') === 'true';
 
     if (!name && !id) {
       try {
         const body = await req.json();
         name = body.name?.trim();
         id = body.id?.trim();
-        if (body.deleteAllReceiptsFirst || body.force) deleteAllReceiptsFirst = true;
       } catch {}
     }
 
@@ -170,37 +274,8 @@ export async function DELETE(req: NextRequest) {
 
     const totalMapped = receiptCount + containerCount + shipmentCount;
 
-    if (totalMapped > 0 && deleteAllReceiptsFirst) {
-      // 1. Process Rule: Unmark and remove all shipments mapped to this warehouse from container plans
-      const shipmentsToClean = await Shipment.find({ warehouse: regexPattern }).lean();
-      for (const s of shipmentsToClean) {
-        const qty = parseInt(String(s.quantity || 0), 10) || 0;
-        if (s.container) {
-          await Container.findOneAndUpdate(
-            { container: s.container },
-            {
-              $inc: {
-                shipmentCount: -1,
-                totalQuantity: -qty,
-              },
-            }
-          );
-        }
-        await Shipment.findByIdAndDelete(s._id);
-      }
-
-      // 2. Delete all warehouse receipts mapped to this warehouse
-      const deletedReceipts = await WarehouseReceipt.find({ warehouse: regexPattern }).select('_id').lean();
-      await WarehouseReceipt.deleteMany({ warehouse: regexPattern });
-
-      // Async clean from Typesense
-      deletedReceipts.forEach((r: any) => {
-        deleteSingleWarehouseReceipt(String(r._id)).catch(() => {});
-      });
-
-      // 3. Remove container plans dedicated to this warehouse if empty
-      await Container.deleteMany({ warehouse: regexPattern, shipmentCount: { $lte: 0 } });
-    } else if (totalMapped > 0) {
+    // Strict rule: A user can ONLY delete a warehouse if ZERO data exists in that warehouse!
+    if (totalMapped > 0) {
       const breakdown: string[] = [];
       if (receiptCount > 0) breakdown.push(`${receiptCount} warehouse receipt(s)`);
       if (containerCount > 0) breakdown.push(`${containerCount} container plan(s)`);
@@ -208,9 +283,10 @@ export async function DELETE(req: NextRequest) {
 
       return NextResponse.json(
         {
+          success: false,
           error: `Cannot delete warehouse '${warehouseName}': ${totalMapped} record(s) (${breakdown.join(
             ', '
-          )}) are currently mapped to this warehouse. First delete all data related to this warehouse, then delete the warehouse.`,
+          )}) currently exist in this warehouse. A warehouse can only be deleted if there is NO data in it. Please transfer the goods to another warehouse first using 'Transfer Goods'.`,
           mappedCount: totalMapped,
           receiptCount,
           containerCount,
