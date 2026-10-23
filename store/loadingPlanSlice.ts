@@ -669,6 +669,35 @@ export const updateWarehouse = createAsyncThunk(
 );
 export const editWarehouse = updateWarehouse;
 
+// 16b. Transfer Warehouse Goods
+export const transferWarehouseGoods = createAsyncThunk(
+  'loadingPlan/transferWarehouseGoods',
+  async (
+    payload: {
+      fromWarehouse: string;
+      toWarehouse: string;
+      receipts?: string[];
+      transferAll?: boolean;
+    },
+    { rejectWithValue, dispatch }
+  ) => {
+    try {
+      const res = await fetch('/api/warehouse/transfer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to transfer goods');
+      dispatch(fetchWarehouseReceipts());
+      dispatch(fetchLoadingPlans());
+      return data;
+    } catch (err: any) {
+      return rejectWithValue(err.message || 'Error transferring warehouse goods');
+    }
+  }
+);
+
 // 17. fetchUploadHistory
 export const fetchUploadHistory = createAsyncThunk(
   'loadingPlan/fetchUploadHistory',
@@ -1216,6 +1245,35 @@ export const loadingPlanSlice = createSlice({
       state.actionMessage = {
         type: 'error',
         text: (action.payload as string) || 'Failed to update warehouse',
+      };
+    });
+
+    // 16b. transferWarehouseGoods
+    builder.addCase(transferWarehouseGoods.pending, (state) => {
+      state.actionLoading = true;
+      state.actionMessage = null;
+    });
+    builder.addCase(transferWarehouseGoods.fulfilled, (state, action) => {
+      state.actionLoading = false;
+      state.actionMessage = {
+        type: 'success',
+        text: action.payload.message || 'Goods transferred successfully',
+      };
+      const toWh = action.payload.toWarehouse;
+      const fromWh = action.payload.fromWarehouse;
+      if (toWh && fromWh) {
+        state.warehouseReceipts.forEach((r) => {
+          if (r.warehouse && r.warehouse.toLowerCase() === fromWh.toLowerCase()) {
+            r.warehouse = toWh;
+          }
+        });
+      }
+    });
+    builder.addCase(transferWarehouseGoods.rejected, (state, action) => {
+      state.actionLoading = false;
+      state.actionMessage = {
+        type: 'error',
+        text: (action.payload as string) || 'Failed to transfer goods',
       };
     });
 
