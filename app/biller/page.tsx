@@ -223,6 +223,8 @@ export default function BillerPortalPage() {
   // Manual Form State
   const [receiptNo, setReceiptNo] = useState('');
   const [formBillNumber, setFormBillNumber] = useState('');
+  const [eWayInvoiceNumber, setEWayInvoiceNumber] = useState('');
+  const [useSeparateEWayInvoice, setUseSeparateEWayInvoice] = useState(false);
   const [justCreatedBill, setJustCreatedBill] = useState<any | null>(null);
   const [hsnCode, setHsnCode] = useState('9997');
   const [igstRate, setIgstRate] = useState<number>(18);
@@ -516,8 +518,8 @@ export default function BillerPortalPage() {
   // Apply shipment object to manual form
   const applyShipmentToForm = (shipment: any, markaAddress?: any) => {
     setReceiptNo(shipment.receipt || '');
-    if (shipment.receipt && (!formBillNumber || formBillNumber.startsWith('BILL-'))) {
-      setFormBillNumber(`BILL-${shipment.receipt}`);
+    if (shipment.receipt && (!formBillNumber || formBillNumber.startsWith('BILL-') || formBillNumber === shipment.receipt)) {
+      setFormBillNumber(shipment.receipt);
     }
     setContainerAlias(shipment.container || singleContainer || '');
     const m = shipment.mainMarka || shipment.subMarka || shipment.marka || '';
@@ -1292,8 +1294,8 @@ export default function BillerPortalPage() {
             setSingleSelectedMarka(af.mainMarka || af.subMarka);
           }
           setSingleSelectedReceipt(clean);
-          if (clean && (!formBillNumber || formBillNumber.startsWith('BILL-'))) {
-            setFormBillNumber(`BILL-${clean}`);
+          if (clean && (!formBillNumber || formBillNumber.startsWith('BILL-') || formBillNumber === clean)) {
+            setFormBillNumber(clean);
           }
 
           // Now lookup Marka Purchaser details from directory
@@ -2571,7 +2573,8 @@ export default function BillerPortalPage() {
     const finalBuyerName = (sameAsConsignee ? finalPurchaser : buyerName || finalPurchaser).trim();
     const finalBuyerGstin = (sameAsConsignee ? (registrationType === 'Registered' ? purchaserGstin : '') : (buyerGstin || purchaserGstin || '')).trim().toUpperCase();
 
-    const finalBillNumber = (formBillNumber.trim() || `BILL-${finalReceiptNo}`).trim();
+    const separateEWayInv = (useSeparateEWayInvoice || isEWayBillRequired) && eWayInvoiceNumber.trim();
+    const finalBillNumber = (separateEWayInv ? eWayInvoiceNumber.trim() : (formBillNumber.trim() || finalReceiptNo)).trim();
 
     setIsSubmittingManual(true);
     setManualSuccessMsg(null);
@@ -2580,6 +2583,7 @@ export default function BillerPortalPage() {
     try {
       const payload = {
         billNumber: finalBillNumber,
+        eWayInvoiceNumber: separateEWayInv ? eWayInvoiceNumber.trim() : undefined,
         receipt: finalReceiptNo,
         hsnCode: (finalItems[0]?.hsnCode || lineHsn || hsnCode || '39269099').trim(),
         igst: finalIgstRate,
@@ -2656,6 +2660,8 @@ export default function BillerPortalPage() {
       // Reset form
       setReceiptNo('');
       setFormBillNumber('');
+      setEWayInvoiceNumber('');
+      setUseSeparateEWayInvoice(false);
       setHsnCode('39269099');
       setTotalCartons('');
       setQuantityPcs('');
@@ -3727,12 +3733,12 @@ export default function BillerPortalPage() {
                     </p>
                   </div>
 
-                  {/* 4. Invoice / Bill No. (Editable) */}
+                  {/* 4. Invoice / Bill No. (Editable - Defaults to Receipt No.) */}
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-amber-300 flex items-center justify-between">
-                      <span>4. Invoice Bill No. (बिल नंबर) *</span>
-                      <span className="text-[9px] text-amber-400 font-bold bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/30">
-                        Editable
+                      <span>4. Invoice No. (इनवॉइस नंबर = रसीद नंबर) *</span>
+                      <span className="text-[9px] text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                        Default = Receipt No.
                       </span>
                     </label>
                     <input
@@ -3740,13 +3746,65 @@ export default function BillerPortalPage() {
                       required
                       value={formBillNumber}
                       onChange={(e) => setFormBillNumber(e.target.value)}
-                      placeholder={receiptNo ? `BILL-${receiptNo}` : 'e.g. BILL-260528007 or INV-001'}
+                      placeholder={receiptNo ? receiptNo : 'e.g. 260528007 or INV-001'}
                       className="w-full px-3 py-2 bg-slate-900 border border-amber-500/50 rounded-xl text-xs font-bold text-amber-300 placeholder-slate-500 focus:ring-2 focus:ring-amber-500 outline-none font-mono"
                     />
-                    <p className="text-[10px] text-slate-500">
-                      Type custom bill no. or keep auto-generated
+                    <p className="text-[10px] text-slate-400">
+                      रसीद नंबर ही इनवॉइस नंबर रहेगा (Type custom if needed)
                     </p>
                   </div>
+                </div>
+
+                {/* Separate Tax Invoice No. for E-Way Bill Section */}
+                <div className={`p-3.5 rounded-2xl transition border ${
+                  isEWayBillRequired 
+                    ? 'bg-amber-950/40 border-amber-500/60 shadow-lg' 
+                    : 'bg-slate-900/60 border-slate-800'
+                }`}>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <label className="text-xs font-bold text-amber-300 flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={useSeparateEWayInvoice || isEWayBillRequired}
+                        onChange={(e) => setUseSeparateEWayInvoice(e.target.checked)}
+                        className="rounded border-amber-500 text-amber-500 focus:ring-amber-500 w-4 h-4 cursor-pointer"
+                      />
+                      <span className="flex items-center space-x-1.5">
+                        <FileText className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>ई-वे बिल हेतु अलग इनवॉइस नंबर (Provide Separate Invoice No. for E-Way Bill)</span>
+                      </span>
+                    </label>
+                    {isEWayBillRequired ? (
+                      <span className="text-[10px] bg-red-500/20 text-red-300 font-black px-2 py-0.5 rounded border border-red-500/40 uppercase tracking-wide flex items-center space-x-1">
+                        <span>⚡ E-Way Bill Required</span>
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-slate-400">
+                        Optional (e.g. NI/26-27/349)
+                      </span>
+                    )}
+                  </div>
+
+                  {(useSeparateEWayInvoice || isEWayBillRequired) && (
+                    <div className="mt-2.5 pt-2 border-t border-slate-800 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-amber-200">
+                          Tax Invoice No. (ई-वे बिल के लिए अलग टैक्स इनवॉइस नंबर):
+                        </span>
+                        <span className="text-[10px] text-slate-400">e.g. NI/26-27/349 (Max 16 chars)</span>
+                      </div>
+                      <input
+                        type="text"
+                        value={eWayInvoiceNumber}
+                        onChange={(e) => setEWayInvoiceNumber(e.target.value.toUpperCase())}
+                        placeholder="e.g. NI/26-27/349 or INV-001"
+                        className="w-full px-3 py-2 bg-slate-950 border border-amber-400/80 rounded-xl text-xs font-bold text-amber-300 uppercase placeholder-slate-500 focus:ring-2 focus:ring-amber-400 outline-none font-mono tracking-wider"
+                      />
+                      <p className="text-[10px] text-emerald-400">
+                        ✓ यह अलग इनवॉइस नंबर सीधे E-Way Bill JSON में &apos;docNo&apos; के रूप में जाएगा।
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Auto-fill Status Banner */}
@@ -4954,19 +5012,21 @@ export default function BillerPortalPage() {
                       type="button"
                       disabled={invoiceTaxableTotal <= 0}
                       onClick={() => {
+                        const separateEWayInv = (useSeparateEWayInvoice || isEWayBillRequired) && eWayInvoiceNumber.trim();
                         const curBill = {
-                          billNumber: formBillNumber.trim() || (receiptNo.trim() ? `BILL-${receiptNo.trim()}` : `BILL-${Date.now().toString().slice(-6)}`),
+                          billNumber: separateEWayInv ? eWayInvoiceNumber.trim() : (formBillNumber.trim() || receiptNo.trim() || 'RCP-DRAFT'),
+                          eWayInvoiceNumber: separateEWayInv ? eWayInvoiceNumber.trim() : undefined,
                           receipt: receiptNo.trim() || 'RCP-DRAFT',
-                          hsnCode: lineHsn || hsnCode || '39269099',
+                          hsnCode: lineHsn || hsnCode || '94039900',
                           igst: igstRate,
-                          billingUnit: lineUnit || billingUnit || 'PCS',
+                          billingUnit: lineUnit || billingUnit || 'CTN',
                           quantityPcs: parseFloat(quantityPcs) || (lineUnit.toUpperCase() === 'PCS' ? parseFloat(lineQuantity) : 0) || 1,
                           quantityKg: parseFloat(quantityKg) || (lineUnit.toUpperCase().includes('KG') ? parseFloat(lineQuantity) : 0) || 1,
-                          totalCartons: parseFloat(totalCartons) || 0,
+                          totalCartons: parseFloat(totalCartons) || (lineUnit.toUpperCase().includes('CTN') ? parseFloat(lineQuantity) : 0) || 1,
                           taxableValue: invoiceTaxableTotal,
                           commodity: lineDescription || commodity || 'COMMERCIAL GOODS',
                           sellerName: currentSeller?.name || 'NORDEX INTERNATIONAL',
-                          sellerGstin: currentSeller?.gstin || '07AABCD1234E1Z5',
+                          sellerGstin: currentSeller?.gstin || '07AAIHH1727F1ZH',
                           sellerAddress: currentSeller?.address || '',
                           sellerState: currentSeller?.state || 'Delhi',
                           sellerStateCode: currentSeller?.stateCode || '07',
@@ -4981,9 +5041,9 @@ export default function BillerPortalPage() {
                             {
                               itemNo: 1,
                               description: lineDescription || commodity || 'COMMERCIAL GOODS',
-                              hsnCode: lineHsn || hsnCode || '39269099',
-                              quantity: parseFloat(lineQuantity) || 1,
-                              unit: lineUnit || 'PCS',
+                              hsnCode: lineHsn || hsnCode || '94039900',
+                              quantity: parseFloat(lineQuantity) || parseFloat(totalCartons) || 1,
+                              unit: lineUnit || 'CTN',
                               rate: parseFloat(lineRate) || 0,
                               amount: invoiceTaxableTotal,
                             },
@@ -5000,7 +5060,7 @@ export default function BillerPortalPage() {
 
                     <button
                       type="submit"
-                      disabled={isSubmittingManual || isEWayBillMissing || invoiceTaxableTotal <= 0}
+                      disabled={isSubmittingManual || invoiceTaxableTotal <= 0}
                       className="w-full sm:w-auto px-7 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-2xl text-xs transition shadow-lg shadow-amber-500/20 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
                     >
                       {isSubmittingManual ? (

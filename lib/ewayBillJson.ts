@@ -198,61 +198,60 @@ export function convertBillToEWayEntry(bill: any): EWayBillEntryPayload {
       const itQty = Number(it.quantity) || 1;
       const itRate = Number(it.rate) || 0;
       const itAmt = Number(it.amount) || Number((itQty * itRate).toFixed(2)) || 0;
-      const rawHsn = String(it.hsnCode || bill.hsnCode || '39269099').replace(/\D/g, '');
-      const hsnCodeNum = parseInt(rawHsn, 10) || 39269099;
+      const rawHsn = String(it.hsnCode || bill.hsnCode || '94039900').replace(/\D/g, '');
       const desc = String(it.description || bill.commodity || 'COMMERCIAL GOODS').trim().slice(0, 100);
 
-      const itUnit = String(it.unit || bill.billingUnit || 'PCS').trim().toUpperCase();
+      const itUnit = String(it.unit || bill.billingUnit || 'CTN').trim().toUpperCase();
       let qtyUnit = 'PCS';
       if (itUnit.includes('KG')) qtyUnit = 'KGS';
-      else if (itUnit.includes('CTN') || itUnit.includes('CARTON')) qtyUnit = 'BOX';
+      else if (itUnit.includes('CTN') || itUnit.includes('CARTON')) qtyUnit = 'CTN';
+      else if (itUnit.includes('BOX')) qtyUnit = 'BOX';
       else if (itUnit.includes('BAG')) qtyUnit = 'BAG';
       else qtyUnit = 'PCS';
 
       return {
         itemNo: it.itemNo || idx + 1,
         productName: desc,
-        productDesc: desc,
-        hsnCode: hsnCodeNum,
+        productDesc: 'Other',
+        hsnCode: rawHsn,
         quantity: itQty,
         qtyUnit,
-        cgstRate: isDelhiIntra ? Number((rawIgstRate / 2).toFixed(2)) : 0,
+        taxableAmount: itAmt,
         sgstRate: isDelhiIntra ? Number((rawIgstRate / 2).toFixed(2)) : 0,
+        cgstRate: isDelhiIntra ? Number((rawIgstRate / 2).toFixed(2)) : 0,
         igstRate: isDelhiIntra ? 0 : rawIgstRate,
         cessRate: 0,
         cessNonAdvol: 0,
-        cessNonadvol: 0,
-        taxableAmount: itAmt,
       };
     });
   } else {
     const itQty = Number(bill.quantityPcs) || Number(bill.quantityKg) || Number(bill.totalCartons) || 1;
     const itAmt = Number(bill.taxableValue) || 0;
-    const rawHsn = String(bill.hsnCode || '39269099').replace(/\D/g, '');
-    const hsnCodeNum = parseInt(rawHsn, 10) || 39269099;
+    const rawHsn = String(bill.hsnCode || '94039900').replace(/\D/g, '');
     const desc = String(bill.commodity || 'COMMERCIAL GOODS').trim().slice(0, 100);
 
-    const bUnit = String(bill.billingUnit || 'PCS').trim().toUpperCase();
+    const bUnit = String(bill.billingUnit || 'CTN').trim().toUpperCase();
     let qtyUnit = 'PCS';
     if (bUnit.includes('KG')) qtyUnit = 'KGS';
-    else if (bUnit.includes('CTN') || bUnit.includes('CARTON')) qtyUnit = 'BOX';
+    else if (bUnit.includes('CTN') || bUnit.includes('CARTON')) qtyUnit = 'CTN';
+    else if (bUnit.includes('BOX')) qtyUnit = 'BOX';
+    else if (bUnit.includes('BAG')) qtyUnit = 'BAG';
     else qtyUnit = 'PCS';
 
     itemList = [
       {
         itemNo: 1,
         productName: desc,
-        productDesc: desc,
-        hsnCode: hsnCodeNum,
+        productDesc: 'Other',
+        hsnCode: rawHsn,
         quantity: itQty,
         qtyUnit,
-        cgstRate: isDelhiIntra ? Number((rawIgstRate / 2).toFixed(2)) : 0,
+        taxableAmount: itAmt,
         sgstRate: isDelhiIntra ? Number((rawIgstRate / 2).toFixed(2)) : 0,
+        cgstRate: isDelhiIntra ? Number((rawIgstRate / 2).toFixed(2)) : 0,
         igstRate: isDelhiIntra ? 0 : rawIgstRate,
         cessRate: 0,
         cessNonAdvol: 0,
-        cessNonadvol: 0,
-        taxableAmount: itAmt,
       },
     ];
   }
@@ -268,16 +267,13 @@ export function convertBillToEWayEntry(bill: any): EWayBillEntryPayload {
   const cleanVehicleNo = formatVehicleNumber(bill.vehicleNumber);
   const hasVehicle = Boolean(cleanVehicleNo && cleanVehicleNo.length >= 4);
 
-  // In Government NIC E-Way Bill schema:
-  // If vehicle is entered: Part-B is filled with clean vehicle number and vehicleType: 'R'
-  // If vehicle is NOT entered: NIC portal strictly requires transporterId (Supplier GSTIN for self-transport) to generate Part-A without error
-  const transporterId = (bill.transporterId || fromGstin || '').trim();
-  const transporterName = (bill.transporterName || fromTrdName || 'Self').trim();
-  const vehicleNo = hasVehicle ? cleanVehicleNo : '';
-  const vehicleType = hasVehicle ? 'R' : '';
-  const transDocNo = docNo.slice(0, 16);
-  const transDocDate = docDate;
-  const transDistance = parseInt(String(bill.distance || bill.transDistance || '20'), 10) || 20;
+  // Resolution of PIN code for Seller (North West Delhi / Badli defaults to 110042)
+  let resolvedFromPincode = bill.sellerPincode ? parseInt(bill.sellerPincode, 10) : extractPincode(bill.sellerAddress, 110042);
+  if (!resolvedFromPincode || (resolvedFromPincode === 110006 && String(bill.sellerAddress || '').toLowerCase().includes('badli'))) {
+    resolvedFromPincode = 110042;
+  }
+
+  const mainHsnCode = String(itemList[0]?.hsnCode || bill.hsnCode || '94039900').replace(/\D/g, '');
 
   return {
     userGstin: fromGstin,
@@ -288,45 +284,39 @@ export function convertBillToEWayEntry(bill: any): EWayBillEntryPayload {
     docNo: docNo.slice(0, 16),
     docDate,
     transType: 1,
-    transactionType: 1,
     fromGstin,
     fromTrdName,
-    fromAddr1: sellerAddr.addr1,
-    fromAddr2: sellerAddr.addr2,
-    fromPlace: sellerAddr.place,
-    fromPincode,
-    // Dispatch From State Codes (actualFromStateCode is mandatory for NIC bulk upload)
+    fromAddr1: (bill.sellerAddress || 'ground floor, house no. 371 plot no. 319, Badli Road, Badli Sub Post Office, Badli, New Delhi').trim().slice(0, 120),
+    fromAddr2: String(resolvedFromPincode),
+    fromPlace: '',
     actualFromStateCode: fromStateCode,
-    actFromStateCode: fromStateCode,
+    fromPincode: resolvedFromPincode,
     fromStateCode,
     toGstin,
     toTrdName,
-    toAddr1: toAddr.addr1,
-    toAddr2: toAddr.addr2,
-    toPlace: toAddr.place,
+    toAddr1: (consigneeAddrFull || 'SHOP NO.17/18 MAIN ROAD, Delhi').trim().slice(0, 120),
+    toAddr2: '',
+    toPlace: '',
     toPincode,
-    // Ship To State Codes (actualToStateCode is mandatory for NIC bulk upload)
     actualToStateCode: toStateCode,
-    actToStateCode: toStateCode,
     toStateCode,
-    otherValue: 0,
     totalValue: Number(totalTaxable.toFixed(2)),
     cgstValue: cgstVal,
     sgstValue: sgstVal,
     igstValue: igstVal,
     cessValue: 0,
-    cessNonAdvolValue: 0,
-    cessNonadvolValue: 0,
+    TotNonAdvolVal: 0,
+    OthValue: 0,
     totInvValue: totalInvoiceVal,
-    TotInvValue: totalInvoiceVal,
-    transporterId,
-    transporterName,
-    transDocNo,
-    transDocDate,
-    transMode: '1', // 1: Road
-    transDistance,
-    vehicleNo,
-    vehicleType,
+    transMode: 1, // Road (integer)
+    transDistance: parseInt(String(bill.distance || bill.transDistance || '0'), 10) || 0,
+    transporterName: hasVehicle ? '' : (bill.transporterName || fromTrdName || 'Self').trim(),
+    transporterId: hasVehicle ? '' : (bill.transporterId || fromGstin || '').trim(),
+    transDocNo: '',
+    transDocDate: '',
+    vehicleNo: cleanVehicleNo,
+    vehicleType: hasVehicle ? 'R' : '',
+    mainHsnCode,
     itemList,
   };
 }
