@@ -10,24 +10,24 @@ export interface EWayBillItemPayload {
   itemNo: number;
   productName: string;
   productDesc: string;
-  hsnCode: number;
+  hsnCode: string | number;
   quantity: number;
   qtyUnit: string;
-  cgstRate: number;
+  taxableAmount: number;
   sgstRate: number;
+  cgstRate: number;
   igstRate: number;
   cessRate: number;
   cessNonAdvol: number;
-  taxableAmount: number;
 }
 
 export interface EWayBillEntryPayload {
   userGstin?: string;
   supplyType: 'O'; // Outward
-  subSupplyType: '1'; // 1: Supply
+  subSupplyType: number; // 1: Supply (NIC standard integer)
   subSupplyDesc?: string;
   docType: 'INV'; // INV: Tax Invoice
-  docNo: string; // Invoice / Bill Number
+  docNo: string; // Invoice / Bill Number (e.g. NI/26-27/349)
   docDate: string; // DD/MM/YYYY
   transType: number; // 1: Regular
   fromGstin: string;
@@ -35,34 +35,34 @@ export interface EWayBillEntryPayload {
   fromAddr1: string;
   fromAddr2: string;
   fromPlace: string;
-  fromPincode: number;
-  actFromStateCode: number;
-  fromStateCode: number;
+  actualFromStateCode: number; // 7 for Delhi
+  fromPincode: number; // e.g. 110042
+  fromStateCode: number; // 7 for Delhi
   toGstin: string; // 'URP' for unregistered or 15-digit GSTIN
   toTrdName: string;
   toAddr1: string;
   toAddr2: string;
   toPlace: string;
-  toPincode: number;
-  actToStateCode: number;
-  toStateCode: number;
-  transactionType: number;
-  otherValue: number;
+  toPincode: number; // e.g. 110036
+  actualToStateCode: number; // 7 for Delhi
+  toStateCode: number; // 7 for Delhi
   totalValue: number; // Total Taxable Value
   cgstValue: number;
   sgstValue: number;
   igstValue: number;
   cessValue: number;
-  cessNonAdvolValue: number;
+  TotNonAdvolVal: number; // 0
+  OthValue: number; // 0
   totInvValue: number; // Grand Total Invoice Value
-  transporterId: string;
+  transMode: number; // 1: Road (integer)
+  transDistance: number; // 0 (or in KM)
   transporterName: string;
+  transporterId: string;
   transDocNo: string;
-  transMode: string; // 1: Road
-  transDistance: string; // in KM e.g. "20"
-  transDocDate?: string;
-  vehicleNo: string; // Vehicle Number (without spaces)
-  vehicleType: string; // 'R': Regular
+  transDocDate: string;
+  vehicleNo: string; // e.g. "DL01LAH5192"
+  vehicleType: string; // 'R' if vehicleNo is present, else ''
+  mainHsnCode: string; // e.g. "94039900"
   itemList: EWayBillItemPayload[];
 }
 
@@ -157,7 +157,9 @@ export function formatVehicleNumber(vNo?: string): string {
  * Transform a BillItem or bill object into an NIC Government-compliant E-Way Bill entry
  */
 export function convertBillToEWayEntry(bill: any): EWayBillEntryPayload {
-  const docNo = String(bill.billNumber || `BILL-${bill.receipt || Date.now().toString().slice(-6)}`).trim();
+  // Use separate E-Way invoice number if provided, else invoiceNumber, else billNumber, else receipt
+  const rawDocNo = bill.eWayInvoiceNumber || bill.invoiceNumber || bill.billNumber || bill.receipt || Date.now().toString().slice(-6);
+  const docNo = String(rawDocNo).trim();
   const docDate = formatEWayBillDate(bill.createdAt || new Date());
 
   // Supplier / Seller Details
@@ -219,6 +221,7 @@ export function convertBillToEWayEntry(bill: any): EWayBillEntryPayload {
         igstRate: isDelhiIntra ? 0 : rawIgstRate,
         cessRate: 0,
         cessNonAdvol: 0,
+        cessNonadvol: 0,
         taxableAmount: itAmt,
       };
     });
@@ -248,6 +251,7 @@ export function convertBillToEWayEntry(bill: any): EWayBillEntryPayload {
         igstRate: isDelhiIntra ? 0 : rawIgstRate,
         cessRate: 0,
         cessNonAdvol: 0,
+        cessNonadvol: 0,
         taxableAmount: itAmt,
       },
     ];
@@ -260,23 +264,39 @@ export function convertBillToEWayEntry(bill: any): EWayBillEntryPayload {
   const igstVal = isDelhiIntra ? 0 : Number(((totalTaxable * rawIgstRate) / 100).toFixed(2));
   const totalInvoiceVal = Number((totalTaxable + cgstVal + sgstVal + igstVal).toFixed(2)) || Number(bill.totalAmount || 0);
 
+  // Vehicle and Part-B / Transporter resolution
   const cleanVehicleNo = formatVehicleNumber(bill.vehicleNumber);
+  const hasVehicle = Boolean(cleanVehicleNo && cleanVehicleNo.length >= 4);
+
+  // In Government NIC E-Way Bill schema:
+  // If vehicle is entered: Part-B is filled with clean vehicle number and vehicleType: 'R'
+  // If vehicle is NOT entered: NIC portal strictly requires transporterId (Supplier GSTIN for self-transport) to generate Part-A without error
+  const transporterId = (bill.transporterId || fromGstin || '').trim();
+  const transporterName = (bill.transporterName || fromTrdName || 'Self').trim();
+  const vehicleNo = hasVehicle ? cleanVehicleNo : '';
+  const vehicleType = hasVehicle ? 'R' : '';
+  const transDocNo = docNo.slice(0, 16);
+  const transDocDate = docDate;
+  const transDistance = parseInt(String(bill.distance || bill.transDistance || '20'), 10) || 20;
 
   return {
     userGstin: fromGstin,
     supplyType: 'O',
-    subSupplyType: '1',
+    subSupplyType: 1, // Official NIC integer
     subSupplyDesc: '',
     docType: 'INV',
     docNo: docNo.slice(0, 16),
     docDate,
     transType: 1,
+    transactionType: 1,
     fromGstin,
     fromTrdName,
     fromAddr1: sellerAddr.addr1,
     fromAddr2: sellerAddr.addr2,
     fromPlace: sellerAddr.place,
     fromPincode,
+    // Dispatch From State Codes (actualFromStateCode is mandatory for NIC bulk upload)
+    actualFromStateCode: fromStateCode,
     actFromStateCode: fromStateCode,
     fromStateCode,
     toGstin,
@@ -285,9 +305,10 @@ export function convertBillToEWayEntry(bill: any): EWayBillEntryPayload {
     toAddr2: toAddr.addr2,
     toPlace: toAddr.place,
     toPincode,
+    // Ship To State Codes (actualToStateCode is mandatory for NIC bulk upload)
+    actualToStateCode: toStateCode,
     actToStateCode: toStateCode,
     toStateCode,
-    transactionType: 1,
     otherValue: 0,
     totalValue: Number(totalTaxable.toFixed(2)),
     cgstValue: cgstVal,
@@ -295,14 +316,17 @@ export function convertBillToEWayEntry(bill: any): EWayBillEntryPayload {
     igstValue: igstVal,
     cessValue: 0,
     cessNonAdvolValue: 0,
+    cessNonadvolValue: 0,
     totInvValue: totalInvoiceVal,
-    transporterId: '',
-    transporterName: '',
-    transDocNo: '',
+    TotInvValue: totalInvoiceVal,
+    transporterId,
+    transporterName,
+    transDocNo,
+    transDocDate,
     transMode: '1', // 1: Road
-    transDistance: '20', // Default within 20km for Delhi
-    vehicleNo: cleanVehicleNo,
-    vehicleType: 'R',
+    transDistance,
+    vehicleNo,
+    vehicleType,
     itemList,
   };
 }
@@ -315,7 +339,7 @@ export function buildEWayBillJson(bills: any | any[]): EWayBillJsonContainer {
   const entries = billArray.filter(Boolean).map(convertBillToEWayEntry);
 
   return {
-    version: '1.0.0421',
+    version: '1.0.0621',
     billLists: entries,
   };
 }
