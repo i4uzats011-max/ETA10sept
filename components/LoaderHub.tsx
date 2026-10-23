@@ -157,6 +157,7 @@ export default function LoaderHub() {
   const [splitQuantityInput, setSplitQuantityInput] = useState<number | ''>('');
   const [splitWeightInput, setSplitWeightInput] = useState('');
   const [splitVolumeInput, setSplitVolumeInput] = useState('');
+  const [splitItemNameInput, setSplitItemNameInput] = useState('');
 
   // Local state for Allot modal inputs
   const [allotSelectedContainer, setAllotSelectedContainer] = useState('');
@@ -588,6 +589,7 @@ export default function LoaderHub() {
   const [containerWiseQuantity, setContainerWiseQuantity] = useState<number | ''>('');
   const [containerWiseWeight, setContainerWiseWeight] = useState('');
   const [containerWiseVolume, setContainerWiseVolume] = useState('');
+  const [containerWiseItemName, setContainerWiseItemName] = useState('');
   const [isContainerWiseLoading, setIsContainerWiseLoading] = useState(false);
 
   // Local state for Mark Delivered modal
@@ -1452,11 +1454,13 @@ export default function LoaderHub() {
       setContainerWiseQuantity(rem > 0 ? rem : '');
       setContainerWiseWeight(firstStock.weight || '');
       setContainerWiseVolume(firstStock.volume || '');
+      setContainerWiseItemName(firstStock.english || firstStock.commodity || '');
     } else {
       setContainerWiseReceiptId('');
       setContainerWiseQuantity('');
       setContainerWiseWeight('');
       setContainerWiseVolume('');
+      setContainerWiseItemName('');
     }
     setIsContainerWiseLoadOpen(true);
   };
@@ -1500,6 +1504,7 @@ export default function LoaderHub() {
           quantityToLoad: qtyNum,
           weightToLoad: containerWiseWeight.trim(),
           volumeToLoad: containerWiseVolume.trim(),
+          itemName: containerWiseItemName.trim(),
         })
       );
       if (allocateReceiptSplit.fulfilled.match(res)) {
@@ -1694,6 +1699,7 @@ export default function LoaderHub() {
     setSplitQuantityInput(avail > 0 ? avail : 1);
     setSplitWeightInput('');
     setSplitVolumeInput('');
+    setSplitItemNameInput(receipt.english || receipt.commodity || '');
     if (loadingPlans.length > 0 && !selectedPlanForAllocation) {
       setSelectedPlanForAllocation(loadingPlans[0].container);
     }
@@ -1818,6 +1824,7 @@ export default function LoaderHub() {
         quantityToLoad: qty,
         weightToLoad: splitWeightInput,
         volumeToLoad: splitVolumeInput,
+        itemName: splitItemNameInput.trim(),
       })
     );
 
@@ -8207,6 +8214,7 @@ export default function LoaderHub() {
                                     setContainerWiseQuantity(rem > 0 ? rem : '');
                                     setContainerWiseWeight(r.weight || '');
                                     setContainerWiseVolume(r.volume || '');
+                                    setContainerWiseItemName(r.english || r.commodity || '');
                                     setContainerWiseReceiptSearch(r.receipt);
                                     setIsReceiptDropdownOpen(false);
                                   }}
@@ -8264,6 +8272,7 @@ export default function LoaderHub() {
                             setContainerWiseQuantity(rem > 0 ? rem : '');
                             setContainerWiseWeight(r.weight || '');
                             setContainerWiseVolume(r.volume || '');
+                            setContainerWiseItemName(r.english || r.commodity || '');
                             setContainerWiseReceiptSearch(r.receipt);
                           }
                         }}

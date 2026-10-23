@@ -299,6 +299,7 @@ export const allocateReceiptSplit = createAsyncThunk(
       quantityToLoad: number;
       weightToLoad?: string;
       volumeToLoad?: string;
+      itemName?: string;
     },
     { rejectWithValue }
   ) => {

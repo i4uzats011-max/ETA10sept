@@ -200,7 +200,7 @@ export async function POST(req: NextRequest) {
     // Action 2: Split and Allocate Cargo into Container
     // ----------------------------------------------------
     if (action === 'allocate-split') {
-      const { receipt, container, quantityToLoad, weightToLoad, volumeToLoad, receiptId, warehouse } = body;
+      const { receipt, container, quantityToLoad, weightToLoad, volumeToLoad, receiptId, warehouse, itemName, commodity, english } = body;
       const cleanReceipt = (receipt || '').trim();
       const cleanContainer = (container || '').trim();
       const qtyToLoad = parseInt(String(quantityToLoad), 10);
@@ -340,7 +340,11 @@ export async function POST(req: NextRequest) {
             ? targetContainer.status
             : 'Loaded');
 
-      // 3. Create Shipment allocation record (Strictly store whReceipt._id and whReceipt.warehouse)
+      // 3. Create Shipment allocation record with custom or original item name
+      const customItemName = (itemName || english || commodity || '').trim();
+      const loadedCommodity = customItemName || whReceipt.commodity || 'Goods';
+      const loadedEnglish = customItemName || whReceipt.english || whReceipt.commodity || 'Goods';
+
       const newShipment = await Shipment.create({
         receipt: whReceipt.receipt,
         receiptId: whReceipt._id,
@@ -351,11 +355,11 @@ export async function POST(req: NextRequest) {
         originalTotalQuantity: String(whReceipt.quantity),
         isSplit: isSplitOperation,
         splitIndex: existingSplitsCount + 1,
-        weight: weightToLoad || whReceipt.weight || '',
-        volume: volumeToLoad || whReceipt.volume || '',
-        commodity: whReceipt.commodity || '',
+        weight: weightToLoad !== undefined && String(weightToLoad).trim() !== '' ? String(weightToLoad).trim() : '',
+        volume: volumeToLoad !== undefined && String(volumeToLoad).trim() !== '' ? String(volumeToLoad).trim() : '',
+        commodity: loadedCommodity,
         chinese: whReceipt.chinese || '',
-        english: whReceipt.english || '',
+        english: loadedEnglish,
         packaging: whReceipt.packaging || '',
         mainMarka: whReceipt.mainMarka || '',
         subMarka: whReceipt.subMarka || '',
@@ -369,7 +373,20 @@ export async function POST(req: NextRequest) {
         cost: whReceipt.cost || whReceipt.totalCost || '',
         remarks: whReceipt.remarks || whReceipt.notes || '',
         isLabblerGoods: Boolean(whReceipt.isLabblerGoods || (whReceipt.remarks && whReceipt.remarks.trim().length > 0) || (whReceipt.notes && whReceipt.notes.trim().length > 0)),
-        goodsItems: Array.isArray(whReceipt.goodsItems) && whReceipt.goodsItems.length > 0 ? whReceipt.goodsItems : [],
+        goodsItems: customItemName
+          ? [
+              {
+                name: customItemName,
+                ctn: qtyToLoad,
+                cbm: volumeToLoad || '',
+                weight: weightToLoad || '',
+                rate: whReceipt.rate || '',
+                cost: whReceipt.totalCost || '',
+              },
+            ]
+          : Array.isArray(whReceipt.goodsItems) && whReceipt.goodsItems.length > 0
+          ? whReceipt.goodsItems
+          : [],
         eta: targetContainer.destinationDate || targetContainer.eta || 'Pending',
         status: initialShipmentStatus,
         uploadedAt: new Date(),
@@ -401,13 +418,26 @@ export async function POST(req: NextRequest) {
       whReceipt.loadedWeight = newLoadedWeight;
       whReceipt.remainingWeight = newRemainingWeight;
 
-      const origName = whReceipt.commodity || whReceipt.english || 'General Goods';
+      // Warehouse stock balance retains the ORIGINAL commodity/item name ("a")
+      const origName = whReceipt.balanceItem?.name || whReceipt.english || whReceipt.commodity || 'General Goods';
       whReceipt.balanceItem = {
         name: origName,
         ctn: whReceipt.remainingQuantity,
         cbm: newRemainingCbm,
         weight: newRemainingWeight,
       };
+
+      whReceipt.loadedItems = [
+        ...(Array.isArray(whReceipt.loadedItems) ? whReceipt.loadedItems : []),
+        {
+          name: loadedEnglish,
+          ctn: qtyToLoad,
+          cbm: loadedCbm,
+          weight: loadedWeight,
+          container: targetContainer.container,
+          shipmentId: newShipment._id,
+        },
+      ];
 
       if (hasDeliveredShipments) {
         whReceipt.isDelivered = false;
@@ -1606,7 +1636,7 @@ export async function POST(req: NextRequest) {
           }));
         }
 
-        if (primaryCommodity && (!whReceipt.commodity || whReceipt.commodity === 'Cargo' || formattedItems.length === 1)) {
+        if (primaryCommodity && (!whReceipt.commodity || whReceipt.commodity === 'Cargo' || (!shipment && formattedItems.length === 1))) {
           whReceipt.commodity = primaryCommodity;
           whReceipt.english = primaryCommodity;
         }
