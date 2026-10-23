@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
 
     await connectToDatabase();
 
-    const uploadRecord = await UploadHistory.findOne({
+    const uploadRecord: any = await UploadHistory.findOne({
       $or: [{ uploadId }, { _id: uploadId.match(/^[0-9a-fA-F]{24}$/) ? uploadId : null }],
     }).lean();
 

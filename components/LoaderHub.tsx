@@ -782,6 +782,14 @@ export default function LoaderHub() {
   const [isCreatingWarehouse, setIsCreatingWarehouse] = useState(false);
   const [warehouseModalContext, setWarehouseModalContext] = useState<'filter' | 'receive' | 'plan' | 'excel' | 'alter' | 'bulkEdit' | 'singleEdit'>('filter');
 
+  // Transfer Goods between Warehouses State
+  const [isTransferGoodsOpen, setIsTransferGoodsOpen] = useState(false);
+  const [transferFromWarehouse, setTransferFromWarehouse] = useState('');
+  const [transferToWarehouse, setTransferToWarehouse] = useState('');
+  const [transferMode, setTransferMode] = useState<'all' | 'selected'>('all');
+  const [transferReceiptList, setTransferReceiptList] = useState<string[]>([]);
+  const [isSubmittingTransfer, setIsSubmittingTransfer] = useState(false);
+
   // Real-time duplicate receipt detection warehouse-wise
   const receiveReceiptDuplicate = useMemo(() => {
     if (!receiveReceipt.trim() || !receiveWarehouse.trim()) return null;
@@ -841,6 +849,12 @@ export default function LoaderHub() {
     e.preventDefault();
     if (!newWarehouseName.trim()) {
       alert('Warehouse name is required');
+      return;
+    }
+    const cleanLower = newWarehouseName.trim().toLowerCase();
+    const existing = availableWarehouses.find((w) => w.toLowerCase() === cleanLower);
+    if (existing) {
+      alert(`Warehouse '${existing}' already exists. Duplicate warehouses (e.g. YW = yw = Yw) are not allowed.`);
       return;
     }
     setIsCreatingWarehouse(true);
@@ -940,6 +954,75 @@ export default function LoaderHub() {
       }
     } finally {
       setIsDeletingProcess(false);
+    }
+  };
+
+  // Goods Transfer Handlers (Transfer between China warehouses)
+  const handleOpenTransferModalForSelected = () => {
+    const selectedReceipts = warehouseReceipts
+      .filter((r) => selectedReceiptIds.has(r._id || r.receipt))
+      .map((r) => r.receipt);
+    if (selectedReceipts.length === 0) {
+      alert('Please select at least one receipt to transfer.');
+      return;
+    }
+    const firstItem = warehouseReceipts.find((r) => selectedReceiptIds.has(r._id || r.receipt));
+    const srcWh = (selectedWarehouse !== 'ALL' ? selectedWarehouse : firstItem?.warehouse) || '';
+    setTransferFromWarehouse(srcWh);
+    const otherWh = availableWarehouses.find((w) => w !== 'ALL' && w.toLowerCase() !== srcWh.toLowerCase()) || '';
+    setTransferToWarehouse(otherWh);
+    setTransferMode('selected');
+    setTransferReceiptList(selectedReceipts);
+    setIsTransferGoodsOpen(true);
+  };
+
+  const handleOpenTransferModalForAll = (fromWh?: string) => {
+    const userWhs = availableWarehouses.filter((w) => w !== 'ALL');
+    const src = fromWh || (selectedWarehouse !== 'ALL' ? selectedWarehouse : userWhs[0] || '');
+    setTransferFromWarehouse(src);
+    const otherWh = userWhs.find((w) => w.toLowerCase() !== src.toLowerCase()) || '';
+    setTransferToWarehouse(otherWh);
+    setTransferMode('all');
+    setTransferReceiptList([]);
+    setIsTransferGoodsOpen(true);
+  };
+
+  const handleExecuteTransferGoods = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!transferFromWarehouse.trim()) {
+      alert('Please select source warehouse');
+      return;
+    }
+    if (!transferToWarehouse.trim()) {
+      alert('Please select destination warehouse');
+      return;
+    }
+    if (transferFromWarehouse.trim().toLowerCase() === transferToWarehouse.trim().toLowerCase()) {
+      alert('Source and destination warehouses cannot be the same (YW = yw = Yw are identical).');
+      return;
+    }
+    setIsSubmittingTransfer(true);
+    try {
+      const res = await dispatch(
+        transferWarehouseGoods({
+          fromWarehouse: transferFromWarehouse.trim(),
+          toWarehouse: transferToWarehouse.trim(),
+          receipts: transferMode === 'selected' ? transferReceiptList : undefined,
+          transferAll: transferMode === 'all',
+        })
+      );
+      if (transferWarehouseGoods.fulfilled.match(res)) {
+        alert(res.payload?.message || 'Goods transferred successfully!');
+        setIsTransferGoodsOpen(false);
+        setSelectedReceiptIds(new Set());
+        fetchWarehouses();
+      } else {
+        alert((res.payload as string) || 'Failed to transfer goods');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Transfer error');
+    } finally {
+      setIsSubmittingTransfer(false);
     }
   };
 
@@ -1462,18 +1545,23 @@ export default function LoaderHub() {
     dispatch(fetchLoadingPlans());
   }, [dispatch]);
 
-  // Available warehouse list dynamically aggregated from user-created warehouses (API) + existing receipts
+  // Available warehouse list dynamically aggregated and strictly deduplicated case-insensitively (YW = yw = Yw = yW)
   const availableWarehouses = useMemo(() => {
-    const set = new Set<string>(['ALL']);
+    const map = new Map<string, string>();
+    map.set('all', 'ALL');
     dynamicWarehouses.forEach((w) => {
-      if (w && typeof w === 'string' && w.trim()) set.add(w.trim());
+      if (w && typeof w === 'string' && w.trim()) {
+        const key = w.trim().toLowerCase();
+        if (!map.has(key)) map.set(key, w.trim());
+      }
     });
     warehouseReceipts.forEach((r) => {
       if (r.warehouse && typeof r.warehouse === 'string' && r.warehouse.trim()) {
-        set.add(r.warehouse.trim());
+        const key = r.warehouse.trim().toLowerCase();
+        if (!map.has(key)) map.set(key, r.warehouse.trim());
       }
     });
-    return Array.from(set);
+    return Array.from(map.values());
   }, [warehouseReceipts, dynamicWarehouses]);
 
   // Synchronize initial selections to first user warehouse when available
@@ -3499,6 +3587,16 @@ export default function LoaderHub() {
                     <span>Delete WH</span>
                   </button>
                 )}
+
+                <button
+                  type="button"
+                  onClick={() => handleOpenTransferModalForAll(selectedWarehouse !== 'ALL' ? selectedWarehouse : undefined)}
+                  className="px-2.5 py-1.5 text-xs font-bold rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 transition flex items-center space-x-1"
+                  title="Transfer goods from one China warehouse to another"
+                >
+                  <ArrowRightLeft className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>⇄ Transfer Goods</span>
+                </button>
               </div>
 
               {/* Status Filter */}
@@ -3558,6 +3656,16 @@ export default function LoaderHub() {
               </div>
 
               <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={handleOpenTransferModalForSelected}
+                  className="flex items-center space-x-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-sm"
+                  title="Transfer selected receipts to another China warehouse"
+                >
+                  <ArrowRightLeft className="w-3.5 h-3.5 text-emerald-200" />
+                  <span>Transfer Goods ({selectedReceiptIds.size})</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => setIsBulkEditOpen(true)}
@@ -4473,6 +4581,17 @@ export default function LoaderHub() {
 
                             {/* Actions */}
                             <td className="py-3 px-4 text-right whitespace-nowrap">
+                              <a
+                                href={`/api/upload/history/download?uploadId=${encodeURIComponent(u.uploadId)}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-2.5 py-1 text-xs font-bold text-emerald-700 hover:text-white hover:bg-emerald-600 border border-emerald-300 bg-emerald-50 rounded-lg transition inline-flex items-center space-x-1 mr-2 shadow-sm"
+                                title="Re-download saved Excel data for this batch"
+                              >
+                                <Download className="w-3 h-3" />
+                                <span>Re-Download</span>
+                              </a>
+
                               {isDeleted ? (
                                 <span className="text-[10px] text-slate-400">
                                   {u.deletedAt ? `Deleted ${new Date(u.deletedAt).toLocaleDateString()}` : 'Deleted'}
@@ -8661,6 +8780,20 @@ export default function LoaderHub() {
                   </button>
                   <button
                     type="button"
+                    onClick={() => {
+                      const wh = warehouseToDeleteWithReceipts.warehouse;
+                      setWarehouseToDeleteWithReceipts(null);
+                      handleOpenTransferModalForAll(wh);
+                    }}
+                    disabled={isDeletingProcess}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center space-x-1.5"
+                    title="Transfer goods from this warehouse to another warehouse"
+                  >
+                    <ArrowRightLeft className="w-3.5 h-3.5" />
+                    <span>⇄ Transfer Goods First</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleConfirmDeleteWarehouseWithReceipts}
                     disabled={isDeletingProcess}
                     className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center space-x-1.5 disabled:opacity-50"
@@ -8680,6 +8813,163 @@ export default function LoaderHub() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL 5: TRANSFER GOODS BETWEEN CHINA WAREHOUSES ── */}
+      {isTransferGoodsOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-emerald-200 overflow-hidden animate-fadeIn">
+            {/* Header */}
+            <div className="p-5 bg-gradient-to-r from-emerald-900 to-teal-900 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-600/40 border border-emerald-500/50 flex items-center justify-center">
+                  <ArrowRightLeft className="w-4 h-4 text-emerald-200" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black">Transfer Goods (सामान ट्रांसफर करें)</h3>
+                  <p className="text-[11px] text-emerald-200">Move cargo receipts between China warehouses</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsTransferGoodsOpen(false)}
+                className="text-white/80 hover:text-white transition p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleExecuteTransferGoods} className="p-6 space-y-4">
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-950 leading-relaxed">
+                ℹ️ <strong>Warehouse Goods Transfer:</strong> Move {transferMode === 'selected' ? `${transferReceiptList.length} selected cargo receipt(s)` : 'all cargo receipts'} from one warehouse to another. Database records and full-text search will automatically update.
+              </div>
+
+              {/* Mode Toggle */}
+              <div className="flex border border-slate-200 rounded-xl p-1 bg-slate-50 text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setTransferMode('all')}
+                  className={`flex-1 py-1.5 rounded-lg transition ${
+                    transferMode === 'all'
+                      ? 'bg-white text-emerald-700 shadow-sm border border-slate-200'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Transfer ALL Goods in Warehouse
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedReceiptIds.size === 0) {
+                      alert('Select receipts using the checkboxes first to transfer specific items.');
+                      return;
+                    }
+                    handleOpenTransferModalForSelected();
+                  }}
+                  className={`flex-1 py-1.5 rounded-lg transition ${
+                    transferMode === 'selected'
+                      ? 'bg-white text-emerald-700 shadow-sm border border-slate-200'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Selected Receipts ({transferReceiptList.length || selectedReceiptIds.size})
+                </button>
+              </div>
+
+              {/* Source Warehouse */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
+                  Source Warehouse (कहाँ से ट्रांसफर करना है) *
+                </label>
+                <select
+                  value={transferFromWarehouse}
+                  onChange={(e) => setTransferFromWarehouse(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 text-sm font-bold rounded-xl border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option value="" disabled>-- Select Source Warehouse --</option>
+                  {availableWarehouses
+                    .filter((w) => w !== 'ALL')
+                    .map((w) => (
+                      <option key={w} value={w}>
+                        {w} ({warehouseReceipts.filter((r) => (r.warehouse || '').toLowerCase() === w.toLowerCase()).length} items)
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              {/* Destination Warehouse */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
+                  Destination Warehouse (कहाँ पहुँचाना है) *
+                </label>
+                <select
+                  value={transferToWarehouse}
+                  onChange={(e) => setTransferToWarehouse(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 text-sm font-bold rounded-xl border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option value="" disabled>-- Select Destination Warehouse --</option>
+                  {availableWarehouses
+                    .filter((w) => w !== 'ALL' && w.toLowerCase() !== transferFromWarehouse.toLowerCase())
+                    .map((w) => (
+                      <option key={w} value={w}>
+                        {w}
+                      </option>
+                    ))}
+                </select>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Strictly prevents duplicate warehouses (YW = yw = Yw are identical).
+                </p>
+              </div>
+
+              {/* Selected receipts preview if mode is selected */}
+              {transferMode === 'selected' && transferReceiptList.length > 0 && (
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1">
+                  <div className="font-bold text-slate-700">Receipts to Transfer ({transferReceiptList.length}):</div>
+                  <div className="font-mono text-[11px] text-slate-600 max-h-24 overflow-y-auto">
+                    {transferReceiptList.join(', ')}
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="pt-4 border-t border-slate-100 flex items-center justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setIsTransferGoodsOpen(false)}
+                  disabled={isSubmittingTransfer}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    isSubmittingTransfer ||
+                    !transferFromWarehouse.trim() ||
+                    !transferToWarehouse.trim() ||
+                    transferFromWarehouse.trim().toLowerCase() === transferToWarehouse.trim().toLowerCase()
+                  }
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center space-x-1.5 disabled:opacity-50"
+                >
+                  {isSubmittingTransfer ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Transferring Goods...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ArrowRightLeft className="w-3.5 h-3.5" />
+                      <span>Confirm Transfer</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
