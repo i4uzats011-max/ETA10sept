@@ -527,6 +527,14 @@ export const PACKAGING_DICTIONARY: Record<string, string> = {
 
 // ── Warehouse Location Dictionary ──
 export const WAREHOUSE_DICTIONARY: Record<string, string> = {
+  '九边': 'GZ',
+  '九边仓': 'GZ',
+  '九边仓库': 'GZ',
+  '九边仓库 (China Warehouse)': 'GZ',
+  '总部': 'YW',
+  '总部仓': 'YW',
+  '总部仓库': 'YW',
+  '总部 (China Warehouse)': 'YW',
   '广州': 'Guangzhou Warehouse',
   '广州仓': 'Guangzhou Warehouse',
   '广州仓库': 'Guangzhou Warehouse',

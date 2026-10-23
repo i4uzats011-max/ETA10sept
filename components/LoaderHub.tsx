@@ -1524,8 +1524,8 @@ export default function LoaderHub() {
             quantity: qtyNum,
             weight: containerWiseWeight.trim() || loadedReceipt.weight,
             volume: containerWiseVolume.trim() || loadedReceipt.volume,
-            commodity: loadedReceipt.commodity || loadedReceipt.english,
-            english: loadedReceipt.english,
+            commodity: containerWiseItemName.trim() || loadedReceipt.commodity || loadedReceipt.english,
+            english: containerWiseItemName.trim() || loadedReceipt.english,
             chinese: loadedReceipt.chinese,
             party: loadedReceipt.party,
             rate: loadedReceipt.rate,
@@ -1844,8 +1844,8 @@ export default function LoaderHub() {
           quantity: qty,
           weight: splitWeightInput || loadedReceipt.weight,
           volume: splitVolumeInput || loadedReceipt.volume,
-          commodity: loadedReceipt.commodity || loadedReceipt.english,
-          english: loadedReceipt.english,
+          commodity: splitItemNameInput.trim() || loadedReceipt.commodity || loadedReceipt.english,
+          english: splitItemNameInput.trim() || loadedReceipt.english,
           chinese: loadedReceipt.chinese,
           party: loadedReceipt.party,
           rate: loadedReceipt.rate,
@@ -4734,6 +4734,23 @@ export default function LoaderHub() {
                     ))}
                   </select>
                 )}
+              </div>
+
+              {/* Goods / Item Name for this Loading Plan */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
+                  Item / Commodity Name in Loading Plan (कंटेनर में माल का नाम)
+                </label>
+                <input
+                  type="text"
+                  value={splitItemNameInput}
+                  onChange={(e) => setSplitItemNameInput(e.target.value)}
+                  placeholder="e.g. Item B (Custom description for this container shipment)"
+                  className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-red-500 shadow-xs"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Displays in loading plan &amp; public tracking. Warehouse inventory balance keeps original receipt item name.
+                </p>
               </div>
 
               {/* Quantity to Load (Split) */}
@@ -8330,6 +8347,23 @@ export default function LoaderHub() {
                       </div>
                     </div>
                   )}
+
+                  {/* Item / Commodity Name for this Container Plan */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      Item / Commodity Name in Container Plan (माल का नाम)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Item B (Custom description for this container plan)"
+                      value={containerWiseItemName}
+                      onChange={(e) => setContainerWiseItemName(e.target.value)}
+                      className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-xs"
+                    />
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Customize item name for this container plan. Warehouse stock balance keeps original item name.
+                    </p>
+                  </div>
 
                   {/* Quantity to Load into this Container */}
                   <div>
