@@ -151,11 +151,19 @@ export async function GET(req: NextRequest) {
     const etaForTTL = rawActualEta !== 'Pending' ? rawActualEta : (target.destinationDate || target.eta || target.rawEta);
     const etaTtlSeconds = calculateEtaPlus2DaysTTL(etaForTTL);
 
+    const cleanQueryKey = cacheKey;
+    const aliasKey = target.container ? `public:track:container:${String(target.container).toLowerCase().replace(/[^a-z0-9]/g, '')}` : null;
+    const carrierKey = target.containerNumber ? `public:track:container:${String(target.containerNumber).toLowerCase().replace(/[^a-z0-9]/g, '')}` : null;
+
     if (isDelivered || (etaTtlSeconds !== null && etaTtlSeconds <= 0)) {
-      await deleteCache(cacheKey);
+      await deleteCache(cleanQueryKey);
+      if (aliasKey) await deleteCache(aliasKey);
+      if (carrierKey) await deleteCache(carrierKey);
     } else {
       const effectiveTTL = (etaTtlSeconds !== null && etaTtlSeconds > 0) ? etaTtlSeconds : (2 * 24 * 60 * 60);
-      await setCache(cacheKey, payload, effectiveTTL);
+      await setCache(cleanQueryKey, payload, effectiveTTL);
+      if (aliasKey && aliasKey !== cleanQueryKey) await setCache(aliasKey, payload, effectiveTTL);
+      if (carrierKey && carrierKey !== cleanQueryKey) await setCache(carrierKey, payload, effectiveTTL);
     }
 
     return NextResponse.json(payload, {

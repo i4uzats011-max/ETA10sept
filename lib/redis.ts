@@ -130,7 +130,8 @@ export async function getCache<T = any>(key: string): Promise<T | null> {
   if (memoryHit) {
     if (memoryHit.expiresAt > now) {
       const d: any = memoryHit.value;
-      const etaVal = d?.eta || d?.destinationDate || d?.portDate;
+      const targetObj = d?.trackByContainer || d?.data?.trackByContainer || d;
+      const etaVal = targetObj?.eta || targetObj?.destinationDate || targetObj?.portDate;
       const remaining = calculateEtaPlus2DaysTTL(etaVal);
       if (remaining !== null && remaining <= 0) {
         // Today is greater than ETA + 2 days -> purge from cache memory
@@ -153,7 +154,8 @@ export async function getCache<T = any>(key: string): Promise<T | null> {
     const data = await redis.get<T>(key);
     if (data !== null && data !== undefined) {
       const d: any = data;
-      const etaVal = d?.eta || d?.destinationDate || d?.portDate;
+      const targetObj = d?.trackByContainer || d?.data?.trackByContainer || d;
+      const etaVal = targetObj?.eta || targetObj?.destinationDate || targetObj?.portDate;
       const remaining = calculateEtaPlus2DaysTTL(etaVal);
 
       if (remaining !== null && remaining <= 0) {
@@ -196,12 +198,20 @@ export async function setCache(
   }
 
   // Parameter check: If today > ETA + 2 days, strictly do NOT save in cache
-  if (ttlSeconds !== undefined && ttlSeconds <= 0) {
+  const targetObj = value?.trackByContainer || value?.data?.trackByContainer || value;
+  const etaVal = targetObj?.eta || targetObj?.destinationDate || targetObj?.portDate;
+  const computedTTL = calculateEtaPlus2DaysTTL(etaVal);
+
+  if ((ttlSeconds !== undefined && ttlSeconds <= 0) || (computedTTL !== null && computedTTL <= 0)) {
     await deleteCache(key);
     return true;
   }
 
-  const effectiveTTL = (ttlSeconds !== undefined && ttlSeconds > 0) ? ttlSeconds : DEFAULT_CONTAINER_TTL_SECONDS;
+  const effectiveTTL = (ttlSeconds !== undefined && ttlSeconds > 0 && ttlSeconds !== DEFAULT_CONTAINER_TTL_SECONDS)
+    ? ttlSeconds
+    : (computedTTL !== null && computedTTL > 0)
+    ? computedTTL
+    : DEFAULT_CONTAINER_TTL_SECONDS;
   const now = Date.now();
   const expiresAt = now + effectiveTTL * 1000;
 

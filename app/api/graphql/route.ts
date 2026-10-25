@@ -1366,13 +1366,21 @@ export async function POST(req: NextRequest) {
         const etaForTTL = containerData?.eta || containerData?.destinationDate || containerData?.portDate;
         const etaTtlSeconds = calculateEtaPlus2DaysTTL(etaForTTL);
 
+        const cleanQueryKey = publicCacheKey;
+        const aliasKey = containerData.container ? `public:track:container:${String(containerData.container).toLowerCase().replace(/[^a-z0-9]/g, '')}` : null;
+        const carrierKey = containerData.containerNumber ? `public:track:container:${String(containerData.containerNumber).toLowerCase().replace(/[^a-z0-9]/g, '')}` : null;
+
         if (containerData?.isDelivered || (etaTtlSeconds !== null && etaTtlSeconds <= 0)) {
           // If container is marked delivered OR today > (ETA + 2 days), do not save in cache & remove if present
-          await deleteCache(publicCacheKey);
+          await deleteCache(cleanQueryKey);
+          if (aliasKey) await deleteCache(aliasKey);
+          if (carrierKey) await deleteCache(carrierKey);
         } else {
           // Save container with TTL = ETA + 2 days (or default 2 days if ETA is pending)
           const effectiveTTL = (etaTtlSeconds !== null && etaTtlSeconds > 0) ? etaTtlSeconds : (2 * 24 * 60 * 60);
-          await setCache(publicCacheKey, result.data, effectiveTTL);
+          await setCache(cleanQueryKey, result.data, effectiveTTL);
+          if (aliasKey && aliasKey !== cleanQueryKey) await setCache(aliasKey, result.data, effectiveTTL);
+          if (carrierKey && carrierKey !== cleanQueryKey) await setCache(carrierKey, result.data, effectiveTTL);
         }
       }
     }

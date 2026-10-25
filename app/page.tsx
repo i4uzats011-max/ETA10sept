@@ -368,6 +368,23 @@ export default function PublicTrackerPage() {
             setIsLoading(false);
             return;
           }
+
+          // Check if any cargo shipments or warehouse receipts actually exist
+          const hasCargo = (trackData.shipments && trackData.shipments.length > 0) || trackData.warehouseReceipt;
+          if (!hasCargo && !cartons) {
+            // Smart Fallback: User might have entered a Container number while on receipt tab (e.g. USSI-300)
+            const containerRes = await fetch(`/api/track/container?container=${encodeURIComponent(queryInput)}`);
+            const cData = await containerRes.json();
+            if (containerRes.ok && cData.container) {
+              setActiveTab('container');
+              setContainerResult(cData);
+              setPendingCartonReceipt(null);
+              setCartonVerificationError(null);
+              setIsLoading(false);
+              return;
+            }
+          }
+
           setReceiptResult(trackData);
           setPendingCartonReceipt(null);
           setCartonVerificationError(null);
@@ -474,8 +491,17 @@ export default function PublicTrackerPage() {
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!searchQuery.trim()) return;
-    performDirectSearch(searchQuery.trim(), activeTab);
+    const cleanQ = searchQuery.trim();
+    if (!cleanQ) return;
+
+    // Smart Container Detection: If query looks like a container number (e.g. USSI-300, USI-01, TCLU1234567), auto-switch to container tab
+    const isContainerPattern = /^(USI|USSI)[-_\s]?\d+/i.test(cleanQ) || /^[A-Z]{4}\d{7}$/i.test(cleanQ);
+    const targetTab = (activeTab === 'receipt' && isContainerPattern) ? 'container' : activeTab;
+    if (targetTab !== activeTab) {
+      setActiveTab('container');
+    }
+
+    performDirectSearch(cleanQ, targetTab);
   };
 
   const handleSelectSuggestion = (suggestion: { type: 'receipt' | 'container'; value: string }) => {
