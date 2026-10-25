@@ -1132,6 +1132,12 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // Evict container from cache memory upon being marked delivered
+      await invalidateContainerCache(targetContainer.container);
+      if (targetContainer.containerNumber) {
+        await invalidateContainerCache(targetContainer.containerNumber);
+      }
+
       return NextResponse.json({
         success: true,
         message: isAllDelivered
