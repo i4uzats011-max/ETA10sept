@@ -31,7 +31,16 @@ function cleanupL1() {
         l1Cache.delete(key);
       }
     }
-    // If still over capacity, remove oldest 200 entries
+    // Prioritize Public Search: Evict non-public items first
+    if (l1Cache.size > MAX_L1_ENTRIES) {
+      for (const [key] of l1Cache.entries()) {
+        if (!key.startsWith('public:')) {
+          l1Cache.delete(key);
+          if (l1Cache.size <= MAX_L1_ENTRIES) break;
+        }
+      }
+    }
+    // If still over capacity, remove oldest entries
     if (l1Cache.size > MAX_L1_ENTRIES) {
       const keysToDelete = Array.from(l1Cache.keys()).slice(0, 200);
       for (const k of keysToDelete) {
@@ -98,8 +107,9 @@ export async function getCache<T = any>(key: string): Promise<T | null> {
   try {
     const data = await redis.get<T>(key);
     if (data !== null && data !== undefined) {
-      // Store in L1 for 60 seconds so subsequent rapid requests don't burn quota
-      l1Cache.set(key, { value: data, expiresAt: now + 60000 });
+      // Public search entries get longer L1 retention (180s) to keep public searches instant
+      const l1Ttl = key.startsWith('public:') ? 180000 : 60000;
+      l1Cache.set(key, { value: data, expiresAt: now + l1Ttl });
       return data;
     }
     return null;

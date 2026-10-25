@@ -8,6 +8,7 @@ import { isAdminAuthenticated } from '@/lib/auth';
 import { fetchContainerTracking, fetchApiKeyStats, addFilingBufferDays } from '@/lib/jsoncargo';
 import { translateToEnglish } from '@/lib/translate';
 import { formatGlobalDate } from '@/lib/dateUtils';
+import { getCache, setCache } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
 
@@ -1316,6 +1317,28 @@ export async function POST(req: NextRequest) {
     }
 
     const isMutation = query.trim().startsWith('mutation');
+    const isPublicSearch = !isMutation && (query.includes('trackByContainer') || query.includes('trackByReceipt'));
+
+    // High-Priority Public Search Cache Key
+    let publicCacheKey: string | null = null;
+    if (isPublicSearch) {
+      if (variables?.container) {
+        publicCacheKey = `public:track:container:${String(variables.container).toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+      } else if (variables?.receipt) {
+        publicCacheKey = `public:track:receipt:${String(variables.receipt).toLowerCase().replace(/[^a-z0-9]/g, '')}${variables.cartons ? ':' + variables.cartons : ''}`;
+      }
+    }
+
+    if (publicCacheKey) {
+      const cachedData = await getCache<any>(publicCacheKey);
+      if (cachedData) {
+        return NextResponse.json(
+          { data: cachedData, cached: true },
+          { headers: { 'X-Cache': 'HIT', 'X-Cache-Priority': 'public-search' } }
+        );
+      }
+    }
+
     const cacheKey = JSON.stringify({ query: query.trim(), variables });
     const now = Date.now();
 
@@ -1340,6 +1363,10 @@ export async function POST(req: NextRequest) {
       gqlCacheMap.clear(); // Invalidate cache on mutations
     } else if (!result.errors) {
       gqlCacheMap.set(cacheKey, { timestamp: now, data: result });
+      if (publicCacheKey && result.data) {
+        // Cache public search results for 5 minutes (300s)
+        await setCache(publicCacheKey, result.data, 300);
+      }
     }
 
     return NextResponse.json(result);

@@ -32,14 +32,14 @@ export async function GET(req: NextRequest) {
 
   const cartonsParam = searchParams.get('cartons')?.trim();
   const cacheKey = cartonsParam
-    ? `track:receipt:${receiptQuery.toLowerCase().replace(/[^a-z0-9]/g, '')}:${cartonsParam}`
-    : `track:receipt:${receiptQuery.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+    ? `public:track:receipt:${receiptQuery.toLowerCase().replace(/[^a-z0-9]/g, '')}:${cartonsParam}`
+    : `public:track:receipt:${receiptQuery.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
 
   try {
     const cachedData = await getCache<any>(cacheKey);
     if (cachedData) {
       return NextResponse.json(cachedData, {
-        headers: { 'X-Cache': 'HIT' },
+        headers: { 'X-Cache': 'HIT', 'X-Cache-Priority': 'public-search' },
       });
     }
 
@@ -288,7 +288,7 @@ export async function GET(req: NextRequest) {
     await setCache(cacheKey, payload, 180);
 
     return NextResponse.json(payload, {
-      headers: { 'X-Cache': 'MISS' },
+      headers: { 'X-Cache': 'MISS', 'X-Cache-Priority': 'public-search' },
     });
   } catch (error: any) {
     return NextResponse.json(
