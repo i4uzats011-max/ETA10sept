@@ -5,6 +5,7 @@ import Container from '@/models/Container';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
 import { translateToEnglish } from '@/lib/translate';
 import { formatGlobalDate } from '@/lib/dateUtils';
+import { getCache, setCache } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,10 +30,20 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Receipt parameter is required' }, { status: 400 });
   }
 
-  try {
-    await connectToDatabase();
+  const cartonsParam = searchParams.get('cartons')?.trim();
+  const cacheKey = cartonsParam
+    ? `track:receipt:${receiptQuery.toLowerCase().replace(/[^a-z0-9]/g, '')}:${cartonsParam}`
+    : `track:receipt:${receiptQuery.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
 
-    const cartonsParam = searchParams.get('cartons')?.trim();
+  try {
+    const cachedData = await getCache<any>(cacheKey);
+    if (cachedData) {
+      return NextResponse.json(cachedData, {
+        headers: { 'X-Cache': 'HIT' },
+      });
+    }
+
+    await connectToDatabase();
 
     // Fetch all WarehouseReceipt documents matching this receipt number
     const matchingWhItems: any[] = await WarehouseReceipt.find({
@@ -263,7 +274,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({
+    const payload = {
       success: true,
       count: publicCargoDetails.length,
       receipt: receiptQuery,
@@ -271,6 +282,13 @@ export async function GET(req: NextRequest) {
       data: publicCargoDetails[0],
       shipments: publicCargoDetails,
       warehouseReceipt: sanitizedWhItem,
+    };
+
+    // Cache valid tracking details for 3 minutes (180s)
+    await setCache(cacheKey, payload, 180);
+
+    return NextResponse.json(payload, {
+      headers: { 'X-Cache': 'MISS' },
     });
   } catch (error: any) {
     return NextResponse.json(

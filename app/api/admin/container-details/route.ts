@@ -3,6 +3,7 @@ import { connectToDatabase } from '@/lib/mongodb';
 import Container from '@/models/Container';
 import Shipment from '@/models/Shipment';
 import { isAdminAuthenticated } from '@/lib/auth';
+import { getCache, setCache } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +19,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Container parameter required' }, { status: 400 });
   }
 
+  const cacheKey = `admin:container_details:${containerAlias.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+
   try {
+    const cached = await getCache<any>(cacheKey);
+    if (cached) {
+      return NextResponse.json(cached, { headers: { 'X-Cache': 'HIT' } });
+    }
+
     await connectToDatabase();
     const escaped = containerAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const fuzzyPattern = escaped.replace(/[-_\s]+/g, '[-_\\s]*');
@@ -44,7 +52,7 @@ export async function GET(req: NextRequest) {
     const hasValidEta = effectiveEta && effectiveEta !== 'N/A' && effectiveEta !== 'Pending';
     const rawEtaUpdated = doc.etaUpdatedAt || doc.lastApiSync || (hasValidEta ? doc.updatedAt : null);
 
-    return NextResponse.json({
+    const payload = {
       container: doc.container,
       containerNumber: doc.containerNumber || '',
       shippingLine: doc.shippingLine || 'MSC',
@@ -62,9 +70,12 @@ export async function GET(req: NextRequest) {
       isDelivered: Boolean(doc.isDelivered),
       shipmentCount: doc.shipmentCount || 0,
       remarks: doc.remarks || doc.containerRemarks || [],
-    });
+    };
+
+    await setCache(cacheKey, payload, 120);
+
+    return NextResponse.json(payload, { headers: { 'X-Cache': 'MISS' } });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Failed to fetch details' }, { status: 500 });
   }
 }
-
