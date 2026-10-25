@@ -44,7 +44,7 @@ import {
   Key,
 } from 'lucide-react';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
-import { generateBillPDF } from '@/lib/billPdf';
+import { generateBillPDF, generateEWayBillPDF, generateBothBillAndEWayPDF } from '@/lib/billPdf';
 import { downloadEWayBillJson } from '@/lib/ewayBillJson';
 import { INDIAN_STATES, getStateCode, getStateName, getStateCodeByName, getStateByGstinOrCode, detectStateFromAddress } from '@/lib/states';
 import { inferHsnByItemName, findHsnSuggestions, MASTER_HSN_CATALOG } from '@/lib/hsnCatalog';
@@ -226,6 +226,14 @@ export default function BillerPortalPage() {
   const [eWayInvoiceNumber, setEWayInvoiceNumber] = useState('');
   const [useSeparateEWayInvoice, setUseSeparateEWayInvoice] = useState(false);
   const [justCreatedBill, setJustCreatedBill] = useState<any | null>(null);
+  const [justCreatedEWayNo, setJustCreatedEWayNo] = useState('');
+  const [isSavingJustCreatedEWay, setIsSavingJustCreatedEWay] = useState(false);
+
+  // E-Way Bill Quick Print / Number Entry Modal
+  const [eWayModalBill, setEWayModalBill] = useState<any | null>(null);
+  const [eWayModalInputNo, setEWayModalInputNo] = useState('');
+  const [eWayModalVehicleNo, setEWayModalVehicleNo] = useState('');
+  const [isSavingEWayModal, setIsSavingEWayModal] = useState(false);
   const [hsnCode, setHsnCode] = useState('9997');
   const [igstRate, setIgstRate] = useState<number>(18);
   const [billingUnit, setBillingUnit] = useState<'Pcs' | 'KG' | 'Cartons'>('KG');
@@ -1910,6 +1918,92 @@ export default function BillerPortalPage() {
     }
   };
 
+  // Open e-Way Bill Quick Print Modal
+  const handleOpenEWayPrintModal = (bill: any, initialMode: 'both' | 'eway' = 'both') => {
+    setEWayModalBill({ ...bill, printMode: initialMode });
+    setEWayModalInputNo(bill.eWayBillNo || '');
+    setEWayModalVehicleNo(bill.vehicleNumber || '');
+  };
+
+  const handleConfirmPrintEWay = async (mode: 'both' | 'eway') => {
+    if (!eWayModalBill) return;
+    const cleanEWayNo = eWayModalInputNo.trim();
+    const cleanVehNo = eWayModalVehicleNo.trim();
+
+    if (eWayModalBill._id && (cleanEWayNo || cleanVehNo)) {
+      setIsSavingEWayModal(true);
+      try {
+        await fetch('/api/billing', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: eWayModalBill._id,
+            eWayBillNo: cleanEWayNo || undefined,
+            vehicleNumber: cleanVehNo || undefined,
+          }),
+        });
+
+        // Update local bills state
+        setBills((prev) =>
+          prev.map((b) =>
+            b._id === eWayModalBill._id
+              ? {
+                  ...b,
+                  eWayBillNo: cleanEWayNo || b.eWayBillNo,
+                  vehicleNumber: cleanVehNo || b.vehicleNumber,
+                }
+              : b
+          )
+        );
+      } catch (err) {
+        console.warn('Failed to update eWayBillNo:', err);
+      } finally {
+        setIsSavingEWayModal(false);
+      }
+    }
+
+    const updatedData = {
+      ...eWayModalBill,
+      eWayBillNo: cleanEWayNo || eWayModalBill.eWayBillNo,
+      vehicleNumber: cleanVehNo || eWayModalBill.vehicleNumber,
+    };
+
+    if (mode === 'both') {
+      generateBothBillAndEWayPDF(updatedData, true);
+    } else {
+      generateEWayBillPDF(updatedData, true);
+    }
+
+    setEWayModalBill(null);
+  };
+
+  const handleSaveJustCreatedEWayNo = async () => {
+    if (!justCreatedBill?._id || !justCreatedEWayNo.trim()) return;
+    setIsSavingJustCreatedEWay(true);
+    try {
+      const res = await fetch('/api/billing', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: justCreatedBill._id,
+          eWayBillNo: justCreatedEWayNo.trim(),
+        }),
+      });
+      if (res.ok) {
+        setJustCreatedBill((prev: any) => ({ ...prev, eWayBillNo: justCreatedEWayNo.trim() }));
+        setBills((prev) =>
+          prev.map((b) =>
+            b._id === justCreatedBill._id ? { ...b, eWayBillNo: justCreatedEWayNo.trim() } : b
+          )
+        );
+      }
+    } catch (err) {
+      console.error('Failed to save e-Way Bill No:', err);
+    } finally {
+      setIsSavingJustCreatedEWay(false);
+    }
+  };
+
   // Open quick vehicle modal
   const handleOpenVehicleModal = (bill: BillItem) => {
     setTargetBillForVehicle(bill);
@@ -3485,26 +3579,83 @@ export default function BillerPortalPage() {
                     <CheckCircle2 className="w-5 h-5 flex-shrink-0 text-emerald-400" />
                     <span className="font-bold">{manualSuccessMsg}</span>
                   </div>
-                  <div className="flex items-center space-x-2 shrink-0 flex-wrap">
+                  <div className="flex items-center space-x-2 shrink-0 flex-wrap gap-2">
                     {justCreatedBill && (
                       <>
+                        {/* Quick e-Way Bill No. Input & Save */}
+                        <div className="flex items-center space-x-1.5 bg-slate-900 border border-amber-500/50 rounded-xl px-2.5 py-1">
+                          <span className="text-[10px] font-bold text-amber-300 shrink-0">e-Way No:</span>
+                          <input
+                            type="text"
+                            placeholder="12-digit e-Way No"
+                            value={justCreatedEWayNo}
+                            onChange={(e) => setJustCreatedEWayNo(e.target.value)}
+                            className="w-28 px-1.5 py-0.5 bg-slate-950 border border-slate-700 rounded text-amber-200 text-xs font-mono font-bold focus:outline-none focus:border-amber-400"
+                          />
+                          <button
+                            type="button"
+                            disabled={isSavingJustCreatedEWay || !justCreatedEWayNo.trim()}
+                            onClick={handleSaveJustCreatedEWayNo}
+                            className="px-2 py-0.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 font-bold text-[10px] rounded transition"
+                          >
+                            {isSavingJustCreatedEWay ? '...' : 'Save'}
+                          </button>
+                        </div>
+
+                        {/* Print Both (Invoice + e-Way Bill) Together */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const billWithEway = {
+                              ...justCreatedBill,
+                              eWayBillNo: justCreatedEWayNo || justCreatedBill.eWayBillNo,
+                            };
+                            generateBothBillAndEWayPDF(billWithEway, true);
+                          }}
+                          className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-xl text-xs transition flex items-center space-x-1.5 shadow-md shadow-emerald-950/40"
+                          title="बिल और सरकारी ई-वे बिल दोनों एक साथ प्रिंट करें (Print Invoice + e-Way Bill Together in 1 PDF)"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                          <span>🖨️ Print Both (Bill + e-Way)</span>
+                        </button>
+
+                        {/* Print Actual Government e-Way Bill Standalone */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const billWithEway = {
+                              ...justCreatedBill,
+                              eWayBillNo: justCreatedEWayNo || justCreatedBill.eWayBillNo,
+                            };
+                            generateEWayBillPDF(billWithEway, true);
+                          }}
+                          className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs transition flex items-center space-x-1.5 shadow"
+                          title="सरकारी ई-वे बिल प्रिंट करें (Print Actual Government e-Way Bill PDF)"
+                        >
+                          <Truck className="w-3.5 h-3.5" />
+                          <span>e-Way Bill</span>
+                        </button>
+
+                        {/* Download E-Way JSON for Portal */}
                         <button
                           type="button"
                           onClick={() => downloadEWayBillJson(justCreatedBill)}
-                          className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl text-xs transition flex items-center space-x-1.5 shadow"
+                          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold rounded-xl text-xs transition flex items-center space-x-1.5 border border-amber-500/40"
                           title="Download Government JSON file for E-Way Bill Portal upload"
                         >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>⚡ Download E-Way JSON</span>
+                          <Download className="w-3.5 h-3.5 text-amber-400" />
+                          <span>E-Way JSON</span>
                         </button>
+
+                        {/* Download Invoice PDF Standalone */}
                         <button
                           type="button"
                           onClick={() => generateBillPDF(justCreatedBill, true)}
-                          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl text-xs transition flex items-center space-x-1.5 border border-slate-700"
+                          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 font-bold rounded-xl text-xs transition flex items-center space-x-1.5 border border-slate-700"
                           title="Download PDF Bill"
                         >
                           <FileText className="w-3.5 h-3.5 text-cyan-400" />
-                          <span>PDF</span>
+                          <span>Invoice PDF</span>
                         </button>
                       </>
                     )}
@@ -5255,6 +5406,25 @@ export default function BillerPortalPage() {
                       <td className="p-3.5">
                         <div className="font-bold text-white">{b.receipt}</div>
                         <div className="text-[10px] text-slate-500 font-mono">{b.billNumber}</div>
+                        {b.eWayBillNo ? (
+                          <div
+                            onClick={() => handleOpenEWayPrintModal(b, 'both')}
+                            title="ई-वे बिल नंबर (प्रिंट करने के लिए क्लिक करें)"
+                            className="inline-flex items-center space-x-1 text-[9px] font-mono font-bold text-amber-300 hover:text-amber-200 bg-amber-950/60 border border-amber-800/60 rounded px-1.5 py-0.5 mt-0.5 cursor-pointer"
+                          >
+                            <Truck className="w-2.5 h-2.5 text-amber-400" />
+                            <span>{b.eWayBillNo}</span>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEWayPrintModal(b, 'both')}
+                            className="text-[9px] text-amber-400/80 hover:text-amber-300 underline block mt-0.5"
+                            title="ई-वे बिल नंबर दर्ज करें और प्रिंट करें"
+                          >
+                            + e-Way No.
+                          </button>
+                        )}
                       </td>
                       <td className="p-3.5">
                         <span className="font-semibold text-cyan-300">
@@ -5336,21 +5506,51 @@ export default function BillerPortalPage() {
                       </td>
                       <td className="p-3.5 text-center">
                         <div className="flex items-center justify-center space-x-1.5">
+                          {/* Print Both (Invoice + e-Way Bill) */}
                           <button
+                            type="button"
+                            onClick={() => handleOpenEWayPrintModal(b, 'both')}
+                            title="बिल और सरकारी ई-वे बिल दोनों एक साथ प्रिंट करें (Print Both: Invoice + e-Way Bill in 1 PDF)"
+                            className="p-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-lg transition shadow flex items-center space-x-1"
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                            <span className="hidden xl:inline text-[9px] font-black">BOTH</span>
+                          </button>
+
+                          {/* Print Actual Government e-Way Bill Standalone */}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEWayPrintModal(b, 'eway')}
+                            title="सरकारी ई-वे बिल प्रिंट करें (Print Actual Government e-Way Bill PDF)"
+                            className="p-1.5 bg-slate-800 hover:bg-indigo-500/30 hover:text-indigo-300 text-slate-300 rounded-lg transition flex items-center space-x-1 border border-slate-700"
+                          >
+                            <Truck className="w-3.5 h-3.5 text-indigo-400" />
+                            <span className="hidden xl:inline text-[9px] font-bold text-indigo-300">e-Way</span>
+                          </button>
+
+                          {/* Edit Bill */}
+                          <button
+                            type="button"
                             onClick={() => handleOpenEditBillModal(b)}
                             title="बिल की जानकारी बदलें / एडिट करें (Edit Bill)"
                             className="p-1.5 bg-slate-800 hover:bg-cyan-500/20 hover:text-cyan-400 text-slate-300 rounded-lg transition"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
+
+                          {/* Download Invoice PDF */}
                           <button
+                            type="button"
                             onClick={() => generateBillPDF(b, true)}
                             title="Download PDF Bill"
                             className="p-1.5 bg-slate-800 hover:bg-amber-500/20 hover:text-amber-400 text-slate-300 rounded-lg transition"
                           >
                             <Download className="w-3.5 h-3.5" />
                           </button>
+
+                          {/* Download E-Way JSON */}
                           <button
+                            type="button"
                             onClick={() => downloadEWayBillJson(b)}
                             title="Download Government NIC E-Way Bill JSON (e-Way Bill Portal Upload)"
                             className="p-1.5 bg-slate-800 hover:bg-emerald-500/20 hover:text-emerald-400 text-slate-300 rounded-lg transition flex items-center space-x-1"
@@ -5358,7 +5558,10 @@ export default function BillerPortalPage() {
                             <FileText className="w-3.5 h-3.5 text-emerald-400" />
                             <span className="hidden xl:inline text-[9px] font-bold text-emerald-300">JSON</span>
                           </button>
+
+                          {/* Delete Bill */}
                           <button
+                            type="button"
                             onClick={() => handleDeleteBill(b._id, b.receipt)}
                             title="Delete Bill"
                             className="p-1.5 bg-slate-800 hover:bg-red-500/20 hover:text-red-400 text-slate-400 rounded-lg transition"
@@ -7132,6 +7335,53 @@ export default function BillerPortalPage() {
                   <Download className="w-3.5 h-3.5 text-amber-400" />
                   <span>Download E-Way JSON</span>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (billToEdit) {
+                      const snapshot: any = {
+                        ...billToEdit,
+                        ...editBillData,
+                        billNumber: editBillData.billNumber.trim(),
+                        eWayBillNo: editBillData.eWayBillNo.trim(),
+                        vehicleNumber: editBillData.vehicleNumber.trim(),
+                        destination: editBillData.destination.trim(),
+                        items: editBillData.items,
+                      };
+                      generateBothBillAndEWayPDF(snapshot, true);
+                    }
+                  }}
+                  className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-xl text-xs transition flex items-center space-x-1.5 shadow"
+                  title="बिल और सरकारी ई-वे बिल दोनों एक साथ प्रिंट करें (Print Both Invoice & e-Way Bill)"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Print Both (Bill + e-Way)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (billToEdit) {
+                      const snapshot: any = {
+                        ...billToEdit,
+                        ...editBillData,
+                        billNumber: editBillData.billNumber.trim(),
+                        eWayBillNo: editBillData.eWayBillNo.trim(),
+                        vehicleNumber: editBillData.vehicleNumber.trim(),
+                        destination: editBillData.destination.trim(),
+                        items: editBillData.items,
+                      };
+                      generateEWayBillPDF(snapshot, true);
+                    }
+                  }}
+                  className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs transition flex items-center space-x-1.5 shadow"
+                  title="सरकारी ई-वे बिल प्रिंट करें (Print Actual Government e-Way Bill PDF)"
+                >
+                  <Truck className="w-3.5 h-3.5" />
+                  <span>e-Way Bill</span>
+                </button>
+
                 <button
                   type="submit"
                   disabled={isSavingEditBill}
@@ -7146,6 +7396,100 @@ export default function BillerPortalPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ENTER E-WAY BILL NUMBER & PRINT */}
+      {eWayModalBill && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-amber-500/40 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-2 bg-amber-500/20 text-amber-400 rounded-xl">
+                  <Truck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white">ई-वे बिल प्रिंट करें (Print e-Way Bill)</h3>
+                  <p className="text-[11px] text-slate-400">Bill No: #{eWayModalBill.billNumber || eWayModalBill.receipt}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEWayModalBill(null)}
+                className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-1">
+                <div className="flex justify-between text-slate-300">
+                  <span className="text-slate-500">Party Name:</span>
+                  <span className="font-bold text-white truncate max-w-[200px]">{eWayModalBill.party || eWayModalBill.purchaserName || 'General Party'}</span>
+                </div>
+                <div className="flex justify-between text-slate-300">
+                  <span className="text-slate-500">Total Value:</span>
+                  <span className="font-bold text-emerald-400">₹{Number(eWayModalBill.totalAmount || 0).toLocaleString('en-IN')}</span>
+                </div>
+                <div className="flex justify-between text-slate-300">
+                  <span className="text-slate-500">Quantity:</span>
+                  <span className="font-bold text-amber-300">{eWayModalBill.totalCartons || 0} CTN</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-amber-300 mb-1">
+                  सरकारी ई-वे बिल नंबर दर्ज करें (12-Digit e-Way Bill No.) *
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. 2418 9201 8472"
+                  value={eWayModalInputNo}
+                  onChange={(e) => setEWayModalInputNo(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-amber-500/50 rounded-xl text-amber-200 font-mono font-bold text-sm focus:outline-none focus:border-amber-400"
+                  autoFocus
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  पोर्टल (ewaybillgst.gov.in) पर जनरेट होने के बाद प्राप्त हुआ 12-अंकों का नंबर दर्ज करें।
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                  गाड़ी नंबर (Vehicle Number)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. DL01LAH5192"
+                  value={eWayModalVehicleNo}
+                  onChange={(e) => setEWayModalVehicleNo(e.target.value.toUpperCase())}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white font-mono font-bold text-xs focus:outline-none focus:border-cyan-400"
+                />
+              </div>
+            </div>
+
+            <div className="pt-2 flex flex-col sm:flex-row gap-2">
+              <button
+                type="button"
+                disabled={isSavingEWayModal}
+                onClick={() => handleConfirmPrintEWay('both')}
+                className="flex-1 py-2.5 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-xl text-xs transition flex items-center justify-center space-x-1.5 shadow-lg shadow-emerald-950/40"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>🖨️ Print Both (Bill + e-Way)</span>
+              </button>
+              <button
+                type="button"
+                disabled={isSavingEWayModal}
+                onClick={() => handleConfirmPrintEWay('eway')}
+                className="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold rounded-xl text-xs transition flex items-center justify-center space-x-1.5 border border-amber-500/30"
+              >
+                <Truck className="w-3.5 h-3.5" />
+                <span>e-Way Bill Only</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
