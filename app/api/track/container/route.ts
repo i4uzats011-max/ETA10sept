@@ -3,6 +3,7 @@ import { connectToDatabase } from '@/lib/mongodb';
 import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
 import { formatGlobalDate } from '@/lib/dateUtils';
+import { getCache, setCache } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,7 +30,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Container parameter is required' }, { status: 400 });
   }
 
+  const cacheKey = `track:container:${containerQuery.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+
   try {
+    const cachedData = await getCache<any>(cacheKey);
+    if (cachedData) {
+      return NextResponse.json(cachedData, {
+        headers: { 'X-Cache': 'HIT' }
+      });
+    }
+
     await connectToDatabase();
 
     const { normalized, zeroPaddedRegex, clean, cleanEscaped } = buildContainerRegexes(containerQuery);
@@ -121,7 +131,7 @@ export async function GET(req: NextRequest) {
       (publicEta !== 'Pending' ? target.updatedAt || target.uploadedAt : null);
     const etaUpdatedAt = rawEtaUpdated ? new Date(rawEtaUpdated).toISOString() : null;
 
-    return NextResponse.json({
+    const payload = {
       success: true,
       container: target.container,
       portDate: portDate || null,
@@ -133,6 +143,13 @@ export async function GET(req: NextRequest) {
       daysToDeliver: target.daysToDeliver ?? null,
       etaUpdatedAt: null,
       remarks: target.remarks || target.containerRemarks || [],
+    };
+
+    // Cache valid tracking result for 3 minutes (180s)
+    await setCache(cacheKey, payload, 180);
+
+    return NextResponse.json(payload, {
+      headers: { 'X-Cache': 'MISS' },
     });
   } catch (error: any) {
     return NextResponse.json(
