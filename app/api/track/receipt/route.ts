@@ -29,6 +29,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Receipt parameter is required' }, { status: 400 });
   }
 
+  const cartonsParam = searchParams.get('cartons')?.trim();
+
   try {
     await connectToDatabase();
 

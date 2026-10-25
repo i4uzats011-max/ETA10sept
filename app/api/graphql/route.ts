@@ -1361,9 +1361,9 @@ export async function POST(req: NextRequest) {
       gqlCacheMap.clear(); // Invalidate cache on mutations
     } else if (!result.errors) {
       gqlCacheMap.set(cacheKey, { timestamp: now, data: result });
-      if (publicCacheKey && result.data?.trackByContainer) {
-        const containerData = result.data.trackByContainer;
-        if (containerData.isDelivered) {
+      if (publicCacheKey && (result.data as any)?.trackByContainer) {
+        const containerData: any = (result.data as any).trackByContainer;
+        if (containerData?.isDelivered) {
           // If container is marked delivered, remove from cache memory immediately
           await deleteCache(publicCacheKey);
         } else {
