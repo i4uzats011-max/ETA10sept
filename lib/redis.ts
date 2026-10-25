@@ -1,4 +1,5 @@
 import { Redis } from '@upstash/redis';
+import { parseReceiptDate } from '@/lib/dateUtils';
 
 // ==========================================
 // UPSTASH FREE PLAN OPTIMIZED CACHING ENGINE
@@ -8,12 +9,38 @@ import { Redis } from '@upstash/redis';
 //    - Preserves Upstash 10,000 requests/day free tier limit
 // 2. Request Deduplication (Stampede Protection)
 //    - Multiple concurrent requests for the same key share a single DB / Redis call
-// 3. Quota & Permission Guard
-//    - Silently and safely degrades to L1 if free quota is exceeded or token is read-only
+// 3. Dynamic TTL Parameter:
+//    - Caches until ETA + 2 days
+//    - If today > ETA + 2 days, strictly NOT saved in cache memory
+// 4. Container Search Only:
+//    - Strictly caches public search by container only (receipts/suggestions/admin bypass)
 // ==========================================
 
-// 15 days in seconds = 15 * 24 * 60 * 60 = 1,296,000s
-export const CONTAINER_TTL_SECONDS = 15 * 24 * 60 * 60;
+// Default fallback TTL: 2 days (172,800s) if ETA is Pending
+export const DEFAULT_CONTAINER_TTL_SECONDS = 2 * 24 * 60 * 60;
+
+/**
+ * Calculate dynamic TTL (in seconds) until (ETA + 2 days).
+ * - If today > ETA + 2 days: returns negative number or 0 (DO NOT SAVE IN CACHE).
+ * - If ETA + 2 days is in the future: returns remaining seconds until expiry.
+ * - If ETA is missing or 'Pending': returns null.
+ */
+export function calculateEtaPlus2DaysTTL(etaInput?: string | Date | null): number | null {
+  if (!etaInput) return null;
+  const s = String(etaInput).trim();
+  if (!s || s === 'Pending' || s === 'N/A' || s === '—') return null;
+
+  const parsed = parseReceiptDate(s);
+  if (!parsed || isNaN(parsed.getTime())) return null;
+
+  // Set to end of the ETA day (23:59:59.999), plus 2 full days
+  const etaDay = new Date(parsed);
+  etaDay.setHours(23, 59, 59, 999);
+  const expiryTimestamp = etaDay.getTime() + (2 * 24 * 60 * 60 * 1000);
+
+  const now = Date.now();
+  return Math.floor((expiryTimestamp - now) / 1000);
+}
 
 interface CacheEntry<T = any> {
   value: T;
