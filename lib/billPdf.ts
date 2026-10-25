@@ -1,5 +1,5 @@
 import jsPDF from 'jspdf';
-import { getStateCode, getStateName } from '@/lib/states';
+import { getStateCode, getStateName } from './states';
 
 export interface BillLineItem {
   itemNo?: number;
@@ -237,12 +237,9 @@ function drawFittedText(
 }
 
 /**
- * Generate GST Tax Invoice PDF exactly matching the provided NORDEX INTERNATIONAL Tax Invoice template,
- * with enhanced bold typography, larger readable sizes, and zero overlapping.
+ * Render the GST Tax Invoice layout onto a jsPDF page.
  */
-export function generateBillPDF(bill: BillPdfData, autoDownload: boolean = true): jsPDF {
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-
+export function renderBillPDFPage(doc: jsPDF, bill: BillPdfData) {
   const xLeft = 10;
   const xRight = 200;
   const wTotal = 190;
@@ -919,8 +916,17 @@ export function generateBillPDF(bill: BillPdfData, autoDownload: boolean = true)
   doc.setFontSize(7.8);
   doc.setFont('helvetica', 'bold');
   doc.text('This is a Computer Generated Invoice', 105, yBottom + 5, { align: 'center' });
+}
+
+/**
+ * Generate standalone GST Tax Invoice PDF
+ */
+export function generateBillPDF(bill: BillPdfData, autoDownload: boolean = true): jsPDF {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  renderBillPDFPage(doc, bill);
 
   if (autoDownload) {
+    const invNo = cleanInvoiceNumber(bill.billNumber, bill.receipt);
     const filename = `Invoice_${invNo.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
     doc.save(filename);
   }
@@ -983,3 +989,12 @@ export function generateConsolidatedMarkaPDF(
 
   return generateBillPDF(consolidatedBill, true);
 }
+
+// Re-export Official Government e-Way Bill PDF Generators
+export {
+  generateEWayBillPDF,
+  generateBothBillAndEWayPDF,
+  renderEWayBillPDFPage,
+  formatEWayBillNumber,
+} from './ewayBillPdf';
+
