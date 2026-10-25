@@ -3,7 +3,7 @@ import { connectToDatabase } from '@/lib/mongodb';
 import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
 import { formatGlobalDate } from '@/lib/dateUtils';
-import { getCache, setCache, deleteCache, CONTAINER_TTL_SECONDS } from '@/lib/redis';
+import { getCache, setCache, deleteCache, calculateEtaPlus2DaysTTL } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
 
@@ -145,13 +145,17 @@ export async function GET(req: NextRequest) {
       remarks: target.remarks || target.containerRemarks || [],
     };
 
-    // Requirement:
+    // Dynamic TTL Parameter:
     // 1. If any container is marked delivered, remove from cache memory
-    // 2. Otherwise, cache active in-transit container for 15 days (CONTAINER_TTL_SECONDS)
-    if (isDelivered) {
+    // 2. TTL is calculated until (ETA + 2 days). If today > (ETA + 2 days), strictly do NOT save in cache!
+    const etaForTTL = rawActualEta !== 'Pending' ? rawActualEta : (target.destinationDate || target.eta || target.rawEta);
+    const etaTtlSeconds = calculateEtaPlus2DaysTTL(etaForTTL);
+
+    if (isDelivered || (etaTtlSeconds !== null && etaTtlSeconds <= 0)) {
       await deleteCache(cacheKey);
     } else {
-      await setCache(cacheKey, payload, CONTAINER_TTL_SECONDS);
+      const effectiveTTL = (etaTtlSeconds !== null && etaTtlSeconds > 0) ? etaTtlSeconds : (2 * 24 * 60 * 60);
+      await setCache(cacheKey, payload, effectiveTTL);
     }
 
     return NextResponse.json(payload, {

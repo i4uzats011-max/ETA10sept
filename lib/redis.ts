@@ -115,6 +115,7 @@ export function getRedisClient(): Redis | null {
 /**
  * Retrieve value from L1 memory first (0 Upstash quota), then Redis L2.
  * STRICT POLICY: ONLY public search by 'container' is cached.
+ * Rule: If today > ETA + 2 days, do NOT serve from cache (evict immediately).
  */
 export async function getCache<T = any>(key: string): Promise<T | null> {
   const now = Date.now();
@@ -128,6 +129,14 @@ export async function getCache<T = any>(key: string): Promise<T | null> {
   const memoryHit = l1Cache.get(key);
   if (memoryHit) {
     if (memoryHit.expiresAt > now) {
+      const d: any = memoryHit.value;
+      const etaVal = d?.eta || d?.destinationDate || d?.portDate;
+      const remaining = calculateEtaPlus2DaysTTL(etaVal);
+      if (remaining !== null && remaining <= 0) {
+        // Today is greater than ETA + 2 days -> purge from cache memory
+        await deleteCache(key);
+        return null;
+      }
       return memoryHit.value as T;
     }
     l1Cache.delete(key);
@@ -143,8 +152,18 @@ export async function getCache<T = any>(key: string): Promise<T | null> {
   try {
     const data = await redis.get<T>(key);
     if (data !== null && data !== undefined) {
-      // Store in L1 memory with 15-day retention
-      l1Cache.set(key, { value: data, expiresAt: now + CONTAINER_TTL_SECONDS * 1000 });
+      const d: any = data;
+      const etaVal = d?.eta || d?.destinationDate || d?.portDate;
+      const remaining = calculateEtaPlus2DaysTTL(etaVal);
+
+      if (remaining !== null && remaining <= 0) {
+        // Today is greater than ETA + 2 days -> purge from cache memory
+        await deleteCache(key);
+        return null;
+      }
+
+      const effectiveTTL = (remaining !== null && remaining > 0) ? remaining : DEFAULT_CONTAINER_TTL_SECONDS;
+      l1Cache.set(key, { value: data, expiresAt: now + effectiveTTL * 1000 });
       return data;
     }
     return null;
@@ -161,24 +180,32 @@ export async function getCache<T = any>(key: string): Promise<T | null> {
 }
 
 /**
- * Save value to L1 memory and Upstash Redis L2 with 15-day TTL (seconds).
- * STRICT POLICY: ONLY public search by 'container' is saved.
+ * Save value to L1 memory and Upstash Redis L2 with dynamic TTL (ETA + 2 days).
+ * STRICT POLICY:
+ * 1. ONLY public search by 'container' is saved.
+ * 2. If today > ETA + 2 days (ttlSeconds <= 0), strictly DO NOT SAVE in cache.
  */
 export async function setCache(
   key: string,
   value: any,
-  ttlSeconds: number = CONTAINER_TTL_SECONDS
+  ttlSeconds: number = DEFAULT_CONTAINER_TTL_SECONDS
 ): Promise<boolean> {
   // Strict Policy: Upstash Redis & Memory ONLY save data for Public Container Search
   if (!key.startsWith('public:track:container:')) {
     return true; // Non-container searches are never saved to memory or Redis
   }
 
-  const effectiveTTL = ttlSeconds || CONTAINER_TTL_SECONDS;
+  // Parameter check: If today > ETA + 2 days, strictly do NOT save in cache
+  if (ttlSeconds !== undefined && ttlSeconds <= 0) {
+    await deleteCache(key);
+    return true;
+  }
+
+  const effectiveTTL = (ttlSeconds !== undefined && ttlSeconds > 0) ? ttlSeconds : DEFAULT_CONTAINER_TTL_SECONDS;
   const now = Date.now();
   const expiresAt = now + effectiveTTL * 1000;
 
-  // 1. Always store in fast L1 Memory Cache (15 days)
+  // 1. Always store in fast L1 Memory Cache (expires at ETA + 2 days)
   cleanupL1();
   l1Cache.set(key, { value, expiresAt });
 
@@ -187,7 +214,7 @@ export async function setCache(
   const redis = getRedisClient();
   if (!redis) return true;
 
-  // 2. Store in Upstash Redis L2 with 15 Days TTL
+  // 2. Store in Upstash Redis L2 with dynamic TTL (ETA + 2 days)
   try {
     await redis.set(key, value, { ex: effectiveTTL });
     return true;

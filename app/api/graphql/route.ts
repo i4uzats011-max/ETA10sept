@@ -8,7 +8,7 @@ import { isAdminAuthenticated } from '@/lib/auth';
 import { fetchContainerTracking, fetchApiKeyStats, addFilingBufferDays } from '@/lib/jsoncargo';
 import { translateToEnglish } from '@/lib/translate';
 import { formatGlobalDate } from '@/lib/dateUtils';
-import { getCache, setCache, deleteCache, CONTAINER_TTL_SECONDS } from '@/lib/redis';
+import { getCache, setCache, deleteCache, calculateEtaPlus2DaysTTL } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
 
@@ -1363,12 +1363,16 @@ export async function POST(req: NextRequest) {
       gqlCacheMap.set(cacheKey, { timestamp: now, data: result });
       if (publicCacheKey && (result.data as any)?.trackByContainer) {
         const containerData: any = (result.data as any).trackByContainer;
-        if (containerData?.isDelivered) {
-          // If container is marked delivered, remove from cache memory immediately
+        const etaForTTL = containerData?.eta || containerData?.destinationDate || containerData?.portDate;
+        const etaTtlSeconds = calculateEtaPlus2DaysTTL(etaForTTL);
+
+        if (containerData?.isDelivered || (etaTtlSeconds !== null && etaTtlSeconds <= 0)) {
+          // If container is marked delivered OR today > (ETA + 2 days), do not save in cache & remove if present
           await deleteCache(publicCacheKey);
         } else {
-          // Cache active in-transit container for 15 days (1,296,000s)
-          await setCache(publicCacheKey, result.data, CONTAINER_TTL_SECONDS);
+          // Save container with TTL = ETA + 2 days (or default 2 days if ETA is pending)
+          const effectiveTTL = (etaTtlSeconds !== null && etaTtlSeconds > 0) ? etaTtlSeconds : (2 * 24 * 60 * 60);
+          await setCache(publicCacheKey, result.data, effectiveTTL);
         }
       }
     }
