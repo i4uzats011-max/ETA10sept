@@ -3,7 +3,7 @@ import { connectToDatabase } from '@/lib/mongodb';
 import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
 import { formatGlobalDate } from '@/lib/dateUtils';
-import { getCache, setCache } from '@/lib/redis';
+import { getCache, setCache, deleteCache, CONTAINER_TTL_SECONDS } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
 
@@ -145,11 +145,17 @@ export async function GET(req: NextRequest) {
       remarks: target.remarks || target.containerRemarks || [],
     };
 
-    // Cache valid tracking result for 3 minutes (180s)
-    await setCache(cacheKey, payload, 180);
+    // Requirement:
+    // 1. If any container is marked delivered, remove from cache memory
+    // 2. Otherwise, cache active in-transit container for 15 days (CONTAINER_TTL_SECONDS)
+    if (isDelivered) {
+      await deleteCache(cacheKey);
+    } else {
+      await setCache(cacheKey, payload, CONTAINER_TTL_SECONDS);
+    }
 
     return NextResponse.json(payload, {
-      headers: { 'X-Cache': 'MISS', 'X-Cache-Priority': 'public-search' },
+      headers: { 'X-Cache': 'MISS', 'X-Cache-Priority': 'public-container-search' },
     });
   } catch (error: any) {
     return NextResponse.json(

@@ -6,6 +6,7 @@ import Container from '@/models/Container';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
 import { isAnyAuthenticated } from '@/lib/auth';
 import { formatReceiptDate, calculateDaysBetween } from '@/lib/dateUtils';
+import { invalidateContainerCache } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
 
@@ -186,6 +187,12 @@ export async function POST(req: NextRequest) {
         if (contDays !== null) cont.daysToDeliver = contDays;
         await cont.save();
         updatedContainers.push(containerAlias);
+
+        // Remove delivered container from cache memory
+        await invalidateContainerCache(containerAlias);
+        if (cont.containerNumber) {
+          await invalidateContainerCache(cont.containerNumber);
+        }
       }
     }
 

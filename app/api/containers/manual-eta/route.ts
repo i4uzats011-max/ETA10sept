@@ -5,6 +5,7 @@ import Container from '@/models/Container';
 import { isSuperAdminAuthenticated } from '@/lib/auth';
 import { addFilingBufferDays } from '@/lib/jsoncargo';
 import { calculateDaysBetween, formatReceiptDate } from '@/lib/dateUtils';
+import { invalidateContainerCache } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
 
@@ -219,6 +220,12 @@ export async function POST(req: NextRequest) {
           $push: { containerRemarks: remarkToPush },
         }
       ).catch(() => {});
+    }
+
+    // Invalidate container cache memory upon status/ETA change
+    await invalidateContainerCache(effectiveTargetAlias);
+    if (finalContainerNo) {
+      await invalidateContainerCache(finalContainerNo);
     }
 
     const message = isNewContainer

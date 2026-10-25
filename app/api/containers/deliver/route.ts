@@ -4,6 +4,7 @@ import Container from '@/models/Container';
 import Shipment from '@/models/Shipment';
 import { isStaffOrAdminAuthenticated } from '@/lib/auth';
 import { calculateDaysBetween, formatReceiptDate } from '@/lib/dateUtils';
+import { invalidateContainerCache } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
 
@@ -103,6 +104,12 @@ export async function POST(req: NextRequest) {
           }
           await wh.save();
         }
+      }
+
+      // Evict container from cache memory upon status change
+      await invalidateContainerCache(cleanAlias);
+      if (updated?.containerNumber) {
+        await invalidateContainerCache(updated.containerNumber);
       }
 
       return NextResponse.json({
@@ -280,6 +287,12 @@ export async function POST(req: NextRequest) {
           }
         );
       }
+    }
+
+    // Evict container from cache memory upon being marked delivered
+    await invalidateContainerCache(cleanAlias);
+    if (updatedContainer?.containerNumber) {
+      await invalidateContainerCache(updatedContainer.containerNumber);
     }
 
     return NextResponse.json({

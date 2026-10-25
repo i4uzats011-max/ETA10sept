@@ -8,7 +8,7 @@ import { isAdminAuthenticated } from '@/lib/auth';
 import { fetchContainerTracking, fetchApiKeyStats, addFilingBufferDays } from '@/lib/jsoncargo';
 import { translateToEnglish } from '@/lib/translate';
 import { formatGlobalDate } from '@/lib/dateUtils';
-import { getCache, setCache } from '@/lib/redis';
+import { getCache, setCache, deleteCache, CONTAINER_TTL_SECONDS } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
 
@@ -1317,16 +1317,14 @@ export async function POST(req: NextRequest) {
     }
 
     const isMutation = query.trim().startsWith('mutation');
-    const isPublicSearch = !isMutation && (query.includes('trackByContainer') || query.includes('trackByReceipt'));
+    const isPublicContainerSearch = !isMutation && query.includes('trackByContainer') && Boolean(variables?.container);
 
-    // High-Priority Public Search Cache Key
+    // High-Priority Public Container Search Cache Key (15 Days TTL)
+    // Receipt search is strictly bypassed per user requirement:
+    // "ony save in case of search by co memory public search by 'container': only"
     let publicCacheKey: string | null = null;
-    if (isPublicSearch) {
-      if (variables?.container) {
-        publicCacheKey = `public:track:container:${String(variables.container).toLowerCase().replace(/[^a-z0-9]/g, '')}`;
-      } else if (variables?.receipt) {
-        publicCacheKey = `public:track:receipt:${String(variables.receipt).toLowerCase().replace(/[^a-z0-9]/g, '')}${variables.cartons ? ':' + variables.cartons : ''}`;
-      }
+    if (isPublicContainerSearch && variables?.container) {
+      publicCacheKey = `public:track:container:${String(variables.container).toLowerCase().replace(/[^a-z0-9]/g, '')}`;
     }
 
     if (publicCacheKey) {
@@ -1334,7 +1332,7 @@ export async function POST(req: NextRequest) {
       if (cachedData) {
         return NextResponse.json(
           { data: cachedData, cached: true },
-          { headers: { 'X-Cache': 'HIT', 'X-Cache-Priority': 'public-search' } }
+          { headers: { 'X-Cache': 'HIT', 'X-Cache-Priority': 'public-container-search' } }
         );
       }
     }
@@ -1363,9 +1361,15 @@ export async function POST(req: NextRequest) {
       gqlCacheMap.clear(); // Invalidate cache on mutations
     } else if (!result.errors) {
       gqlCacheMap.set(cacheKey, { timestamp: now, data: result });
-      if (publicCacheKey && result.data) {
-        // Cache public search results for 5 minutes (300s)
-        await setCache(publicCacheKey, result.data, 300);
+      if (publicCacheKey && result.data?.trackByContainer) {
+        const containerData = result.data.trackByContainer;
+        if (containerData.isDelivered) {
+          // If container is marked delivered, remove from cache memory immediately
+          await deleteCache(publicCacheKey);
+        } else {
+          // Cache active in-transit container for 15 days (1,296,000s)
+          await setCache(publicCacheKey, result.data, CONTAINER_TTL_SECONDS);
+        }
       }
     }
 

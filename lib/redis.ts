@@ -12,13 +12,16 @@ import { Redis } from '@upstash/redis';
 //    - Silently and safely degrades to L1 if free quota is exceeded or token is read-only
 // ==========================================
 
+// 15 days in seconds = 15 * 24 * 60 * 60 = 1,296,000s
+export const CONTAINER_TTL_SECONDS = 15 * 24 * 60 * 60;
+
 interface CacheEntry<T = any> {
   value: T;
   expiresAt: number;
 }
 
 const l1Cache = new Map<string, CacheEntry>();
-const MAX_L1_ENTRIES = 1500;
+const MAX_L1_ENTRIES = 2000;
 
 // Stampede prevention map: stores ongoing promises
 const inFlightPromises = new Map<string, Promise<any>>();
@@ -31,10 +34,10 @@ function cleanupL1() {
         l1Cache.delete(key);
       }
     }
-    // Prioritize Public Search: Evict non-public items first
+    // Evict any non-container entries first
     if (l1Cache.size > MAX_L1_ENTRIES) {
       for (const [key] of l1Cache.entries()) {
-        if (!key.startsWith('public:')) {
+        if (!key.startsWith('public:track:container:')) {
           l1Cache.delete(key);
           if (l1Cache.size <= MAX_L1_ENTRIES) break;
         }
@@ -84,9 +87,15 @@ export function getRedisClient(): Redis | null {
 
 /**
  * Retrieve value from L1 memory first (0 Upstash quota), then Redis L2.
+ * STRICT POLICY: ONLY public search by 'container' is cached.
  */
 export async function getCache<T = any>(key: string): Promise<T | null> {
   const now = Date.now();
+
+  // Strict Policy: ONLY public search by 'container' is cached
+  if (!key.startsWith('public:track:container:')) {
+    return null;
+  }
 
   // 1. Check L1 Memory Cache (0.002ms - saves Upstash Free Quota!)
   const memoryHit = l1Cache.get(key);
@@ -97,23 +106,18 @@ export async function getCache<T = any>(key: string): Promise<T | null> {
     l1Cache.delete(key);
   }
 
-  // Strict Policy: Upstash Redis is ONLY accessed for Public Search "Track Status" queries
-  if (!key.startsWith('public:track:')) {
-    return null;
-  }
-
   // If daily quota was exceeded, rely on L1 memory only
   if (isQuotaExceeded) return null;
 
   const redis = getRedisClient();
   if (!redis) return null;
 
-  // 2. Query Upstash Redis L2 (Exclusively for Track Status)
+  // 2. Query Upstash Redis L2 (Exclusively for Container Track Status)
   try {
     const data = await redis.get<T>(key);
     if (data !== null && data !== undefined) {
-      // Public Track Status entries get 180s retention in L1
-      l1Cache.set(key, { value: data, expiresAt: now + 180000 });
+      // Store in L1 memory with 15-day retention
+      l1Cache.set(key, { value: data, expiresAt: now + CONTAINER_TTL_SECONDS * 1000 });
       return data;
     }
     return null;
@@ -130,33 +134,35 @@ export async function getCache<T = any>(key: string): Promise<T | null> {
 }
 
 /**
- * Save value to L1 memory and Upstash Redis L2 with TTL (seconds).
+ * Save value to L1 memory and Upstash Redis L2 with 15-day TTL (seconds).
+ * STRICT POLICY: ONLY public search by 'container' is saved.
  */
 export async function setCache(
   key: string,
   value: any,
-  ttlSeconds: number = 180
+  ttlSeconds: number = CONTAINER_TTL_SECONDS
 ): Promise<boolean> {
-  const now = Date.now();
-  const expiresAt = now + ttlSeconds * 1000;
+  // Strict Policy: Upstash Redis & Memory ONLY save data for Public Container Search
+  if (!key.startsWith('public:track:container:')) {
+    return true; // Non-container searches are never saved to memory or Redis
+  }
 
-  // 1. Always store in fast L1 Memory Cache
+  const effectiveTTL = ttlSeconds || CONTAINER_TTL_SECONDS;
+  const now = Date.now();
+  const expiresAt = now + effectiveTTL * 1000;
+
+  // 1. Always store in fast L1 Memory Cache (15 days)
   cleanupL1();
   l1Cache.set(key, { value, expiresAt });
-
-  // Strict Policy: Upstash Redis ONLY saves data for Public Search "Track Status" queries
-  if (!key.startsWith('public:track:')) {
-    return true; // Stored in L1 memory only, never sent to Upstash Redis
-  }
 
   if (isQuotaExceeded) return true;
 
   const redis = getRedisClient();
   if (!redis) return true;
 
-  // 2. Store in Upstash Redis L2 with TTL
+  // 2. Store in Upstash Redis L2 with 15 Days TTL
   try {
-    await redis.set(key, value, { ex: ttlSeconds });
+    await redis.set(key, value, { ex: effectiveTTL });
     return true;
   } catch (err: any) {
     const msg = String(err?.message || err);
@@ -185,7 +191,7 @@ export async function setCache(
 export async function deleteCache(key: string): Promise<boolean> {
   l1Cache.delete(key);
 
-  if (!key.startsWith('public:track:') || isQuotaExceeded) return true;
+  if (!key.startsWith('public:track:container:') || isQuotaExceeded) return true;
   const redis = getRedisClient();
   if (!redis) return true;
 
@@ -195,6 +201,15 @@ export async function deleteCache(key: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Invalidate container cache when container status/ETA is updated
+ */
+export async function invalidateContainerCache(container: string): Promise<boolean> {
+  if (!container) return false;
+  const clean = String(container).toLowerCase().replace(/[^a-z0-9]/g, '');
+  return await deleteCache(`public:track:container:${clean}`);
 }
 
 /**

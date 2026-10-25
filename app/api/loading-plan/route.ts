@@ -6,6 +6,7 @@ import WarehouseReceipt from '@/models/WarehouseReceipt';
 import { isStaffOrAdminAuthenticated, isSuperAdminAuthenticated } from '@/lib/auth';
 import { fetchContainerTracking, addFilingBufferDays } from '@/lib/jsoncargo';
 import { parseMetricNumber } from '@/lib/metricUtils';
+import { invalidateContainerCache } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
 

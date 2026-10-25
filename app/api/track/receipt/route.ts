@@ -5,7 +5,6 @@ import Container from '@/models/Container';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
 import { translateToEnglish } from '@/lib/translate';
 import { formatGlobalDate } from '@/lib/dateUtils';
-import { getCache, setCache } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,19 +29,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Receipt parameter is required' }, { status: 400 });
   }
 
-  const cartonsParam = searchParams.get('cartons')?.trim();
-  const cacheKey = cartonsParam
-    ? `public:track:receipt:${receiptQuery.toLowerCase().replace(/[^a-z0-9]/g, '')}:${cartonsParam}`
-    : `public:track:receipt:${receiptQuery.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
-
   try {
-    const cachedData = await getCache<any>(cacheKey);
-    if (cachedData) {
-      return NextResponse.json(cachedData, {
-        headers: { 'X-Cache': 'HIT', 'X-Cache-Priority': 'public-search' },
-      });
-    }
-
     await connectToDatabase();
 
     // Fetch all WarehouseReceipt documents matching this receipt number
@@ -284,11 +271,8 @@ export async function GET(req: NextRequest) {
       warehouseReceipt: sanitizedWhItem,
     };
 
-    // Cache valid tracking details for 3 minutes (180s)
-    await setCache(cacheKey, payload, 180);
-
     return NextResponse.json(payload, {
-      headers: { 'X-Cache': 'MISS', 'X-Cache-Priority': 'public-search' },
+      headers: { 'X-Cache': 'BYPASS', 'X-Cache-Priority': 'receipt-live' },
     });
   } catch (error: any) {
     return NextResponse.json(
