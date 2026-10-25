@@ -3,7 +3,7 @@ import { connectToDatabase } from '@/lib/mongodb';
 import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
 import { formatGlobalDate } from '@/lib/dateUtils';
-import { getCache, setCache, deleteCache, calculateEtaPlus2DaysTTL } from '@/lib/redis';
+import { getCache, setCache, deleteCache, evaluateContainerEtaTTL } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
 
@@ -146,25 +146,25 @@ export async function GET(req: NextRequest) {
       remarks: target.remarks || target.containerRemarks || [],
     };
 
-    // Dynamic TTL Parameter:
+    // Container ETA Caching Rule:
     // 1. If any container is marked delivered, remove from cache memory
-    // 2. TTL is calculated until (ETA + 2 days). If today > (ETA + 2 days), strictly do NOT save in cache!
+    // 2. If (ETA + 5 days) < today, strictly do NOT save in cache memory
+    // 3. If (ETA + 5 days) >= today, save in cache memory with TTL = (ETA + 7 days)
     const etaForTTL = rawActualEta !== 'Pending' ? rawActualEta : (target.destinationDate || target.eta || target.rawEta);
-    const etaTtlSeconds = calculateEtaPlus2DaysTTL(etaForTTL);
+    const evalResult = evaluateContainerEtaTTL(etaForTTL);
 
     const cleanQueryKey = cacheKey;
     const aliasKey = target.container ? `public:track:container:${String(target.container).toLowerCase().replace(/[^a-z0-9]/g, '')}` : null;
     const carrierKey = target.containerNumber ? `public:track:container:${String(target.containerNumber).toLowerCase().replace(/[^a-z0-9]/g, '')}` : null;
 
-    if (isDelivered || (etaTtlSeconds !== null && etaTtlSeconds <= 0)) {
+    if (isDelivered || !evalResult.shouldCache) {
       await deleteCache(cleanQueryKey);
       if (aliasKey) await deleteCache(aliasKey);
       if (carrierKey) await deleteCache(carrierKey);
     } else {
-      const effectiveTTL = (etaTtlSeconds !== null && etaTtlSeconds > 0) ? etaTtlSeconds : (2 * 24 * 60 * 60);
-      await setCache(cleanQueryKey, payload, effectiveTTL);
-      if (aliasKey && aliasKey !== cleanQueryKey) await setCache(aliasKey, payload, effectiveTTL);
-      if (carrierKey && carrierKey !== cleanQueryKey) await setCache(carrierKey, payload, effectiveTTL);
+      await setCache(cleanQueryKey, payload, evalResult.ttlSeconds);
+      if (aliasKey && aliasKey !== cleanQueryKey) await setCache(aliasKey, payload, evalResult.ttlSeconds);
+      if (carrierKey && carrierKey !== cleanQueryKey) await setCache(carrierKey, payload, evalResult.ttlSeconds);
     }
 
     return NextResponse.json(payload, {

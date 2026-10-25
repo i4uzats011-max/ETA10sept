@@ -16,30 +16,48 @@ import { parseReceiptDate } from '@/lib/dateUtils';
 //    - Strictly caches public search by container only (receipts/suggestions/admin bypass)
 // ==========================================
 
-// Default fallback TTL: 2 days (172,800s) if ETA is Pending
-export const DEFAULT_CONTAINER_TTL_SECONDS = 2 * 24 * 60 * 60;
+// Fallback TTL: 7 days (604,800s) if ETA is Pending
+export const DEFAULT_CONTAINER_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 /**
- * Calculate dynamic TTL (in seconds) until (ETA + 2 days).
- * - If today > ETA + 2 days: returns negative number or 0 (DO NOT SAVE IN CACHE).
- * - If ETA + 2 days is in the future: returns remaining seconds until expiry.
- * - If ETA is missing or 'Pending': returns null.
+ * Container ETA Caching Rule:
+ * 1. If (ETA + 5 days) < today: DO NOT SAVE in cache memory (shouldCache: false).
+ * 2. If (ETA + 5 days) >= today: SAVE in cache memory with TTL = (ETA + 7 days).
+ * 3. If ETA is missing / 'Pending': SAVE with fallback 7-day TTL (604,800s).
  */
-export function calculateEtaPlus2DaysTTL(etaInput?: string | Date | null): number | null {
-  if (!etaInput) return null;
+export function evaluateContainerEtaTTL(etaInput?: string | Date | null): {
+  shouldCache: boolean;
+  ttlSeconds: number;
+} {
+  if (!etaInput) {
+    return { shouldCache: true, ttlSeconds: DEFAULT_CONTAINER_TTL_SECONDS };
+  }
   const s = String(etaInput).trim();
-  if (!s || s === 'Pending' || s === 'N/A' || s === '—') return null;
+  if (!s || s === 'Pending' || s === 'N/A' || s === '—') {
+    return { shouldCache: true, ttlSeconds: DEFAULT_CONTAINER_TTL_SECONDS };
+  }
 
   const parsed = parseReceiptDate(s);
-  if (!parsed || isNaN(parsed.getTime())) return null;
+  if (!parsed || isNaN(parsed.getTime())) {
+    return { shouldCache: true, ttlSeconds: DEFAULT_CONTAINER_TTL_SECONDS };
+  }
 
-  // Set to end of the ETA day (23:59:59.999), plus 2 full days
   const etaDay = new Date(parsed);
   etaDay.setHours(23, 59, 59, 999);
-  const expiryTimestamp = etaDay.getTime() + (2 * 24 * 60 * 60 * 1000);
-
   const now = Date.now();
-  return Math.floor((expiryTimestamp - now) / 1000);
+
+  // Threshold 1: (ETA + 5 days)
+  const etaPlus5DaysTimestamp = etaDay.getTime() + (5 * 24 * 60 * 60 * 1000);
+  if (etaPlus5DaysTimestamp < now) {
+    // If (ETA + 5 days) < today, strictly do not save in cache memory
+    return { shouldCache: false, ttlSeconds: 0 };
+  }
+
+  // Threshold 2: TTL = (ETA + 7 days)
+  const etaPlus7DaysTimestamp = etaDay.getTime() + (7 * 24 * 60 * 60 * 1000);
+  const remainingSeconds = Math.max(60, Math.floor((etaPlus7DaysTimestamp - now) / 1000));
+
+  return { shouldCache: true, ttlSeconds: remainingSeconds };
 }
 
 interface CacheEntry<T = any> {
@@ -132,9 +150,9 @@ export async function getCache<T = any>(key: string): Promise<T | null> {
       const d: any = memoryHit.value;
       const targetObj = d?.trackByContainer || d?.data?.trackByContainer || d;
       const etaVal = targetObj?.eta || targetObj?.destinationDate || targetObj?.portDate;
-      const remaining = calculateEtaPlus2DaysTTL(etaVal);
-      if (remaining !== null && remaining <= 0) {
-        // Today is greater than ETA + 2 days -> purge from cache memory
+      const evalResult = evaluateContainerEtaTTL(etaVal);
+      if (!evalResult.shouldCache) {
+        // (ETA + 5 days) < today -> purge from cache memory immediately
         await deleteCache(key);
         return null;
       }
@@ -156,16 +174,15 @@ export async function getCache<T = any>(key: string): Promise<T | null> {
       const d: any = data;
       const targetObj = d?.trackByContainer || d?.data?.trackByContainer || d;
       const etaVal = targetObj?.eta || targetObj?.destinationDate || targetObj?.portDate;
-      const remaining = calculateEtaPlus2DaysTTL(etaVal);
+      const evalResult = evaluateContainerEtaTTL(etaVal);
 
-      if (remaining !== null && remaining <= 0) {
-        // Today is greater than ETA + 2 days -> purge from cache memory
+      if (!evalResult.shouldCache) {
+        // (ETA + 5 days) < today -> purge from cache memory immediately
         await deleteCache(key);
         return null;
       }
 
-      const effectiveTTL = (remaining !== null && remaining > 0) ? remaining : DEFAULT_CONTAINER_TTL_SECONDS;
-      l1Cache.set(key, { value: data, expiresAt: now + effectiveTTL * 1000 });
+      l1Cache.set(key, { value: data, expiresAt: now + evalResult.ttlSeconds * 1000 });
       return data;
     }
     return null;
@@ -182,10 +199,11 @@ export async function getCache<T = any>(key: string): Promise<T | null> {
 }
 
 /**
- * Save value to L1 memory and Upstash Redis L2 with dynamic TTL (ETA + 2 days).
+ * Save value to L1 memory and Upstash Redis L2 with dynamic TTL (ETA + 7 days).
  * STRICT POLICY:
  * 1. ONLY public search by 'container' is saved.
- * 2. If today > ETA + 2 days (ttlSeconds <= 0), strictly DO NOT SAVE in cache.
+ * 2. If (ETA + 5 days) < today, strictly DO NOT SAVE in cache memory.
+ * 3. TTL = (ETA + 7 days).
  */
 export async function setCache(
   key: string,
@@ -197,25 +215,24 @@ export async function setCache(
     return true; // Non-container searches are never saved to memory or Redis
   }
 
-  // Parameter check: If today > ETA + 2 days, strictly do NOT save in cache
+  // Parameter check: If (ETA + 5 days) < today, strictly do NOT save in cache
   const targetObj = value?.trackByContainer || value?.data?.trackByContainer || value;
   const etaVal = targetObj?.eta || targetObj?.destinationDate || targetObj?.portDate;
-  const computedTTL = calculateEtaPlus2DaysTTL(etaVal);
+  const evalResult = evaluateContainerEtaTTL(etaVal);
 
-  if ((ttlSeconds !== undefined && ttlSeconds <= 0) || (computedTTL !== null && computedTTL <= 0)) {
+  if (!evalResult.shouldCache || (ttlSeconds !== undefined && ttlSeconds <= 0)) {
     await deleteCache(key);
     return true;
   }
 
   const effectiveTTL = (ttlSeconds !== undefined && ttlSeconds > 0 && ttlSeconds !== DEFAULT_CONTAINER_TTL_SECONDS)
     ? ttlSeconds
-    : (computedTTL !== null && computedTTL > 0)
-    ? computedTTL
-    : DEFAULT_CONTAINER_TTL_SECONDS;
+    : evalResult.ttlSeconds;
+
   const now = Date.now();
   const expiresAt = now + effectiveTTL * 1000;
 
-  // 1. Always store in fast L1 Memory Cache (expires at ETA + 2 days)
+  // 1. Always store in fast L1 Memory Cache (expires at ETA + 7 days)
   cleanupL1();
   l1Cache.set(key, { value, expiresAt });
 
@@ -224,7 +241,7 @@ export async function setCache(
   const redis = getRedisClient();
   if (!redis) return true;
 
-  // 2. Store in Upstash Redis L2 with dynamic TTL (ETA + 2 days)
+  // 2. Store in Upstash Redis L2 with dynamic TTL (ETA + 7 days)
   try {
     await redis.set(key, value, { ex: effectiveTTL });
     return true;

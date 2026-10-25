@@ -8,7 +8,7 @@ import { isAdminAuthenticated } from '@/lib/auth';
 import { fetchContainerTracking, fetchApiKeyStats, addFilingBufferDays } from '@/lib/jsoncargo';
 import { translateToEnglish } from '@/lib/translate';
 import { formatGlobalDate } from '@/lib/dateUtils';
-import { getCache, setCache, deleteCache, calculateEtaPlus2DaysTTL } from '@/lib/redis';
+import { getCache, setCache, deleteCache, evaluateContainerEtaTTL } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
 
@@ -1366,23 +1366,22 @@ export async function POST(req: NextRequest) {
       if (publicCacheKey && (result.data as any)?.trackByContainer) {
         const containerData: any = (result.data as any).trackByContainer;
         const etaForTTL = containerData?.eta || containerData?.destinationDate || containerData?.portDate;
-        const etaTtlSeconds = calculateEtaPlus2DaysTTL(etaForTTL);
+        const evalResult = evaluateContainerEtaTTL(etaForTTL);
 
         const cleanQueryKey = publicCacheKey;
         const aliasKey = containerData.container ? `public:track:container:${String(containerData.container).toLowerCase().replace(/[^a-z0-9]/g, '')}` : null;
         const carrierKey = containerData.containerNumber ? `public:track:container:${String(containerData.containerNumber).toLowerCase().replace(/[^a-z0-9]/g, '')}` : null;
 
-        if (containerData?.isDelivered || (etaTtlSeconds !== null && etaTtlSeconds <= 0)) {
-          // If container is marked delivered OR today > (ETA + 2 days), do not save in cache & remove if present
+        if (containerData?.isDelivered || !evalResult.shouldCache) {
+          // If container is marked delivered OR (ETA + 5 days) < today, do not save in cache & remove if present
           await deleteCache(cleanQueryKey);
           if (aliasKey) await deleteCache(aliasKey);
           if (carrierKey) await deleteCache(carrierKey);
         } else {
-          // Save container with TTL = ETA + 2 days (or default 2 days if ETA is pending)
-          const effectiveTTL = (etaTtlSeconds !== null && etaTtlSeconds > 0) ? etaTtlSeconds : (2 * 24 * 60 * 60);
-          await setCache(cleanQueryKey, result.data, effectiveTTL);
-          if (aliasKey && aliasKey !== cleanQueryKey) await setCache(aliasKey, result.data, effectiveTTL);
-          if (carrierKey && carrierKey !== cleanQueryKey) await setCache(carrierKey, result.data, effectiveTTL);
+          // Save container with TTL = (ETA + 7 days)
+          await setCache(cleanQueryKey, result.data, evalResult.ttlSeconds);
+          if (aliasKey && aliasKey !== cleanQueryKey) await setCache(aliasKey, result.data, evalResult.ttlSeconds);
+          if (carrierKey && carrierKey !== cleanQueryKey) await setCache(carrierKey, result.data, evalResult.ttlSeconds);
         }
       }
     }
