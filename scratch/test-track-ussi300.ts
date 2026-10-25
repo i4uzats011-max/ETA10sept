@@ -35,6 +35,7 @@ async function test() {
         trackByContainer(container: $container) {
           success
           container
+          containerNumber
           portDate
           eta
           dateOfDelivery

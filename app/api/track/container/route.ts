@@ -134,6 +134,7 @@ export async function GET(req: NextRequest) {
     const payload = {
       success: true,
       container: target.container,
+      containerNumber: target.containerNumber || '',
       portDate: portDate || null,
       eta: publicEta,
       deliveryDate: formattedDeliveryDate,

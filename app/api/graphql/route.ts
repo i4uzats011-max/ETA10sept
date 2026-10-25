@@ -122,6 +122,7 @@ const schema = buildSchema(`
   type ContainerArrival {
     success: Boolean!
     container: String!
+    containerNumber: String
     portDate: String
     eta: String
     dateOfDelivery: String
@@ -527,6 +528,7 @@ function createRootResolver(req: NextRequest) {
       return {
         success: true,
         container: containerAlias,
+        containerNumber: target.containerNumber || '',
         portDate: formattedPortDate,
         eta: calculatedDeliveryDate,
         dateOfDelivery: isDelivered ? (formattedDeliveryDate || calculatedDeliveryDate) : calculatedDeliveryDate,
