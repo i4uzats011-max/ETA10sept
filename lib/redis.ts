@@ -97,19 +97,23 @@ export async function getCache<T = any>(key: string): Promise<T | null> {
     l1Cache.delete(key);
   }
 
+  // Strict Policy: Upstash Redis is ONLY accessed for Public Search "Track Status" queries
+  if (!key.startsWith('public:track:')) {
+    return null;
+  }
+
   // If daily quota was exceeded, rely on L1 memory only
   if (isQuotaExceeded) return null;
 
   const redis = getRedisClient();
   if (!redis) return null;
 
-  // 2. Query Upstash Redis L2
+  // 2. Query Upstash Redis L2 (Exclusively for Track Status)
   try {
     const data = await redis.get<T>(key);
     if (data !== null && data !== undefined) {
-      // Public search entries get longer L1 retention (180s) to keep public searches instant
-      const l1Ttl = key.startsWith('public:') ? 180000 : 60000;
-      l1Cache.set(key, { value: data, expiresAt: now + l1Ttl });
+      // Public Track Status entries get 180s retention in L1
+      l1Cache.set(key, { value: data, expiresAt: now + 180000 });
       return data;
     }
     return null;
@@ -139,6 +143,11 @@ export async function setCache(
   // 1. Always store in fast L1 Memory Cache
   cleanupL1();
   l1Cache.set(key, { value, expiresAt });
+
+  // Strict Policy: Upstash Redis ONLY saves data for Public Search "Track Status" queries
+  if (!key.startsWith('public:track:')) {
+    return true; // Stored in L1 memory only, never sent to Upstash Redis
+  }
 
   if (isQuotaExceeded) return true;
 
@@ -176,7 +185,7 @@ export async function setCache(
 export async function deleteCache(key: string): Promise<boolean> {
   l1Cache.delete(key);
 
-  if (isQuotaExceeded) return true;
+  if (!key.startsWith('public:track:') || isQuotaExceeded) return true;
   const redis = getRedisClient();
   if (!redis) return true;
 
