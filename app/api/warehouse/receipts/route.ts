@@ -10,6 +10,7 @@ import {
   translatePackaging,
   translateWarehouse,
   translateMark,
+  hasChineseCharacters,
 } from '@/lib/translate';
 import { indexSingleWarehouseReceipt, deleteSingleWarehouseReceipt } from '@/lib/typesense';
 import { calculateReceiptBalance } from '@/lib/metricUtils';
@@ -264,7 +265,7 @@ export async function POST(req: NextRequest) {
     // Chinese to English translation
     const rawCommodity = commodity ? String(commodity).trim() : '';
     const { english: translatedEnglish, chinese: translatedChinese } = translateCommodity(rawCommodity);
-    const finalEnglish = rest.english || translatedEnglish;
+    const finalEnglish = (rest.english && rest.english !== 'General Merchandise' && !hasChineseCharacters(rest.english)) ? rest.english : translatedEnglish;
     const finalChinese = rest.chinese || translatedChinese;
     const finalPackaging = translatePackaging(packaging);
     const finalMainMark = translateMark(mainMarka);
@@ -279,7 +280,7 @@ export async function POST(req: NextRequest) {
         const { english: itEn, chinese: itCn } = translateCommodity(rawName);
         return {
           itemName: rawName,
-          english: it.english || itEn,
+          english: (it.english && it.english !== 'General Merchandise' && !hasChineseCharacters(it.english)) ? it.english : itEn,
           chinese: it.chinese || itCn,
           quantity: parseInt(String(it.quantity || 0), 10) || 0,
           packaging: translatePackaging(it.packaging || packaging || 'Carton'),

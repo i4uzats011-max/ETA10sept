@@ -371,7 +371,7 @@ export async function POST(req: NextRequest) {
           const rEnglish = englishHeader && r[englishHeader] !== undefined ? String(r[englishHeader]).trim() : '';
 
           const { english: tEn, chinese: tCn } = translateCommodity(rCommodity);
-          const itEn = rEnglish ? (hasChineseCharacters(rEnglish) ? translateToEnglish(rEnglish) : rEnglish) : tEn;
+          const itEn = (rEnglish && rEnglish !== 'General Merchandise') ? (hasChineseCharacters(rEnglish) ? translateToEnglish(rEnglish) : rEnglish) : tEn;
           const itCn = tCn || (hasChineseCharacters(rCommodity) ? rCommodity : '');
           const itPkg = translatePackaging(packagingHeader && r[packagingHeader] !== undefined ? String(r[packagingHeader]).trim() : '');
           const itWt = weightHeader && r[weightHeader] !== undefined ? String(r[weightHeader]).trim() : '';
@@ -813,7 +813,7 @@ export async function POST(req: NextRequest) {
       const rawCommodity = commodityHeader && row[commodityHeader] !== undefined ? String(row[commodityHeader]).trim() : '';
       const rawEnglish = englishHeader && row[englishHeader] !== undefined ? String(row[englishHeader]).trim() : '';
       const { english: translatedEnglish, chinese: translatedChinese } = translateCommodity(rawCommodity);
-      const finalEnglish = rawEnglish ? (hasChineseCharacters(rawEnglish) ? translateToEnglish(rawEnglish) : rawEnglish) : translatedEnglish;
+      const finalEnglish = (rawEnglish && rawEnglish !== 'General Merchandise') ? (hasChineseCharacters(rawEnglish) ? translateToEnglish(rawEnglish) : rawEnglish) : translatedEnglish;
       const finalChinese = translatedChinese || (hasChineseCharacters(rawCommodity) ? rawCommodity : '');
       const finalPackaging = translatePackaging(packagingHeader && row[packagingHeader] !== undefined ? String(row[packagingHeader]).trim() : '');
       const finalWarehouse = translateWarehouse(warehouseHeader && row[warehouseHeader] !== undefined ? String(row[warehouseHeader]).trim() : defaultWarehouse);

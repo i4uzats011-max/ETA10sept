@@ -4,6 +4,7 @@ import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
 import { isStaffOrAdminAuthenticated, isSuperAdminAuthenticated } from '@/lib/auth';
+import { translateToEnglish, hasChineseCharacters } from '@/lib/translate';
 
 export const dynamic = 'force-dynamic';
 
@@ -81,6 +82,17 @@ export async function PUT(req: NextRequest) {
 
     if (updateFields.eta !== undefined && updateFields.eta !== existing.eta) {
       updateFields.etaUpdatedAt = new Date();
+    }
+
+    // Auto-translate Chinese commodity name if provided or updated
+    const rawCn = updateFields.chinese || (hasChineseCharacters(updateFields.commodity) ? updateFields.commodity : '');
+    if (rawCn && hasChineseCharacters(rawCn)) {
+      if (!updateFields.english || updateFields.english === 'General Merchandise' || hasChineseCharacters(updateFields.english)) {
+        updateFields.english = translateToEnglish(rawCn);
+      }
+      if (!updateFields.chinese) {
+        updateFields.chinese = rawCn;
+      }
     }
 
     // Direct database update: Zero external API calls during user edits
