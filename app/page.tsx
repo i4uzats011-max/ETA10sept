@@ -7,6 +7,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { fetchGraphQL } from '@/lib/graphql';
 import { formatGlobalDate } from '@/lib/dateUtils';
+import { translateToEnglish } from '@/lib/translate';
 import {
   Package,
   Truck,
@@ -170,7 +171,7 @@ export default function PublicTrackerPage() {
         const dateColDisplay = lines.join('\n');
         return [
           idx + 1,
-          s.english || s.commodity || 'General Cargo',
+          translateToEnglish(s.english || s.commodity || 'General Cargo'),
           [s.mainMarka ? `M:${s.mainMarka}` : '', (s.subMarka && s.subMarka !== '??') ? `S:${s.subMarka}` : ''].filter(Boolean).join(' ') || 'N/A',
           `${s.quantity || s.cartons || '0'} CTN`,
           s.weight ? `${s.weight} KG` : 'N/A',
@@ -594,7 +595,7 @@ export default function PublicTrackerPage() {
 
   const primaryGoods = whReceipt || receiptShipmentsList[0] || {};
   const partyName = whReceipt?.party || receiptShipmentsList[0]?.party || 'General Party';
-  const commodityName = primaryGoods.english || primaryGoods.commodity || 'General Cargo';
+  const commodityName = translateToEnglish(primaryGoods.english || primaryGoods.commodity || 'General Cargo');
   const chineseCommodity = primaryGoods.chinese && primaryGoods.chinese !== commodityName ? primaryGoods.chinese : '';
   const packagingType = primaryGoods.packaging || 'Carton';
   const warehouseLocation = whReceipt?.warehouse || receiptShipmentsList[0]?.warehouse || 'China Warehouse';
@@ -1056,8 +1057,8 @@ export default function PublicTrackerPage() {
 
                   <div className="bg-white/80 p-3.5 rounded-2xl border border-blue-100">
                     <span className="text-[11px] font-bold text-slate-400 uppercase">Commodity</span>
-                    <div className="font-bold text-slate-900 text-sm mt-0.5 truncate" title={receiptResult.warehouseReceipt.english || receiptResult.warehouseReceipt.commodity}>
-                      {receiptResult.warehouseReceipt.english || receiptResult.warehouseReceipt.commodity || 'General Cargo'}
+                    <div className="font-bold text-slate-900 text-sm mt-0.5 truncate" title={translateToEnglish(receiptResult.warehouseReceipt.english || receiptResult.warehouseReceipt.commodity)}>
+                      {translateToEnglish(receiptResult.warehouseReceipt.english || receiptResult.warehouseReceipt.commodity || 'General Cargo')}
                     </div>
                   </div>
                 </div>
@@ -1557,7 +1558,7 @@ export default function PublicTrackerPage() {
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                             <div>
                               <span className="text-slate-400 font-semibold block">Commodity Description:</span>
-                              <strong className="text-slate-800 text-sm">{item.english || item.commodity || 'General Cargo'}</strong>
+                              <strong className="text-slate-800 text-sm">{translateToEnglish(item.english || item.commodity || 'General Cargo')}</strong>
                             </div>
                             <div>
                               <span className="text-slate-400 font-semibold block">Shipping Marks:</span>

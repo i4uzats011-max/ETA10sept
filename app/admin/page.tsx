@@ -13,6 +13,7 @@ import {
   getDeliveryTurnaroundStatus,
 } from '@/lib/dateUtils';
 import { addFilingBufferDays } from '@/lib/jsoncargo';
+import { translateToEnglish } from '@/lib/translate';
 import CargoMasterTable from '@/components/CargoMasterTable';
 import LoaderHub from '@/components/LoaderHub';
 import PartyArrivalNotifications from '@/components/PartyArrivalNotifications';
@@ -3810,8 +3811,8 @@ export default function AdminDashboardPage() {
                           {shipment.containerNumber}
                         </td>
                         <td className="p-4 font-medium text-slate-600">{shipment.shippingLine}</td>
-                        <td className="p-4 max-w-xs truncate" title={shipment.english || shipment.commodity}>
-                          {shipment.english || shipment.commodity || '-'}
+                        <td className="p-4 max-w-xs truncate" title={translateToEnglish(shipment.english || shipment.commodity)}>
+                          {translateToEnglish(shipment.english || shipment.commodity) || '-'}
                         </td>
                         <td className="p-4 font-medium">{shipment.quantity || '0'}</td>
                         <td className="p-4 text-slate-500">

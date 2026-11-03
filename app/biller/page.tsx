@@ -48,6 +48,7 @@ import { generateBillPDF, generateEWayBillPDF, generateBothBillAndEWayPDF } from
 import { downloadEWayBillJson } from '@/lib/ewayBillJson';
 import { INDIAN_STATES, getStateCode, getStateName, getStateCodeByName, getStateByGstinOrCode, detectStateFromAddress } from '@/lib/states';
 import { inferHsnByItemName, findHsnSuggestions, MASTER_HSN_CATALOG } from '@/lib/hsnCatalog';
+import { translateToEnglish } from '@/lib/translate';
 
 export interface FormLineItem {
   itemNo: number;
@@ -534,7 +535,7 @@ export default function BillerPortalPage() {
     setMainMarka(shipment.mainMarka || shipment.marka || '');
     setSubMarka(shipment.subMarka || '');
     
-    const desc = (shipment.commodity || shipment.english || 'COMMERCIAL GOODS').trim();
+    const desc = translateToEnglish(shipment.english || shipment.commodity || 'COMMERCIAL GOODS').trim();
     setCommodity(desc);
     setLineDescription(desc);
     setLineHsn(shipment.hsnCode || '39269099');
@@ -822,7 +823,7 @@ export default function BillerPortalPage() {
         let overallReceipts: string[] = [];
 
         shipments.forEach((s: any) => {
-          const d = (s.commodity || s.english || 'COMMERCIAL GOODS').trim();
+          const d = translateToEnglish(s.english || s.commodity || 'COMMERCIAL GOODS').trim();
           const c = Number(s.cartons || s.quantity) || 0;
           const k = Number(s.weightKg || s.weight) || 0;
           const p = c > 0 ? c * 10 : 0;
@@ -965,7 +966,7 @@ export default function BillerPortalPage() {
       results.forEach((r) => {
         r.shipments.forEach((s: any) => {
           combinedShipments.push(s);
-          const d = (s.commodity || s.english || 'COMMERCIAL GOODS').trim();
+          const d = translateToEnglish(s.english || s.commodity || 'COMMERCIAL GOODS').trim();
           const c = Number(s.cartons || s.quantity) || 0;
           const k = Number(s.weightKg || s.weight) || 0;
           const p = c > 0 ? c * 10 : 0;
@@ -3861,7 +3862,7 @@ export default function BillerPortalPage() {
                         <option value="">-- Choose from {singleAvailableReceipts.length} Receipts --</option>
                         {singleAvailableReceipts.map((s: any) => (
                           <option key={s.receipt} value={s.receipt}>
-                            #{s.receipt} — {s.cartons} CTN, {s.weightKg} KG ({s.commodity || 'Cargo'})
+                            #{s.receipt} — {s.cartons} CTN, {s.weightKg} KG ({translateToEnglish(s.english || s.commodity || 'Cargo')})
                           </option>
                         ))}
                       </select>
