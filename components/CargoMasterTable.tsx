@@ -26,6 +26,7 @@ import { formatGlobalDate, parseReceiptDate } from '@/lib/dateUtils';
 import CargoMasterChart from './CargoMasterChart';
 import MarkDeliveredModal from './MarkDeliveredModal';
 import { getCarrierTrackingUrl, getLdbRailwayTrackingUrl } from '@/lib/trackingUrls';
+import { downloadContainerWiseRateExcel } from '@/lib/containerRateExport';
 import * as XLSX from 'xlsx';
 import {
   Search,
@@ -106,6 +107,7 @@ export default function CargoMasterTable({
   const [showCharts, setShowCharts] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<'admin' | 'staff' | null>(null);
+  const [isDownloadingRates, setIsDownloadingRates] = useState(false);
 
   useEffect(() => {
     fetch('/api/auth/me')
@@ -1153,7 +1155,7 @@ export default function CargoMasterTable({
                 )}
               </button>
 
-              {/* Dual Download Buttons */}
+              {/* Dual Download Buttons + Container Rates */}
               <div className="flex flex-wrap items-center gap-1.5">
                 <button
                   type="button"
@@ -1174,6 +1176,28 @@ export default function CargoMasterTable({
                   <FileSpreadsheet className="w-3.5 h-3.5 text-blue-600" />
                   <span className="hidden sm:inline">Download All Buckets (.xlsx)</span>
                   <span className="sm:hidden">All Buckets</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setIsDownloadingRates(true);
+                    try {
+                      await downloadContainerWiseRateExcel();
+                    } catch (e: any) {
+                      alert(e?.message || 'Failed to download container rates');
+                    } finally {
+                      setIsDownloadingRates(false);
+                    }
+                  }}
+                  disabled={isDownloadingRates}
+                  className="px-2.5 sm:px-3 py-1.5 sm:py-2 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-300 rounded-xl font-bold text-xs transition flex items-center space-x-1 shadow-xs disabled:opacity-50"
+                  title="Download container-wise rate manifest with Overall / Receipt Freight Rates in Excel (.xlsx)"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-purple-600" />
+                  <span className="hidden sm:inline">
+                    {isDownloadingRates ? 'Generating...' : 'Container Rates (.xlsx)'}
+                  </span>
+                  <span className="sm:hidden">Rates (.xlsx)</span>
                 </button>
               </div>
 
