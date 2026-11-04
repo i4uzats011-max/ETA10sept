@@ -103,6 +103,14 @@ export async function PUT(req: NextRequest) {
     // Direct database update: Zero external API calls during user edits
     const updated = await Shipment.findByIdAndUpdate(id, { $set: updateFields }, { new: true });
 
+    // Sync "Overall / Receipt Freight Rate" to WarehouseReceipt if updated
+    if (updateFields.rate !== undefined && updated?.receipt) {
+      await WarehouseReceipt.updateMany(
+        { receiptNumber: String(updated.receipt).trim() },
+        { $set: { rate: String(updateFields.rate).trim() } }
+      );
+    }
+
     await recordEditLog(req, {
       action: 'UPDATE',
       entityType: 'Shipment',
@@ -238,6 +246,13 @@ export async function POST(req: NextRequest) {
         ...(hasValidEta ? { etaUpdatedAt: new Date() } : {}),
         status: createData.status || 'Pending',
       });
+
+      if (createData.rate && created.receipt) {
+        await WarehouseReceipt.updateMany(
+          { receiptNumber: String(created.receipt).trim() },
+          { $set: { rate: String(createData.rate).trim() } }
+        );
+      }
 
       await recordEditLog(req, {
         action: 'CREATE',

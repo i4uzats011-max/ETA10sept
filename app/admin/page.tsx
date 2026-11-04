@@ -22,6 +22,7 @@ import ChangePasswordModal from '@/components/ChangePasswordModal';
 import UserManager from '@/components/UserManager';
 import EditLogViewer from '@/components/EditLogViewer';
 import { getCarrierTrackingUrl, getLdbRailwayTrackingUrl } from '@/lib/trackingUrls';
+import { downloadContainerWiseRateExcel } from '@/lib/containerRateExport';
 import { ReduxProvider } from '@/store/ReduxProvider';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -362,6 +363,7 @@ export default function AdminDashboardPage() {
   // Modals state
   const [editingShipment, setEditingShipment] = useState<any | null>(null);
   const [isBulkEditOpen, setIsBulkEditOpen] = useState(false);
+  const [isDownloadingRates, setIsDownloadingRates] = useState(false);
   const [bulkEditData, setBulkEditData] = useState({
     container: '',
     containerNumber: '',
@@ -383,6 +385,7 @@ export default function AdminDashboardPage() {
     quantity: '',
     weight: '',
     volume: '',
+    rate: '',
     warehouse: '',
     warehouseEntry: '',
     stockstatus: 'In stock',
@@ -1027,6 +1030,7 @@ export default function AdminDashboardPage() {
           warehouse: editingShipment.warehouse,
           stockstatus: editingShipment.stockstatus,
           date: editingShipment.date,
+          rate: editingShipment.rate,
           mainMarka: editingShipment.mainMarka,
           subMarka: editingShipment.subMarka,
           warehouseEntry: editingShipment.warehouseEntry,
@@ -1081,6 +1085,7 @@ export default function AdminDashboardPage() {
         quantity: '',
         weight: '',
         volume: '',
+        rate: '',
         warehouse: '',
         warehouseEntry: '',
         stockstatus: 'In stock',
@@ -1312,6 +1317,27 @@ export default function AdminDashboardPage() {
             >
               Public Site
             </Link>
+
+            <button
+              type="button"
+              onClick={async () => {
+                setIsDownloadingRates(true);
+                try {
+                  await downloadContainerWiseRateExcel();
+                } catch (e: any) {
+                  alert(e?.message || 'Failed to download container rates');
+                } finally {
+                  setIsDownloadingRates(false);
+                }
+              }}
+              disabled={isDownloadingRates}
+              className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-800 text-xs font-bold border border-purple-300 transition flex items-center space-x-1 disabled:opacity-50 shadow-2xs"
+              title="Download Container-Wise Rate Manifest (.xlsx) with Overall / Receipt Freight Rates"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-purple-600" />
+              <span className="hidden sm:inline">{isDownloadingRates ? 'Downloading...' : 'Rate List (.xlsx)'}</span>
+              <span className="sm:hidden">Rates</span>
+            </button>
 
             <button
               type="button"
@@ -3531,6 +3557,17 @@ export default function AdminDashboardPage() {
                 />
               </div>
 
+              <div>
+                <label className="text-slate-600 font-bold text-emerald-800">Overall / Receipt Freight Rate</label>
+                <input
+                  type="text"
+                  value={editingShipment.rate || ''}
+                  onChange={(e) => setEditingShipment({ ...editingShipment, rate: e.target.value })}
+                  placeholder="e.g. 23k or 25,000"
+                  className="w-full p-2.5 border rounded-lg mt-1 font-semibold text-emerald-900 bg-emerald-50/50 border-emerald-300"
+                />
+              </div>
+
               <div className="col-span-2 flex justify-end space-x-2 pt-4 border-t">
                 <button
                   type="button"
@@ -3830,6 +3867,17 @@ export default function AdminDashboardPage() {
                   onChange={(e) => setNewEntryData({ ...newEntryData, status: e.target.value })}
                   placeholder="e.g. In Transit / Pending"
                   className="w-full p-2.5 border rounded-lg mt-1 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="text-slate-600 font-bold text-emerald-800">Overall / Receipt Freight Rate</label>
+                <input
+                  type="text"
+                  value={newEntryData.rate}
+                  onChange={(e) => setNewEntryData({ ...newEntryData, rate: e.target.value })}
+                  placeholder="e.g. 23k or 25,000"
+                  className="w-full p-2.5 border rounded-lg mt-1 text-sm font-semibold text-emerald-900 bg-emerald-50/50 border-emerald-300"
                 />
               </div>
 
