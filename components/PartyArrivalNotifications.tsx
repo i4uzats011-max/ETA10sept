@@ -1201,16 +1201,16 @@ Please note without above details goods will not be load`;
                         </p>
                       </div>
 
-                      {/* Freight / Shipping Rate (Optional / ऐच्छिक - e.g. 23k) */}
+                      {/* Freight / Shipping Rate (Overall / Receipt Freight Rate - e.g. 23k) */}
                       <div className="p-3.5 bg-emerald-50/60 rounded-xl border border-emerald-200 space-y-2">
                         <div className="flex items-center justify-between">
                           <label className="text-[11px] font-black text-emerald-950 uppercase flex items-center space-x-1.5">
                             <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>Rate / दर (Optional - e.g. 23k)</span>
+                            <span>Overall / Receipt Freight Rate (e.g. 23k, 25,000)</span>
                           </label>
                           {currentRate && (
                             <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded font-mono">
-                              Rate: {currentRate}
+                              Freight Rate: {currentRate}
                             </span>
                           )}
                         </div>
@@ -1222,7 +1222,7 @@ Please note without above details goods will not be load`;
                             onChange={(e) =>
                               setRateInputs((prev) => ({ ...prev, [r._id]: e.target.value }))
                             }
-                            placeholder="Rate (e.g. 23k or 25,000)"
+                            placeholder="Overall / Receipt Freight Rate (e.g. 23k, 25,000, 50/ctn)"
                             className="flex-1 px-3 py-1.5 rounded-lg border border-emerald-300 text-xs font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono shadow-2xs"
                           />
 
@@ -1231,7 +1231,7 @@ Please note without above details goods will not be load`;
                             onClick={() => handleSaveRate(r)}
                             disabled={isSavingRate}
                             className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1 shadow-2xs shrink-0 disabled:opacity-50"
-                            title="Save rate to database for this receipt"
+                            title="Save rate to database in head 'Overall / Receipt Freight Rate'"
                           >
                             {isRateSaved ? (
                               <>
@@ -1250,7 +1250,7 @@ Please note without above details goods will not be load`;
                         </div>
                         <p className="text-[10px] text-emerald-800">
                           {includeRateGlobal ? (
-                            <>Optional. When filled, adds <strong>Rate {currentRate || '23k'}</strong> directly after Volume details. Clear to omit.</>
+                            <>Saved under <strong>Overall / Receipt Freight Rate</strong>. When sending WhatsApp/text, includes <strong>Rate {currentRate || '23k'}</strong> in message.</>
                           ) : (
                             <span className="text-slate-500 italic">Rate inclusion is currently disabled in toolbar above.</span>
                           )}
