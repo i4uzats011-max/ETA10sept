@@ -135,6 +135,7 @@ export async function GET(req: NextRequest) {
       success: true,
       container: target.container,
       containerNumber: target.containerNumber || '',
+      shippingLine: target.shippingLine || '',
       portDate: portDate || null,
       eta: publicEta,
       deliveryDate: formattedDeliveryDate,

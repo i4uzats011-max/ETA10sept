@@ -42,7 +42,9 @@ import {
   Download,
   Warehouse,
   Boxes,
+  ExternalLink,
 } from 'lucide-react';
+import { getCarrierTrackingUrl } from '@/lib/trackingUrls';
 
 function formatCBM(volume: any): string {
   if (volume === null || volume === undefined || volume === '' || volume === 'N/A') {
@@ -1648,6 +1650,21 @@ export default function PublicTrackerPage() {
                       <p className="text-[11px] text-slate-400">
                         Estimated arrival date for container {containerResult.container}.
                       </p>
+
+                      {containerResult.shippingLine && (
+                        <div className="pt-3 border-t border-slate-800 flex justify-center">
+                          <a
+                            href={getCarrierTrackingUrl(containerResult.shippingLine, containerResult.containerNumber)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold bg-blue-900/50 hover:bg-blue-800 text-blue-200 border border-blue-700/60 transition group shadow-sm"
+                            title={`Click to open official ${containerResult.shippingLine} carrier tracking website`}
+                          >
+                            <span>Track on Carrier Website ({containerResult.shippingLine})</span>
+                            <ExternalLink className="w-3.5 h-3.5 text-blue-400 group-hover:translate-x-0.5 transition-transform" />
+                          </a>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

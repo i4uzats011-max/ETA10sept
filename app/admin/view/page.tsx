@@ -12,8 +12,9 @@ import {
   AlertTriangle, FileSpreadsheet, Image as ImageIcon, FileText,
   X, SlidersHorizontal, FileType, Star, Bookmark, ChevronDown,
   LayoutGrid, Filter, Check, CheckCircle2, Clock, TrendingUp, ArrowUpDown,
-  CheckSquare, Square, Eye, EyeOff, Lock, Key, Languages
+  CheckSquare, Square, Eye, EyeOff, Lock, Key, Languages, ExternalLink
 } from 'lucide-react';
+import { getCarrierTrackingUrl } from '@/lib/trackingUrls';
 import {
   calculateDaysToDeliver,
   parseReceiptDate,
@@ -2250,7 +2251,20 @@ export default function InternalEmployeeViewPage() {
                         {/* 7. Shipping Line */}
                         {showShippingLine && (
                           <td className="py-2.5 px-4 whitespace-nowrap font-semibold text-slate-700">
-                            {item.shippingLine || 'MSC'}
+                            {item.shippingLine ? (
+                              <a
+                                href={getCarrierTrackingUrl(item.shippingLine, item.containerNumber || item.container)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center space-x-1 font-bold text-xs text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded border border-blue-200 transition"
+                                title={`Click to open official ${item.shippingLine} tracking website`}
+                              >
+                                <span>{item.shippingLine}</span>
+                                <ExternalLink className="w-2.5 h-2.5 text-blue-500" />
+                              </a>
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
                           </td>
                         )}
 

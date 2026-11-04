@@ -21,6 +21,7 @@ import ShippingLineManager from '@/components/ShippingLineManager';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
 import UserManager from '@/components/UserManager';
 import EditLogViewer from '@/components/EditLogViewer';
+import { getCarrierTrackingUrl } from '@/lib/trackingUrls';
 import { ReduxProvider } from '@/store/ReduxProvider';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -65,6 +66,7 @@ import {
   Smartphone,
   Users,
   FileText,
+  ExternalLink,
 } from 'lucide-react';
 
 const SHIPPING_LINES = [
@@ -228,13 +230,7 @@ export default function AdminDashboardPage() {
   const [isUpdatingContainer, setIsUpdatingContainer] = useState(false);
   const [containerUpdateStatus, setContainerUpdateStatus] = useState<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null);
 
-  // Manual Container ETA Fetch Tool state
-  const [manualSyncContainer, setManualSyncContainer] = useState('');
-  const [detectedActualNo, setDetectedActualNo] = useState('');
-  const [manualSyncLine, setManualSyncLine] = useState('MSC');
-  const [isManualSyncing, setIsManualSyncing] = useState(false);
-  const [manualSyncStatus, setManualSyncStatus] = useState<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null);
-  const [liveJsonCargoDetails, setLiveJsonCargoDetails] = useState<any | null>(null);
+
 
   // Dynamic Shipping Lines State
   const [dynamicShippingLines, setDynamicShippingLines] = useState<string[]>(SHIPPING_LINES);
@@ -395,22 +391,10 @@ export default function AdminDashboardPage() {
     status: 'Pending',
   });
 
-  // Manual Sync State
-  const [isSyncingCron, setIsSyncingCron] = useState(false);
-  const [syncingRowId, setSyncingRowId] = useState<string | null>(null);
-
-  // Late Containers & ETA Sync Schedule State
+  // Late Containers State
   const [lateContainers, setLateContainers] = useState<any[]>([]);
-  const [needsSyncContainers, setNeedsSyncContainers] = useState<any[]>([]);
-  // Carrier Outage Alerts (>5 errors in 7 days) & Failed Sync List
-  const [carrierOutageAlerts, setCarrierOutageAlerts] = useState<any[]>([]);
-  const [failedSyncList, setFailedSyncList] = useState<any[]>([]);
-  const [syncAlertsLoading, setSyncAlertsLoading] = useState(false);
-  const [showCarrierOutageBanner, setShowCarrierOutageBanner] = useState(true);
-
   const [lateContainersLoading, setLateContainersLoading] = useState(false);
   const [showLatePanel, setShowLatePanel] = useState(true);
-  const [showSyncPanel, setShowSyncPanel] = useState(true);
 
   // 1. Check Authentication on Mount
   useEffect(() => {
@@ -433,7 +417,6 @@ export default function AdminDashboardPage() {
             fetchContainerFleet();
             fetchApiStats();
             fetchLateContainers();
-            fetchSyncAlerts();
             fetchDynamicShippingLines();
           }
         }
@@ -475,40 +458,7 @@ export default function AdminDashboardPage() {
     }
   };
 
-  
-  const fetchSyncAlerts = async () => {
-    setSyncAlertsLoading(true);
-    try {
-      const res = await fetch('/api/admin/sync-alerts');
-      const data = await res.json();
-      if (res.ok) {
-        setCarrierOutageAlerts(data.carrierOutageAlerts || []);
-        setFailedSyncList(data.failedSyncList || []);
-      }
-    } catch {
-      // Non-critical, fail silently
-    } finally {
-      setSyncAlertsLoading(false);
-    }
-  };
 
-  const handleClearSyncAlerts = async () => {
-    if (!confirm('Are you sure you want to clear all logged sync errors and carrier outage alerts?')) {
-      return;
-    }
-    try {
-      const res = await fetch('/api/admin/sync-alerts', { method: 'DELETE' });
-      const data = await res.json();
-      if (res.ok) {
-        alert(data.message || 'Successfully cleared sync error log.');
-        fetchSyncAlerts();
-      } else {
-        throw new Error(data.error || 'Failed to clear sync error log');
-      }
-    } catch (err: any) {
-      alert(err.message || 'Error clearing sync alerts');
-    }
-  };
 
   const handleJumpToManualEta = (containerAlias: string, company?: string) => {
     setActiveAdminTab('manual-eta');
@@ -531,7 +481,6 @@ export default function AdminDashboardPage() {
       const data = await res.json();
       if (res.ok) {
         setLateContainers(data.lateContainers || []);
-        setNeedsSyncContainers(data.needsSyncContainers || []);
       }
     } catch {
       // Non-critical, silent fail
@@ -542,7 +491,6 @@ export default function AdminDashboardPage() {
 
   // Auto Lookup actual container & company when user selects from dropdown
   const handleContainerSelectionChange = async (alias: string) => {
-    setManualSyncContainer(alias);
     setManualEtaContainer(alias);
     setContainerSearchInput(alias);
     setEditedAliasInput(alias);
@@ -558,9 +506,7 @@ export default function AdminDashboardPage() {
       const res = await fetch(`/api/admin/container-details?container=${encodeURIComponent(alias)}`);
       const data = await res.json();
       if (res.ok) {
-        setDetectedActualNo(data.containerNumber || alias);
         setManualActualContainerNo(data.containerNumber || '');
-        setManualSyncLine(data.shippingLine || 'MSC');
         if (data.startDate || data.loadingDate) setManualLoadingDate(data.startDate || data.loadingDate);
         if (data.rawEta) setManualActualEtaDate(data.rawEta);
         if (data.destinationDate) {
@@ -652,55 +598,7 @@ export default function AdminDashboardPage() {
     }
   };
 
-  // 3. Handle Manual Container ETA Fetch Tool (JSONCargo API)
-  const handleManualContainerEtaSync = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!manualSyncContainer) {
-      setManualSyncStatus({ type: 'error', message: 'Please select a container from the dropdown list' });
-      return;
-    }
 
-    setIsManualSyncing(true);
-    setManualSyncStatus(null);
-    setLiveJsonCargoDetails(null);
-
-    try {
-      const res = await fetch('/api/containers/sync-eta', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          container: manualSyncContainer,
-          shippingLine: manualSyncLine,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (data.warning) {
-        setManualSyncStatus({
-          type: 'warning',
-          message: data.message,
-        });
-        return;
-      }
-
-      if (!res.ok) throw new Error(data.error || 'Manual ETA sync failed');
-
-      setManualSyncStatus({
-        type: 'success',
-        message: `Selected '${data.publicAlias}' → Found Actual Container '${data.containerNumber}' (${data.shippingLine}) in Database → Updated ETA to '${data.eta}'${data.loadingDate ? ` & Loading Date to '${data.loadingDate}'` : ''} in Database!`,
-      });
-
-      setLiveJsonCargoDetails(data.dataDetails);
-      fetchApiStats();
-
-      if (searchQuery) handleSearch();
-    } catch (err: any) {
-      setManualSyncStatus({ type: 'error', message: err.message || 'Failed to sync container ETA' });
-    } finally {
-      setIsManualSyncing(false);
-    }
-  };
 
   // Smart Date Copy-Paste Engine helpers
   const handleDatePaste = (val: string) => {
@@ -913,50 +811,7 @@ export default function AdminDashboardPage() {
     }
   };
 
-  // 5. Handle Single Row Manual ETA Re-sync
-  const handleSingleRowSyncEta = async (shipment: any) => {
-    setSyncingRowId(shipment._id);
-    try {
-      const res = await fetch('/api/containers/sync-eta', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          container: shipment.container,
-          containerNumber: shipment.containerNumber,
-          shippingLine: shipment.shippingLine,
-        }),
-      });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to sync ETA');
-
-      setShipments(
-        shipments.map((s) =>
-          s._id === shipment._id
-            ? {
-                ...s,
-                eta: data.eta,
-                status: data.status,
-                lastApiSync: data.lastApiSync,
-                ...(data.loadingDate ? { loadingDate: data.loadingDate, startDate: data.loadingDate } : {}),
-              }
-            : s
-        )
-      );
-      setTableStatus({
-        type: 'success',
-        message: `Synced ETA for ${shipment.receipt}: ${data.eta}${data.loadingDate ? ` | Loading Date: ${data.loadingDate}` : ''}`,
-      });
-      if (data.dataDetails) {
-        setLiveJsonCargoDetails(data.dataDetails);
-      }
-      fetchApiStats();
-    } catch (err: any) {
-      setTableStatus({ type: 'error', message: err.message || 'ETA sync failed' });
-    } finally {
-      setSyncingRowId(null);
-    }
-  };
 
 
 
@@ -1285,22 +1140,7 @@ export default function AdminDashboardPage() {
     }
   };
 
-  // Manual Sync Trigger
-  const handleTriggerCronSync = async () => {
-    setIsSyncingCron(true);
-    try {
-      const res = await fetch('/api/cron/sync-eta', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Sync failed');
 
-      alert(`ETA Sync Engine Completed!\nSynced: ${data.syncedCount} containers\nSkipped: ${data.skippedCount} containers`);
-      if (searchQuery) handleSearch();
-    } catch (err: any) {
-      alert(`Sync Engine Error: ${err.message}`);
-    } finally {
-      setIsSyncingCron(false);
-    }
-  };
 
   // Logout
   const handleLogout = async () => {
@@ -1428,16 +1268,6 @@ export default function AdminDashboardPage() {
                 Tracking: <strong className="text-emerald-700 font-black">Direct</strong>
               </span>
             </div>
-
-            <button
-              onClick={handleTriggerCronSync}
-              disabled={isSyncingCron}
-              className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center space-x-1.5 transition shadow-sm disabled:opacity-50"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncingCron ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">{isSyncingCron ? 'Syncing...' : 'Trigger Full Cron ETA Sync'}</span>
-              <span className="sm:hidden">{isSyncingCron ? 'Syncing' : 'Sync All'}</span>
-            </button>
 
             <Link
               href="/biller"
@@ -1625,7 +1455,6 @@ export default function AdminDashboardPage() {
               onClick={() => {
                 setActiveAdminTab('alerts');
                 fetchLateContainers();
-                fetchSyncAlerts();
               }}
               className={`px-3 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 w-full ${
                 activeAdminTab === 'alerts'
@@ -1634,10 +1463,10 @@ export default function AdminDashboardPage() {
               }`}
             >
               <AlertTriangle className="w-4 h-4 shrink-0" />
-              <span className="truncate">Alerts & Schedule</span>
-              {(lateContainers.length > 0 || needsSyncContainers.length > 0 || carrierOutageAlerts.length > 0) && (
-                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white">
-                  {lateContainers.length + needsSyncContainers.length + carrierOutageAlerts.length}
+              <span className="truncate">Late Containers</span>
+              {lateContainers.length > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-red-600 text-white">
+                  {lateContainers.length}
                 </span>
               )}
             </button>
@@ -1672,340 +1501,88 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
-        {/* ── HIGH-PRIORITY CARRIER OUTAGE ALERT BANNER (>5 failures within 7 days) ── */}
-        {carrierOutageAlerts.length > 0 && showCarrierOutageBanner && (
-          <div className="space-y-3">
-            {carrierOutageAlerts.map((outage) => (
+        {/* ── LATE CONTAINERS PANEL (UNDELIVERED CARGO ONLY) ── */}
+        {(activeAdminTab === 'alerts' || lateContainers.length > 0) && (
+          <div className="max-w-5xl mx-auto animate-fadeIn mb-6">
+            <div className="bg-white border border-red-200 rounded-2xl shadow-sm overflow-hidden">
               <div
-                key={outage.shippingLine}
-                className="bg-amber-50 border-2 border-amber-400 rounded-2xl p-4 shadow-sm animate-fadeIn"
+                className="flex items-center justify-between px-5 py-3.5 bg-red-50 border-b border-red-200 cursor-pointer"
+                onClick={() => setShowLatePanel((v) => !v)}
               >
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                  <div className="flex items-start space-x-3">
-                    <div className="w-10 h-10 rounded-xl bg-amber-600 text-white flex items-center justify-center shadow-md shrink-0">
-                      <AlertTriangle className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <h3 className="text-sm font-black text-amber-950 uppercase tracking-wide">
-                          Carrier Outage Alert: {outage.shippingLine} API Sync Failing
-                        </h3>
-                        <span className="px-2 py-0.5 bg-red-600 text-white text-[10px] font-black rounded-full uppercase">
-                          {outage.failureCount} Failures in 7 Days
-                        </span>
-                      </div>
-                      <p className="text-xs text-amber-900 mt-1 font-medium leading-relaxed">
-                        Containers under <strong>{outage.shippingLine}</strong> have tracking alerts ({outage.failureCount} entries recorded). You can adjust container dates and carrier assignments in Manual ETA Entry or Shipping Lines management.
-                      </p>
-                      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-amber-800">
-                        <span className="font-bold">Affected Containers ({outage.affectedCount}):</span>
-                        {outage.affectedContainers.slice(0, 8).map((c: string) => (
-                          <span key={c} className="px-2 py-0.5 bg-white border border-amber-300 rounded font-mono font-bold text-amber-950">
-                            {c}
-                          </span>
-                        ))}
-                        {outage.affectedContainers.length > 8 && (
-                          <span className="font-bold text-amber-700">+{outage.affectedContainers.length - 8} more</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-2 shrink-0 self-end md:self-center">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (outage.affectedContainers.length > 0) {
-                          handleJumpToManualEta(outage.affectedContainers[0], outage.shippingLine);
-                        } else {
-                          setActiveAdminTab('manual-eta');
-                        }
-                      }}
-                      className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-sm flex items-center space-x-1.5 transition"
-                    >
-                      <Calendar className="w-4 h-4" />
-                      <span>Update ETA Manually</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setActiveAdminTab('alerts')}
-                      className="px-3 py-2 bg-white hover:bg-amber-100 text-amber-900 font-bold text-xs rounded-xl border border-amber-300 transition"
-                    >
-                      View All Errors
-                    </button>
-                  </div>
+                <div className="flex items-center space-x-2">
+                  <AlertTriangle className="w-4 h-4 text-red-600" />
+                  <span className="font-black text-sm text-red-800">Late Containers (Undelivered Cargo Overdue &gt; 35 Days)</span>
+                  {lateContainersLoading ? (
+                    <span className="text-[11px] text-red-400">Loading...</span>
+                  ) : (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-red-600 text-white">
+                      {lateContainers.length}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center space-x-2 text-xs text-red-600 font-semibold">
+                  <span>ETA &gt; 35 days from receipt</span>
+                  <span>{showLatePanel ? '▲' : '▼'}</span>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
 
-        {/* ── ALERTS ROW: Late Containers + Needs Sync (OPEN BY DEFAULT) ── */}
-        {(activeAdminTab === 'alerts' || lateContainers.length > 0 || lateContainersLoading) && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fadeIn">
-
-          {/* LATE CONTAINERS PANEL */}
-          <div className="bg-white border border-red-200 rounded-2xl shadow-sm overflow-hidden">
-            <div
-              className="flex items-center justify-between px-5 py-3 bg-red-50 border-b border-red-200 cursor-pointer"
-              onClick={() => setShowLatePanel((v) => !v)}
-            >
-              <div className="flex items-center space-x-2">
-                <AlertTriangle className="w-4 h-4 text-red-600" />
-                <span className="font-black text-sm text-red-800">Late Containers</span>
-                {lateContainersLoading ? (
-                  <span className="text-[11px] text-red-400">Loading...</span>
-                ) : (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-red-600 text-white">
-                    {lateContainers.length}
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center space-x-2 text-xs text-red-600 font-semibold">
-                <span>ETA &gt; 35 days from receipt</span>
-                <span>{showLatePanel ? '▲' : '▼'}</span>
-              </div>
-            </div>
-
-            {showLatePanel && (
-              <div className="overflow-auto max-h-72">
-                {lateContainers.length === 0 ? (
-                  <div className="px-5 py-8 text-center text-sm text-gray-400 font-medium">
-                    ✓ No late containers — all ETA within 35-day limit
-                  </div>
-                ) : (
-                  <table className="w-full text-xs">
-                    <thead className="bg-red-50 border-b border-red-200 text-[10px] uppercase tracking-wide text-red-700">
-                      <tr>
-                        <th className="py-2 px-3 text-left font-bold">Receipt</th>
-                        <th className="py-2 px-3 text-left font-bold">Container</th>
-                        <th className="py-2 px-3 text-left font-bold">Commodity</th>
-                        <th className="py-2 px-3 text-left font-bold">ETA</th>
-                        <th className="py-2 px-3 text-left font-bold">Days Over</th>
-                        <th className="py-2 px-3 text-left font-bold">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {lateContainers.map((lc, i) => (
-                        <tr key={lc._id} className={`border-b border-red-50 ${i % 2 === 0 ? 'bg-white' : 'bg-red-50/40'}`}>
-                          <td className="py-2 px-3 font-mono font-bold text-slate-900">{lc.receipt}</td>
-                          <td className="py-2 px-3">
-                            <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">{lc.container}</span>
-                          </td>
-                          <td className="py-2 px-3 text-gray-700 max-w-[140px] truncate">{lc.commodity || '—'}</td>
-                          <td className="py-2 px-3 font-bold text-red-700 whitespace-nowrap">{formatGlobalDate(lc.eta)}</td>
-                          <td className="py-2 px-3">
-                            <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-black bg-red-600 text-white">+{lc.daysOverLimit}d</span>
-                          </td>
-                          <td className="py-2 px-3 text-gray-600">{lc.status}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* NEEDS SYNC PANEL */}
-          <div className="bg-white border border-amber-200 rounded-2xl shadow-sm overflow-hidden">
-            <div
-              className="flex items-center justify-between px-5 py-3 bg-amber-50 border-b border-amber-200 cursor-pointer"
-              onClick={() => setShowSyncPanel((v) => !v)}
-            >
-              <div className="flex items-center space-x-2">
-                <Clock className="w-4 h-4 text-amber-600" />
-                <span className="font-black text-sm text-amber-800">ETA Sync Required</span>
-                {lateContainersLoading ? (
-                  <span className="text-[11px] text-amber-400">Loading...</span>
-                ) : (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-500 text-white">
-                    {needsSyncContainers.length}
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleTriggerCronSync(); }}
-                  disabled={isSyncingCron}
-                  className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white disabled:opacity-50 transition"
-                >
-                  {isSyncingCron ? 'Syncing...' : 'Sync All Now'}
-                </button>
-                <span className="text-xs text-amber-600 font-semibold">{showSyncPanel ? '▲' : '▼'}</span>
-              </div>
-            </div>
-
-            {showSyncPanel && (
-              <>
-                {/* Smart Interval Legend */}
-                <div className="px-4 py-2 bg-amber-50/50 border-b border-amber-100">
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] font-semibold text-amber-800">
-                    <span>📅 1–7d → Daily</span>
-                    <span>📅 8–12d → Every 2d</span>
-                    <span>📅 13–20d → Every 5d</span>
-                    <span>📅 21–30d → Every 7d</span>
-                    <span>📅 30+d → Every 10d</span>
-                  </div>
-                </div>
-                <div className="overflow-auto max-h-60">
-                  {needsSyncContainers.length === 0 ? (
+              {showLatePanel && (
+                <div className="overflow-auto max-h-80">
+                  {lateContainers.length === 0 ? (
                     <div className="px-5 py-8 text-center text-sm text-gray-400 font-medium">
-                      ✓ All containers are synced per schedule
+                      ✓ No late containers — all active undelivered cargo is within turnaround limit
                     </div>
                   ) : (
                     <table className="w-full text-xs">
-                      <thead className="bg-amber-50 border-b border-amber-200 text-[10px] uppercase tracking-wide text-amber-700">
+                      <thead className="bg-red-50 border-b border-red-200 text-[10px] uppercase tracking-wide text-red-700">
                         <tr>
-                          <th className="py-2 px-3 text-left font-bold">Container No</th>
-                          <th className="py-2 px-3 text-left font-bold">Line</th>
-                          <th className="py-2 px-3 text-left font-bold">ETA</th>
-                          <th className="py-2 px-3 text-left font-bold">Days Left</th>
-                          <th className="py-2 px-3 text-left font-bold">Required Update</th>
-                          <th className="py-2 px-3 text-left font-bold">Last Sync</th>
+                          <th className="py-2.5 px-3 text-left font-bold">Receipt</th>
+                          <th className="py-2.5 px-3 text-left font-bold">Container</th>
+                          <th className="py-2.5 px-3 text-left font-bold">Carrier</th>
+                          <th className="py-2.5 px-3 text-left font-bold">Commodity</th>
+                          <th className="py-2.5 px-3 text-left font-bold">ETA</th>
+                          <th className="py-2.5 px-3 text-left font-bold">Days Over</th>
+                          <th className="py-2.5 px-3 text-left font-bold">Status</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {needsSyncContainers.map((ns, i) => (
-                          <tr key={ns.containerNumber} className={`border-b border-amber-50 ${i % 2 === 0 ? 'bg-white' : 'bg-amber-50/30'}`}>
-                            <td className="py-2 px-3 font-mono font-bold text-slate-900 text-[11px]">{ns.containerNumber}</td>
-                            <td className="py-2 px-3 text-gray-700">{ns.shippingLine}</td>
-                            <td className="py-2 px-3 font-bold text-amber-700 whitespace-nowrap">{formatGlobalDate(ns.eta)}</td>
-                            <td className="py-2 px-3">
-                              {ns.daysUntilEta !== null ? (
-                                <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold ${ns.daysUntilEta <= 5 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
-                                  {ns.daysUntilEta}d
-                                </span>
-                              ) : '—'}
+                        {lateContainers.map((lc, i) => (
+                          <tr key={lc._id} className={`border-b border-red-50 hover:bg-red-50/50 transition ${i % 2 === 0 ? 'bg-white' : 'bg-red-50/30'}`}>
+                            <td className="py-2.5 px-3 font-mono font-bold text-slate-900">{lc.receipt}</td>
+                            <td className="py-2.5 px-3">
+                              <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">{lc.container}</span>
                             </td>
-                            <td className="py-2 px-3">
-                              <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">
-                                Every {ns.requiredIntervalDays}d
-                              </span>
-                            </td>
-                            <td className="py-2 px-3 text-gray-500 whitespace-nowrap">
-                              {ns.neverSynced ? (
-                                <span className="text-[10px] font-bold text-red-600">Never synced</span>
+                            <td className="py-2.5 px-3">
+                              {lc.shippingLine ? (
+                                <a
+                                  href={getCarrierTrackingUrl(lc.shippingLine, lc.containerNumber || lc.container)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center space-x-1 font-bold text-[11px] text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded border border-blue-200 transition"
+                                  title={`Click to open official ${lc.shippingLine} tracking website`}
+                                >
+                                  <span>{lc.shippingLine}</span>
+                                  <ExternalLink className="w-2.5 h-2.5 text-blue-500" />
+                                </a>
                               ) : (
-                                formatGlobalDate(ns.lastApiSync)
+                                <span className="text-slate-400">—</span>
                               )}
                             </td>
+                            <td className="py-2.5 px-3 text-gray-700 max-w-[140px] truncate">{lc.commodity || '—'}</td>
+                            <td className="py-2.5 px-3 font-bold text-red-700 whitespace-nowrap">{formatGlobalDate(lc.eta)}</td>
+                            <td className="py-2.5 px-3">
+                              <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-black bg-red-600 text-white">+{lc.daysOverLimit}d</span>
+                            </td>
+                            <td className="py-2.5 px-3 text-gray-600 font-medium">{lc.status}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   )}
                 </div>
-              </>
-            )}
-          </div>
-
-          {/* CARRIER OUTAGE & FAILED SYNC DIRECTORY PANEL */}
-          <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between px-5 py-3.5 bg-slate-50 border-b border-slate-200 gap-2">
-              <div className="flex items-center space-x-2.5">
-                <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
-                  <Zap className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="font-black text-sm text-slate-900">
-                    Failed API Syncs &amp; Carrier Outage Log (Last 7 Days)
-                  </h3>
-                  <p className="text-[11px] text-slate-500">
-                    Automatically tracks every failed JSONCargo sync. Shipping companies with &gt;5 failures trigger priority outage alerts.
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-2">
-                <button
-                  type="button"
-                  onClick={fetchSyncAlerts}
-                  disabled={syncAlertsLoading}
-                  className="px-2.5 py-1 text-xs font-bold rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 flex items-center space-x-1"
-                >
-                  <RefreshCw className={`w-3 h-3 ${syncAlertsLoading ? 'animate-spin' : ''}`} />
-                  <span>Refresh Errors</span>
-                </button>
-                {failedSyncList.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={handleClearSyncAlerts}
-                    className="px-2.5 py-1 text-xs font-bold rounded-lg bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 flex items-center space-x-1"
-                    title="Purge all logged sync errors once resolved"
-                  >
-                    <Trash2 className="w-3 h-3 text-rose-600" />
-                    <span>Clear Error Log</span>
-                  </button>
-                )}
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-200 text-slate-800">
-                  {failedSyncList.length} failing
-                </span>
-              </div>
-            </div>
-
-            <div className="overflow-auto max-h-80">
-              {failedSyncList.length === 0 ? (
-                <div className="p-8 text-center text-xs text-slate-400 font-medium">
-                  ✓ No recent API sync failures — all containers synced cleanly with carriers!
-                </div>
-              ) : (
-                <table className="w-full text-xs">
-                  <thead className="bg-slate-100 border-b border-slate-200 text-[10px] uppercase tracking-wide text-slate-700">
-                    <tr>
-                      <th className="py-2.5 px-3 text-left font-bold">Container</th>
-                      <th className="py-2.5 px-3 text-left font-bold">Carrier (Line)</th>
-                      <th className="py-2.5 px-3 text-left font-bold">Latest Error Reason</th>
-                      <th className="py-2.5 px-3 text-left font-bold">Failures</th>
-                      <th className="py-2.5 px-3 text-left font-bold">Last Attempt</th>
-                      <th className="py-2.5 px-3 text-center font-bold">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {failedSyncList.map((item, idx) => (
-                      <tr key={item.containerNumber || idx} className="hover:bg-amber-50/30 transition">
-                        <td className="py-2 px-3">
-                          <div className="font-bold text-slate-900">{item.container || item.containerNumber}</div>
-                          {item.container && item.containerNumber && item.container !== item.containerNumber && (
-                            <div className="font-mono text-[10px] text-slate-400">{item.containerNumber}</div>
-                          )}
-                        </td>
-                        <td className="py-2 px-3">
-                          <span className="px-2 py-0.5 bg-slate-100 border border-slate-200 rounded font-bold text-slate-800 text-[10px]">
-                            {item.shippingLine}
-                          </span>
-                        </td>
-                        <td className="py-2 px-3 max-w-xs text-red-700 font-medium truncate" title={item.latestError}>
-                          {item.latestError}
-                        </td>
-                        <td className="py-2 px-3">
-                          <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
-                            item.failureCount >= 5 ? 'bg-red-100 text-red-800 border border-red-200' : 'bg-amber-100 text-amber-800'
-                          }`}>
-                            {item.failureCount}x
-                          </span>
-                        </td>
-                        <td className="py-2 px-3 text-slate-500 whitespace-nowrap text-[11px]">
-                          {new Date(item.lastFailedAt).toLocaleString()}
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() => handleJumpToManualEta(item.container || item.containerNumber, item.shippingLine)}
-                            className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] rounded-lg shadow-sm flex items-center space-x-1 mx-auto transition"
-                          >
-                            <Calendar className="w-3 h-3" />
-                            <span>Update ETA Manually</span>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
               )}
             </div>
           </div>
-        </div>
         )}
 
         {/* ── TAB 2: CARGO MASTER TABLE & FLEET ANALYTICS (REDUX + TANSTACK TABLE + JS CHARTS) ── */}
@@ -2019,12 +1596,6 @@ export default function AdminDashboardPage() {
                   setSelectedContainer(alias);
                   handleContainerSelectionChange(alias);
                   setActiveAdminTab('manual-eta');
-                }}
-                onSyncApi={(alias) => {
-                  setManualSyncContainer(alias);
-                  setSelectedContainer(alias);
-                  handleContainerSelectionChange(alias);
-                  setActiveAdminTab('api-sync');
                 }}
               />
             </ReduxProvider>
@@ -3046,112 +2617,10 @@ export default function AdminDashboardPage() {
         )}
 
 
-        {/* ── TAB 5: JSONCARGO API SYNC & 3-COLUMN MAPPING ── */}
+        {/* ── TAB 5: CONTAINER MAPPING (INTERNAL ALIAS TO CARRIER NUMBER) ── */}
         {activeAdminTab === 'api-sync' && (
-          <div className="max-w-5xl mx-auto space-y-6 animate-fadeIn">
-            {/* Direct Container Tracking & Fleet Mapping Card */}
-            <div className="bg-gradient-to-br from-slate-900 via-slate-950 to-blue-950 text-white rounded-3xl p-6 sm:p-7 shadow-xl border border-slate-800 space-y-5 animate-fadeIn">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
-                <div className="flex items-center space-x-3">
-                  <div className="w-12 h-12 rounded-2xl bg-emerald-600/30 border border-emerald-500/40 text-emerald-400 flex items-center justify-center shadow-inner">
-                    <Activity className="w-6 h-6 text-emerald-400" />
-                  </div>
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <h3 className="text-base font-black text-white tracking-tight">
-                        Direct Container Tracking &amp; Fleet Mapping
-                      </h3>
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
-                        DIRECT SYSTEM MODE
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      Self-contained container tracking &amp; automated ETA calculation. Zero external API dependency, zero subscription limits.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center space-x-2.5">
-                  <button
-                    type="button"
-                    onClick={fetchContainerFleet}
-                    className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 border border-slate-700 shadow-sm"
-                    title="Refresh container fleet records"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Refresh Fleet</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* 3 Metric Badges */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-2xl space-y-1">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Tracked Containers</span>
-                  <div className="flex items-baseline space-x-2">
-                    <span className="text-2xl sm:text-3xl font-black font-mono text-blue-400">
-                      {containerFleet.length}
-                    </span>
-                    <span className="text-xs text-slate-500 font-semibold">in fleet</span>
-                  </div>
-                </div>
-
-                <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-2xl space-y-1">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">External API Fees</span>
-                  <div className="flex items-baseline space-x-2">
-                    <span className="text-2xl sm:text-3xl font-black font-mono text-emerald-400">
-                      Free / Unlimited
-                    </span>
-                    <span className="text-xs text-slate-500 font-semibold">0 external API calls</span>
-                  </div>
-                </div>
-
-                <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-2xl space-y-1">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Shipping Line Companies</span>
-                  <div className="flex items-baseline space-x-2">
-                    <span className="text-2xl sm:text-3xl font-black font-mono text-white">
-                      {dynamicShippingLines.length}
-                    </span>
-                    <span className="text-xs text-slate-500 font-semibold">configured</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Zero-Cost & Quota Protection Guide */}
-              <div className="p-3.5 rounded-2xl bg-blue-950/40 border border-blue-900/60 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-slate-300">
-                <div className="flex items-start space-x-2">
-                  <span className="text-emerald-400 font-black">✓ Direct Tracking:</span>
-                  <span>Public searches &amp; tracking read directly from MongoDB with zero latency.</span>
-                </div>
-                <div className="flex items-start space-x-2">
-                  <span className="text-blue-400 font-black">⏰ Smart Turnaround:</span>
-                  <span>Tracks days from China loading to delivery with late container detection (&gt;35d).</span>
-                </div>
-                <div className="flex items-start space-x-2">
-                  <span className="text-amber-400 font-black">📦 Flexible Carriers:</span>
-                  <span>Add, edit, or remove shipping companies (CMA, Evergreen, etc.) in the Shipping Lines tab.</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Daily Cron Schedule Banner */}
-            <div className="bg-slate-50 border border-slate-200 text-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
-              <div className="flex items-center space-x-3">
-                <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center shadow-sm">
-                  <Clock className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                  <h4 className="font-bold text-sm text-slate-900">Daily Automated Schedule at 7:00 AM IST</h4>
-                  <p className="text-xs text-slate-500">Automated job recalculates delivery turnaround days, status milestones, and late alerts across active containers.</p>
-                </div>
-              </div>
-              <span className="px-3 py-1 bg-white text-blue-700 border border-slate-200 rounded-full text-xs font-mono font-bold shadow-xs">
-                Cron: 0 7 * * *
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-{/* 3-Column Mapping Form */}
+          <div className="max-w-2xl mx-auto space-y-6 animate-fadeIn">
+            {/* 3-Column Mapping Form */}
             <div className="bg-white rounded-2xl shadow-md border border-slate-200 p-6 space-y-4">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <div className="flex items-center space-x-2">
@@ -3222,15 +2691,26 @@ export default function AdminDashboardPage() {
 
                   {/* Column 3: Shipping Line Dropdown */}
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                      3. Shipping Line
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        3. Shipping Line
+                      </label>
+                      {shippingLine && (
+                        <a
+                          href={getCarrierTrackingUrl(shippingLine, actualContainerNo)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline flex items-center space-x-0.5"
+                          title={`Open ${shippingLine} tracking site`}
+                        >
+                          <span>Track</span>
+                          <ExternalLink className="w-2.5 h-2.5" />
+                        </a>
+                      )}
+                    </div>
                     <select
                       value={shippingLine}
-                      onChange={(e) => {
-                        setShippingLine(e.target.value);
-                        setManualSyncLine(e.target.value);
-                      }}
+                      onChange={(e) => setShippingLine(e.target.value)}
                       className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-sm font-medium text-slate-800 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
                       {dynamicShippingLines.map((line) => (
@@ -3250,176 +2730,18 @@ export default function AdminDashboardPage() {
                   {isUpdatingContainer ? (
                     <>
                       <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      <span>Updating & Fetching ETA...</span>
+                      <span>Saving Container Mapping...</span>
                     </>
                   ) : (
                     <>
-                      <span>Map Container & Trigger Immediate ETA Sync</span>
+                      <span>Save Container Mapping</span>
                       <ArrowRight className="w-4 h-4" />
                     </>
                   )}
                 </button>
               </form>
             </div>
-{/* MANUAL CONTAINER ETA FETCH TOOL (JSONCargo API) */}
-            <div className="bg-white rounded-2xl shadow-md border border-slate-200 p-6 space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <div className="flex items-center space-x-2">
-                  <Zap className="w-4 h-4 text-indigo-600" />
-                  <h3 className="font-bold text-xs uppercase tracking-wider text-slate-800">
-                    Fetch Live Status from JSONCargo API by Container Dropdown
-                  </h3>
-                </div>
-                <span className="text-[10px] text-indigo-600 bg-indigo-50 font-bold px-2 py-0.5 rounded">
-                  API Auto-Lookup
-                </span>
-              </div>
-
-              {manualSyncStatus && (
-                <div
-                  className={`p-4 rounded-xl text-xs font-medium space-y-2.5 ${
-                    manualSyncStatus.type === 'success'
-                      ? 'bg-emerald-50 text-emerald-900 border border-emerald-300'
-                      : manualSyncStatus.type === 'warning'
-                      ? 'bg-amber-50 text-amber-900 border border-amber-300'
-                      : 'bg-red-50 text-red-900 border border-red-300'
-                  }`}
-                >
-                  <div className="flex items-start space-x-2.5">
-                    {manualSyncStatus.type === 'success' ? (
-                      <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-                    ) : (
-                      <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                    )}
-                    <div className="flex-1 font-semibold leading-relaxed">{manualSyncStatus.message}</div>
-                  </div>
-
-                  {manualSyncStatus.type === 'error' && (
-                    <div className="pt-2.5 border-t border-red-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                      <p className="text-[11px] text-red-800 font-medium">
-                        JSONCargo API is currently unable to track this container. You can set the China departure date and destination ETA manually:
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => handleJumpToManualEta(manualSyncContainer || selectedContainer, manualSyncLine)}
-                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs shadow-sm flex items-center justify-center space-x-1.5 shrink-0 transition"
-                      >
-                        <Calendar className="w-3.5 h-3.5" />
-                        <span>Update ETA Manually</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <form onSubmit={handleManualContainerEtaSync} className="space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
-                      Select Container from Database
-                    </label>
-                    <select
-                      value={manualSyncContainer}
-                      onChange={(e) => {
-                        setSelectedContainer(e.target.value);
-                        handleContainerSelectionChange(e.target.value);
-                      }}
-                      className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs font-medium bg-slate-50 focus:bg-white"
-                      required
-                    >
-                      <option value="">-- Select Container --</option>
-                      {distinctContainers.map((alias) => (
-                        <option key={alias} value={alias}>
-                          {alias}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Auto-detected actual container & company preview box */}
-                  <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl flex items-center justify-between text-xs">
-                    <div>
-                      <span className="text-[10px] text-slate-400 uppercase font-semibold block">Auto-Found in DB</span>
-                      <p className="font-mono font-bold text-slate-900">{detectedActualNo || 'Not Mapped'}</p>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-[10px] text-slate-400 uppercase font-semibold block">Company</span>
-                      <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded font-bold">{manualSyncLine}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={isManualSyncing || !manualSyncContainer}
-                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-md transition flex items-center justify-center space-x-2 disabled:opacity-50"
-                >
-                  {isManualSyncing ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      <span>Calling JSONCargo API & Updating Database...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Globe className="w-4 h-4" />
-                      <span>Fetch Live Status & Update ETA in Database</span>
-                    </>
-                  )}
-                </button>
-              </form>
-
-              {/* Live JSONCargo Details Display Card */}
-              {liveJsonCargoDetails && (
-                <div className="bg-slate-50 text-slate-800 p-5 rounded-2xl space-y-3 text-xs animate-fadeIn shadow-sm border border-slate-200">
-                  <div className="flex items-center justify-between border-b border-slate-200 pb-2">
-                    <div className="flex items-center space-x-2">
-                      <Anchor className="w-4 h-4 text-blue-600" />
-                      <span className="font-bold text-sm text-slate-900">
-                        {liveJsonCargoDetails.container_id || manualSyncContainer}
-                      </span>
-                    </div>
-                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800 border border-emerald-300">
-                      {liveJsonCargoDetails.container_status || 'Synced'}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 text-slate-600">
-                    <div>
-                      <span className="text-[10px] text-slate-400 uppercase block font-semibold">Shipping Line</span>
-                      <p className="font-bold text-slate-800">{liveJsonCargoDetails.shipping_line_name || manualSyncLine}</p>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-slate-400 uppercase block font-semibold">ETA Final Destination</span>
-                      <p className="font-bold text-emerald-700">
-                        {liveJsonCargoDetails.eta_final_destination || 'N/A'}
-                      </p>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-slate-400 uppercase block font-semibold">Shipped From</span>
-                      <p className="font-medium text-slate-700">{liveJsonCargoDetails.shipped_from || 'N/A'}</p>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-slate-400 uppercase block font-semibold">Shipped To</span>
-                      <p className="font-medium text-slate-700">{liveJsonCargoDetails.shipped_to || 'N/A'}</p>
-                    </div>
-                    {liveJsonCargoDetails.current_vessel_name && (
-                      <div className="col-span-2 bg-white p-2.5 rounded-xl border border-slate-200 flex items-center justify-between">
-                        <span className="text-slate-500 flex items-center space-x-1 font-medium">
-                          <Navigation className="w-3.5 h-3.5 text-blue-600" />
-                          <span>Vessel / Voyage:</span>
-                        </span>
-                        <strong className="text-slate-800">
-                          {liveJsonCargoDetails.current_vessel_name} ({liveJsonCargoDetails.current_voyage_number || 'N/A'})
-                        </strong>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
           </div>
-        </div>
         )}
 
         {/* ── TAB 0: LOADER HUB (CHINA WAREHOUSE INWARD STOCK & LOADING PLANS) ── */}
@@ -3777,7 +3099,6 @@ export default function AdminDashboardPage() {
                   {filteredAdminShipments.map((shipment) => {
                     const turnaround = getDeliveryTurnaroundStatus(shipment.date, shipment.eta, shipment.uploadedAt);
                     const isSelected = selectedIds.includes(shipment._id);
-                    const isSyncingRow = syncingRowId === shipment._id;
                     return (
                       <tr
                         key={shipment._id}
@@ -3832,7 +3153,22 @@ export default function AdminDashboardPage() {
                         <td className="p-4 font-mono text-slate-800 bg-slate-100/80 px-2 py-1 rounded w-fit">
                           {shipment.containerNumber}
                         </td>
-                        <td className="p-4 font-medium text-slate-600">{shipment.shippingLine}</td>
+                        <td className="p-4 font-medium text-slate-600">
+                          {shipment.shippingLine ? (
+                            <a
+                              href={getCarrierTrackingUrl(shipment.shippingLine, shipment.containerNumber || shipment.container)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center space-x-1 font-bold text-xs text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded border border-blue-200 transition"
+                              title={`Click to open official ${shipment.shippingLine} tracking website`}
+                            >
+                              <span>{shipment.shippingLine}</span>
+                              <ExternalLink className="w-2.5 h-2.5 text-blue-500" />
+                            </a>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
                         <td className="p-4 max-w-xs truncate" title={translateToEnglish(shipment.english || shipment.commodity)}>
                           {translateToEnglish(shipment.english || shipment.commodity) || '-'}
                         </td>
@@ -3861,14 +3197,17 @@ export default function AdminDashboardPage() {
                         </td>
                         <td className="p-3">{shipment.warehouseEntry || '-'}</td>
                         <td className="p-4 text-right space-x-1">
-                          <button
-                            onClick={() => handleSingleRowSyncEta(shipment)}
-                            disabled={isSyncingRow}
-                            className="p-1.5 rounded-lg text-indigo-600 hover:bg-indigo-50 transition"
-                            title="Sync ETA via JSONCargo API"
-                          >
-                            <RefreshCw className={`w-4 h-4 ${isSyncingRow ? 'animate-spin' : ''}`} />
-                          </button>
+                          {shipment.shippingLine && (
+                            <a
+                              href={getCarrierTrackingUrl(shipment.shippingLine, shipment.containerNumber || shipment.container)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 transition inline-block align-middle"
+                              title={`Track on official ${shipment.shippingLine} website`}
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                            </a>
+                          )}
                           <button
                             onClick={() => setEditingShipment({ ...shipment })}
                             className="p-1.5 rounded-lg text-slate-600 hover:text-blue-600 hover:bg-slate-200 transition"
