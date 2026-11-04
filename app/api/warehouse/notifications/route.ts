@@ -180,48 +180,54 @@ export async function POST(req: NextRequest) {
 
     // ACTION 1: Mark Message as Sent & Record Timestamp
     if (action === 'mark-sent') {
-      const { receiptId, receiptIds, receipt, warehouse } = body;
+      const { receiptId, receiptIds, receipt, warehouse, rate, message } = body;
       const now = new Date();
       const dateFormatted = formatGlobalDate(now);
       const nowIso = now.toISOString();
 
+      // Extract rate if passed directly or if present in message text
+      let cleanRate = String(rate || '').trim();
+      if (!cleanRate && message) {
+        const m = String(message).match(/(?:^|\n|\r)\s*Rate[:\s]*([^\n\r]+)/i);
+        if (m && m[1]) {
+          cleanRate = m[1].trim();
+        }
+      }
+
+      const updatePayload: Record<string, any> = {
+        messageSent: true,
+        messageSentAt: now,
+        messageSentDate: dateFormatted,
+      };
+      // Strictly do not overwrite or modify current data if rate was not provided
+      if (cleanRate) {
+        updatePayload.rate = cleanRate;
+      }
+
       if (Array.isArray(receiptIds) && receiptIds.length > 0) {
         await WarehouseReceipt.updateMany(
           { _id: { $in: receiptIds } },
-          {
-            $set: {
-              messageSent: true,
-              messageSentAt: now,
-              messageSentDate: dateFormatted,
-            },
-          }
+          { $set: updatePayload }
         );
         return NextResponse.json({
           success: true,
           messageSent: true,
           messageSentAt: nowIso,
           messageSentDate: dateFormatted,
+          rate: cleanRate || undefined,
           updatedCount: receiptIds.length,
         });
       }
 
       if (receiptId) {
         await WarehouseReceipt.findByIdAndUpdate(receiptId, {
-          $set: {
-            messageSent: true,
-            messageSentAt: now,
-            messageSentDate: dateFormatted,
-          },
+          $set: updatePayload,
         });
       } else if (receipt) {
         const query: Record<string, any> = { receipt: receipt.trim() };
         if (warehouse) query.warehouse = warehouse.trim();
         await WarehouseReceipt.updateMany(query, {
-          $set: {
-            messageSent: true,
-            messageSentAt: now,
-            messageSentDate: dateFormatted,
-          },
+          $set: updatePayload,
         });
       } else {
         return NextResponse.json({ error: 'Receipt identifier required' }, { status: 400 });
@@ -231,13 +237,7 @@ export async function POST(req: NextRequest) {
       if (receipt) {
         await Shipment.updateMany(
           { receipt: receipt.trim() },
-          {
-            $set: {
-              messageSent: true,
-              messageSentAt: now,
-              messageSentDate: dateFormatted,
-            },
-          }
+          { $set: updatePayload }
         );
       }
 
@@ -246,6 +246,7 @@ export async function POST(req: NextRequest) {
         messageSent: true,
         messageSentAt: nowIso,
         messageSentDate: dateFormatted,
+        rate: cleanRate || undefined,
       });
     }
 
@@ -406,31 +407,39 @@ export async function POST(req: NextRequest) {
 
     // ACTION 5: Save Freight / Shipping Rate for Receipt
     if (action === 'save-rate') {
-      const { receiptId, receipt, rate } = body;
-      const cleanRate = String(rate || '').trim();
-
-      if (receiptId) {
-        await WarehouseReceipt.findByIdAndUpdate(receiptId, {
-          $set: { rate: cleanRate },
-        });
-      } else if (receipt) {
-        await WarehouseReceipt.updateMany(
-          { receipt: receipt.trim() },
-          { $set: { rate: cleanRate } }
-        );
+      const { receiptId, receipt, rate, message } = body;
+      let cleanRate = String(rate || '').trim();
+      if (!cleanRate && message) {
+        const m = String(message).match(/(?:^|\n|\r)\s*Rate[:\s]*([^\n\r]+)/i);
+        if (m && m[1]) {
+          cleanRate = m[1].trim();
+        }
       }
 
-      if (receipt) {
-        await Shipment.updateMany(
-          { receipt: receipt.trim() },
-          { $set: { rate: cleanRate } }
-        );
+      if (cleanRate) {
+        if (receiptId) {
+          await WarehouseReceipt.findByIdAndUpdate(receiptId, {
+            $set: { rate: cleanRate },
+          });
+        } else if (receipt) {
+          await WarehouseReceipt.updateMany(
+            { receipt: receipt.trim() },
+            { $set: { rate: cleanRate } }
+          );
+        }
+
+        if (receipt) {
+          await Shipment.updateMany(
+            { receipt: receipt.trim() },
+            { $set: { rate: cleanRate } }
+          );
+        }
       }
 
       return NextResponse.json({
         success: true,
         rate: cleanRate,
-        message: `Rate "${cleanRate || 'None'}" saved for Receipt ${receipt || receiptId}!`,
+        message: `Overall / Receipt Freight Rate "${cleanRate || 'None'}" saved for Receipt ${receipt || receiptId}!`,
       });
     }
 
