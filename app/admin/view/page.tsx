@@ -14,7 +14,7 @@ import {
   LayoutGrid, Filter, Check, CheckCircle2, Clock, TrendingUp, ArrowUpDown,
   CheckSquare, Square, Eye, EyeOff, Lock, Key, Languages, ExternalLink
 } from 'lucide-react';
-import { getCarrierTrackingUrl } from '@/lib/trackingUrls';
+import { getCarrierTrackingUrl, getLdbRailwayTrackingUrl } from '@/lib/trackingUrls';
 import {
   calculateDaysToDeliver,
   parseReceiptDate,
@@ -2242,7 +2242,24 @@ export default function InternalEmployeeViewPage() {
                         {/* 6. Actual Carrier Container */}
                         {showActualContainer && (
                           <td className="py-2.5 px-4 font-mono font-bold text-blue-700 whitespace-nowrap text-[11px]">
-                            {item.containerNumber || (
+                            {item.containerNumber ? (
+                              <div className="flex items-center space-x-1.5">
+                                <span>{item.containerNumber}</span>
+                                <a
+                                  href={getLdbRailwayTrackingUrl(item.containerNumber)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={() => {
+                                    if (navigator.clipboard) navigator.clipboard.writeText(item.containerNumber);
+                                  }}
+                                  className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-sans font-bold inline-flex items-center space-x-0.5 transition"
+                                  title="Track on Indian Railway LDB (ldb.co.in) - Copies container no to clipboard & opens LDB"
+                                >
+                                  <span>Rail LDB</span>
+                                  <ExternalLink className="w-2.5 h-2.5 text-emerald-600" />
+                                </a>
+                              </div>
+                            ) : (
                               <span className="text-slate-400 font-normal italic">Unassigned</span>
                             )}
                           </td>

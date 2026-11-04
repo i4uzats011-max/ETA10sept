@@ -21,7 +21,7 @@ import ShippingLineManager from '@/components/ShippingLineManager';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
 import UserManager from '@/components/UserManager';
 import EditLogViewer from '@/components/EditLogViewer';
-import { getCarrierTrackingUrl } from '@/lib/trackingUrls';
+import { getCarrierTrackingUrl, getLdbRailwayTrackingUrl } from '@/lib/trackingUrls';
 import { ReduxProvider } from '@/store/ReduxProvider';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -507,6 +507,11 @@ export default function AdminDashboardPage() {
       const data = await res.json();
       if (res.ok) {
         setManualActualContainerNo(data.containerNumber || '');
+        setActualContainerNo(data.containerNumber || '');
+        if (data.shippingLine) {
+          setShippingLine(data.shippingLine);
+          setManualShippingCompany(data.shippingLine);
+        }
         if (data.startDate || data.loadingDate) setManualLoadingDate(data.startDate || data.loadingDate);
         if (data.rawEta) setManualActualEtaDate(data.rawEta);
         if (data.destinationDate) {
@@ -1550,7 +1555,24 @@ export default function AdminDashboardPage() {
                           <tr key={lc._id} className={`border-b border-red-50 hover:bg-red-50/50 transition ${i % 2 === 0 ? 'bg-white' : 'bg-red-50/30'}`}>
                             <td className="py-2.5 px-3 font-mono font-bold text-slate-900">{lc.receipt}</td>
                             <td className="py-2.5 px-3">
-                              <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">{lc.container}</span>
+                              <div className="flex items-center space-x-1">
+                                <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">{lc.container}</span>
+                                {lc.containerNumber && (
+                                  <a
+                                    href={getLdbRailwayTrackingUrl(lc.containerNumber)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={() => {
+                                      if (navigator.clipboard) navigator.clipboard.writeText(lc.containerNumber);
+                                    }}
+                                    className="px-1 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-[9px] font-bold inline-flex items-center space-x-0.5 transition"
+                                    title="Track on Indian Railway LDB (ldb.co.in) - Copies container no to clipboard & opens LDB"
+                                  >
+                                    <span>Rail LDB</span>
+                                    <ExternalLink className="w-2 h-2 text-emerald-600" />
+                                  </a>
+                                )}
+                              </div>
                             </td>
                             <td className="py-2.5 px-3">
                               {lc.shippingLine ? (
@@ -1893,9 +1915,33 @@ export default function AdminDashboardPage() {
                               <span className="text-sm font-black text-slate-900 font-mono">
                                 {manualEtaContainer}
                               </span>
-                              <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-50 text-blue-800 border border-blue-200 rounded">
-                                {manualShippingCompany}
-                              </span>
+                              {manualShippingCompany && (
+                                <a
+                                  href={getCarrierTrackingUrl(manualShippingCompany, manualActualContainerNo)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[10px] font-bold px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-800 hover:text-blue-950 border border-blue-200 rounded inline-flex items-center space-x-1 transition shadow-2xs"
+                                  title={`Click to open official ${manualShippingCompany} tracking website`}
+                                >
+                                  <span>{manualShippingCompany} Website</span>
+                                  <ExternalLink className="w-2.5 h-2.5 text-blue-600" />
+                                </a>
+                              )}
+                              <a
+                                href={getLdbRailwayTrackingUrl(manualActualContainerNo)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={() => {
+                                  if (manualActualContainerNo && navigator.clipboard) {
+                                    navigator.clipboard.writeText(manualActualContainerNo);
+                                  }
+                                }}
+                                className="text-[10px] font-bold px-2.5 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 hover:text-emerald-950 border border-emerald-300 rounded inline-flex items-center space-x-1 transition shadow-2xs"
+                                title="Track on Indian Railway Logistics Data Bank (ldb.co.in) - Copies container no to clipboard & opens LDB"
+                              >
+                                <span>🚆 Railway Tracking (LDB)</span>
+                                <ExternalLink className="w-2.5 h-2.5 text-emerald-600" />
+                              </a>
                               {manualEtaLastUpdated && (
                                 <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded inline-flex items-center space-x-1">
                                   <Clock className="w-3 h-3 text-emerald-600" />
@@ -1918,22 +1964,39 @@ export default function AdminDashboardPage() {
                               </div>
                             </div>
                             {manualActualContainerNo && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  navigator.clipboard.writeText(manualActualContainerNo);
-                                  setCopiedActualNo(true);
-                                  setTimeout(() => setCopiedActualNo(false), 1500);
-                                }}
-                                className="p-1 text-slate-400 hover:text-indigo-600 transition"
-                                title="Copy actual container number"
-                              >
-                                {copiedActualNo ? (
-                                  <Check className="w-3.5 h-3.5 text-emerald-600" />
-                                ) : (
-                                  <Copy className="w-3.5 h-3.5" />
-                                )}
-                              </button>
+                              <div className="flex items-center space-x-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(manualActualContainerNo);
+                                    setCopiedActualNo(true);
+                                    setTimeout(() => setCopiedActualNo(false), 1500);
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-indigo-600 transition"
+                                  title="Copy actual container number"
+                                >
+                                  {copiedActualNo ? (
+                                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                  ) : (
+                                    <Copy className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                                <a
+                                  href={getLdbRailwayTrackingUrl(manualActualContainerNo)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={() => {
+                                    if (manualActualContainerNo && navigator.clipboard) {
+                                      navigator.clipboard.writeText(manualActualContainerNo);
+                                    }
+                                  }}
+                                  className="px-2 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-bold inline-flex items-center space-x-1 transition shadow-2xs"
+                                  title="Track on Indian Railway LDB (ldb.co.in) - Copies container no to clipboard & opens LDB"
+                                >
+                                  <span>Rail (LDB)</span>
+                                  <ExternalLink className="w-2.5 h-2.5 text-emerald-600" />
+                                </a>
+                              </div>
                             )}
                           </div>
 
@@ -2295,9 +2358,23 @@ export default function AdminDashboardPage() {
 
                 {/* Shipping Line */}
                 <div className="space-y-1.5 p-4 bg-slate-50 rounded-xl border border-slate-200">
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Shipping Carrier Line
-                  </label>
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      Shipping Carrier Line
+                    </label>
+                    {manualShippingCompany && (
+                      <a
+                        href={getCarrierTrackingUrl(manualShippingCompany, manualActualContainerNo)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline flex items-center space-x-0.5"
+                        title={`Open official ${manualShippingCompany} tracking website`}
+                      >
+                        <span>Open {manualShippingCompany} Site</span>
+                        <ExternalLink className="w-2.5 h-2.5" />
+                      </a>
+                    )}
+                  </div>
                   <select
                     value={manualShippingCompany}
                     onChange={(e) => setManualShippingCompany(e.target.value)}
@@ -2676,9 +2753,26 @@ export default function AdminDashboardPage() {
 
                   {/* Column 2: Actual Container Number Input */}
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                      2. Actual Container No
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        2. Actual Container No
+                      </label>
+                      {actualContainerNo && (
+                        <a
+                          href={getLdbRailwayTrackingUrl(actualContainerNo)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={() => {
+                            if (navigator.clipboard) navigator.clipboard.writeText(actualContainerNo);
+                          }}
+                          className="text-[11px] font-bold text-emerald-700 hover:text-emerald-900 hover:underline flex items-center space-x-0.5"
+                          title="Track on Indian Railway LDB (ldb.co.in) - Copies container no to clipboard & opens LDB"
+                        >
+                          <span>Rail (LDB)</span>
+                          <ExternalLink className="w-2.5 h-2.5" />
+                        </a>
+                      )}
+                    </div>
                     <input
                       type="text"
                       value={actualContainerNo}
@@ -2721,6 +2815,42 @@ export default function AdminDashboardPage() {
                     </select>
                   </div>
                 </div>
+
+                {/* Direct Live Tracking Shortcuts */}
+                {(actualContainerNo || selectedContainer) && (
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs animate-fadeIn">
+                    <span className="text-slate-600 font-semibold">Live Tracking Portals:</span>
+                    <div className="flex items-center gap-2">
+                      {shippingLine && (
+                        <a
+                          href={getCarrierTrackingUrl(shippingLine, actualContainerNo)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-300 rounded-lg font-bold flex items-center space-x-1 transition"
+                          title={`Track on official ${shippingLine} carrier website`}
+                        >
+                          <span>Ocean ({shippingLine})</span>
+                          <ExternalLink className="w-3 h-3 text-blue-600" />
+                        </a>
+                      )}
+                      <a
+                        href={getLdbRailwayTrackingUrl(actualContainerNo)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => {
+                          if (actualContainerNo && navigator.clipboard) {
+                            navigator.clipboard.writeText(actualContainerNo);
+                          }
+                        }}
+                        className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg font-bold flex items-center space-x-1 transition"
+                        title="Track container on Indian Railway LDB (ldb.co.in) - Copies container no to clipboard & opens LDB"
+                      >
+                        <span>🚆 Indian Railway (LDB)</span>
+                        <ExternalLink className="w-3 h-3 text-emerald-600" />
+                      </a>
+                    </div>
+                  </div>
+                )}
 
                 <button
                   type="submit"
@@ -3206,6 +3336,20 @@ export default function AdminDashboardPage() {
                               title={`Track on official ${shipment.shippingLine} website`}
                             >
                               <ExternalLink className="w-4 h-4" />
+                            </a>
+                          )}
+                          {shipment.containerNumber && (
+                            <a
+                              href={getLdbRailwayTrackingUrl(shipment.containerNumber)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={() => {
+                                if (navigator.clipboard) navigator.clipboard.writeText(shipment.containerNumber);
+                              }}
+                              className="p-1.5 rounded-lg text-emerald-700 hover:bg-emerald-50 transition inline-block align-middle"
+                              title="Track on Indian Railway LDB (ldb.co.in) - Copies container no & opens LDB"
+                            >
+                              <ExternalLink className="w-4 h-4 text-emerald-600" />
                             </a>
                           )}
                           <button

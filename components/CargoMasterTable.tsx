@@ -25,7 +25,7 @@ import {
 import { formatGlobalDate, parseReceiptDate } from '@/lib/dateUtils';
 import CargoMasterChart from './CargoMasterChart';
 import MarkDeliveredModal from './MarkDeliveredModal';
-import { getCarrierTrackingUrl } from '@/lib/trackingUrls';
+import { getCarrierTrackingUrl, getLdbRailwayTrackingUrl } from '@/lib/trackingUrls';
 import * as XLSX from 'xlsx';
 import {
   Search,
@@ -404,6 +404,19 @@ export default function CargoMasterTable({
               >
                 {isCopied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
               </button>
+              <a
+                href={getLdbRailwayTrackingUrl(num)}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => {
+                  if (navigator.clipboard) navigator.clipboard.writeText(num);
+                }}
+                className="inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-sans font-bold transition"
+                title="Track on Indian Railway LDB (ldb.co.in) - Copies container no & opens LDB"
+              >
+                <span>Rail LDB</span>
+                <ExternalLink className="w-2.5 h-2.5 text-emerald-600" />
+              </a>
             </div>
           );
         },
@@ -872,16 +885,33 @@ export default function CargoMasterTable({
               {isSuperAdmin && (
                 <>
                   {hasActualContainer && (
-                    <a
-                      href={getCarrierTrackingUrl(c.shippingLine, c.containerNumber)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-300 rounded-lg text-xs font-semibold transition flex items-center space-x-1"
-                      title={`Open official ${c.shippingLine || 'carrier'} tracking website`}
-                    >
-                      <ExternalLink className="w-3.5 h-3.5 text-blue-600" />
-                      <span>Track</span>
-                    </a>
+                    <>
+                      <a
+                        href={getCarrierTrackingUrl(c.shippingLine, c.containerNumber)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-300 rounded-lg text-xs font-semibold transition flex items-center space-x-1"
+                        title={`Open official ${c.shippingLine || 'carrier'} tracking website`}
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Track</span>
+                      </a>
+                      <a
+                        href={getLdbRailwayTrackingUrl(c.containerNumber)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => {
+                          if (c.containerNumber && navigator.clipboard) {
+                            navigator.clipboard.writeText(c.containerNumber);
+                          }
+                        }}
+                        className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-semibold transition flex items-center space-x-1"
+                        title="Track on Indian Railway LDB (ldb.co.in) - Copies container no & opens LDB"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Rail LDB</span>
+                      </a>
+                    </>
                   )}
 
                   {/* De-map Actual Container Button */}

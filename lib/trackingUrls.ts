@@ -1,6 +1,7 @@
 /**
- * Carrier Tracking URLs Directory
+ * Carrier Tracking URLs Directory & Indian Railway LDB Portal Integration
  * Direct links to official ocean carrier tracking websites / portals
+ * and Logistics Data Bank (LDB) Indian Railway & Port Container Tracking.
  */
 
 export interface CarrierTrackingInfo {
@@ -9,7 +10,40 @@ export interface CarrierTrackingInfo {
   buildQueryUrl?: (containerNumber: string) => string;
 }
 
-const CARRIER_TRACKING_MAP: Record<string, CarrierTrackingInfo> = {
+/**
+ * Official Indian Logistics Data Bank (LDB) Railway & Port Tracking Portal
+ * Powered by NICDC Logistics Data Services (NLDSL)
+ * Used to track container rail movement across Indian Railways, CONCOR, ports & ICDs.
+ */
+export const LDB_RAILWAY_TRACKING_URL = 'https://ldb.co.in/ldb/containersearch';
+
+export function getLdbRailwayTrackingUrl(containerNumber?: string): string {
+  const clean = (containerNumber || '').trim();
+  if (clean) {
+    return `https://ldb.co.in/ldb/containersearch?containerNo=${encodeURIComponent(clean)}`;
+  }
+  return LDB_RAILWAY_TRACKING_URL;
+}
+
+/**
+ * Safely copy container number to clipboard and open LDB Railway Tracking in a new tab
+ */
+export function openLdbTracking(containerNumber?: string) {
+  const clean = (containerNumber || '').trim();
+  if (clean && typeof navigator !== 'undefined' && navigator.clipboard) {
+    try {
+      navigator.clipboard.writeText(clean);
+    } catch {
+      // Fallback
+    }
+  }
+  const url = getLdbRailwayTrackingUrl(clean);
+  if (typeof window !== 'undefined') {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+}
+
+export const CARRIER_TRACKING_MAP: Record<string, CarrierTrackingInfo> = {
   MSC: {
     name: 'MSC (Mediterranean Shipping Company)',
     trackingUrl: 'https://www.msc.com/en/track-a-shipment',
@@ -103,6 +137,7 @@ const CARRIER_TRACKING_MAP: Record<string, CarrierTrackingInfo> = {
   SITC: {
     name: 'SITC Container Lines',
     trackingUrl: 'http://www.sitcline.com/',
+    buildQueryUrl: (c) => `http://www.sitcline.com/`,
   },
   KMTC: {
     name: 'Korea Marine Transport (KMTC)',
@@ -115,6 +150,26 @@ const CARRIER_TRACKING_MAP: Record<string, CarrierTrackingInfo> = {
   TS_LINES: {
     name: 'TS Lines',
     trackingUrl: 'https://www.tslines.com/',
+  },
+  SINOKOR: {
+    name: 'Sinokor Merchant Marine',
+    trackingUrl: 'http://www.sinokor.co.kr/',
+  },
+  RCL: {
+    name: 'Regional Container Lines (RCL)',
+    trackingUrl: 'https://www.rclgroup.com/',
+  },
+  SAMUDERA: {
+    name: 'Samudera Shipping Line',
+    trackingUrl: 'https://www.samudera.id/',
+  },
+  ESL: {
+    name: 'Emirates Shipping Line',
+    trackingUrl: 'https://www.emiratesline.com/',
+  },
+  'EMIRATES SHIPPING LINE': {
+    name: 'Emirates Shipping Line',
+    trackingUrl: 'https://www.emiratesline.com/',
   },
 };
 
@@ -149,7 +204,7 @@ export function getCarrierTrackingUrl(
     return site;
   }
 
-  // Universal fallback: Track-Trace or Carrier search
+  // Universal fallback: Track-Trace with prefilled container number
   if (cleanContainer) {
     return `https://www.track-trace.com/container?number=${encodeURIComponent(cleanContainer)}`;
   }
