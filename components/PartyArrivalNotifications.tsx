@@ -21,8 +21,10 @@ import {
   Building2,
   Warehouse,
   Hash,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { formatGlobalDate } from '@/lib/dateUtils';
+import { downloadContainerWiseRateExcel } from '@/lib/containerRateExport';
 
 export interface NotificationReceipt {
   _id: string;
@@ -103,6 +105,7 @@ export default function PartyArrivalNotifications({ initialDate, onClose }: Prop
   // Copy status per receipt
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [isDownloadingRates, setIsDownloadingRates] = useState<boolean>(false);
 
   // Default warehouse label for message
   const [customWarehouse, setCustomWarehouse] = useState<string>('RS-21 Warehouse');
@@ -321,15 +324,16 @@ Please note without above details goods will not be load`;
     setTimeout(() => setActionMessage(null), 4000);
   };
 
-  // Copy message & mark as sent
+  // Copy message & mark as sent (saves Overall / Receipt Freight Rate if entered)
   const handleCopyAndMarkSent = async (r: NotificationReceipt) => {
     const message = generateMessage(r);
+    const rateVal = (rateInputs[r._id] !== undefined ? rateInputs[r._id] : r.rate || '').trim();
     try {
       await navigator.clipboard.writeText(message);
       setCopiedId(r._id);
       setTimeout(() => setCopiedId(null), 3000);
 
-      // Record in database that message was copied & sent
+      // Record in database that message was copied & sent, and save Overall / Receipt Freight Rate
       const res = await fetch('/api/warehouse/notifications', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -338,6 +342,8 @@ Please note without above details goods will not be load`;
           receiptId: r._id,
           receipt: r.receipt,
           warehouse: r.warehouse,
+          rate: rateVal || undefined,
+          message,
         }),
       });
 
@@ -351,6 +357,7 @@ Please note without above details goods will not be load`;
                   messageSent: true,
                   messageSentAt: data.messageSentAt,
                   messageSentDate: data.messageSentDate,
+                  rate: rateVal || item.rate,
                 }
               : item
           )
@@ -360,7 +367,7 @@ Please note without above details goods will not be load`;
           pending: Math.max(0, prev.pending - 1),
           sent: prev.sent + 1,
         }));
-        setActionMessage(`Message for Receipt ${r.receipt} copied & marked as Sent!`);
+        setActionMessage(`Message for Receipt ${r.receipt} copied & marked as Sent!${rateVal ? ` (Saved Overall / Receipt Freight Rate: ${rateVal})` : ''}`);
         setTimeout(() => setActionMessage(null), 4000);
       }
     } catch (err: any) {
@@ -368,11 +375,12 @@ Please note without above details goods will not be load`;
     }
   };
 
-  // Direct WhatsApp sending
+  // Direct WhatsApp sending (saves Overall / Receipt Freight Rate if entered)
   const handleSendWhatsApp = async (r: NotificationReceipt) => {
     const phone = phoneInputs[r._id] || r.phone || '';
     const cleanPhone = phone.replace(/[^0-9+]/g, '');
     const message = generateMessage(r);
+    const rateVal = (rateInputs[r._id] !== undefined ? rateInputs[r._id] : r.rate || '').trim();
 
     // Copy to clipboard
     try {
@@ -381,7 +389,7 @@ Please note without above details goods will not be load`;
       // Ignore clipboard error
     }
 
-    // Mark as sent in database
+    // Mark as sent in database & save Overall / Receipt Freight Rate
     try {
       const res = await fetch('/api/warehouse/notifications', {
         method: 'POST',
@@ -391,6 +399,8 @@ Please note without above details goods will not be load`;
           receiptId: r._id,
           receipt: r.receipt,
           warehouse: r.warehouse,
+          rate: rateVal || undefined,
+          message,
         }),
       });
       const data = await res.json();
@@ -403,10 +413,15 @@ Please note without above details goods will not be load`;
                   messageSent: true,
                   messageSentAt: data.messageSentAt,
                   messageSentDate: data.messageSentDate,
+                  rate: rateVal || item.rate,
                 }
               : item
           )
         );
+        if (rateVal) {
+          setActionMessage(`WhatsApp sent! Saved Overall / Receipt Freight Rate "${rateVal}" for ${r.receipt}!`);
+          setTimeout(() => setActionMessage(null), 4000);
+        }
       }
     } catch {
       // Non-critical
@@ -603,6 +618,25 @@ Please note without above details goods will not be load`;
         </div>
 
         <div className="flex items-center space-x-2">
+          <button
+            type="button"
+            onClick={async () => {
+              setIsDownloadingRates(true);
+              try {
+                await downloadContainerWiseRateExcel();
+              } catch (err: any) {
+                alert(err.message || 'Failed to download container-wise rate list');
+              } finally {
+                setIsDownloadingRates(false);
+              }
+            }}
+            disabled={isDownloadingRates}
+            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-sm active:scale-95 disabled:opacity-50"
+            title="Download Container-Wise Freight Rate List in Excel format"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            <span>{isDownloadingRates ? 'Downloading...' : 'Container Rates (.xlsx)'}</span>
+          </button>
           <button
             type="button"
             onClick={() => fetchReceipts()}
