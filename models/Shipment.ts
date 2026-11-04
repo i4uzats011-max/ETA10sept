@@ -60,7 +60,7 @@ export interface IShipment extends Document {
   apiCalled?: boolean;          // Whether API was invoked for this container/shipment
   apiCallCount?: number;        // Count of API calls made
   rawEta?: string;              // Carrier raw ETA
-  etaBufferDays?: number;       // Clearance procedure buffer days added to raw ETA (default: 10)
+  etaBufferDays?: number;       // Clearance procedure buffer days added to raw ETA (default: 7)
   phone?: string;               // Party contact / WhatsApp mobile
   partyPhone?: string;          // Party phone
   rate?: string;                // Party freight/shipping rate (e.g. '23k', '500')
@@ -133,7 +133,7 @@ const ShipmentSchema = new Schema<IShipment>({
 
   eta: { type: String, default: 'N/A' },
   rawEta: { type: String, default: '' },
-  etaBufferDays: { type: Number, default: 10 },
+  etaBufferDays: { type: Number, default: 7 },
   status: { type: String, default: 'Pending' },
   deliveryDate: { type: String, default: '' },
   daysToDeliver: { type: Number, default: null },

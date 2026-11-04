@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { connectToDatabase } from '@/lib/mongodb';
-import Shipment from '@/models/Shipment';
-import Container from '@/models/Container';
-import SyncError from '@/models/SyncError';
-import { shouldSyncContainer, fetchContainerTracking } from '@/lib/jsoncargo';
+import { isAdminAuthenticated } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
-import { isAdminAuthenticated } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
   return handleSync(req);
@@ -33,182 +28,14 @@ async function handleSync(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized cron execution' }, { status: 401 });
   }
 
-  try {
-    await connectToDatabase();
-
-    // Fetch distinct container numbers with carrier assignments
-    const sampleShipments = await Shipment.aggregate([
-      {
-        $match: {
-          containerNumber: { $exists: true, $nin: ['', 'Default', null] },
-        },
-      },
-      {
-        $group: {
-          _id: '$containerNumber',
-          container: { $first: '$container' },
-          shippingLine: { $first: '$shippingLine' },
-          eta: { $first: '$eta' },
-          rawEta: { $first: '$rawEta' },
-          status: { $first: '$status' },
-          lastApiSync: { $first: '$lastApiSync' },
-          count: { $sum: 1 },
-        },
-      },
-    ]);
-
-    const now = new Date();
-    let syncedCount = 0;
-    let skippedCount = 0;
-    const syncResults: any[] = [];
-
-    for (const group of sampleShipments) {
-      const containerNumber = group._id;
-      const containerAlias = group.container || containerNumber;
-      const shippingLine = group.shippingLine || 'Default';
-      const eta = group.eta;
-      const rawEta = group.rawEta;
-      const status = group.status;
-      const lastApiSync = group.lastApiSync ? new Date(group.lastApiSync) : null;
-
-      // Evaluate against stepped parameter schedule using actual carrier ETA (rawEta)
-      if (shouldSyncContainer(lastApiSync, eta, now, status, rawEta)) {
-        try {
-          const tracking = await fetchContainerTracking(containerNumber, shippingLine);
-
-          const dateFields: Record<string, any> = {};
-          if (tracking.loadingDate) {
-            dateFields.loadingDate = tracking.loadingDate;
-            dateFields.startDate = tracking.loadingDate;
-          } else if (tracking.startDate) {
-            dateFields.startDate = tracking.startDate;
-          }
-
-          await Shipment.updateMany(
-            { containerNumber },
-            {
-              $set: {
-                eta: tracking.eta,
-                rawEta: tracking.rawEta || '',
-                status: tracking.status,
-                shippedFrom: tracking.shippedFrom,
-                shippedTo: tracking.shippedTo,
-                currentLocation: tracking.currentLocation,
-                ...dateFields,
-                destinationDate: tracking.destinationDate,
-                vesselName: tracking.vesselName,
-                voyageNumber: tracking.voyageNumber,
-                jsonCargoData: tracking.dataDetails,
-                lastApiSync: now,
-                etaUpdatedAt: now,
-                apiCalled: true,
-              },
-              $inc: { apiCallCount: 1 },
-            }
-          );
-
-          if (containerAlias) {
-            await Container.findOneAndUpdate(
-              { container: containerAlias },
-              {
-                $set: {
-                  container: containerAlias,
-                  containerNumber,
-                  shippingLine,
-                  eta: tracking.eta,
-                  rawEta: tracking.rawEta || '',
-                  status: tracking.status,
-                  shippedFrom: tracking.shippedFrom,
-                  shippedTo: tracking.shippedTo,
-                  currentLocation: tracking.currentLocation,
-                  ...dateFields,
-                  destinationDate: tracking.destinationDate,
-                  vesselName: tracking.vesselName,
-                  voyageNumber: tracking.voyageNumber,
-                  jsonCargoData: tracking.dataDetails,
-                  shipmentCount: group.count,
-                  lastApiSync: now,
-                  etaUpdatedAt: now,
-                  apiCalled: true,
-                },
-                $inc: { apiCallCount: 1 },
-                $push: {
-                  apiCallHistory: {
-                    timestamp: now,
-                    source: 'cron',
-                    eta: tracking.eta,
-                    status: tracking.status,
-                    loadingDate: tracking.loadingDate || null,
-                  },
-                },
-              },
-              { upsert: true, new: true }
-            );
-          }
-
-          syncedCount++;
-          syncResults.push({
-            containerNumber,
-            shippingLine,
-            previousEta: eta,
-            newEta: tracking.eta,
-            newStatus: tracking.status,
-            status: 'Synced',
-          });
-        } catch (err: any) {
-          let cleanErr = err?.message;
-          if (typeof cleanErr !== 'string' || cleanErr.includes('[object Object]')) {
-            try {
-              cleanErr = typeof err === 'object' ? JSON.stringify(err) : String(err);
-            } catch {
-              cleanErr = 'API sync failed during cron';
-            }
-          }
-
-          // Log failed sync to SyncError collection
-          try {
-            await SyncError.create({
-              container: containerAlias || 'N/A',
-              containerNumber,
-              shippingLine,
-              errorMessage: cleanErr,
-              source: 'cron',
-            });
-          } catch (logErr) {
-            console.error('Failed to log cron SyncError:', logErr);
-          }
-
-          syncResults.push({
-            containerNumber,
-            shippingLine,
-            previousEta: eta,
-            status: 'Failed',
-            error: cleanErr,
-          });
-        }
-      } else {
-        skippedCount++;
-        syncResults.push({
-          containerNumber,
-          lastApiSync,
-          eta,
-          status: 'Skipped (Within parameter frequency window)',
-        });
-      }
-    }
-
-    return NextResponse.json({
-      success: true,
-      timestamp: now.toISOString(),
-      syncedCount,
-      skippedCount,
-      totalContainers: sampleShipments.length,
-      details: syncResults,
-    });
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: error?.message || 'Cron ETA Sync failed' },
-      { status: 500 }
-    );
-  }
+  // Automatic API tracking is stopped for all containers per system configuration
+  return NextResponse.json({
+    success: true,
+    message: 'Automatic API tracking has been stopped for all containers.',
+    timestamp: new Date().toISOString(),
+    syncedCount: 0,
+    skippedCount: 0,
+    totalContainers: 0,
+    apiTrackingStopped: true,
+  });
 }

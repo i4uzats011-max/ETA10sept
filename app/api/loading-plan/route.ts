@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
         eta: effectiveEta,
         rawEta: c.rawEta || '',
         destinationDate: c.destinationDate || c.eta || 'N/A',
-        etaBufferDays: c.etaBufferDays !== undefined ? c.etaBufferDays : 10,
+        etaBufferDays: c.etaBufferDays !== undefined ? c.etaBufferDays : 7,
         status: c.status || 'Pending',
         lastApiSync: c.lastApiSync || null,
         etaUpdatedAt,
@@ -109,7 +109,7 @@ export async function GET(req: NextRequest) {
           rawEta: i.rawEta || c.rawEta || '',
           eta: i.eta,
           destinationDate: i.destinationDate || c.destinationDate || '',
-          etaBufferDays: i.etaBufferDays !== undefined ? i.etaBufferDays : (c.etaBufferDays !== undefined ? c.etaBufferDays : 10),
+          etaBufferDays: i.etaBufferDays !== undefined ? i.etaBufferDays : (c.etaBufferDays !== undefined ? c.etaBufferDays : 7),
           etaUpdatedAt: i.etaUpdatedAt ? new Date(i.etaUpdatedAt).toISOString() : etaUpdatedAt,
           status: i.status,
           rate: i.rate || '',
@@ -756,8 +756,8 @@ export async function POST(req: NextRequest) {
       cleanLoadingDate = cleanLoadingDate || '';
 
       const now = new Date();
-      let cleanBufferDays = etaBufferDays !== undefined ? parseInt(String(etaBufferDays), 10) : (targetContainer.etaBufferDays !== undefined ? targetContainer.etaBufferDays : 10);
-      if (isNaN(cleanBufferDays) || cleanBufferDays < 0) cleanBufferDays = 10;
+      let cleanBufferDays = etaBufferDays !== undefined ? parseInt(String(etaBufferDays), 10) : (targetContainer.etaBufferDays !== undefined ? targetContainer.etaBufferDays : 7);
+      if (isNaN(cleanBufferDays) || cleanBufferDays < 0) cleanBufferDays = 7;
       targetContainer.etaBufferDays = cleanBufferDays;
 
       targetContainer.containerNumber = cleanNum;
@@ -1225,8 +1225,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: `Container '${cleanOldAlias}' not found` }, { status: 404 });
       }
 
-      let cleanBufferDays = etaBufferDays !== undefined ? parseInt(String(etaBufferDays), 10) : (targetContainer.etaBufferDays !== undefined ? targetContainer.etaBufferDays : 10);
-      if (isNaN(cleanBufferDays) || cleanBufferDays < 0) cleanBufferDays = 10;
+      let cleanBufferDays = etaBufferDays !== undefined ? parseInt(String(etaBufferDays), 10) : (targetContainer.etaBufferDays !== undefined ? targetContainer.etaBufferDays : 7);
+      if (isNaN(cleanBufferDays) || cleanBufferDays < 0) cleanBufferDays = 7;
       targetContainer.etaBufferDays = cleanBufferDays;
 
       const cleanNewAlias = (newContainer || '').trim().toUpperCase();

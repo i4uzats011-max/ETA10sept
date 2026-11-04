@@ -165,7 +165,7 @@ export default function LoaderHub() {
   const [allotCarrierInput, setAllotCarrierInput] = useState('MSC');
   const [loadingDateInput, setLoadingDateInput] = useState('');
   const [destinationInput, setDestinationInput] = useState('Nhava Sheva / Mundra, India');
-  const [autoSyncEtaChecked, setAutoSyncEtaChecked] = useState(true);
+  const [autoSyncEtaChecked, setAutoSyncEtaChecked] = useState(false);
 
   // Local state for Inward Goods Receipt (Direct Entry from Party)
   const [isReceiveModalOpen, setIsReceiveModalOpen] = useState(false);
@@ -576,8 +576,8 @@ export default function LoaderHub() {
   const [alterWarehouse, setAlterWarehouse] = useState('');
   const [alterLoadingDate, setAlterLoadingDate] = useState('');
   const [alterShippedTo, setAlterShippedTo] = useState('Nhava Sheva / Mundra, India');
-  const [alterAutoSync, setAlterAutoSync] = useState(true);
-  const [alterEtaBufferDays, setAlterEtaBufferDays] = useState<number>(10);
+  const [alterAutoSync, setAlterAutoSync] = useState(false);
+  const [alterEtaBufferDays, setAlterEtaBufferDays] = useState<number>(7);
   const [isSubmittingAlter, setIsSubmittingAlter] = useState(false);
 
   // Local state for Container-Wise Cargo Loading (Container-wise planning only)
@@ -1254,8 +1254,8 @@ export default function LoaderHub() {
     setAlterWarehouse(plan.warehouse || '');
     setAlterLoadingDate(plan.loadingDate || '');
     setAlterShippedTo(plan.shippedTo || 'Nhava Sheva / Mundra, India');
-    setAlterEtaBufferDays(plan.etaBufferDays !== undefined ? plan.etaBufferDays : 10);
-    setAlterAutoSync(true);
+    setAlterEtaBufferDays(plan.etaBufferDays !== undefined ? plan.etaBufferDays : 7);
+    setAlterAutoSync(false);
     setAlterApiLookupStatus(null);
     setIsLookingUpAlterApi(false);
     setIsAlterContainerOpen(true);
