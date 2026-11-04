@@ -59,6 +59,7 @@ interface AnalyticsApiResponse {
   overall: {
     containerCount: number;
     shipmentCount: number;
+    receiptToLoading: MetricStats;
     whToDelivery: MetricStats;
     loadingToPort: MetricStats;
     portToDelivery: MetricStats;
@@ -69,6 +70,7 @@ interface AnalyticsApiResponse {
     {
       containerCount: number;
       shipmentCount: number;
+      receiptToLoading: MetricStats;
       whToDelivery: MetricStats;
       loadingToPort: MetricStats;
       portToDelivery: MetricStats;
@@ -103,6 +105,7 @@ interface AnalyticsApiResponse {
     loadingDate: string;
     portDate: string;
     deliveryDate: string;
+    receiptToLoadingDays: number | null;
     receiptToDeliveryDays: number | null;
     whToDeliveryDays: number | null;
     loadingToPortDays: number | null;
@@ -114,7 +117,13 @@ interface CargoMasterChartProps {
   containers: ContainerMasterItem[];
 }
 
-type StageType = 'all' | 'whToDelivery' | 'loadingToPort' | 'portToDelivery' | 'receiptToDelivery';
+type StageType =
+  | 'all'
+  | 'receiptToLoading'
+  | 'whToDelivery'
+  | 'loadingToPort'
+  | 'portToDelivery'
+  | 'receiptToDelivery';
 type ViewMode = 'stages' | 'fleetOverview';
 
 export default function CargoMasterChart({ containers }: CargoMasterChartProps) {
@@ -224,6 +233,7 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
       carrierStats[c] = {
         containerCount: carrierMap[c].count,
         shipmentCount: carrierMap[c].count,
+        receiptToLoading: { count: 0, avg: 0, min: 0, max: 0, std: 0 },
         whToDelivery: calcStatsSafe(carrierMap[c].whToDel),
         loadingToPort: calcStatsSafe(carrierMap[c].loadToPort),
         portToDelivery: calcStatsSafe(carrierMap[c].portToDel),
@@ -236,6 +246,7 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
       overall: {
         containerCount: containers.filter((c) => c.isDelivered).length,
         shipmentCount: containers.filter((c) => c.isDelivered).length,
+        receiptToLoading: { count: 0, avg: 0, min: 0, max: 0, std: 0 },
         whToDelivery: calcStatsSafe(whToDeliveryAll),
         loadingToPort: calcStatsSafe(loadingToPortAll),
         portToDelivery: calcStatsSafe(portToDeliveryAll),
@@ -261,6 +272,7 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
       return { count: 0, avg: 0, min: 0, max: 0, std: 0 };
     }
 
+    if (selectedStage === 'receiptToLoading') return dataSource.receiptToLoading;
     if (selectedStage === 'whToDelivery') return dataSource.whToDelivery;
     if (selectedStage === 'loadingToPort') return dataSource.loadingToPort;
     if (selectedStage === 'portToDelivery') return dataSource.portToDelivery;
@@ -312,6 +324,7 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
   // Chart 1: Grouped Bar Chart - Compare Transit Stages across Shipping Lines
   const stageComparisonData = useMemo(() => {
     const labels = effectiveCarriers.length > 0 ? effectiveCarriers : ['CMA_CGM', 'COSCO', 'HMM', 'MSC'];
+    const recToLoadDays = labels.map((c) => effectiveCarrierStats[c]?.receiptToLoading?.avg || 0);
     const whToDelDays = labels.map((c) => effectiveCarrierStats[c]?.whToDelivery?.avg || 0);
     const loadToPortDays = labels.map((c) => effectiveCarrierStats[c]?.loadingToPort?.avg || 0);
     const portToDelDays = labels.map((c) => effectiveCarrierStats[c]?.portToDelivery?.avg || 0);
@@ -320,28 +333,36 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
       labels,
       datasets: [
         {
+          label: 'Receipt ➔ Loading (Avg Days)',
+          data: recToLoadDays,
+          backgroundColor: '#F59E0B', // Amber
+          borderRadius: 6,
+          barPercentage: 0.85,
+          categoryPercentage: 0.75,
+        },
+        {
           label: 'Warehouse ➔ Delivery (Avg Days)',
           data: whToDelDays,
           backgroundColor: '#6366F1', // Indigo
           borderRadius: 6,
-          barPercentage: 0.8,
-          categoryPercentage: 0.7,
+          barPercentage: 0.85,
+          categoryPercentage: 0.75,
         },
         {
           label: 'Loading ➔ Port (Avg Days)',
           data: loadToPortDays,
           backgroundColor: '#0EA5E9', // Sky Blue
           borderRadius: 6,
-          barPercentage: 0.8,
-          categoryPercentage: 0.7,
+          barPercentage: 0.85,
+          categoryPercentage: 0.75,
         },
         {
           label: 'Port ➔ Delivery (Avg Days)',
           data: portToDelDays,
           backgroundColor: '#10B981', // Emerald
           borderRadius: 6,
-          barPercentage: 0.8,
-          categoryPercentage: 0.7,
+          barPercentage: 0.85,
+          categoryPercentage: 0.75,
         },
       ],
     };
@@ -354,9 +375,9 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
       legend: {
         position: 'top' as const,
         labels: {
-          font: { size: 11, weight: 'bold' as const },
-          boxWidth: 12,
-          padding: 10,
+          font: { size: 10, weight: 'bold' as const },
+          boxWidth: 10,
+          padding: 8,
         },
       },
       tooltip: {
@@ -385,6 +406,7 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
     const getStageMetric = (carrier: string) => {
       const stats = effectiveCarrierStats[carrier];
       if (!stats) return { avg: 0, min: 0, max: 0, std: 0 };
+      if (selectedStage === 'receiptToLoading') return stats.receiptToLoading;
       if (selectedStage === 'loadingToPort') return stats.loadingToPort;
       if (selectedStage === 'portToDelivery') return stats.portToDelivery;
       if (selectedStage === 'receiptToDelivery') return stats.receiptToDelivery;
@@ -434,9 +456,9 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
       legend: {
         position: 'top' as const,
         labels: {
-          font: { size: 11, weight: 'bold' as const },
-          boxWidth: 12,
-          padding: 10,
+          font: { size: 10, weight: 'bold' as const },
+          boxWidth: 10,
+          padding: 8,
         },
       },
     },
@@ -477,6 +499,7 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
       const summaryRows: any[] = [];
 
       const stagesList: Array<{ key: StageType; label: string }> = [
+        { key: 'receiptToLoading', label: 'Warehouse Receipt to Loading' },
         { key: 'whToDelivery', label: 'Warehouse to Delivery' },
         { key: 'loadingToPort', label: 'Loading to Port' },
         { key: 'portToDelivery', label: 'Port to Delivery (Port Clearance)' },
@@ -490,7 +513,7 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
           Scope: 'TOTAL FLEET',
           'Shipping Line': 'ALL CARRIERS',
           'Transit Stage': st.label,
-          'Delivered Records Count': stats?.count || 0,
+          'Records Count': stats?.count || 0,
           'Average (Mean) Days': stats?.avg || 0,
           'Minimum Days (Fastest)': stats?.min || 0,
           'Maximum Days (Slowest)': stats?.max || 0,
@@ -512,7 +535,7 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
             Scope: 'CARRIER WISE',
             'Shipping Line': car,
             'Transit Stage': st.label,
-            'Delivered Records Count': stats?.count || 0,
+            'Records Count': stats?.count || 0,
             'Average (Mean) Days': stats?.avg || 0,
             'Minimum Days (Fastest)': stats?.min || 0,
             'Maximum Days (Slowest)': stats?.max || 0,
@@ -525,8 +548,8 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
       wsSummary['!cols'] = [
         { wch: 14 }, // Scope
         { wch: 16 }, // Shipping Line
-        { wch: 32 }, // Stage
-        { wch: 22 }, // Count
+        { wch: 34 }, // Stage
+        { wch: 18 }, // Count
         { wch: 20 }, // Avg
         { wch: 22 }, // Min
         { wch: 22 }, // Max
@@ -591,6 +614,7 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
         'Warehouse Loading Date': s.loadingDate,
         'Port Date (rawEta)': s.portDate,
         'Delivery Date': s.deliveryDate,
+        'Receipt to Loading (Days)': s.receiptToLoadingDays !== null ? s.receiptToLoadingDays : 'N/A',
         'Overall Receipt to Delivery (Days)': s.receiptToDeliveryDays !== null ? s.receiptToDeliveryDays : 'N/A',
         'Wh to Delivery (Days)': s.whToDeliveryDays !== null ? s.whToDeliveryDays : 'N/A',
         'Loading to Port (Days)': s.loadingToPortDays !== null ? s.loadingToPortDays : 'N/A',
@@ -621,6 +645,8 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
 
   const getStageTitle = (st: StageType) => {
     switch (st) {
+      case 'receiptToLoading':
+        return 'Warehouse Receipt ➔ Loading Time';
       case 'whToDelivery':
         return 'Warehouse ➔ Delivery Time';
       case 'loadingToPort':
@@ -650,7 +676,7 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
               </span>
             </h3>
             <p className="text-xs text-slate-500 font-medium">
-              Stage turnaround: Warehouse to Delivery • Loading to Port • Port to Delivery • Average, Min, Max & Std Dev
+              Receipt to Loading • Warehouse to Delivery • Loading to Port • Port to Delivery • Average, Min, Max & Std Dev
             </p>
           </div>
         </div>
@@ -712,6 +738,17 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
                 }`}
               >
                 All Stages View
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedStage('receiptToLoading')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${
+                  selectedStage === 'receiptToLoading'
+                    ? 'bg-amber-600 text-white shadow-sm'
+                    : 'bg-amber-50 text-amber-900 hover:bg-amber-100 border border-amber-200'
+                }`}
+              >
+                Warehouse Receipt ➔ Loading
               </button>
               <button
                 type="button"
@@ -803,7 +840,7 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
                 <CheckCircle2 className="w-4 h-4 text-emerald-600" />
               </div>
               <p className="text-3xl font-black text-emerald-600 font-mono tracking-tight">
-                {activeMetrics.min > 0 ? `${activeMetrics.min}d` : '—'}
+                {activeMetrics.min !== undefined && activeMetrics.min !== null ? `${activeMetrics.min}d` : '—'}
               </p>
               <p className="text-[10px] text-emerald-700 font-medium truncate">
                 Fastest turnaround record
@@ -851,7 +888,7 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
                 {activeMetrics.count}
               </p>
               <p className="text-[10px] text-blue-700 font-medium truncate">
-                Delivered shipments / containers
+                Delivered shipments / records
               </p>
               <div className="absolute -bottom-2 -right-2 w-12 h-12 bg-blue-50 rounded-full opacity-50 pointer-events-none" />
             </div>
@@ -865,7 +902,7 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
                 <div className="flex items-center space-x-2">
                   <BarChart3 className="w-4 h-4 text-indigo-600" />
                   <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider">
-                    Shipping Line Comparison by Transit Stages
+                    Shipping Line Comparison Across All Transit Stages
                   </h4>
                 </div>
                 <span className="text-[10px] font-bold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded">
@@ -950,7 +987,7 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
                       {activeMetrics.avg}d
                     </td>
                     <td className="py-2.5 px-3 text-right font-mono text-emerald-700 font-bold">
-                      {activeMetrics.min}d
+                      {activeMetrics.min !== undefined && activeMetrics.min !== null ? `${activeMetrics.min}d` : '—'}
                     </td>
                     <td className="py-2.5 px-3 text-right font-mono text-rose-700 font-bold">
                       {activeMetrics.max}d
@@ -977,7 +1014,9 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
                     const stats = effectiveCarrierStats[carrier];
                     if (!stats) return null;
                     const stageStats =
-                      selectedStage === 'loadingToPort'
+                      selectedStage === 'receiptToLoading'
+                        ? stats.receiptToLoading
+                        : selectedStage === 'loadingToPort'
                         ? stats.loadingToPort
                         : selectedStage === 'portToDelivery'
                         ? stats.portToDelivery
@@ -1005,7 +1044,7 @@ export default function CargoMasterChart({ containers }: CargoMasterChartProps) 
                           {stageStats?.avg > 0 ? `${stageStats.avg}d` : '—'}
                         </td>
                         <td className="py-2.5 px-3 text-right font-mono text-emerald-600">
-                          {stageStats?.min > 0 ? `${stageStats.min}d` : '—'}
+                          {stageStats?.min !== undefined && stageStats?.min !== null ? `${stageStats.min}d` : '—'}
                         </td>
                         <td className="py-2.5 px-3 text-right font-mono text-rose-600">
                           {stageStats?.max > 0 ? `${stageStats.max}d` : '—'}

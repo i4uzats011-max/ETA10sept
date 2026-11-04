@@ -70,11 +70,15 @@ export async function GET(req: NextRequest) {
       })
       .lean();
 
-    // 2. Fetch delivered shipments (strictly read-only)
-    const deliveredShipments = await Shipment.find({
+    // 2. Fetch shipments that have dates (strictly read-only)
+    const shipmentsWithDates = await Shipment.find({
       $or: [
         { isDelivered: true },
         { deliveryDate: { $nin: ['', null, '—', 'N/A', 'In Transit', 'Pending'] } },
+        {
+          date: { $exists: true, $nin: ['', null, '—', 'N/A'] },
+          loadingDate: { $exists: true, $nin: ['', null, '—', 'N/A'] },
+        },
       ],
     })
       .select({
@@ -94,6 +98,7 @@ export async function GET(req: NextRequest) {
         quantity: 1,
         weight: 1,
         volume: 1,
+        isDelivered: 1,
       })
       .lean();
 
@@ -164,7 +169,8 @@ export async function GET(req: NextRequest) {
       return record;
     });
 
-    // 4. Process Shipment-level transit stages (including Receipt Date to Delivery Date)
+    // 4. Process Shipment-level transit stages (Receipt Date to Loading Date, Receipt to Delivery, etc.)
+    const overallShipmentReceiptToLoading: number[] = [];
     const overallShipmentReceiptToDelivery: number[] = [];
     const overallShipmentWhToDelivery: number[] = [];
     const overallShipmentLoadingToPort: number[] = [];
@@ -173,6 +179,7 @@ export async function GET(req: NextRequest) {
     const carrierShipmentMap: Record<
       string,
       {
+        receiptToLoading: number[];
         receiptToDelivery: number[];
         whToDelivery: number[];
         loadingToPort: number[];
@@ -181,10 +188,11 @@ export async function GET(req: NextRequest) {
       }
     > = {};
 
-    const shipmentExportList = deliveredShipments.map((s: any) => {
+    const shipmentExportList = shipmentsWithDates.map((s: any) => {
       const carrier = (s.shippingLine || 'MSC').toUpperCase().trim();
       if (!carrierShipmentMap[carrier]) {
         carrierShipmentMap[carrier] = {
+          receiptToLoading: [],
           receiptToDelivery: [],
           whToDelivery: [],
           loadingToPort: [],
@@ -198,11 +206,16 @@ export async function GET(req: NextRequest) {
       const effectivePort = s.rawEta || s.destinationDate || '';
       const effectiveDelivery = s.deliveryDate || '';
 
+      const recToLoad = diffDays(receiptDate, effectiveLoading);
       const recToDel = diffDays(receiptDate, effectiveDelivery);
       const whToDel = diffDays(effectiveLoading, effectiveDelivery);
       const loadToPort = diffDays(effectiveLoading, effectivePort);
       const portToDel = diffDays(effectivePort, effectiveDelivery);
 
+      if (recToLoad !== null) {
+        overallShipmentReceiptToLoading.push(recToLoad);
+        carrierShipmentMap[carrier].receiptToLoading.push(recToLoad);
+      }
       if (recToDel !== null) {
         overallShipmentReceiptToDelivery.push(recToDel);
         carrierShipmentMap[carrier].receiptToDelivery.push(recToDel);
@@ -232,6 +245,7 @@ export async function GET(req: NextRequest) {
         loadingDate: effectiveLoading || '—',
         portDate: effectivePort || '—',
         deliveryDate: effectiveDelivery || '—',
+        receiptToLoadingDays: recToLoad,
         receiptToDeliveryDays: recToDel,
         whToDeliveryDays: whToDel,
         loadingToPortDays: loadToPort,
@@ -254,6 +268,7 @@ export async function GET(req: NextRequest) {
       {
         containerCount: number;
         shipmentCount: number;
+        receiptToLoading: MetricStats;
         whToDelivery: MetricStats;
         loadingToPort: MetricStats;
         portToDelivery: MetricStats;
@@ -263,11 +278,12 @@ export async function GET(req: NextRequest) {
 
     for (const c of allCarriers) {
       const cData = carrierContainerMap[c] || { whToDelivery: [], loadingToPort: [], portToDelivery: [], containers: [] };
-      const sData = carrierShipmentMap[c] || { receiptToDelivery: [], whToDelivery: [], loadingToPort: [], portToDelivery: [], shipments: [] };
+      const sData = carrierShipmentMap[c] || { receiptToLoading: [], receiptToDelivery: [], whToDelivery: [], loadingToPort: [], portToDelivery: [], shipments: [] };
 
       carrierStats[c] = {
         containerCount: cData.containers.length,
         shipmentCount: sData.shipments.length,
+        receiptToLoading: computeStats(sData.receiptToLoading),
         whToDelivery: computeStats(cData.whToDelivery.length > 0 ? cData.whToDelivery : sData.whToDelivery),
         loadingToPort: computeStats(cData.loadingToPort.length > 0 ? cData.loadingToPort : sData.loadingToPort),
         portToDelivery: computeStats(cData.portToDelivery.length > 0 ? cData.portToDelivery : sData.portToDelivery),
@@ -278,7 +294,8 @@ export async function GET(req: NextRequest) {
     // 7. Overall stats across entire fleet
     const overall = {
       containerCount: deliveredContainers.length,
-      shipmentCount: deliveredShipments.length,
+      shipmentCount: shipmentsWithDates.length,
+      receiptToLoading: computeStats(overallShipmentReceiptToLoading),
       whToDelivery: computeStats(overallContainerWhToDelivery),
       loadingToPort: computeStats(overallContainerLoadingToPort),
       portToDelivery: computeStats(overallContainerPortToDelivery),
