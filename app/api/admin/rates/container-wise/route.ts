@@ -73,16 +73,20 @@ export async function GET(req: NextRequest) {
 
     // Also fetch WarehouseReceipt rates to merge if shipment rate was empty
     const receiptsWithRates = await WarehouseReceipt.find({
-      rate: { $exists: true, $nin: ['', null] },
+      $or: [
+        { rate: { $exists: true, $nin: ['', null] } },
+        { 'Overall / Receipt Freight Rate': { $exists: true, $nin: ['', null] } },
+      ],
     })
-      .select({ receipt: 1, rate: 1, rateFixed: 1, totalCost: 1 })
+      .select({ receipt: 1, receiptNumber: 1, rate: 1, 'Overall / Receipt Freight Rate': 1, rateFixed: 1, totalCost: 1 })
       .lean();
 
     const whRateMap = new Map<string, { rate: string; rateFixed?: boolean; totalCost?: any }>();
     receiptsWithRates.forEach((wr: any) => {
-      if (wr.receipt) {
-        whRateMap.set(wr.receipt.trim().toLowerCase(), {
-          rate: wr.rate,
+      const rec = String(wr.receipt || wr.receiptNumber || '').trim().toLowerCase();
+      if (rec) {
+        whRateMap.set(rec, {
+          rate: wr['Overall / Receipt Freight Rate'] || wr.rate || '',
           rateFixed: wr.rateFixed,
           totalCost: wr.totalCost,
         });
@@ -100,7 +104,7 @@ export async function GET(req: NextRequest) {
 
       // Check fallback rate from WarehouseReceipt if shipment rate is empty
       const recKey = (s.receipt || '').trim().toLowerCase();
-      let effectiveRate = s.rate || '';
+      let effectiveRate = s['Overall / Receipt Freight Rate'] || s.rate || '';
       let effectiveRateFixed = s.rateFixed || false;
       let effectiveTotalCost = s.totalCost || s.cost || '';
 

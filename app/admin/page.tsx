@@ -22,7 +22,7 @@ import ChangePasswordModal from '@/components/ChangePasswordModal';
 import UserManager from '@/components/UserManager';
 import EditLogViewer from '@/components/EditLogViewer';
 import { getCarrierTrackingUrl, getLdbRailwayTrackingUrl } from '@/lib/trackingUrls';
-import { downloadContainerWiseRateExcel } from '@/lib/containerRateExport';
+import { downloadContainerWiseRateExcel, downloadReceiptWiseRateExcel } from '@/lib/containerRateExport';
 import { ReduxProvider } from '@/store/ReduxProvider';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -364,6 +364,7 @@ export default function AdminDashboardPage() {
   const [editingShipment, setEditingShipment] = useState<any | null>(null);
   const [isBulkEditOpen, setIsBulkEditOpen] = useState(false);
   const [isDownloadingRates, setIsDownloadingRates] = useState(false);
+  const [isDownloadingReceiptRates, setIsDownloadingReceiptRates] = useState(false);
   const [bulkEditData, setBulkEditData] = useState({
     container: '',
     containerNumber: '',
@@ -1321,6 +1322,27 @@ export default function AdminDashboardPage() {
             <button
               type="button"
               onClick={async () => {
+                setIsDownloadingReceiptRates(true);
+                try {
+                  await downloadReceiptWiseRateExcel();
+                } catch (e: any) {
+                  alert(e?.message || 'Failed to download receipt rates');
+                } finally {
+                  setIsDownloadingReceiptRates(false);
+                }
+              }}
+              disabled={isDownloadingReceiptRates}
+              className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-xs font-bold border border-indigo-300 transition flex items-center space-x-1 disabled:opacity-50 shadow-2xs"
+              title="Download Rate List Receipt No. Wise in Excel (.xlsx) format"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-600" />
+              <span className="hidden sm:inline">{isDownloadingReceiptRates ? 'Downloading...' : 'Receipt Rates (.xlsx)'}</span>
+              <span className="sm:hidden">Receipt Rates</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={async () => {
                 setIsDownloadingRates(true);
                 try {
                   await downloadContainerWiseRateExcel();
@@ -1335,7 +1357,7 @@ export default function AdminDashboardPage() {
               title="Download Container-Wise Rate Manifest (.xlsx) with Overall / Receipt Freight Rates"
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-purple-600" />
-              <span className="hidden sm:inline">{isDownloadingRates ? 'Downloading...' : 'Rate List (.xlsx)'}</span>
+              <span className="hidden sm:inline">{isDownloadingRates ? 'Downloading...' : 'Container Rates (.xlsx)'}</span>
               <span className="sm:hidden">Rates</span>
             </button>
 

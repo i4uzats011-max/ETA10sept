@@ -26,7 +26,7 @@ import { formatGlobalDate, parseReceiptDate } from '@/lib/dateUtils';
 import CargoMasterChart from './CargoMasterChart';
 import MarkDeliveredModal from './MarkDeliveredModal';
 import { getCarrierTrackingUrl, getLdbRailwayTrackingUrl } from '@/lib/trackingUrls';
-import { downloadContainerWiseRateExcel } from '@/lib/containerRateExport';
+import { downloadContainerWiseRateExcel, downloadReceiptWiseRateExcel } from '@/lib/containerRateExport';
 import * as XLSX from 'xlsx';
 import {
   Search,
@@ -108,6 +108,7 @@ export default function CargoMasterTable({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<'admin' | 'staff' | null>(null);
   const [isDownloadingRates, setIsDownloadingRates] = useState(false);
+  const [isDownloadingReceiptRates, setIsDownloadingReceiptRates] = useState(false);
 
   useEffect(() => {
     fetch('/api/auth/me')
@@ -1176,6 +1177,28 @@ export default function CargoMasterTable({
                   <FileSpreadsheet className="w-3.5 h-3.5 text-blue-600" />
                   <span className="hidden sm:inline">Download All Buckets (.xlsx)</span>
                   <span className="sm:hidden">All Buckets</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setIsDownloadingReceiptRates(true);
+                    try {
+                      await downloadReceiptWiseRateExcel();
+                    } catch (e: any) {
+                      alert(e?.message || 'Failed to download receipt rates');
+                    } finally {
+                      setIsDownloadingReceiptRates(false);
+                    }
+                  }}
+                  disabled={isDownloadingReceiptRates}
+                  className="px-2.5 sm:px-3 py-1.5 sm:py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-300 rounded-xl font-bold text-xs transition flex items-center space-x-1 shadow-xs disabled:opacity-50"
+                  title="Download receipt-wise rate manifest with Overall / Receipt Freight Rates in Excel (.xlsx)"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-600" />
+                  <span className="hidden sm:inline">
+                    {isDownloadingReceiptRates ? 'Generating...' : 'Receipt Rates (.xlsx)'}
+                  </span>
+                  <span className="sm:hidden">Receipt Rates</span>
                 </button>
                 <button
                   type="button"

@@ -24,7 +24,7 @@ import {
   FileSpreadsheet,
 } from 'lucide-react';
 import { formatGlobalDate } from '@/lib/dateUtils';
-import { downloadContainerWiseRateExcel } from '@/lib/containerRateExport';
+import { downloadContainerWiseRateExcel, downloadReceiptWiseRateExcel } from '@/lib/containerRateExport';
 
 export interface NotificationReceipt {
   _id: string;
@@ -106,6 +106,7 @@ export default function PartyArrivalNotifications({ initialDate, onClose }: Prop
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [isDownloadingRates, setIsDownloadingRates] = useState<boolean>(false);
+  const [isDownloadingReceiptRates, setIsDownloadingReceiptRates] = useState<boolean>(false);
 
   // Default warehouse label for message
   const [customWarehouse, setCustomWarehouse] = useState<string>('RS-21 Warehouse');
@@ -618,6 +619,25 @@ Please note without above details goods will not be load`;
         </div>
 
         <div className="flex items-center space-x-2">
+          <button
+            type="button"
+            onClick={async () => {
+              setIsDownloadingReceiptRates(true);
+              try {
+                await downloadReceiptWiseRateExcel();
+              } catch (err: any) {
+                alert(err.message || 'Failed to download receipt-wise rate list');
+              } finally {
+                setIsDownloadingReceiptRates(false);
+              }
+            }}
+            disabled={isDownloadingReceiptRates}
+            className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-sm active:scale-95 disabled:opacity-50"
+            title="Download Rate List Receipt No. Wise in Excel (.xlsx) format"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            <span>{isDownloadingReceiptRates ? 'Downloading...' : 'Receipt Rates (.xlsx)'}</span>
+          </button>
           <button
             type="button"
             onClick={async () => {
