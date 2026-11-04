@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import Container from '@/models/Container';
 import Shipment from '@/models/Shipment';
-import { isAdminAuthenticated } from '@/lib/auth';
+import { isAdminAuthenticated, getAuthenticatedUser } from '@/lib/auth';
+import { recordEditLog } from '@/lib/auditLog';
 
 export const dynamic = 'force-dynamic';
 
@@ -122,6 +123,15 @@ export async function POST(req: NextRequest) {
       }
     ).catch(() => {});
 
+    // Record Edit Log
+    await recordEditLog(req, {
+      action: 'UPDATE',
+      entityType: 'Container',
+      entityId: cleanContainer,
+      description: `Added remark to container '${cleanContainer}': "${cleanRemarks}" (${cleanDate})`,
+      details: { container: cleanContainer, date: cleanDate, remarks: cleanRemarks },
+    });
+
     return NextResponse.json({
       success: true,
       message: `Remark recorded container-wise for '${cleanContainer}'!`,
@@ -171,6 +181,15 @@ export async function DELETE(req: NextRequest) {
         $pull: { containerRemarks: { _id: remarkId } },
       }
     ).catch(() => {});
+
+    // Record Edit Log
+    await recordEditLog(req, {
+      action: 'DELETE',
+      entityType: 'Container',
+      entityId: cleanContainer,
+      description: `Deleted remark ID ${remarkId} from container '${cleanContainer}'`,
+      details: { container: cleanContainer, remarkId },
+    });
 
     return NextResponse.json({
       success: true,

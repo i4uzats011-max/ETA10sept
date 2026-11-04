@@ -109,6 +109,9 @@ export interface IBill extends Document {
   destination?: string;
   termsOfDelivery?: string;
 
+  lastModifiedBy?: string;
+  lastModifiedByRole?: string;
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -229,6 +232,8 @@ const BillSchema = new Schema<IBill>(
     deliveryNoteDate: { type: String, default: '', trim: true },
     destination: { type: String, default: '', trim: true },
     termsOfDelivery: { type: String, default: '', trim: true },
+    lastModifiedBy: { type: String, default: '', trim: true },
+    lastModifiedByRole: { type: String, default: '', trim: true },
   },
   {
     timestamps: true,

@@ -3,8 +3,9 @@ import { connectToDatabase } from '@/lib/mongodb';
 import Container from '@/models/Container';
 import Shipment from '@/models/Shipment';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
-import { isStaffOrAdminAuthenticated, isSuperAdminAuthenticated } from '@/lib/auth';
-import { fetchContainerTracking, addFilingBufferDays } from '@/lib/jsoncargo';
+import { isStaffOrAdminAuthenticated, isSuperAdminAuthenticated, getAuthenticatedUser } from '@/lib/auth';
+import { recordEditLog } from '@/lib/auditLog';
+import { addFilingBufferDays } from '@/lib/jsoncargo';
 import { parseMetricNumber } from '@/lib/metricUtils';
 import { invalidateContainerCache } from '@/lib/redis';
 
@@ -729,28 +730,9 @@ export async function POST(req: NextRequest) {
       let trackingStatus = 'In Transit';
       let trackingDetails: any = null;
 
-      // If container number provided, fetch live carrier ETA & loading date via API
-      if (cleanNum) {
-        try {
-          const tracking = await fetchContainerTracking(cleanNum, cleanCarrier);
-          // If API returns loading date, prioritize the API loading date
-          if (tracking.loadingDate) {
-            cleanLoadingDate = tracking.loadingDate;
-          }
-          if (tracking.eta && tracking.eta !== 'N/A') {
-            trackingEta = tracking.eta;
-          }
-          if (tracking.rawEta) {
-            trackingRawEta = tracking.rawEta;
-          }
-          if (tracking.status) {
-            trackingStatus = tracking.status;
-          }
-          trackingDetails = tracking.dataDetails;
-        } catch {
-          // Fallback gracefully without breaking allotment
-        }
-      }
+      const user = getAuthenticatedUser(req);
+      const modifiedBy = user?.username || 'admin';
+      const modifiedByRole = user?.role || 'admin';
 
       // Ensure cleanLoadingDate is a string
       cleanLoadingDate = cleanLoadingDate || '';
@@ -1251,42 +1233,9 @@ export async function POST(req: NextRequest) {
       let cleanLoadingDate = loadingDate !== undefined ? String(loadingDate).trim() : targetContainer.loadingDate;
       const cleanShippedTo = shippedTo !== undefined ? String(shippedTo).trim() : targetContainer.shippedTo;
 
-      // If carrier container provided or changed, query API for live loadingDate & ETA
-      if (cleanCarrierNum && (autoSync || !cleanLoadingDate)) {
-        try {
-          const tracking = await fetchContainerTracking(cleanCarrierNum, cleanShippingLine || 'MSC');
-          if (tracking.loadingDate) {
-            cleanLoadingDate = tracking.loadingDate;
-          }
-          if (tracking.eta && tracking.eta !== 'N/A') {
-            const nowSync = new Date();
-            targetContainer.eta = tracking.eta;
-            targetContainer.rawEta = tracking.rawEta || '';
-            targetContainer.destinationDate = tracking.rawEta
-              ? addFilingBufferDays(tracking.rawEta, cleanBufferDays)
-              : (tracking.destinationDate || tracking.eta);
-            targetContainer.status = tracking.status;
-            targetContainer.currentLocation = tracking.currentLocation;
-            targetContainer.vesselName = tracking.vesselName;
-            targetContainer.voyageNumber = tracking.voyageNumber;
-            targetContainer.jsonCargoData = tracking.dataDetails;
-            targetContainer.lastApiSync = nowSync;
-            targetContainer.etaUpdatedAt = nowSync;
-            targetContainer.apiCalled = true;
-            targetContainer.apiCallCount = (targetContainer.apiCallCount || 0) + 1;
-            targetContainer.apiCallHistory = targetContainer.apiCallHistory || [];
-            targetContainer.apiCallHistory.push({
-              timestamp: nowSync,
-              source: 'alter_container_sync',
-              eta: tracking.eta,
-              status: tracking.status,
-              loadingDate: tracking.loadingDate || null,
-            });
-          }
-        } catch (e: any) {
-          console.warn('API sync on alter container warning:', e?.message);
-        }
-      }
+      const user = getAuthenticatedUser(req);
+      const modifiedBy = user?.username || 'admin';
+      const modifiedByRole = user?.role || 'admin';
 
       // If carrier container assigned, but API could not find it and user did not enter manually
       if (cleanCarrierNum && !cleanLoadingDate) {

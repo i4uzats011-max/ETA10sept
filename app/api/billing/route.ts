@@ -5,7 +5,8 @@ import Shipment from '@/models/Shipment';
 import ItemHsn from '@/models/ItemHsn';
 import MarkaAddress from '@/models/MarkaAddress';
 import { getStateCode, getStateName } from '@/lib/states';
-import { isAnyAuthenticated } from '@/lib/auth';
+import { isAnyAuthenticated, getAuthenticatedUser } from '@/lib/auth';
+import { recordEditLog } from '@/lib/auditLog';
 
 export const dynamic = 'force-dynamic';
 
@@ -80,6 +81,8 @@ export async function POST(req: NextRequest) {
   if (!isAnyAuthenticated(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const authUser = getAuthenticatedUser(req);
 
   try {
     await connectToDatabase();
@@ -452,6 +455,8 @@ export async function POST(req: NextRequest) {
         if (deliveryNoteDate) existingBill.deliveryNoteDate = deliveryNoteDate;
         if (destination) existingBill.destination = destination;
         if (termsOfDelivery) existingBill.termsOfDelivery = termsOfDelivery;
+        existingBill.lastModifiedBy = authUser.username;
+        existingBill.lastModifiedByRole = authUser.role;
 
         await existingBill.save();
         results.push(existingBill);
@@ -459,6 +464,8 @@ export async function POST(req: NextRequest) {
         const newBill = await Bill.create({
           billNumber,
           receipt: rawReceipt,
+          lastModifiedBy: authUser.username,
+          lastModifiedByRole: authUser.role,
           hsnCode,
           igst: totalGstRate,
           cgst,
@@ -576,6 +583,18 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    if (results.length > 0) {
+      for (const b of results) {
+        await recordEditLog(req, {
+          action: 'CREATE',
+          entityType: 'Bill',
+          entityId: String(b._id),
+          description: `Generated bill ${b.billNumber} for ${b.consigneeName || b.buyerName || 'Buyer'} (₹${b.totalAmount})`,
+          details: { billNumber: b.billNumber, totalAmount: b.totalAmount, party: b.party, container: b.containerNumber },
+        });
+      }
+    }
+
     if (results.length === 0 && errors.length > 0) {
       return NextResponse.json(
         {
@@ -606,6 +625,8 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const authUser = getAuthenticatedUser(req);
+
   try {
     await connectToDatabase();
     const body = await req.json();
@@ -619,7 +640,10 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'Bill ID or billIds array is required' }, { status: 400 });
     }
 
-    const updateData: any = {};
+    const updateData: any = {
+      lastModifiedBy: authUser.username,
+      lastModifiedByRole: authUser.role,
+    };
     if (vehicleNumber !== undefined) {
       updateData.vehicleNumber = String(vehicleNumber).trim();
     }
@@ -648,6 +672,16 @@ export async function PATCH(req: NextRequest) {
       { $set: updateData }
     );
 
+    if (res.modifiedCount > 0) {
+      await recordEditLog(req, {
+        action: 'UPDATE',
+        entityType: 'Bill',
+        entityId: idsToUpdate.join(', '),
+        description: `Updated dispatch/vehicle info on ${res.modifiedCount} bills`,
+        details: { ids: idsToUpdate, updateData },
+      });
+    }
+
     return NextResponse.json({
       success: true,
       message: `Successfully updated ${res.modifiedCount} bills`,
@@ -663,6 +697,8 @@ export async function PUT(req: NextRequest) {
   if (!isAnyAuthenticated(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const authUser = getAuthenticatedUser(req);
 
   try {
     await connectToDatabase();
@@ -836,11 +872,24 @@ export async function PUT(req: NextRequest) {
       }
     }
 
+    updateFields.lastModifiedBy = authUser.username;
+    updateFields.lastModifiedByRole = authUser.role;
+
     const updatedBill = await Bill.findByIdAndUpdate(
       billId,
       { $set: updateFields },
       { new: true }
     );
+
+    if (updatedBill) {
+      await recordEditLog(req, {
+        action: 'UPDATE',
+        entityType: 'Bill',
+        entityId: String(billId),
+        description: `Updated bill ${updatedBill.billNumber} (${updatedBill.consigneeName || updatedBill.buyerName || 'Buyer'})`,
+        details: { billId, updatedFields: Object.keys(updateFields) },
+      });
+    }
 
     return NextResponse.json({
       success: true,
@@ -870,7 +919,14 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Bill ID is required' }, { status: 400 });
     }
 
-    await Bill.findByIdAndDelete(id);
+    const deletedBill = await Bill.findByIdAndDelete(id);
+    await recordEditLog(req, {
+      action: 'DELETE',
+      entityType: 'Bill',
+      entityId: String(id),
+      description: `Deleted bill ${deletedBill?.billNumber || id} (Marka: ${deletedBill?.buyerMarka || 'N/A'})`,
+      details: { id, billNumber: deletedBill?.billNumber, buyerMarka: deletedBill?.buyerMarka },
+    });
     return NextResponse.json({ success: true, message: 'Bill deleted successfully' });
   } catch (error: any) {
     console.error('Error deleting bill:', error);

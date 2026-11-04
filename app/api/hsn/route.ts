@@ -3,6 +3,7 @@ import { connectToDatabase } from '@/lib/mongodb';
 import ItemHsn from '@/models/ItemHsn';
 import { findHsnSuggestions, inferHsnByItemName, MASTER_HSN_CATALOG } from '@/lib/hsnCatalog';
 import { isAnyAuthenticated } from '@/lib/auth';
+import { recordEditLog } from '@/lib/auditLog';
 
 export const dynamic = 'force-dynamic';
 
@@ -119,6 +120,14 @@ export async function POST(req: NextRequest) {
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
+
+    await recordEditLog(req, {
+      action: 'UPDATE',
+      entityType: 'ItemHsn',
+      entityId: cleanItemName,
+      description: `Linked item '${cleanItemName}' to HSN ${cleanHsn} (${typeof gstRate === 'number' ? gstRate : 18}% GST)`,
+      details: { itemName: cleanItemName, hsnCode: cleanHsn, gstRate },
+    });
 
     return NextResponse.json({
       success: true,

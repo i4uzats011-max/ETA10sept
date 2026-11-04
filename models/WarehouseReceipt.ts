@@ -60,6 +60,8 @@ export interface IWarehouseReceipt extends Document {
   messageSentDate?: string;     // Formatted message sent date/time
   uploadBatchId?: string;       // ID of upload batch for tracking & rollback
   uploadedAt: Date;             // Entry creation timestamp
+  lastModifiedBy?: string;
+  lastModifiedByRole?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -132,6 +134,8 @@ const WarehouseReceiptSchema = new Schema<IWarehouseReceipt>(
     messageSentDate: { type: String, default: '' },
     uploadBatchId: { type: String, default: '', index: true },
     uploadedAt: { type: Date, default: Date.now },
+    lastModifiedBy: { type: String, default: '', trim: true },
+    lastModifiedByRole: { type: String, default: '', trim: true },
   },
   {
     timestamps: true,

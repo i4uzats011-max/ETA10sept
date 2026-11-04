@@ -96,3 +96,15 @@ export function isAdminAuthenticated(req: NextRequest): boolean {
   return isStaffOrAdminAuthenticated(req);
 }
 
+export function getAuthenticatedUser(req: NextRequest): { username: string; role: string; name?: string } {
+  const token = getAdminTokenFromRequest(req);
+  if (!token) return { username: 'system', role: 'admin' };
+  const payload = verifyAdminToken(token);
+  if (!payload) return { username: 'system', role: 'admin' };
+  return {
+    username: payload.username || (payload.role === 'admin' ? 'admin' : payload.role),
+    role: payload.role,
+    name: payload.name,
+  };
+}
+

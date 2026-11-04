@@ -7,6 +7,7 @@ import {
   isDeveloperAuthenticated,
   signAdminToken,
 } from '@/lib/auth';
+import { recordEditLog } from '@/lib/auditLog';
 import {
   hashPassword,
   verifyPassword,
@@ -102,6 +103,14 @@ export async function POST(req: NextRequest) {
       id: user._id.toString(),
       username: user.username,
       name: user.name,
+    });
+
+    await recordEditLog(req, {
+      action: 'UPDATE',
+      entityType: 'User',
+      entityId: user.username || 'developer',
+      description: `Developer '${user.username || 'developer'}' updated developer password`,
+      details: { username: user.username, role: 'developer', action: 'developer_self_reset' },
     });
 
     const response = NextResponse.json({

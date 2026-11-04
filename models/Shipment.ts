@@ -61,6 +61,8 @@ export interface IShipment extends Document {
   apiCallCount?: number;        // Count of API calls made
   rawEta?: string;              // Carrier raw ETA
   etaBufferDays?: number;       // Clearance procedure buffer days added to raw ETA (default: 7)
+  lastModifiedBy?: string;      // Username of the user who last changed/updated data
+  lastModifiedByRole?: string;  // Role of the user who last changed/updated data
   phone?: string;               // Party contact / WhatsApp mobile
   partyPhone?: string;          // Party phone
   rate?: string;                // Party freight/shipping rate (e.g. '23k', '500')
@@ -134,6 +136,8 @@ const ShipmentSchema = new Schema<IShipment>({
   eta: { type: String, default: 'N/A' },
   rawEta: { type: String, default: '' },
   etaBufferDays: { type: Number, default: 7 },
+  lastModifiedBy: { type: String, default: '', index: true, trim: true },
+  lastModifiedByRole: { type: String, default: '', trim: true },
   status: { type: String, default: 'Pending' },
   deliveryDate: { type: String, default: '' },
   daysToDeliver: { type: Number, default: null },

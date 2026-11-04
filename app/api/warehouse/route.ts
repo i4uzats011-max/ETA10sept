@@ -5,6 +5,7 @@ import WarehouseReceipt from '@/models/WarehouseReceipt';
 import Container from '@/models/Container';
 import Shipment from '@/models/Shipment';
 import { isStaffOrAdminAuthenticated, isSuperAdminAuthenticated } from '@/lib/auth';
+import { recordEditLog } from '@/lib/auditLog';
 import { translateWarehouse } from '@/lib/translate';
 import { deleteSingleWarehouseReceipt } from '@/lib/typesense';
 
@@ -121,6 +122,14 @@ export async function POST(req: NextRequest) {
       createdAt: new Date(),
     });
 
+    await recordEditLog(req, {
+      action: 'CREATE',
+      entityType: 'Warehouse',
+      entityId: String(newWarehouse._id),
+      description: `Created warehouse '${translatedName}'`,
+      details: { name: translatedName, code, city },
+    });
+
     return NextResponse.json({
       success: true,
       message: `Warehouse '${translatedName}' created successfully.`,
@@ -216,6 +225,18 @@ export async function PUT(req: NextRequest) {
       );
     }
 
+    await recordEditLog(req, {
+      action: 'UPDATE',
+      entityType: 'Warehouse',
+      entityId: cleanOld === cleanNew ? cleanOld : `${cleanOld} -> ${cleanNew}`,
+      description: cleanOld === cleanNew
+        ? `Updated metadata for warehouse '${cleanOld}'`
+        : mergeWithExisting
+        ? `Merged warehouse '${cleanOld}' into '${cleanNew}'`
+        : `Renamed warehouse '${cleanOld}' to '${cleanNew}'`,
+      details: { oldName: cleanOld, newName: cleanNew, mergeWithExisting, code, city },
+    });
+
     return NextResponse.json({
       success: true,
       message: mergeWithExisting
@@ -301,6 +322,14 @@ export async function DELETE(req: NextRequest) {
     } else {
       await Warehouse.deleteOne({ name: regexPattern });
     }
+
+    await recordEditLog(req, {
+      action: 'DELETE',
+      entityType: 'Warehouse',
+      entityId: warehouseName,
+      description: `Deleted empty warehouse '${warehouseName}'`,
+      details: { warehouse: warehouseName },
+    });
 
     return NextResponse.json({
       success: true,

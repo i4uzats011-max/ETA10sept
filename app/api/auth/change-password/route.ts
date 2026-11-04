@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminTokenFromRequest, verifyAdminToken, UserRole } from '@/lib/auth';
+import { recordEditLog } from '@/lib/auditLog';
 import { connectToDatabase } from '@/lib/mongodb';
 import User from '@/models/User';
 import {
@@ -108,6 +109,14 @@ export async function POST(req: NextRequest) {
         console.warn('Could not sync User model:', err);
       }
 
+      await recordEditLog(req, {
+        action: 'UPDATE',
+        entityType: 'User',
+        entityId: roleToChange,
+        description: `Admin updated password for role ${getRoleDisplayName(roleToChange)}`,
+        details: { targetRole: roleToChange, action: 'admin_password_change' },
+      });
+
       return NextResponse.json({
         success: true,
         message: `Password for ${getRoleDisplayName(roleToChange)} has been updated successfully!`,
@@ -153,6 +162,14 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       console.warn('Could not sync User model for self change:', err);
     }
+
+    await recordEditLog(req, {
+      action: 'UPDATE',
+      entityType: 'User',
+      entityId: payload.username || callerRole,
+      description: `User '${payload.username || callerRole}' updated their own password`,
+      details: { username: payload.username, role: callerRole, action: 'self_password_change' },
+    });
 
     return NextResponse.json({
       success: true,

@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
-import { isSuperAdminAuthenticated } from '@/lib/auth';
-import { fetchContainerTracking } from '@/lib/jsoncargo';
+import { isSuperAdminAuthenticated, getAuthenticatedUser } from '@/lib/auth';
+import { recordEditLog } from '@/lib/auditLog';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,22 +69,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Retrieve local tracking details
-    let trackingInfo: any = null;
-    try {
-      trackingInfo = await fetchContainerTracking(
-        actualContainerNo.trim(),
-        shippingLine.trim()
-      );
-    } catch {
-      // silent
-    }
-
+    // API tracking is permanently stopped - No API queries or automatic date changes
     const now = new Date();
+    const user = getAuthenticatedUser(req);
+    const modifiedBy = user?.username || 'admin';
+    const modifiedByRole = user?.role || 'admin';
 
     const updateFields: Record<string, any> = {
       containerNumber: actualContainerNo.trim(),
       shippingLine: shippingLine.trim(),
+      lastModifiedBy: modifiedBy,
+      lastModifiedByRole: modifiedByRole,
     };
 
     if (cleanLoadingDate) {
@@ -92,29 +87,11 @@ export async function POST(req: NextRequest) {
       updateFields.startDate = cleanLoadingDate;
     }
 
-    if (trackingInfo) {
-      if (trackingInfo.eta && trackingInfo.eta !== 'Pending') {
-        updateFields.eta = trackingInfo.eta;
-        updateFields.destinationDate = trackingInfo.destinationDate;
-      }
-      if (trackingInfo.rawEta) updateFields.rawEta = trackingInfo.rawEta;
-      if (trackingInfo.status) updateFields.status = trackingInfo.status;
-      if (trackingInfo.shippedFrom) updateFields.shippedFrom = trackingInfo.shippedFrom;
-      if (trackingInfo.shippedTo) updateFields.shippedTo = trackingInfo.shippedTo;
-      if (trackingInfo.currentLocation) updateFields.currentLocation = trackingInfo.currentLocation;
-      if (trackingInfo.vesselName) updateFields.vesselName = trackingInfo.vesselName;
-      if (trackingInfo.voyageNumber) updateFields.voyageNumber = trackingInfo.voyageNumber;
-      updateFields.jsonCargoData = trackingInfo.dataDetails;
-      updateFields.lastApiSync = now;
-      updateFields.etaUpdatedAt = now;
-    }
-
     // 2. Execute updateMany for all matching records with the target container alias
     const updateResult = await Shipment.updateMany(
       { container: container.trim() },
       {
         $set: updateFields,
-        ...(trackingInfo ? { $inc: { apiCallCount: 1 } } : {}),
       }
     );
 
@@ -136,46 +113,33 @@ export async function POST(req: NextRequest) {
           planStatus: 'Finalized',
           isFinalized: true,
         },
-        ...(trackingInfo ? { $inc: { apiCallCount: 1 } } : {}),
-        ...(trackingInfo
-          ? {
-              $push: {
-                apiCallHistory: {
-                  timestamp: now,
-                  source: 'container_update',
-                  eta: trackingInfo.eta,
-                  status: trackingInfo.status,
-                  loadingDate: cleanLoadingDate,
-                },
-              },
-            }
-          : {}),
       },
       { upsert: true, new: true }
     );
 
+    // Record Edit Log for CUD operation
+    await recordEditLog(req, {
+      action: 'UPDATE',
+      entityType: 'Container',
+      entityId: container.trim(),
+      description: `Mapped container alias '${container.trim()}' to actual container number '${actualContainerNo.trim()}' (${shippingLine.trim()})`,
+      details: {
+        container: container.trim(),
+        containerNumber: actualContainerNo.trim(),
+        shippingLine: shippingLine.trim(),
+        loadingDate: cleanLoadingDate,
+      },
+      username: modifiedBy,
+      role: modifiedByRole,
+    });
+
     return NextResponse.json({
       success: true,
-      message: `Updated ${updateResult.modifiedCount} shipment(s) and synced container tracking`,
+      message: `Updated ${updateResult.modifiedCount} shipment(s) container number mapping successfully`,
       matchedCount: updateResult.matchedCount,
       modifiedCount: updateResult.modifiedCount,
       loadingDate: cleanLoadingDate,
-      syncedTracking: trackingInfo
-        ? {
-            eta: trackingInfo.eta,
-            status: trackingInfo.status,
-            shippedFrom: trackingInfo.shippedFrom,
-            shippedTo: trackingInfo.shippedTo,
-            currentLocation: trackingInfo.currentLocation,
-            startDate: trackingInfo.startDate,
-            loadingDate: cleanLoadingDate,
-            destinationDate: trackingInfo.destinationDate,
-            vesselName: trackingInfo.vesselName,
-            voyageNumber: trackingInfo.voyageNumber,
-            lastApiSync: now,
-            etaUpdatedAt: now,
-          }
-        : null,
+      syncedTracking: null,
     });
   } catch (error: any) {
     return NextResponse.json(

@@ -5,6 +5,7 @@ import WarehouseReceipt from '@/models/WarehouseReceipt';
 import Container from '@/models/Container';
 import Shipment from '@/models/Shipment';
 import { isSuperAdminAuthenticated } from '@/lib/auth';
+import { recordEditLog } from '@/lib/auditLog';
 import { translateWarehouse } from '@/lib/translate';
 import { indexSingleWarehouseReceipt } from '@/lib/typesense';
 
@@ -113,6 +114,14 @@ export async function POST(req: NextRequest) {
 
     // Count remaining items in source warehouse
     const remainingInFrom = await WarehouseReceipt.countDocuments({ warehouse: fromRegex });
+
+    await recordEditLog(req, {
+      action: 'UPDATE',
+      entityType: 'WarehouseReceipt',
+      entityId: `${cleanFrom} -> ${canonicalDestination}`,
+      description: `Transferred ${transferredReceiptNumbers.length} goods from '${cleanFrom}' to '${canonicalDestination}'`,
+      details: { count: transferredReceiptNumbers.length, fromWarehouse: cleanFrom, toWarehouse: canonicalDestination, receipts: transferredReceiptNumbers.slice(0, 20) },
+    });
 
     return NextResponse.json({
       success: true,

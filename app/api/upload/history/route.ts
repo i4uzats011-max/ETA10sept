@@ -4,8 +4,9 @@ import UploadHistory from '@/models/UploadHistory';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
 import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
-import { isStaffOrAdminAuthenticated, isSuperAdminAuthenticated } from '@/lib/auth';
+import { isStaffOrAdminAuthenticated, isSuperAdminAuthenticated, getAuthenticatedUser } from '@/lib/auth';
 import { deleteSingleWarehouseReceipt } from '@/lib/typesense';
+import { recordEditLog } from '@/lib/auditLog';
 
 export const dynamic = 'force-dynamic';
 
@@ -155,9 +156,24 @@ export async function DELETE(req: NextRequest) {
         deleteSingleWarehouseReceipt(String(id)).catch(() => {});
       });
 
+      const user = getAuthenticatedUser(req);
       uploadRecord.status = 'Deleted';
       uploadRecord.deletedAt = new Date();
+      uploadRecord.deletedBy = user?.username || 'admin';
       await uploadRecord.save();
+
+      await recordEditLog(req, {
+        action: 'DELETE',
+        entityType: 'WarehouseStockUpload',
+        entityId: uploadRecord.uploadId,
+        description: `Deleted warehouse stock upload '${uploadRecord.fileName}' (${deleteIds.length} receipts removed)`,
+        details: {
+          uploadId: uploadRecord.uploadId,
+          fileName: uploadRecord.fileName,
+          warehouse: uploadRecord.warehouse,
+          deletedReceiptsCount: deleteIds.length,
+        },
+      });
 
       return NextResponse.json({
         success: true,
@@ -232,9 +248,23 @@ export async function DELETE(req: NextRequest) {
         );
       }
 
+      const user = getAuthenticatedUser(req);
       uploadRecord.status = 'Deleted';
       uploadRecord.deletedAt = new Date();
+      uploadRecord.deletedBy = user?.username || 'admin';
       await uploadRecord.save();
+
+      await recordEditLog(req, {
+        action: 'DELETE',
+        entityType: 'LoadingPlanUpload',
+        entityId: uploadRecord.uploadId,
+        description: `Deleted loading plan upload '${uploadRecord.fileName}' (${shipmentIds.length} cargo allocations removed)`,
+        details: {
+          uploadId: uploadRecord.uploadId,
+          fileName: uploadRecord.fileName,
+          deletedShipmentsCount: shipmentIds.length,
+        },
+      });
 
       return NextResponse.json({
         success: true,

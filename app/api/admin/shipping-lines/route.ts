@@ -4,6 +4,7 @@ import ShippingLine, { DEFAULT_SHIPPING_LINES } from '@/models/ShippingLine';
 import Container from '@/models/Container';
 import Shipment from '@/models/Shipment';
 import { isAnyAuthenticated, isStaffOrAdminAuthenticated } from '@/lib/auth';
+import { recordEditLog } from '@/lib/auditLog';
 
 export const dynamic = 'force-dynamic';
 
@@ -135,6 +136,14 @@ export async function POST(req: NextRequest) {
       active: body.active !== undefined ? Boolean(body.active) : true,
     });
 
+    await recordEditLog(req, {
+      action: 'CREATE',
+      entityType: 'ShippingLine',
+      entityId: cleanName,
+      description: `Added shipping line company '${cleanName}' (${created.displayName})`,
+      details: { name: cleanName, displayName: created.displayName, prefix: created.prefix },
+    });
+
     return NextResponse.json({
       success: true,
       message: `Shipping line "${cleanName}" created successfully!`,
@@ -217,6 +226,14 @@ export async function PUT(req: NextRequest) {
 
     await currentLine.save();
 
+    await recordEditLog(req, {
+      action: 'UPDATE',
+      entityType: 'ShippingLine',
+      entityId: currentLine.name,
+      description: `Updated shipping line company '${currentLine.name}'`,
+      details: { id, name: currentLine.name, displayName: currentLine.displayName, active: currentLine.active },
+    });
+
     // Recompute mapped counts
     const [containerCount, shipmentCount] = await Promise.all([
       Container.countDocuments({
@@ -284,6 +301,14 @@ export async function DELETE(req: NextRequest) {
 
     // Delete shipping line from collection
     await ShippingLine.findByIdAndDelete(id);
+
+    await recordEditLog(req, {
+      action: 'DELETE',
+      entityType: 'ShippingLine',
+      entityId: line.name,
+      description: `Deleted shipping line company '${line.name}'`,
+      details: { id, name: line.name, containerCount, shipmentCount },
+    });
 
     return NextResponse.json({
       success: true,

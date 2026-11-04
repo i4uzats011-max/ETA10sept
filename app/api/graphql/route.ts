@@ -5,7 +5,7 @@ import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
 import { isAdminAuthenticated } from '@/lib/auth';
-import { fetchContainerTracking, fetchApiKeyStats, addFilingBufferDays } from '@/lib/jsoncargo';
+import { fetchApiKeyStats, addFilingBufferDays } from '@/lib/jsoncargo';
 import { translateToEnglish } from '@/lib/translate';
 import { formatGlobalDate } from '@/lib/dateUtils';
 import { getCache, setCache, deleteCache, evaluateContainerEtaTTL } from '@/lib/redis';
@@ -825,74 +825,10 @@ function createRootResolver(req: NextRequest) {
         throw new Error('Unauthorized');
       }
 
-      const cleanAlias = container.trim();
-      const cleanNum = containerNumber.trim();
-      const cleanCarrier = shippingLine.trim() || 'MSC';
-
-      if (!cleanAlias || !cleanNum) {
-        throw new Error('Container alias and actual container number are required');
-      }
-
-      await connectToDatabase();
-      const escapedAlias = cleanAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const fuzzyPattern = escapedAlias.replace(/[-_\s]+/g, '[-_\\s]*');
-      const regex = new RegExp(`^${fuzzyPattern}$`, 'i');
-
-      const tracking = await fetchContainerTracking(cleanNum, cleanCarrier);
-      const now = new Date();
-
-      const updateResult = await Shipment.updateMany(
-        { container: regex },
-        {
-          $set: {
-            containerNumber: cleanNum,
-            shippingLine: cleanCarrier,
-            eta: tracking.eta,
-            status: tracking.status,
-            shippedFrom: tracking.shippedFrom,
-            shippedTo: tracking.shippedTo,
-            currentLocation: tracking.currentLocation,
-            startDate: tracking.startDate,
-            destinationDate: tracking.destinationDate,
-            vesselName: tracking.vesselName,
-            voyageNumber: tracking.voyageNumber,
-            jsonCargoData: tracking.dataDetails,
-            lastApiSync: now,
-            etaUpdatedAt: now,
-          },
-        }
-      );
-
-      // Also upsert into dedicated Container collection
-      await Container.findOneAndUpdate(
-        { container: cleanAlias },
-        {
-          $set: {
-            container: cleanAlias,
-            containerNumber: cleanNum,
-            shippingLine: cleanCarrier,
-            eta: tracking.eta,
-            status: tracking.status,
-            shippedFrom: tracking.shippedFrom,
-            shippedTo: tracking.shippedTo,
-            currentLocation: tracking.currentLocation,
-            startDate: tracking.startDate,
-            destinationDate: tracking.destinationDate,
-            vesselName: tracking.vesselName,
-            voyageNumber: tracking.voyageNumber,
-            jsonCargoData: tracking.dataDetails,
-            shipmentCount: updateResult.matchedCount,
-            lastApiSync: now,
-            etaUpdatedAt: now,
-          },
-        },
-        { upsert: true, new: true }
-      );
-
       return {
-        success: true,
-        message: `Successfully mapped '${cleanAlias}' -> '${cleanNum}' (${cleanCarrier}) and synced ETA '${tracking.eta}'`,
-        count: updateResult.modifiedCount,
+        success: false,
+        message: 'API tracking has been permanently stopped for all containers.',
+        count: 0,
       };
     },
 
@@ -1207,16 +1143,7 @@ function createRootResolver(req: NextRequest) {
       let trackingStatus = 'In Transit';
       let trackingDetails: any = null;
 
-      if (autoSync) {
-        try {
-          const tracking = await fetchContainerTracking(cleanNum, cleanCarrier);
-          if (tracking.eta && tracking.eta !== 'N/A') trackingEta = tracking.eta;
-          if (tracking.status) trackingStatus = tracking.status;
-          trackingDetails = tracking.dataDetails;
-        } catch {
-          // graceful fallback
-        }
-      }
+      // API tracking is permanently stopped - No external API queries
 
       const now = new Date();
       target.containerNumber = cleanNum;

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import User from '@/models/User';
-import { getAdminTokenFromRequest, verifyAdminToken, isDeveloperAuthenticated } from '@/lib/auth';
+import { getAdminTokenFromRequest, verifyAdminToken, isDeveloperAuthenticated, getAuthenticatedUser } from '@/lib/auth';
+import { recordEditLog } from '@/lib/auditLog';
 import RoleCredential from '@/models/RoleCredential';
 import { hashPassword } from '@/lib/passwordManager';
 import { UserRole } from '@/lib/auth';
@@ -165,6 +166,14 @@ export async function POST(req: NextRequest) {
     const userObj = newUser.toObject();
     delete (userObj as any).passwordHash;
 
+    await recordEditLog(req, {
+      action: 'CREATE',
+      entityType: 'User',
+      entityId: String(newUser._id),
+      description: `Created user account '${cleanUsername}' (Role: ${role})`,
+      details: { username: cleanUsername, role, name },
+    });
+
     return NextResponse.json(
       {
         success: true,
@@ -271,10 +280,22 @@ export async function PUT(req: NextRequest) {
       user.isActive = nextActive;
     }
 
+    const authUser = getAuthenticatedUser(req);
+    user.lastModifiedBy = authUser.username;
+    user.lastModifiedByRole = authUser.role;
+
     await user.save();
 
     const userObj = user.toObject();
     delete (userObj as any).passwordHash;
+
+    await recordEditLog(req, {
+      action: 'UPDATE',
+      entityType: 'User',
+      entityId: String(user._id),
+      description: `Updated user account '${user.username}' (Role: ${user.role}, Active: ${user.isActive})`,
+      details: { username: user.username, role: user.role, name: user.name, isActive: user.isActive },
+    });
 
     return NextResponse.json({
       success: true,
@@ -355,6 +376,14 @@ export async function DELETE(req: NextRequest) {
     }
 
     await User.findByIdAndDelete(userId);
+
+    await recordEditLog(req, {
+      action: 'DELETE',
+      entityType: 'User',
+      entityId: String(userId),
+      description: `Deleted user account '${user.username}' (${user.role})`,
+      details: { username: user.username, role: user.role, userId },
+    });
 
     return NextResponse.json({
       success: true,

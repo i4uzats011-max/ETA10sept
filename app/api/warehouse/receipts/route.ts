@@ -4,7 +4,8 @@ import WarehouseReceipt from '@/models/WarehouseReceipt';
 import Warehouse from '@/models/Warehouse';
 import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
-import { isStaffOrAdminAuthenticated, isSuperAdminAuthenticated } from '@/lib/auth';
+import { isStaffOrAdminAuthenticated, isSuperAdminAuthenticated, getAuthenticatedUser } from '@/lib/auth';
+import { recordEditLog } from '@/lib/auditLog';
 import {
   translateCommodity,
   translatePackaging,
@@ -526,6 +527,14 @@ export async function POST(req: NextRequest) {
       }
       const summaryMsg = parts.length > 0 ? parts.join(', ') : 'adjusted stock';
 
+      await recordEditLog(req, {
+        action: 'UPDATE',
+        entityType: 'WarehouseReceipt',
+        entityId: cleanReceipt,
+        description: `Updated receipt #${cleanReceipt} in ${cleanWarehouse}: ${summaryMsg} (Total: ${newTotalQty} CTN)`,
+        details: { receipt: cleanReceipt, warehouse: cleanWarehouse, addedQuantity: addedQty, totalQuantity: newTotalQty },
+      });
+
       return NextResponse.json({
         success: true,
         message: `Successfully ${summaryMsg} for Receipt #${cleanReceipt} in ${cleanWarehouse}. Total quantity is now ${newTotalQty} CTN (${existingInSameWarehouse.remainingQuantity} CTN ready in stock).`,
@@ -736,6 +745,16 @@ export async function POST(req: NextRequest) {
     // Async index to Typesense
     indexSingleWarehouseReceipt(newReceipt).catch(() => {});
 
+    await recordEditLog(req, {
+      action: 'CREATE',
+      entityType: 'WarehouseReceipt',
+      entityId: cleanReceipt,
+      description: isPlanAllocation
+        ? `Created receipt #${cleanReceipt} and loaded into plan '${cleanPlan}' in ${cleanWarehouse} (${newReceipt.quantity} CTN)`
+        : `Created receipt #${cleanReceipt} in ${cleanWarehouse} (${newReceipt.quantity} CTN)`,
+      details: { receipt: cleanReceipt, warehouse: cleanWarehouse, quantity: newReceipt.quantity, commodity: newReceipt.commodity },
+    });
+
     return NextResponse.json({
       success: true,
       message: isPlanAllocation
@@ -857,6 +876,14 @@ export async function DELETE(req: NextRequest) {
 
     // Async delete from Typesense
     deleteSingleWarehouseReceipt(String(existing._id)).catch(() => {});
+
+    await recordEditLog(req, {
+      action: 'DELETE',
+      entityType: 'WarehouseReceipt',
+      entityId: String(existing.receipt),
+      description: `Deleted warehouse receipt #${existing.receipt} from ${existing.warehouse} (${existing.quantity} CTN)`,
+      details: { receipt: existing.receipt, warehouse: existing.warehouse, quantity: existing.quantity },
+    });
 
     return NextResponse.json({
       success: true,

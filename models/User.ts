@@ -9,6 +9,8 @@ export interface IUser {
   role: UserRole;
   isActive: boolean;
   createdBy?: string;
+  lastModifiedBy?: string;
+  lastModifiedByRole?: string;
   lastLoginAt?: Date | null;
   createdAt?: Date;
   updatedAt?: Date;
@@ -48,6 +50,16 @@ const UserSchema: Schema = new Schema<IUser>(
     createdBy: {
       type: String,
       default: 'developer',
+      trim: true,
+    },
+    lastModifiedBy: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    lastModifiedByRole: {
+      type: String,
+      default: '',
       trim: true,
     },
     lastLoginAt: {
