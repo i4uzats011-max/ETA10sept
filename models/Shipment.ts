@@ -66,6 +66,7 @@ export interface IShipment extends Document {
   phone?: string;               // Party contact / WhatsApp mobile
   partyPhone?: string;          // Party phone
   rate?: string;                // Party freight/shipping rate (e.g. '23k', '500')
+  'Overall / Receipt Freight Rate'?: string; // Exact DB field head for Overall / Receipt Freight Rate
   rateFixed?: boolean;          // Rate fixed flag
   totalCost?: number | string;  // Total cost of cargo items
   cost?: number | string;       // Cost alias
@@ -104,6 +105,7 @@ const ShipmentSchema = new Schema<IShipment>({
   phone: { type: String, default: '', trim: true },
   partyPhone: { type: String, default: '', trim: true },
   rate: { type: String, default: '', trim: true },
+  'Overall / Receipt Freight Rate': { type: String, default: '', trim: true },
   rateFixed: { type: Boolean, default: false },
   totalCost: { type: Schema.Types.Mixed, default: '' },
   cost: { type: Schema.Types.Mixed, default: '' },

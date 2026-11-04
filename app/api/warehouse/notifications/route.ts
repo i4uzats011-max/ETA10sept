@@ -200,8 +200,10 @@ export async function POST(req: NextRequest) {
         messageSentDate: dateFormatted,
       };
       // Strictly do not overwrite or modify current data if rate was not provided
+      // When rate is present, save strictly into DB field "Overall / Receipt Freight Rate" and "rate"
       if (cleanRate) {
         updatePayload.rate = cleanRate;
+        updatePayload['Overall / Receipt Freight Rate'] = cleanRate;
       }
 
       if (Array.isArray(receiptIds) && receiptIds.length > 0) {
@@ -432,24 +434,30 @@ export async function POST(req: NextRequest) {
       let effectiveReceiptNo = receipt ? receipt.trim() : '';
 
       if (cleanRate) {
+        const rateUpdate = {
+          rate: cleanRate,
+          'Overall / Receipt Freight Rate': cleanRate,
+        };
+
         if (receiptId) {
           const updatedDoc = await WarehouseReceipt.findByIdAndUpdate(receiptId, {
-            $set: { rate: cleanRate },
+            $set: rateUpdate,
           }, { new: true });
           if (!effectiveReceiptNo && updatedDoc) {
             effectiveReceiptNo = updatedDoc.receipt || updatedDoc.receiptNumber || '';
           }
-        } else if (effectiveReceiptNo) {
-          await WarehouseReceipt.updateMany(
-            { receipt: effectiveReceiptNo },
-            { $set: { rate: cleanRate } }
-          );
         }
 
         if (effectiveReceiptNo) {
+          // Strictly save rate receipt no. wise without changing any other fields in current DB
+          await WarehouseReceipt.updateMany(
+            { $or: [{ receipt: effectiveReceiptNo }, { receiptNumber: effectiveReceiptNo }] },
+            { $set: rateUpdate }
+          );
+
           await Shipment.updateMany(
             { receipt: effectiveReceiptNo },
-            { $set: { rate: cleanRate } }
+            { $set: rateUpdate }
           );
         }
       }
@@ -457,7 +465,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         success: true,
         rate: cleanRate,
-        message: `Overall / Receipt Freight Rate "${cleanRate || 'None'}" saved for Receipt ${effectiveReceiptNo || receiptId}!`,
+        message: `Saved Overall / Receipt Freight Rate "${cleanRate || 'None'}" for Receipt ${effectiveReceiptNo || receiptId}!`,
       });
     }
 

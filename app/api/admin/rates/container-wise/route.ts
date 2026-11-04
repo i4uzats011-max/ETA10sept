@@ -47,6 +47,7 @@ export async function GET(req: NextRequest) {
         phone: 1,
         partyPhone: 1,
         rate: 1,
+        'Overall / Receipt Freight Rate': 1,
         rateFixed: 1,
         totalCost: 1,
         cost: 1,

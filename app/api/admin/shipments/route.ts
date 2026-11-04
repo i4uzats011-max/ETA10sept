@@ -100,14 +100,19 @@ export async function PUT(req: NextRequest) {
     updateFields.lastModifiedBy = authUser.username;
     updateFields.lastModifiedByRole = authUser.role;
 
+    if (updateFields.rate !== undefined) {
+      updateFields['Overall / Receipt Freight Rate'] = String(updateFields.rate).trim();
+    }
+
     // Direct database update: Zero external API calls during user edits
     const updated = await Shipment.findByIdAndUpdate(id, { $set: updateFields }, { new: true });
 
-    // Sync "Overall / Receipt Freight Rate" to WarehouseReceipt if updated
+    // Sync "Overall / Receipt Freight Rate" receipt no. wise to WarehouseReceipt if updated
     if (updateFields.rate !== undefined && updated?.receipt) {
+      const cleanRate = String(updateFields.rate).trim();
       await WarehouseReceipt.updateMany(
-        { receiptNumber: String(updated.receipt).trim() },
-        { $set: { rate: String(updateFields.rate).trim() } }
+        { $or: [{ receipt: String(updated.receipt).trim() }, { receiptNumber: String(updated.receipt).trim() }] },
+        { $set: { rate: cleanRate, 'Overall / Receipt Freight Rate': cleanRate } }
       );
     }
 
@@ -248,10 +253,14 @@ export async function POST(req: NextRequest) {
       });
 
       if (createData.rate && created.receipt) {
+        const cleanRate = String(createData.rate).trim();
         await WarehouseReceipt.updateMany(
-          { receiptNumber: String(created.receipt).trim() },
-          { $set: { rate: String(createData.rate).trim() } }
+          { $or: [{ receipt: String(created.receipt).trim() }, { receiptNumber: String(created.receipt).trim() }] },
+          { $set: { rate: cleanRate, 'Overall / Receipt Freight Rate': cleanRate } }
         );
+        await Shipment.findByIdAndUpdate(created._id, {
+          $set: { 'Overall / Receipt Freight Rate': cleanRate },
+        });
       }
 
       await recordEditLog(req, {
