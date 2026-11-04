@@ -25,6 +25,7 @@ import {
 import { formatGlobalDate, parseReceiptDate } from '@/lib/dateUtils';
 import CargoMasterChart from './CargoMasterChart';
 import MarkDeliveredModal from './MarkDeliveredModal';
+import ContainerRateDownloadModal from './ContainerRateDownloadModal';
 import { getCarrierTrackingUrl, getLdbRailwayTrackingUrl } from '@/lib/trackingUrls';
 import { downloadContainerWiseRateExcel, downloadReceiptWiseRateExcel } from '@/lib/containerRateExport';
 import * as XLSX from 'xlsx';
@@ -109,6 +110,8 @@ export default function CargoMasterTable({
   const [userRole, setUserRole] = useState<'admin' | 'staff' | null>(null);
   const [isDownloadingRates, setIsDownloadingRates] = useState(false);
   const [isDownloadingReceiptRates, setIsDownloadingReceiptRates] = useState(false);
+  const [isRateModalOpen, setIsRateModalOpen] = useState(false);
+  const [selectedContainerForModal, setSelectedContainerForModal] = useState<string>('ALL');
 
   useEffect(() => {
     fetch('/api/auth/me')
@@ -848,6 +851,20 @@ export default function CargoMasterTable({
                 </button>
               )}
 
+              {/* Download Rates for this specific Container (Receipt-Wise) */}
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedContainerForModal(c.container);
+                  setIsRateModalOpen(true);
+                }}
+                className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-300 rounded-lg text-xs font-bold transition flex items-center space-x-1 shadow-2xs"
+                title={`Select & download receipt-wise rates for container ${c.container}`}
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Rates</span>
+              </button>
+
               {/* Click to view full logistics details for this container (Available for everyone) */}
               <button
                 type="button"
@@ -1069,6 +1086,11 @@ export default function CargoMasterTable({
   return (
     <div className="space-y-6">
       <MarkDeliveredModal />
+      <ContainerRateDownloadModal
+        isOpen={isRateModalOpen}
+        onClose={() => setIsRateModalOpen(false)}
+        initialContainer={selectedContainerForModal}
+      />
 
       {/* Action Notification Banner */}
       {actionMessage && (
@@ -1180,25 +1202,16 @@ export default function CargoMasterTable({
                 </button>
                 <button
                   type="button"
-                  onClick={async () => {
-                    setIsDownloadingReceiptRates(true);
-                    try {
-                      await downloadReceiptWiseRateExcel();
-                    } catch (e: any) {
-                      alert(e?.message || 'Failed to download receipt rates');
-                    } finally {
-                      setIsDownloadingReceiptRates(false);
-                    }
+                  onClick={() => {
+                    setSelectedContainerForModal('ALL');
+                    setIsRateModalOpen(true);
                   }}
-                  disabled={isDownloadingReceiptRates}
-                  className="px-2.5 sm:px-3 py-1.5 sm:py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-300 rounded-xl font-bold text-xs transition flex items-center space-x-1 shadow-xs disabled:opacity-50"
-                  title="Download receipt-wise rate manifest with Overall / Receipt Freight Rates in Excel (.xlsx)"
+                  className="px-2.5 sm:px-3 py-1.5 sm:py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-300 rounded-xl font-bold text-xs transition flex items-center space-x-1 shadow-xs"
+                  title="Select a container and download its receipt-wise freight rate list in Excel (.xlsx)"
                 >
                   <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-600" />
-                  <span className="hidden sm:inline">
-                    {isDownloadingReceiptRates ? 'Generating...' : 'Receipt Rates (.xlsx)'}
-                  </span>
-                  <span className="sm:hidden">Receipt Rates</span>
+                  <span className="hidden sm:inline">Select Container &amp; Download Rates</span>
+                  <span className="sm:hidden">Rates (.xlsx)</span>
                 </button>
                 <button
                   type="button"

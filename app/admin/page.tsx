@@ -21,6 +21,7 @@ import ShippingLineManager from '@/components/ShippingLineManager';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
 import UserManager from '@/components/UserManager';
 import EditLogViewer from '@/components/EditLogViewer';
+import ContainerRateDownloadModal from '@/components/ContainerRateDownloadModal';
 import { getCarrierTrackingUrl, getLdbRailwayTrackingUrl } from '@/lib/trackingUrls';
 import { downloadContainerWiseRateExcel, downloadReceiptWiseRateExcel } from '@/lib/containerRateExport';
 import { ReduxProvider } from '@/store/ReduxProvider';
@@ -365,6 +366,8 @@ export default function AdminDashboardPage() {
   const [isBulkEditOpen, setIsBulkEditOpen] = useState(false);
   const [isDownloadingRates, setIsDownloadingRates] = useState(false);
   const [isDownloadingReceiptRates, setIsDownloadingReceiptRates] = useState(false);
+  const [isRateModalOpen, setIsRateModalOpen] = useState(false);
+  const [selectedContainerForModal, setSelectedContainerForModal] = useState<string>('ALL');
   const [bulkEditData, setBulkEditData] = useState({
     container: '',
     containerNumber: '',
@@ -1321,43 +1324,15 @@ export default function AdminDashboardPage() {
 
             <button
               type="button"
-              onClick={async () => {
-                setIsDownloadingReceiptRates(true);
-                try {
-                  await downloadReceiptWiseRateExcel();
-                } catch (e: any) {
-                  alert(e?.message || 'Failed to download receipt rates');
-                } finally {
-                  setIsDownloadingReceiptRates(false);
-                }
+              onClick={() => {
+                setSelectedContainerForModal('ALL');
+                setIsRateModalOpen(true);
               }}
-              disabled={isDownloadingReceiptRates}
-              className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-xs font-bold border border-indigo-300 transition flex items-center space-x-1 disabled:opacity-50 shadow-2xs"
-              title="Download Rate List Receipt No. Wise in Excel (.xlsx) format"
+              className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-xs font-bold border border-indigo-300 transition flex items-center space-x-1 shadow-2xs"
+              title="Select container and download receipt-wise freight rate list in Excel format"
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-600" />
-              <span className="hidden sm:inline">{isDownloadingReceiptRates ? 'Downloading...' : 'Receipt Rates (.xlsx)'}</span>
-              <span className="sm:hidden">Receipt Rates</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={async () => {
-                setIsDownloadingRates(true);
-                try {
-                  await downloadContainerWiseRateExcel();
-                } catch (e: any) {
-                  alert(e?.message || 'Failed to download container rates');
-                } finally {
-                  setIsDownloadingRates(false);
-                }
-              }}
-              disabled={isDownloadingRates}
-              className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-800 text-xs font-bold border border-purple-300 transition flex items-center space-x-1 disabled:opacity-50 shadow-2xs"
-              title="Download Container-Wise Rate Manifest (.xlsx) with Overall / Receipt Freight Rates"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-purple-600" />
-              <span className="hidden sm:inline">{isDownloadingRates ? 'Downloading...' : 'Container Rates (.xlsx)'}</span>
+              <span className="hidden sm:inline">Download Rate List</span>
               <span className="sm:hidden">Rates</span>
             </button>
 
@@ -3928,6 +3903,13 @@ export default function AdminDashboardPage() {
         isOpen={showPasswordModal}
         onClose={() => setShowPasswordModal(false)}
         currentRole="admin"
+      />
+
+      {/* Select Container & Download Rate List Modal */}
+      <ContainerRateDownloadModal
+        isOpen={isRateModalOpen}
+        onClose={() => setIsRateModalOpen(false)}
+        initialContainer={selectedContainerForModal}
       />
     </div>
   );

@@ -119,14 +119,18 @@ export async function downloadContainerWiseRateExcel(): Promise<void> {
   XLSX.writeFile(wb, `Container_Wise_Freight_Rate_List_${today}.xlsx`);
 }
 
-export async function downloadReceiptWiseRateExcel(): Promise<void> {
-  const res = await fetch('/api/admin/rates/receipt-wise');
+export async function downloadReceiptWiseRateExcel(containerAlias?: string): Promise<void> {
+  const url = containerAlias && containerAlias !== 'ALL'
+    ? `/api/admin/rates/receipt-wise?container=${encodeURIComponent(containerAlias)}`
+    : '/api/admin/rates/receipt-wise';
+
+  const res = await fetch(url);
   const data = await res.json();
   if (!res.ok || !data.success) {
     throw new Error(data.error || 'Failed to fetch receipt rate list');
   }
 
-  const { receiptList, withRateCount, withoutRateCount, totalReceipts } = data;
+  const { receiptList, withRateCount, withoutRateCount, totalReceipts, selectedContainer } = data;
 
   const rows = (receiptList || []).map((r: any, idx: number) => ({
     'Sr. No': idx + 1,
@@ -153,8 +157,12 @@ export async function downloadReceiptWiseRateExcel(): Promise<void> {
     'Notification Sent Date': r.messageSentDate || '-',
   }));
 
+  const sheetName = selectedContainer && selectedContainer !== 'ALL'
+    ? `${selectedContainer.slice(0, 20)}_Receipt_Rates`
+    : 'Receipt_Wise_Rate_List';
+
   const ws = XLSX.utils.json_to_sheet(
-    rows.length > 0 ? rows : [{ Notice: 'No receipt records found' }]
+    rows.length > 0 ? rows : [{ Notice: `No receipt records found for container ${selectedContainer || 'ALL'}` }]
   );
 
   ws['!cols'] = [
@@ -183,11 +191,12 @@ export async function downloadReceiptWiseRateExcel(): Promise<void> {
   ];
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Receipt_Wise_Rate_List');
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
 
-  // Also include summary sheet
+  // Summary sheet
   const summaryRows = [
-    { Metric: 'Total Receipts in Fleet', Value: totalReceipts },
+    { Metric: 'Selected Container Scope', Value: selectedContainer || 'ALL' },
+    { Metric: 'Total Receipts in Scope', Value: totalReceipts },
     { Metric: 'Receipts With Saved Freight Rate', Value: withRateCount },
     { Metric: 'Receipts Without Saved Rate', Value: withoutRateCount },
     { Metric: 'Export Date', Value: new Date().toLocaleString() },
@@ -197,5 +206,8 @@ export async function downloadReceiptWiseRateExcel(): Promise<void> {
   XLSX.utils.book_append_sheet(wb, wsSummary, 'Rate_List_Summary');
 
   const today = new Date().toISOString().slice(0, 10);
-  XLSX.writeFile(wb, `Receipt_Wise_Rate_List_${today}.xlsx`);
+  const cleanAlias = selectedContainer && selectedContainer !== 'ALL'
+    ? `Container_${selectedContainer.replace(/[^a-zA-Z0-9_-]/g, '_')}`
+    : 'All_Containers';
+  XLSX.writeFile(wb, `Receipt_Rate_List_${cleanAlias}_${today}.xlsx`);
 }

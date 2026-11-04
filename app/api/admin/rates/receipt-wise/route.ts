@@ -198,19 +198,51 @@ export async function GET(req: NextRequest) {
       });
     });
 
-    const receiptList = Array.from(receiptMap.values()).sort((a, b) =>
+    const allReceipts = Array.from(receiptMap.values()).sort((a, b) =>
       a.receipt.localeCompare(b.receipt, undefined, { numeric: true, sensitivity: 'base' })
     );
+
+    // Compute distinct containers summary
+    const containerStatsMap = new Map<string, { container: string; containerNumber: string; shippingLine: string; receiptCount: number; ratesCount: number }>();
+    allReceipts.forEach((r) => {
+      const cName = r.container ? r.container.trim() : 'UNASSIGNED';
+      const cUpper = cName.toUpperCase();
+      if (!containerStatsMap.has(cUpper)) {
+        containerStatsMap.set(cUpper, {
+          container: cName,
+          containerNumber: r.containerNumber || '',
+          shippingLine: r.shippingLine || '',
+          receiptCount: 0,
+          ratesCount: 0,
+        });
+      }
+      const entry = containerStatsMap.get(cUpper)!;
+      entry.receiptCount += 1;
+      if (r['Overall / Receipt Freight Rate']) entry.ratesCount += 1;
+    });
+
+    const containerQuery = (req.nextUrl.searchParams.get('container') || '').trim();
+    const isFiltered = Boolean(containerQuery && containerQuery.toUpperCase() !== 'ALL');
+
+    const receiptList = isFiltered
+      ? allReceipts.filter(
+          (r) => r.container && r.container.trim().toUpperCase() === containerQuery.toUpperCase()
+        )
+      : allReceipts;
 
     const withRateCount = receiptList.filter((r) => Boolean(r['Overall / Receipt Freight Rate'])).length;
     const withoutRateCount = receiptList.length - withRateCount;
 
     return NextResponse.json({
       success: true,
+      selectedContainer: isFiltered ? containerQuery : 'ALL',
       totalReceipts: receiptList.length,
       withRateCount,
       withoutRateCount,
       receiptList,
+      containersList: Array.from(containerStatsMap.values()).sort((a, b) =>
+        a.container.localeCompare(b.container, undefined, { numeric: true, sensitivity: 'base' })
+      ),
     });
   } catch (error: any) {
     console.error('Error generating receipt-wise rate list:', error);
