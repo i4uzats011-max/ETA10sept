@@ -80,53 +80,108 @@ button:focus {
 
 /* ===================================================
    BILLING SYSTEM MULTI-THEME SYSTEM (थीम सिस्टम)
-   Themes: Dark (Default), Light, Midnight Blue, Emerald, Warm Amber, Cyber Violet
+   Themes:
+   - 🌙 Night Mode (dark)
+   - ☀️ Day Mode (light)
+   - 🌌 Midnight Navy (midnight)
+   - 🌲 Emerald Forest (emerald)
+   - 🌅 Sunset Amber (amber)
+   - 🟣 Cyber Purple (purple)
+   - 🌊 Oceanic Teal (ocean)
+   - 🌹 Rose Crimson (crimson)
+   - ⚡ High Contrast Day (high-contrast-day)
    =================================================== */
 
-/* LIGHT THEME (साफ़ लाइट थीम) */
+/* 1. DAY MODE / LIGHT THEME (साफ़ लाइट थीम) */
 [data-theme='light'] {
   background-color: #f8fafc !important;
   color: #0f172a !important;
 }
+
 [data-theme='light'] .bg-slate-950,
 [data-theme='light'] .bg-slate-950\/90,
 [data-theme='light'] .bg-slate-950\/80,
-[data-theme='light'] .bg-slate-950\/60 {
+[data-theme='light'] .bg-slate-950\/70,
+[data-theme='light'] .bg-slate-950\/60,
+[data-theme='light'] .bg-slate-950\/50,
+[data-theme='light'] .bg-slate-950\/40 {
   background-color: #ffffff !important;
   color: #0f172a !important;
 }
+
 [data-theme='light'] .bg-slate-900,
+[data-theme='light'] .bg-slate-900\/95,
 [data-theme='light'] .bg-slate-900\/90,
 [data-theme='light'] .bg-slate-900\/80,
 [data-theme='light'] .bg-slate-900\/70,
-[data-theme='light'] .bg-slate-900\/50 {
+[data-theme='light'] .bg-slate-900\/60,
+[data-theme='light'] .bg-slate-900\/50,
+[data-theme='light'] .bg-slate-900\/40 {
   background-color: #ffffff !important;
   color: #0f172a !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
+
 [data-theme='light'] .bg-slate-800,
+[data-theme='light'] .bg-slate-800\/90,
 [data-theme='light'] .bg-slate-800\/80,
+[data-theme='light'] .bg-slate-800\/70,
 [data-theme='light'] .bg-slate-800\/60,
+[data-theme='light'] .bg-slate-800\/50,
 [data-theme='light'] .bg-slate-800\/40 {
   background-color: #f1f5f9 !important;
   color: #1e293b !important;
 }
+
+[data-theme='light'] .bg-slate-850\/60,
+[data-theme='light'] .bg-slate-850 {
+  background-color: #f8fafc !important;
+}
+
 [data-theme='light'] .border-slate-800,
 [data-theme='light'] .border-slate-700,
-[data-theme='light'] .divide-slate-800 {
+[data-theme='light'] .border-slate-700\/80,
+[data-theme='light'] .border-slate-800\/80,
+[data-theme='light'] .border-slate-800\/60,
+[data-theme='light'] .divide-slate-800,
+[data-theme='light'] .divide-slate-800\/60 {
   border-color: #e2e8f0 !important;
 }
+
 [data-theme='light'] .text-white {
   color: #0f172a !important;
 }
-[data-theme='light'] .text-slate-400,
-[data-theme='light'] .text-slate-300,
+
+[data-theme='light'] .text-slate-100,
 [data-theme='light'] .text-slate-200 {
+  color: #1e293b !important;
+}
+
+[data-theme='light'] .text-slate-300,
+[data-theme='light'] .text-slate-400 {
   color: #475569 !important;
 }
+
 [data-theme='light'] .text-slate-500 {
   color: #64748b !important;
 }
+
+[data-theme='light'] .text-cyan-300 {
+  color: #0284c7 !important;
+}
+
+[data-theme='light'] .text-purple-300 {
+  color: #7e22ce !important;
+}
+
+[data-theme='light'] .text-amber-300 {
+  color: #b45309 !important;
+}
+
+[data-theme='light'] .text-emerald-300 {
+  color: #047857 !important;
+}
+
 [data-theme='light'] input,
 [data-theme='light'] select,
 [data-theme='light'] textarea {
@@ -134,83 +189,200 @@ button:focus {
   color: #0f172a !important;
   border-color: #cbd5e1 !important;
 }
-[data-theme='light'] header {
-  background-color: rgba(255, 255, 255, 0.95) !important;
-  border-bottom-color: #e2e8f0 !important;
+
+[data-theme='light'] input::placeholder,
+[data-theme='light'] textarea::placeholder {
+  color: #94a3b8 !important;
 }
 
-/* MIDNIGHT BLUE THEME (गहरा मिडनाइट नेवी थीम) */
+[data-theme='light'] header {
+  background-color: rgba(255, 255, 255, 0.96) !important;
+  border-bottom-color: #e2e8f0 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+[data-theme='light'] table thead {
+  background-color: #f1f5f9 !important;
+}
+
+[data-theme='light'] table thead th {
+  color: #475569 !important;
+  border-bottom: 2px solid #e2e8f0 !important;
+}
+
+[data-theme='light'] table tbody tr {
+  background-color: #ffffff !important;
+}
+
+[data-theme='light'] table tbody tr:hover {
+  background-color: #f8fafc !important;
+}
+
+/* 2. HIGH CONTRAST DAY THEME (सुपर ब्राइट डे थीम) */
+[data-theme='high-contrast-day'] {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+}
+
+[data-theme='high-contrast-day'] .bg-slate-950,
+[data-theme='high-contrast-day'] .bg-slate-900,
+[data-theme='high-contrast-day'] .bg-slate-800 {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+  border-color: #94a3b8 !important;
+}
+
+[data-theme='high-contrast-day'] input,
+[data-theme='high-contrast-day'] select,
+[data-theme='high-contrast-day'] textarea {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+  border: 1.5px solid #0f172a !important;
+}
+
+[data-theme='high-contrast-day'] .text-white,
+[data-theme='high-contrast-day'] .text-slate-100,
+[data-theme='high-contrast-day'] .text-slate-200,
+[data-theme='high-contrast-day'] .text-slate-300,
+[data-theme='high-contrast-day'] .text-slate-400 {
+  color: #000000 !important;
+  font-weight: 600;
+}
+
+/* 3. MIDNIGHT BLUE THEME (गहरा मिडनाइट नेवी थीम) */
 [data-theme='midnight'] {
-  background-color: #060a14 !important;
+  background-color: #050a15 !important;
 }
 [data-theme='midnight'] .bg-slate-950,
 [data-theme='midnight'] .bg-slate-950\/90,
 [data-theme='midnight'] .bg-slate-950\/80 {
-  background-color: #090f1e !important;
+  background-color: #081021 !important;
 }
 [data-theme='midnight'] .bg-slate-900,
 [data-theme='midnight'] .bg-slate-900\/90,
 [data-theme='midnight'] .bg-slate-900\/80 {
-  background-color: #0d172c !important;
+  background-color: #0d172e !important;
+}
+[data-theme='midnight'] .bg-slate-800,
+[data-theme='midnight'] .bg-slate-800\/80 {
+  background-color: #122040 !important;
 }
 [data-theme='midnight'] .border-slate-800,
 [data-theme='midnight'] .border-slate-700 {
-  border-color: #1c2b48 !important;
+  border-color: #1a2d58 !important;
 }
 
-/* EMERALD FOREST THEME (एमराल्ड फॉरेस्ट थीम) */
+/* 4. EMERALD FOREST THEME (एमराल्ड फॉरेस्ट थीम) */
 [data-theme='emerald'] {
-  background-color: #030e08 !important;
+  background-color: #031008 !important;
 }
 [data-theme='emerald'] .bg-slate-950,
 [data-theme='emerald'] .bg-slate-950\/90,
 [data-theme='emerald'] .bg-slate-950\/80 {
-  background-color: #06160d !important;
+  background-color: #06190e !important;
 }
 [data-theme='emerald'] .bg-slate-900,
 [data-theme='emerald'] .bg-slate-900\/90,
 [data-theme='emerald'] .bg-slate-900\/80 {
-  background-color: #0b2315 !important;
+  background-color: #0a2515 !important;
+}
+[data-theme='emerald'] .bg-slate-800,
+[data-theme='emerald'] .bg-slate-800\/80 {
+  background-color: #0f361f !important;
 }
 [data-theme='emerald'] .border-slate-800,
 [data-theme='emerald'] .border-slate-700 {
-  border-color: #133a24 !important;
+  border-color: #144629 !important;
 }
 
-/* WARM AMBER THEME (वार्म एम्बर थीम) */
+/* 5. WARM AMBER THEME (वार्म एम्बर थीम) */
 [data-theme='amber'] {
-  background-color: #0f0a05 !important;
+  background-color: #120904 !important;
 }
 [data-theme='amber'] .bg-slate-950,
 [data-theme='amber'] .bg-slate-950\/90,
 [data-theme='amber'] .bg-slate-950\/80 {
-  background-color: #160f08 !important;
+  background-color: #1a0d06 !important;
 }
 [data-theme='amber'] .bg-slate-900,
 [data-theme='amber'] .bg-slate-900\/90,
 [data-theme='amber'] .bg-slate-900\/80 {
-  background-color: #20170c !important;
+  background-color: #261409 !important;
+}
+[data-theme='amber'] .bg-slate-800,
+[data-theme='amber'] .bg-slate-800\/80 {
+  background-color: #3b1f0e !important;
 }
 [data-theme='amber'] .border-slate-800,
 [data-theme='amber'] .border-slate-700 {
-  border-color: #382816 !important;
+  border-color: #4f2913 !important;
 }
 
-/* CYBER PURPLE THEME (साइबर पर्पल थीम) */
+/* 6. CYBER PURPLE THEME (साइबर पर्पल थीम) */
 [data-theme='purple'] {
-  background-color: #0a0614 !important;
+  background-color: #0c0618 !important;
 }
 [data-theme='purple'] .bg-slate-950,
 [data-theme='purple'] .bg-slate-950\/90,
 [data-theme='purple'] .bg-slate-950\/80 {
-  background-color: #100b20 !important;
+  background-color: #130a26 !important;
 }
 [data-theme='purple'] .bg-slate-900,
 [data-theme='purple'] .bg-slate-900\/90,
 [data-theme='purple'] .bg-slate-900\/80 {
-  background-color: #181030 !important;
+  background-color: #1c0e38 !important;
+}
+[data-theme='purple'] .bg-slate-800,
+[data-theme='purple'] .bg-slate-800\/80 {
+  background-color: #2b1654 !important;
 }
 [data-theme='purple'] .border-slate-800,
 [data-theme='purple'] .border-slate-700 {
-  border-color: #2b1b4f !important;
+  border-color: #3f1f7d !important;
+}
+
+/* 7. OCEANIC TEAL THEME (ओशनिक टील थीम) */
+[data-theme='ocean'] {
+  background-color: #03141a !important;
+}
+[data-theme='ocean'] .bg-slate-950,
+[data-theme='ocean'] .bg-slate-950\/90 {
+  background-color: #051e26 !important;
+}
+[data-theme='ocean'] .bg-slate-900,
+[data-theme='ocean'] .bg-slate-900\/90 {
+  background-color: #082935 !important;
+}
+[data-theme='ocean'] .bg-slate-800 {
+  background-color: #0c394a !important;
+}
+[data-theme='ocean'] .border-slate-800,
+[data-theme='ocean'] .border-slate-700 {
+  border-color: #134e63 !important;
+}
+
+/* 8. ROSE CRIMSON THEME (रोज़ क्रिम्सन थीम) */
+[data-theme='crimson'] {
+  background-color: #140409 !important;
+}
+[data-theme='crimson'] .bg-slate-950,
+[data-theme='crimson'] .bg-slate-950\/90 {
+  background-color: #1f070e !important;
+}
+[data-theme='crimson'] .bg-slate-900,
+[data-theme='crimson'] .bg-slate-900\/90 {
+  background-color: #2c0a15 !important;
+}
+[data-theme='crimson'] .bg-slate-800 {
+  background-color: #3e0f1e !important;
+}
+[data-theme='crimson'] .border-slate-800,
+[data-theme='crimson'] .border-slate-700 {
+  border-color: #551429 !important;
+}
+
+/* 9. NIGHT MODE / DARK (डार्क - डिफ़ॉल्ट) */
+[data-theme='dark'] {
+  background-color: #020617;
+  color: #f8fafc;
 }

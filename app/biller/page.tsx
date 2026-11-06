@@ -44,6 +44,8 @@ import {
   Key,
   Palette,
   Sparkles,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
 import { generateBillPDF, generateEWayBillPDF, generateBothBillAndEWayPDF } from '@/lib/billPdf';
@@ -233,7 +235,8 @@ export default function BillerPortalPage() {
   const [useSeparateEWayInvoice, setUseSeparateEWayInvoice] = useState(false);
 
   // Multi-Theme System State (Dark, Light, Midnight, Emerald, Amber, Purple)
-  const [currentTheme, setCurrentTheme] = useState<'dark' | 'light' | 'midnight' | 'emerald' | 'amber' | 'purple'>('dark');
+  export type BillerTheme = 'dark' | 'light' | 'midnight' | 'emerald' | 'amber' | 'purple' | 'ocean' | 'crimson' | 'high-contrast-day';
+  const [currentTheme, setCurrentTheme] = useState<BillerTheme>('dark');
   const [pdfTheme, setPdfTheme] = useState<'classic' | 'navy' | 'emerald' | 'crimson' | 'dark'>('classic');
 
   // Address PIN Code Auto-Detection & Search State
@@ -478,9 +481,10 @@ export default function BillerPortalPage() {
   useEffect(() => {
     // Load persisted theme preference
     try {
-      const savedTheme = localStorage.getItem('biller_ui_theme') as any;
-      if (savedTheme && ['dark', 'light', 'midnight', 'emerald', 'amber', 'purple'].includes(savedTheme)) {
+      const savedTheme = (localStorage.getItem('biller_ui_theme') || localStorage.getItem('anti_theme')) as any;
+      if (savedTheme && ['dark', 'light', 'midnight', 'emerald', 'amber', 'purple', 'ocean', 'crimson', 'high-contrast-day'].includes(savedTheme)) {
         setCurrentTheme(savedTheme);
+        document.documentElement.setAttribute('data-theme', savedTheme);
       }
       const savedPdfTheme = localStorage.getItem('biller_pdf_theme') as any;
       if (savedPdfTheme && ['classic', 'navy', 'emerald', 'crimson', 'dark'].includes(savedPdfTheme)) {
@@ -494,11 +498,18 @@ export default function BillerPortalPage() {
     loadBills();
   }, []);
 
-  const handleThemeChange = (newTheme: 'dark' | 'light' | 'midnight' | 'emerald' | 'amber' | 'purple') => {
+  const handleThemeChange = (newTheme: BillerTheme) => {
     setCurrentTheme(newTheme);
     try {
       localStorage.setItem('biller_ui_theme', newTheme);
+      localStorage.setItem('anti_theme', newTheme);
+      document.documentElement.setAttribute('data-theme', newTheme);
     } catch (e) {}
+  };
+
+  const toggleDayNightMode = () => {
+    const nextTheme: BillerTheme = currentTheme === 'light' || currentTheme === 'high-contrast-day' ? 'dark' : 'light';
+    handleThemeChange(nextTheme);
   };
 
   const handlePdfThemeChange = (newPdfTheme: 'classic' | 'navy' | 'emerald' | 'crimson' | 'dark') => {
@@ -3216,7 +3227,27 @@ export default function BillerPortalPage() {
           </div>
 
           <div className="flex items-center space-x-1.5 sm:space-x-2">
-            {/* MULTI-THEME SELECTOR (थीम सेलेक्टर: Dark, Light, Midnight, Emerald, Amber, Purple) */}
+            {/* QUICK DAY / NIGHT MODE TOGGLE BUTTON */}
+            <button
+              type="button"
+              onClick={toggleDayNightMode}
+              className="flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-slate-700 text-xs font-bold transition shadow-sm"
+              title="Toggle Day Mode / Night Mode (डे / नाईट मोड स्विच करें)"
+            >
+              {currentTheme === 'light' || currentTheme === 'high-contrast-day' ? (
+                <>
+                  <Moon className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="text-slate-200 hidden sm:inline">Night Mode 🌙</span>
+                </>
+              ) : (
+                <>
+                  <Sun className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="text-slate-200 hidden sm:inline">Day Mode ☀️</span>
+                </>
+              )}
+            </button>
+
+            {/* MULTI-THEME SELECTOR */}
             <div className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700/80 text-xs">
               <Palette className="w-3.5 h-3.5 text-amber-400 shrink-0" />
               <select
@@ -3230,7 +3261,10 @@ export default function BillerPortalPage() {
                 <option value="midnight" className="bg-slate-950 text-cyan-300">🌌 Midnight</option>
                 <option value="emerald" className="bg-slate-950 text-emerald-300">🌲 Emerald</option>
                 <option value="amber" className="bg-slate-950 text-amber-300">🌅 Amber</option>
-                <option value="purple" className="bg-slate-950 text-purple-300">🟣 Purple</option>
+                <option value="purple" className="bg-slate-950 text-purple-300">🟣 Cyber Purple</option>
+                <option value="ocean" className="bg-slate-950 text-sky-300">🌊 Oceanic Teal</option>
+                <option value="crimson" className="bg-slate-950 text-rose-300">🌹 Rose Crimson</option>
+                <option value="high-contrast-day" className="bg-white text-black font-bold">⚡ High Contrast Day</option>
               </select>
             </div>
 

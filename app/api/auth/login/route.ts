@@ -36,7 +36,8 @@ export async function POST(req: NextRequest) {
     await connectToDatabase();
 
     let authenticatedRole: UserRole | null = null;
-    let authenticatedUser: { id?: string; username?: string; name?: string } | null = null;
+    let authenticatedUser: { id?: string; username?: string; name?: string; adminAccessGranted?: boolean } | null = null;
+    let userRecord: any = null;
 
     // Authenticate user with mandatory username and password
     const cleanUsername = username.trim().toLowerCase();
@@ -58,10 +59,12 @@ export async function POST(req: NextRequest) {
 
       if (isMatch) {
         authenticatedRole = user.role;
+        userRecord = user;
         authenticatedUser = {
           id: user._id.toString(),
           username: user.username,
           name: user.name,
+          adminAccessGranted: user.role === 'developer' ? true : Boolean(user.adminAccessGranted),
         };
 
         // Update last login timestamp
@@ -78,7 +81,11 @@ export async function POST(req: NextRequest) {
       const matchedRole = ALL_ROLES.find((r) => r === cleanUsername);
       if (matchedRole && (await verifyRolePassword(matchedRole, password))) {
         authenticatedRole = matchedRole;
-        authenticatedUser = { username: cleanUsername, name: cleanUsername.toUpperCase() };
+        authenticatedUser = {
+          username: cleanUsername,
+          name: cleanUsername.toUpperCase(),
+          adminAccessGranted: matchedRole === 'developer',
+        };
       } else {
         return NextResponse.json(
           { error: 'Invalid username or password.' },
@@ -96,7 +103,26 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const token = signAdminToken(authenticatedRole, authenticatedUser || undefined);
+    // STRICT DEVELOPER LOGIN ISOLATION:
+    // "not can acees devloging except devlopter"
+    const referer = req.headers.get('referer') || '';
+    const isDeveloperLoginAttempt = requestedRole === 'developer' || referer.includes('/admin/visitors/login');
+
+    if (isDeveloperLoginAttempt && authenticatedRole !== 'developer') {
+      return NextResponse.json(
+        {
+          error: 'Access strictly denied. Developer Console and Developer Login are restricted to Developer accounts only.',
+        },
+        { status: 403 }
+      );
+    }
+
+    const adminAccessGranted = authenticatedRole === 'developer' ? true : Boolean(authenticatedUser?.adminAccessGranted);
+
+    const token = signAdminToken(authenticatedRole, {
+      ...authenticatedUser,
+      adminAccessGranted,
+    });
 
     let redirectTo = '/admin';
     let roleName = 'Super Admin';
@@ -119,6 +145,7 @@ export async function POST(req: NextRequest) {
       message: `Authenticated as ${roleName}${authenticatedUser?.username ? ` (${authenticatedUser.username})` : ''}`,
       role: authenticatedRole,
       user: authenticatedUser,
+      adminAccessGranted,
       redirectTo,
     });
 

@@ -14,11 +14,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ authenticated: false }, { status: 401 });
   }
 
+  const isDev = payload.role === 'developer';
+  const hasAdminGrant = isDev ? true : Boolean(payload.adminAccessGranted);
+
   return NextResponse.json({
     authenticated: true,
-    role: payload.role || 'admin',
+    role: payload.role || 'staff',
     username: payload.username || null,
     name: payload.name || null,
     userId: payload.userId || null,
+    adminAccessGranted: hasAdminGrant,
   });
 }

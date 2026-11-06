@@ -11,18 +11,27 @@ export interface AdminPayload {
   userId?: string;
   username?: string;
   name?: string;
+  adminAccessGranted?: boolean;
   iat: number;
   exp: number;
 }
 
 export function signAdminToken(
   role: UserRole = 'admin',
-  user?: { id?: string; username?: string; name?: string }
+  user?: { id?: string; username?: string; name?: string; adminAccessGranted?: boolean }
 ): string {
   const payload: any = { role };
   if (user?.id) payload.userId = user.id;
   if (user?.username) payload.username = user.username;
   if (user?.name) payload.name = user.name;
+  if (role === 'developer') {
+    // Developer inherently has all granted permissions
+    payload.adminAccessGranted = true;
+  } else if (user?.adminAccessGranted !== undefined) {
+    payload.adminAccessGranted = Boolean(user.adminAccessGranted);
+  } else {
+    payload.adminAccessGranted = false;
+  }
   return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
 }
 
@@ -50,25 +59,102 @@ export function getAdminTokenFromRequest(req: NextRequest): string | null {
   return null;
 }
 
+/**
+ * Developer Authentication:
+ * STRICT RULE: Only Developer accounts have access to Developer Console / Telemetry.
+ * No Admin, Employee, Biller, or Dispatcher can ever access Developer endpoints.
+ */
+export function isDeveloperAuthenticated(req: NextRequest): boolean {
+  const token = getAdminTokenFromRequest(req);
+  if (!token) return false;
+  const payload = verifyAdminToken(token);
+  return payload !== null && payload.role === 'developer';
+}
+
+/**
+ * Admin Authentication:
+ * Developer has ALL access.
+ * Admin role has access ONLY when Developer has granted access (adminAccessGranted === true).
+ * Employees, Billers, Dispatchers are strictly blocked from Admin.
+ */
+export function isAdminAuthenticated(req: NextRequest): boolean {
+  const token = getAdminTokenFromRequest(req);
+  if (!token) return false;
+  const payload = verifyAdminToken(token);
+  if (!payload) return false;
+
+  // Developer has all access
+  if (payload.role === 'developer') return true;
+
+  // Admin has access ONLY when Developer has granted access
+  if (payload.role === 'admin' && payload.adminAccessGranted === true) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Super Admin Check:
+ * Developer has super admin access.
+ * Admin has super admin access ONLY when granted.
+ */
+export function isSuperAdminAuthenticated(req: NextRequest): boolean {
+  return isAdminAuthenticated(req);
+}
+
+/**
+ * Staff / Employee / Admin Authentication:
+ * Employee has access to Employee View.
+ * Admin (with access) and Developer also have access.
+ */
 export function isStaffOrAdminAuthenticated(req: NextRequest): boolean {
   const token = getAdminTokenFromRequest(req);
   if (!token) return false;
   const payload = verifyAdminToken(token);
-  return payload !== null && (payload.role === 'admin' || payload.role === 'staff');
+  if (!payload) return false;
+
+  if (payload.role === 'developer') return true;
+  if (payload.role === 'admin') return true;
+  if (payload.role === 'staff') return true;
+
+  return false;
 }
 
+/**
+ * Biller Authentication:
+ * Accessible by Developer (all access), Admin (all access except dev), Staff/Employee, and Biller.
+ */
 export function isBillerAuthenticated(req: NextRequest): boolean {
   const token = getAdminTokenFromRequest(req);
   if (!token) return false;
   const payload = verifyAdminToken(token);
-  return payload !== null && (payload.role === 'admin' || payload.role === 'biller' || payload.role === 'staff');
+  if (!payload) return false;
+
+  return (
+    payload.role === 'developer' ||
+    payload.role === 'admin' ||
+    payload.role === 'staff' ||
+    payload.role === 'biller'
+  );
 }
 
+/**
+ * Dispatcher Authentication:
+ * Accessible by Developer (all access), Admin (all access except dev), Staff/Employee, and Dispatcher.
+ */
 export function isDispatcherAuthenticated(req: NextRequest): boolean {
   const token = getAdminTokenFromRequest(req);
   if (!token) return false;
   const payload = verifyAdminToken(token);
-  return payload !== null && (payload.role === 'admin' || payload.role === 'dispatcher' || payload.role === 'staff');
+  if (!payload) return false;
+
+  return (
+    payload.role === 'developer' ||
+    payload.role === 'admin' ||
+    payload.role === 'staff' ||
+    payload.role === 'dispatcher'
+  );
 }
 
 export function isAnyAuthenticated(req: NextRequest): boolean {
@@ -78,33 +164,20 @@ export function isAnyAuthenticated(req: NextRequest): boolean {
   return payload !== null;
 }
 
-export function isSuperAdminAuthenticated(req: NextRequest): boolean {
+export function getAuthenticatedUser(req: NextRequest): {
+  username: string;
+  role: string;
+  name?: string;
+  adminAccessGranted?: boolean;
+} {
   const token = getAdminTokenFromRequest(req);
-  if (!token) return false;
+  if (!token) return { username: 'system', role: 'admin', adminAccessGranted: false };
   const payload = verifyAdminToken(token);
-  return payload !== null && payload.role === 'admin';
-}
-
-export function isDeveloperAuthenticated(req: NextRequest): boolean {
-  const token = getAdminTokenFromRequest(req);
-  if (!token) return false;
-  const payload = verifyAdminToken(token);
-  return payload !== null && payload.role === 'developer';
-}
-
-export function isAdminAuthenticated(req: NextRequest): boolean {
-  return isStaffOrAdminAuthenticated(req);
-}
-
-export function getAuthenticatedUser(req: NextRequest): { username: string; role: string; name?: string } {
-  const token = getAdminTokenFromRequest(req);
-  if (!token) return { username: 'system', role: 'admin' };
-  const payload = verifyAdminToken(token);
-  if (!payload) return { username: 'system', role: 'admin' };
+  if (!payload) return { username: 'system', role: 'admin', adminAccessGranted: false };
   return {
     username: payload.username || (payload.role === 'admin' ? 'admin' : payload.role),
     role: payload.role,
     name: payload.name,
+    adminAccessGranted: payload.adminAccessGranted ?? (payload.role === 'developer'),
   };
 }
-

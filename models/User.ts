@@ -8,6 +8,9 @@ export interface IUser {
   passwordHash: string;
   role: UserRole;
   isActive: boolean;
+  adminAccessGranted?: boolean;
+  adminAccessGrantedBy?: string;
+  adminAccessGrantedAt?: Date | null;
   createdBy?: string;
   lastModifiedBy?: string;
   lastModifiedByRole?: string;
@@ -47,6 +50,20 @@ const UserSchema: Schema = new Schema<IUser>(
       default: true,
       index: true,
     },
+    adminAccessGranted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    adminAccessGrantedBy: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    adminAccessGrantedAt: {
+      type: Date,
+      default: null,
+    },
     createdBy: {
       type: String,
       default: 'developer',
@@ -74,6 +91,7 @@ const UserSchema: Schema = new Schema<IUser>(
 
 // Indexes
 UserSchema.index({ role: 1, isActive: 1 });
+UserSchema.index({ role: 1, adminAccessGranted: 1 });
 
 const User: Model<IUser> = mongoose.models.User || mongoose.model<IUser>('User', UserSchema);
 

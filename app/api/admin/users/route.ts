@@ -154,12 +154,16 @@ export async function POST(req: NextRequest) {
 
     const hashedPassword = hashPassword(password.trim());
 
+    const adminAccessGranted = body.adminAccessGranted !== undefined ? Boolean(body.adminAccessGranted) : (role === 'developer');
     const newUser = await User.create({
       username: cleanUsername,
       name: (name || '').trim(),
       passwordHash: hashedPassword,
       role,
       isActive: true,
+      adminAccessGranted,
+      adminAccessGrantedBy: adminAccessGranted ? creator : '',
+      adminAccessGrantedAt: adminAccessGranted ? new Date() : null,
       createdBy: creator,
     });
 
@@ -278,6 +282,13 @@ export async function PUT(req: NextRequest) {
       }
 
       user.isActive = nextActive;
+    }
+
+    if (body.adminAccessGranted !== undefined) {
+      const isGranted = Boolean(body.adminAccessGranted);
+      user.adminAccessGranted = isGranted;
+      user.adminAccessGrantedBy = authUser?.username || 'developer';
+      user.adminAccessGrantedAt = isGranted ? new Date() : null;
     }
 
     const authUser = getAuthenticatedUser(req);

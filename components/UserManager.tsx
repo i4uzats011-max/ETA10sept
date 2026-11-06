@@ -35,6 +35,9 @@ export interface UserItem {
   name?: string;
   role: UserRole;
   isActive: boolean;
+  adminAccessGranted?: boolean;
+  adminAccessGrantedBy?: string;
+  adminAccessGrantedAt?: string | null;
   createdBy?: string;
   lastLoginAt?: string | null;
   createdAt?: string;
@@ -75,6 +78,8 @@ export default function UserManager() {
   const [editName, setEditName] = useState('');
   const [editRole, setEditRole] = useState<UserRole>('staff');
   const [editIsActive, setEditIsActive] = useState(true);
+  const [editAdminAccessGranted, setEditAdminAccessGranted] = useState(false);
+  const [createAdminAccessGranted, setCreateAdminAccessGranted] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
   // Form states: Reset User Password
@@ -231,6 +236,34 @@ export default function UserManager() {
     }
   };
 
+  // Toggle Admin Access Grant directly by Developer
+  const handleToggleAdminAccess = async (user: UserItem) => {
+    const nextGrant = !user.adminAccessGranted;
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user._id,
+          adminAccessGranted: nextGrant,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update admin access grant');
+
+      setUsers((prev) =>
+        prev.map((u) => (u._id === user._id ? { ...u, adminAccessGranted: nextGrant } : u))
+      );
+      setSuccess(
+        nextGrant
+          ? `Developer Grant: Admin Access granted to "${user.username}"!`
+          : `Developer Grant: Admin Access revoked for "${user.username}".`
+      );
+    } catch (err: any) {
+      setError(err.message || 'Error updating admin access grant');
+    }
+  };
+
   // 1. Submit Create User
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -255,6 +288,7 @@ export default function UserManager() {
           name: createName.trim(),
           password: createPassword.trim(),
           role: createRole,
+          adminAccessGranted: createAdminAccessGranted,
         }),
       });
 
@@ -283,6 +317,7 @@ export default function UserManager() {
     setEditName(user.name || '');
     setEditRole(user.role);
     setEditIsActive(user.isActive);
+    setEditAdminAccessGranted(Boolean(user.adminAccessGranted));
     setShowEditModal(true);
     setError(null);
   };
@@ -302,6 +337,7 @@ export default function UserManager() {
           name: editName.trim(),
           role: editRole,
           isActive: editIsActive,
+          adminAccessGranted: editAdminAccessGranted,
         }),
       });
 
@@ -617,6 +653,7 @@ export default function UserManager() {
               <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 font-mono uppercase text-[11px]">
                 <th className="py-3 px-4">User</th>
                 <th className="py-3 px-4">Assigned Role</th>
+                <th className="py-3 px-4">Admin Access (Dev Grant)</th>
                 <th className="py-3 px-4">Login Status</th>
                 <th className="py-3 px-4">Last Login</th>
                 <th className="py-3 px-4">Created</th>
@@ -626,7 +663,7 @@ export default function UserManager() {
             <tbody className="divide-y divide-slate-800/60 font-sans">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-500">
+                  <td colSpan={7} className="py-12 text-center text-slate-500">
                     <div className="flex items-center justify-center space-x-2">
                       <RefreshCw className="w-5 h-5 animate-spin text-cyan-400" />
                       <span>Loading user accounts...</span>
@@ -635,7 +672,7 @@ export default function UserManager() {
                 </tr>
               ) : filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-500">
+                  <td colSpan={7} className="py-12 text-center text-slate-500">
                     <Users className="w-8 h-8 mx-auto text-slate-600 mb-2" />
                     <span>No user accounts found matching current filters.</span>
                   </td>
@@ -665,6 +702,42 @@ export default function UserManager() {
 
                     {/* Role */}
                     <td className="py-3 px-4">{getRoleBadge(user.role)}</td>
+                    <td className="py-3 px-4">
+                      {user.role === 'developer' ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-cyan-400 bg-cyan-500/10 px-2.5 py-0.5 rounded-full border border-cyan-500/20">
+                          <Sparkles className="w-3 h-3 text-cyan-400" />
+                          Root Developer (All Access)
+                        </span>
+                      ) : user.role === 'admin' ? (
+                        <div className="flex items-center space-x-1.5">
+                          {user.adminAccessGranted ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                              <Check className="w-3 h-3 text-emerald-400" />
+                              Granted
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                              <Lock className="w-3 h-3 text-amber-400" />
+                              Not Granted
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleToggleAdminAccess(user)}
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border transition ${
+                              user.adminAccessGranted
+                                ? 'bg-red-500/10 border-red-500/30 text-red-300 hover:bg-red-500/20'
+                                : 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/30'
+                            }`}
+                            title={user.adminAccessGranted ? 'Revoke Admin Access' : 'Grant Admin Access'}
+                          >
+                            {user.adminAccessGranted ? 'Revoke' : 'Grant'}
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-slate-500 italic">No admin privilege</span>
+                      )}
+                    </td>
 
                     {/* Status */}
                     <td className="py-3 px-4">
@@ -1003,6 +1076,42 @@ export default function UserManager() {
                       </div>
                     );
                   })}
+                </div>
+              </div>
+
+              {/* Admin Access Permission (Developer Authority) */}
+              <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Shield className="w-4 h-4 text-cyan-400" />
+                    <div>
+                      <span className="text-xs font-bold text-white block">Developer Grant: Admin Access</span>
+                      <span className="text-[11px] text-slate-400">
+                        Authorize this account to access the Admin Dashboard (/admin)
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setEditAdminAccessGranted(!editAdminAccessGranted)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition flex items-center space-x-1.5 ${
+                      editAdminAccessGranted
+                        ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                        : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {editAdminAccessGranted ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Admin Access: GRANTED</span>
+                      </>
+                    ) : (
+                      <>
+                        <Lock className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Admin Access: NOT GRANTED</span>
+                      </>
+                    )}
+                  </button>
                 </div>
               </div>
 
