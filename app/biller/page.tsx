@@ -50,12 +50,9 @@ import { generateBillPDF, generateEWayBillPDF, generateBothBillAndEWayPDF } from
 import { downloadEWayBillJson } from '@/lib/ewayBillJson';
 import { INDIAN_STATES, getStateCode, getStateName, getStateCodeByName, getStateByGstinOrCode, detectStateFromAddress } from '@/lib/states';
 import { inferHsnByItemName, findHsnSuggestions, MASTER_HSN_CATALOG } from '@/lib/hsnCatalog';
-<<<<<<< HEAD
+import { translateToEnglish } from '@/lib/translate';
 import { generateInvoiceNumberFromReceipt } from '@/lib/invoiceUtils';
 import { autoDetectPincodeFromAddress, searchPincodes, extractPincodeFromAddress, PincodeEntry } from '@/lib/pincodeUtils';
-=======
-import { translateToEnglish } from '@/lib/translate';
->>>>>>> 4bcb0052f4e1ac8e656f82de2a3f7014aec61599
 
 export interface FormLineItem {
   itemNo: number;
@@ -230,8 +227,10 @@ export default function BillerPortalPage() {
 
   // Manual Form State
   const [receiptNo, setReceiptNo] = useState('');
-<<<<<<< HEAD
   const [manualInvoiceNo, setManualInvoiceNo] = useState(''); // Generated taking receipt as invoice no with last 2/3 digits random
+  const [formBillNumber, setFormBillNumber] = useState('');
+  const [eWayInvoiceNumber, setEWayInvoiceNumber] = useState('');
+  const [useSeparateEWayInvoice, setUseSeparateEWayInvoice] = useState(false);
 
   // Multi-Theme System State (Dark, Light, Midnight, Emerald, Amber, Purple)
   const [currentTheme, setCurrentTheme] = useState<'dark' | 'light' | 'midnight' | 'emerald' | 'amber' | 'purple'>('dark');
@@ -243,20 +242,6 @@ export default function BillerPortalPage() {
   const [pinSearchQuery, setPinSearchQuery] = useState('');
   const [pinSearchResults, setPinSearchResults] = useState<PincodeEntry[]>([]);
   const [isSearchingPin, setIsSearchingPin] = useState(false);
-=======
-  const [formBillNumber, setFormBillNumber] = useState('');
-  const [eWayInvoiceNumber, setEWayInvoiceNumber] = useState('');
-  const [useSeparateEWayInvoice, setUseSeparateEWayInvoice] = useState(false);
-  const [justCreatedBill, setJustCreatedBill] = useState<any | null>(null);
-  const [justCreatedEWayNo, setJustCreatedEWayNo] = useState('');
-  const [isSavingJustCreatedEWay, setIsSavingJustCreatedEWay] = useState(false);
-
-  // E-Way Bill Quick Print / Number Entry Modal
-  const [eWayModalBill, setEWayModalBill] = useState<any | null>(null);
-  const [eWayModalInputNo, setEWayModalInputNo] = useState('');
-  const [eWayModalVehicleNo, setEWayModalVehicleNo] = useState('');
-  const [isSavingEWayModal, setIsSavingEWayModal] = useState(false);
->>>>>>> 4bcb0052f4e1ac8e656f82de2a3f7014aec61599
   const [hsnCode, setHsnCode] = useState('9997');
   const [igstRate, setIgstRate] = useState<number>(18);
   const [billingUnit, setBillingUnit] = useState<'Pcs' | 'KG' | 'Cartons'>('KG');
@@ -631,13 +616,10 @@ export default function BillerPortalPage() {
   // Apply shipment object to manual form
   const applyShipmentToForm = (shipment: any, markaAddress?: any) => {
     setReceiptNo(shipment.receipt || '');
-<<<<<<< HEAD
     if (shipment.receipt) {
-      setManualInvoiceNo(generateInvoiceNumberFromReceipt(shipment.receipt));
-=======
-    if (shipment.receipt && (!formBillNumber || formBillNumber.startsWith('BILL-') || formBillNumber === shipment.receipt)) {
-      setFormBillNumber(shipment.receipt);
->>>>>>> 4bcb0052f4e1ac8e656f82de2a3f7014aec61599
+      const genInv = generateInvoiceNumberFromReceipt(shipment.receipt);
+      setManualInvoiceNo(genInv);
+      setFormBillNumber(genInv);
     }
     setContainerAlias(shipment.container || singleContainer || '');
     const m = shipment.mainMarka || shipment.subMarka || shipment.marka || '';
@@ -1339,12 +1321,9 @@ export default function BillerPortalPage() {
     setSingleAvailableReceipts([]);
     setSingleAvailableMarkas(globalMarkasList.map((m) => ({ marka: m })));
     setReceiptNo('');
-<<<<<<< HEAD
     setManualInvoiceNo('');
-    setDetectedPincodeInfo(null);
-=======
     setFormBillNumber('');
->>>>>>> 4bcb0052f4e1ac8e656f82de2a3f7014aec61599
+    setDetectedPincodeInfo(null);
     setTotalCartons('');
     setQuantityPcs('');
     setQuantityKg('');
@@ -2871,14 +2850,11 @@ export default function BillerPortalPage() {
       setManualSuccessMsg(`✓ बिल सफलतापूर्वक बन गया! Bill No #${finalBillNumber} (Receipt #${finalReceiptNo})`);
       // Reset form
       setReceiptNo('');
-<<<<<<< HEAD
       setManualInvoiceNo('');
-      setDetectedPincodeInfo(null);
-=======
       setFormBillNumber('');
       setEWayInvoiceNumber('');
       setUseSeparateEWayInvoice(false);
->>>>>>> 4bcb0052f4e1ac8e656f82de2a3f7014aec61599
+      setDetectedPincodeInfo(null);
       setHsnCode('39269099');
       setTotalCartons('');
       setQuantityPcs('');
@@ -4034,7 +4010,6 @@ export default function BillerPortalPage() {
                     </p>
                   </div>
 
-<<<<<<< HEAD
                   {/* INVOICE NUMBER GENERATED FROM RECEIPT WITH RANDOM 2 OR 3 DIGITS */}
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
@@ -4047,7 +4022,9 @@ export default function BillerPortalPage() {
                           type="button"
                           onClick={() => {
                             if (receiptNo.trim()) {
-                              setManualInvoiceNo(generateInvoiceNumberFromReceipt(receiptNo.trim()));
+                              const rnd = generateInvoiceNumberFromReceipt(receiptNo.trim());
+                              setManualInvoiceNo(rnd);
+                              setFormBillNumber(rnd);
                             }
                           }}
                           className="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold flex items-center space-x-1 px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-700/60 hover:border-emerald-500 transition"
@@ -4057,15 +4034,22 @@ export default function BillerPortalPage() {
                           <span>Randomize (2/3 digits)</span>
                         </button>
                       )}
-=======
-                  {/* 4. Invoice / Bill No. (Editable - Defaults to Receipt No.) */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-amber-300 flex items-center justify-between">
-                      <span>4. Invoice No. (इनवॉइस नंबर = रसीद नंबर) *</span>
-                      <span className="text-[9px] text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/30">
-                        Default = Receipt No.
-                      </span>
->>>>>>> 4bcb0052f4e1ac8e656f82de2a3f7014aec61599
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={manualInvoiceNo || formBillNumber}
+                      onChange={(e) => {
+                        setManualInvoiceNo(e.target.value);
+                        setFormBillNumber(e.target.value);
+                      }}
+                      placeholder="Receipt आधार पर इनवॉइस नंबर (अंतिम 2 या 3 अंक रैंडम)"
+                      className="w-full px-3 py-2 bg-slate-900 border border-emerald-600/50 rounded-xl text-xs font-bold text-emerald-300 placeholder-slate-500 focus:ring-2 focus:ring-emerald-500 outline-none font-mono"
+                    />
+                    <p className="text-[10px] text-slate-500">
+                      Receipt as invoice no. with last 2 or 3 digits random (receipt से इनवॉइस नं., अंतिम 2/3 अंक रैंडम)
+                    </p>
+                  </div>
                     </label>
                     <input
                       type="text"
@@ -5107,7 +5091,6 @@ export default function BillerPortalPage() {
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                       <div className="sm:col-span-2">
                         <div className="flex items-center justify-between mb-1">
-<<<<<<< HEAD
                           <label className="text-xs text-slate-300 font-bold">
                             Delivery / Shipping Address (पूरा पता) *
                           </label>
@@ -5125,61 +5108,11 @@ export default function BillerPortalPage() {
                             <Search className="w-3 h-3" />
                             <span>पिन कोड खोजें (Search PIN)</span>
                           </button>
-                        </div>
-=======
-                          <label className="text-xs text-slate-300 font-bold block">
-                            Delivery / Shipping Address (पूरा पता) *
-                          </label>
-                          <span className="text-[10px] text-emerald-400 font-semibold">
-                            💡 टाइप करते ही दिल्ली के प्रमुख इंडस्ट्रियल एरिया व बाजार लिस्ट होंगे
-                          </span>
-                        </div>
-
-                        {/* Quick Dropdown Picker for Delhi Industrial Areas & Business Markets */}
-                        <div className="mb-2">
-                          <select
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              if (val) {
-                                setConsigneeAddress(val);
-                                setPurchaserAddress(val);
-                                setConsigneeState('Delhi');
-                                setConsigneeStateCode('07');
-                                if (sameAsConsignee) {
-                                  setBuyerAddress(val);
-                                  setBuyerState('Delhi');
-                                  setBuyerStateCode('07');
-                                }
-                              }
-                            }}
-                            defaultValue=""
-                            className="w-full px-3 py-1.5 bg-slate-900 border border-emerald-500/40 rounded-xl text-xs text-emerald-300 font-semibold focus:ring-2 focus:ring-emerald-500 outline-none"
-                          >
-                            <option value="">-- 🏢 दिल्ली के मुख्य बाजार व औद्योगिक क्षेत्र चुनें (Select Delhi Market / Industrial Area) --</option>
-                            <optgroup label="🏭 दिल्ली औद्योगिक क्षेत्र (Industrial Areas)">
-                              {DELHI_BUSINESS_AND_INDUSTRIAL_ADDRESSES.filter((a) => a.includes('INDUSTRIAL') || a.includes('ESTATE') || (a.includes('NAGAR') && a.includes('UDYOG'))).map((addr, idx) => (
-                                <option key={`ind-${idx}`} value={addr}>
-                                  {addr}
-                                </option>
-                              ))}
-                            </optgroup>
-                            <optgroup label="🛍️ दिल्ली मुख्य व्यापारिक बाजार (Main Wholesale Markets)">
-                              {DELHI_BUSINESS_AND_INDUSTRIAL_ADDRESSES.filter((a) => !a.includes('INDUSTRIAL') && !a.includes('ESTATE') && !(a.includes('NAGAR') && a.includes('UDYOG'))).map((addr, idx) => (
-                                <option key={`mkt-${idx}`} value={addr}>
-                                  {addr}
-                                </option>
-                              ))}
-                            </optgroup>
-                          </select>
-                        </div>
-
->>>>>>> 4bcb0052f4e1ac8e656f82de2a3f7014aec61599
                         <input
                           type="text"
                           required
                           list="delhi-industrial-addresses"
                           value={consigneeAddress || purchaserAddress}
-<<<<<<< HEAD
                           onChange={(e) => handleAddressInputChange(e.target.value)}
                           placeholder="e.g. Shop No 4, Badli Road, Badli, New Delhi"
                           className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-emerald-500 outline-none"
@@ -5209,26 +5142,6 @@ export default function BillerPortalPage() {
                             </button>
                           </div>
                         )}
-=======
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setConsigneeAddress(val);
-                            setPurchaserAddress(val);
-                            const detected = detectStateFromAddress(val);
-                            if (detected) handleConsigneeStateChange(detected.name);
-                          }}
-                          placeholder="e.g. SHOP NO -17/18, MAIN ROAD, SADAR BAZAR, DELHI - 110006"
-                          className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-emerald-500 outline-none font-medium"
-                        />
-                        <datalist id="delhi-industrial-addresses">
-                          {DELHI_BUSINESS_AND_INDUSTRIAL_ADDRESSES.map((addr, idx) => (
-                            <option key={`dl-${idx}`} value={addr} />
-                          ))}
-                        </datalist>
-                        <p className="text-[10px] text-slate-400 mt-1">
-                          ✍️ आप इस पते को एडिट भी कर सकते हैं (जैसे दुकान नंबर या फ्लोर बदलना)। नीचे <strong>"Save Party & Address to Marka"</strong> दबाकर भविष्य के लिए सहेजें।
-                        </p>
->>>>>>> 4bcb0052f4e1ac8e656f82de2a3f7014aec61599
                       </div>
 
                       <div className="grid grid-cols-2 gap-2">
@@ -5805,12 +5718,8 @@ export default function BillerPortalPage() {
 
                           {/* Download Invoice PDF */}
                           <button
-<<<<<<< HEAD
-                            onClick={() => generateBillPDF({ ...b, theme: pdfTheme }, true)}
-=======
                             type="button"
-                            onClick={() => generateBillPDF(b, true)}
->>>>>>> 4bcb0052f4e1ac8e656f82de2a3f7014aec61599
+                            onClick={() => generateBillPDF({ ...b, theme: pdfTheme }, true)}
                             title="Download PDF Bill"
                             className="p-1.5 bg-slate-800 hover:bg-amber-500/20 hover:text-amber-400 text-slate-300 rounded-lg transition"
                           >
