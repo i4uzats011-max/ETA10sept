@@ -5,9 +5,10 @@ import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
 import { isAdminAuthenticated } from '@/lib/auth';
-import { fetchContainerTracking, fetchApiKeyStats, addFilingBufferDays } from '@/lib/jsoncargo';
+import { fetchApiKeyStats, addFilingBufferDays } from '@/lib/jsoncargo';
 import { translateToEnglish } from '@/lib/translate';
 import { formatGlobalDate } from '@/lib/dateUtils';
+import { getCache, setCache, deleteCache, evaluateContainerEtaTTL } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
 
@@ -121,6 +122,7 @@ const schema = buildSchema(`
   type ContainerArrival {
     success: Boolean!
     container: String!
+    containerNumber: String
     portDate: String
     eta: String
     dateOfDelivery: String
@@ -526,6 +528,7 @@ function createRootResolver(req: NextRequest) {
       return {
         success: true,
         container: containerAlias,
+        containerNumber: target.containerNumber || '',
         portDate: formattedPortDate,
         eta: calculatedDeliveryDate,
         dateOfDelivery: isDelivered ? (formattedDeliveryDate || calculatedDeliveryDate) : calculatedDeliveryDate,
@@ -822,74 +825,10 @@ function createRootResolver(req: NextRequest) {
         throw new Error('Unauthorized');
       }
 
-      const cleanAlias = container.trim();
-      const cleanNum = containerNumber.trim();
-      const cleanCarrier = shippingLine.trim() || 'MSC';
-
-      if (!cleanAlias || !cleanNum) {
-        throw new Error('Container alias and actual container number are required');
-      }
-
-      await connectToDatabase();
-      const escapedAlias = cleanAlias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const fuzzyPattern = escapedAlias.replace(/[-_\s]+/g, '[-_\\s]*');
-      const regex = new RegExp(`^${fuzzyPattern}$`, 'i');
-
-      const tracking = await fetchContainerTracking(cleanNum, cleanCarrier);
-      const now = new Date();
-
-      const updateResult = await Shipment.updateMany(
-        { container: regex },
-        {
-          $set: {
-            containerNumber: cleanNum,
-            shippingLine: cleanCarrier,
-            eta: tracking.eta,
-            status: tracking.status,
-            shippedFrom: tracking.shippedFrom,
-            shippedTo: tracking.shippedTo,
-            currentLocation: tracking.currentLocation,
-            startDate: tracking.startDate,
-            destinationDate: tracking.destinationDate,
-            vesselName: tracking.vesselName,
-            voyageNumber: tracking.voyageNumber,
-            jsonCargoData: tracking.dataDetails,
-            lastApiSync: now,
-            etaUpdatedAt: now,
-          },
-        }
-      );
-
-      // Also upsert into dedicated Container collection
-      await Container.findOneAndUpdate(
-        { container: cleanAlias },
-        {
-          $set: {
-            container: cleanAlias,
-            containerNumber: cleanNum,
-            shippingLine: cleanCarrier,
-            eta: tracking.eta,
-            status: tracking.status,
-            shippedFrom: tracking.shippedFrom,
-            shippedTo: tracking.shippedTo,
-            currentLocation: tracking.currentLocation,
-            startDate: tracking.startDate,
-            destinationDate: tracking.destinationDate,
-            vesselName: tracking.vesselName,
-            voyageNumber: tracking.voyageNumber,
-            jsonCargoData: tracking.dataDetails,
-            shipmentCount: updateResult.matchedCount,
-            lastApiSync: now,
-            etaUpdatedAt: now,
-          },
-        },
-        { upsert: true, new: true }
-      );
-
       return {
-        success: true,
-        message: `Successfully mapped '${cleanAlias}' -> '${cleanNum}' (${cleanCarrier}) and synced ETA '${tracking.eta}'`,
-        count: updateResult.modifiedCount,
+        success: false,
+        message: 'API tracking has been permanently stopped for all containers.',
+        count: 0,
       };
     },
 
@@ -1204,16 +1143,7 @@ function createRootResolver(req: NextRequest) {
       let trackingStatus = 'In Transit';
       let trackingDetails: any = null;
 
-      if (autoSync) {
-        try {
-          const tracking = await fetchContainerTracking(cleanNum, cleanCarrier);
-          if (tracking.eta && tracking.eta !== 'N/A') trackingEta = tracking.eta;
-          if (tracking.status) trackingStatus = tracking.status;
-          trackingDetails = tracking.dataDetails;
-        } catch {
-          // graceful fallback
-        }
-      }
+      // API tracking is permanently stopped - No external API queries
 
       const now = new Date();
       target.containerNumber = cleanNum;
@@ -1316,6 +1246,26 @@ export async function POST(req: NextRequest) {
     }
 
     const isMutation = query.trim().startsWith('mutation');
+    const isPublicContainerSearch = !isMutation && query.includes('trackByContainer') && Boolean(variables?.container);
+
+    // High-Priority Public Container Search Cache Key (15 Days TTL)
+    // Receipt search is strictly bypassed per user requirement:
+    // "ony save in case of search by co memory public search by 'container': only"
+    let publicCacheKey: string | null = null;
+    if (isPublicContainerSearch && variables?.container) {
+      publicCacheKey = `public:track:container:${String(variables.container).toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+    }
+
+    if (publicCacheKey) {
+      const cachedData = await getCache<any>(publicCacheKey);
+      if (cachedData) {
+        return NextResponse.json(
+          { data: cachedData, cached: true },
+          { headers: { 'X-Cache': 'HIT', 'X-Cache-Priority': 'public-container-search' } }
+        );
+      }
+    }
+
     const cacheKey = JSON.stringify({ query: query.trim(), variables });
     const now = Date.now();
 
@@ -1340,6 +1290,27 @@ export async function POST(req: NextRequest) {
       gqlCacheMap.clear(); // Invalidate cache on mutations
     } else if (!result.errors) {
       gqlCacheMap.set(cacheKey, { timestamp: now, data: result });
+      if (publicCacheKey && (result.data as any)?.trackByContainer) {
+        const containerData: any = (result.data as any).trackByContainer;
+        const etaForTTL = containerData?.eta || containerData?.destinationDate || containerData?.portDate;
+        const evalResult = evaluateContainerEtaTTL(etaForTTL);
+
+        const cleanQueryKey = publicCacheKey;
+        const aliasKey = containerData.container ? `public:track:container:${String(containerData.container).toLowerCase().replace(/[^a-z0-9]/g, '')}` : null;
+        const carrierKey = containerData.containerNumber ? `public:track:container:${String(containerData.containerNumber).toLowerCase().replace(/[^a-z0-9]/g, '')}` : null;
+
+        if (containerData?.isDelivered || !evalResult.shouldCache) {
+          // If container is marked delivered OR (ETA + 5 days) < today, do not save in cache & remove if present
+          await deleteCache(cleanQueryKey);
+          if (aliasKey) await deleteCache(aliasKey);
+          if (carrierKey) await deleteCache(carrierKey);
+        } else {
+          // Save container with TTL = (ETA + 7 days)
+          await setCache(cleanQueryKey, result.data, evalResult.ttlSeconds);
+          if (aliasKey && aliasKey !== cleanQueryKey) await setCache(aliasKey, result.data, evalResult.ttlSeconds);
+          if (carrierKey && carrierKey !== cleanQueryKey) await setCache(carrierKey, result.data, evalResult.ttlSeconds);
+        }
+      }
     }
 
     return NextResponse.json(result);

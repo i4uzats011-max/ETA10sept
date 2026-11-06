@@ -3,7 +3,8 @@ import { connectToDatabase } from '@/lib/mongodb';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
 import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
-import { isSuperAdminAuthenticated } from '@/lib/auth';
+import { isSuperAdminAuthenticated, getAuthenticatedUser } from '@/lib/auth';
+import { recordEditLog } from '@/lib/auditLog';
 import {
   translateCommodity,
   translatePackaging,
@@ -97,6 +98,14 @@ export async function POST(req: NextRequest) {
       // Async remove from Typesense
       deletedIds.forEach((delId) => {
         deleteSingleWarehouseReceipt(String(delId)).catch(() => {});
+      });
+
+      await recordEditLog(req, {
+        action: 'DELETE',
+        entityType: 'WarehouseReceipt',
+        entityId: deletedNumbers.slice(0, 10).join(', ') + (deletedNumbers.length > 10 ? '...' : ''),
+        description: `Bulk deleted ${deletedIds.length} warehouse receipts: ${deletedNumbers.slice(0, 5).join(', ')}${deletedNumbers.length > 5 ? ` and ${deletedNumbers.length - 5} more` : ''}`,
+        details: { count: deletedIds.length, receipts: deletedNumbers },
       });
 
       return NextResponse.json({
@@ -209,7 +218,10 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      const authUser = getAuthenticatedUser(req);
       preparedUpdates.updatedAt = new Date();
+      preparedUpdates.lastModifiedBy = authUser.username;
+      preparedUpdates.lastModifiedByRole = authUser.role;
 
       // Perform update on WarehouseReceipt documents
       await WarehouseReceipt.updateMany(query, { $set: preparedUpdates });
@@ -250,6 +262,14 @@ export async function POST(req: NextRequest) {
       // Async index updated receipts to Typesense
       updatedReceipts.forEach((r) => {
         indexSingleWarehouseReceipt(r).catch(() => {});
+      });
+
+      await recordEditLog(req, {
+        action: 'UPDATE',
+        entityType: 'WarehouseReceipt',
+        entityId: matchingReceipts.map((r) => r.receipt).slice(0, 10).join(', '),
+        description: `Bulk edited ${matchingReceipts.length} warehouse receipts (${Object.keys(updates).join(', ')})`,
+        details: { count: matchingReceipts.length, updates },
       });
 
       return NextResponse.json({

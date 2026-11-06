@@ -10,6 +10,7 @@ import {
   Search,
   Download,
   Printer,
+  FileText,
   RefreshCw,
   LogOut,
   ShieldCheck,
@@ -37,7 +38,13 @@ import {
   Key,
 } from 'lucide-react';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
-import { generateBillPDF, generateConsolidatedMarkaPDF, BillPdfData } from '@/lib/billPdf';
+import {
+  generateBillPDF,
+  generateEWayBillPDF,
+  generateBothBillAndEWayPDF,
+  generateConsolidatedMarkaPDF,
+  BillPdfData,
+} from '@/lib/billPdf';
 import { INDIAN_STATES, getStateCodeByName, getStateByGstinOrCode } from '@/lib/states';
 
 interface BillItem extends BillPdfData {
@@ -642,8 +649,8 @@ export default function DispatcherPortalPage() {
   };
 
   // Action 1: Regenerate PDF with Vehicle Number, Address, and Proportionate Cartons
-  const handleRegeneratePDF = (targetBill?: BillItem) => {
-    const vNo = vehicleNumber.trim();
+  const handleRegeneratePDF = (targetBill?: BillItem, mode: 'bill' | 'both' | 'eway' = 'bill') => {
+    const vNo = vehicleNumber.trim() || targetBill?.vehicleNumber?.trim();
     if (!vNo) {
       alert('कृपया पहले गाड़ी नंबर (Vehicle Number) डालें ताकि पीडीएफ में गाड़ी नंबर दिख सके।');
       return;
@@ -652,6 +659,16 @@ export default function DispatcherPortalPage() {
     const formattedDeliveryAddress = activeAddress
       ? `${activeAddress.title ? `[${activeAddress.title}] ` : ''}${activeAddress.address}, ${activeAddress.city || ''} ${activeAddress.state || ''} ${activeAddress.pincode ? `- ${activeAddress.pincode}` : ''}`
       : undefined;
+
+    const triggerPdfDownload = (data: BillPdfData) => {
+      if (mode === 'both') {
+        generateBothBillAndEWayPDF(data, true);
+      } else if (mode === 'eway') {
+        generateEWayBillPDF(data, true);
+      } else {
+        generateBillPDF(data, true);
+      }
+    };
 
     if (targetBill) {
       // Regenerate for a single specific bill
@@ -676,7 +693,7 @@ export default function DispatcherPortalPage() {
         quantityKg: bRatio < 1 ? Number(((targetBill.quantityKg || 0) * bRatio).toFixed(2)) : targetBill.quantityKg,
         taxableValue: bRatio < 1 ? Number(((targetBill.taxableValue || 0) * bRatio).toFixed(2)) : targetBill.taxableValue,
       };
-      generateBillPDF(updatedData, true);
+      triggerPdfDownload(updatedData);
       return;
     }
 
@@ -704,7 +721,7 @@ export default function DispatcherPortalPage() {
         quantityKg: selectedBillsData.proportionateKg,
         taxableValue: selectedBillsData.proportionateTaxable,
       };
-      generateBillPDF(updatedData, true);
+      triggerPdfDownload(updatedData);
     } else {
       // Consolidated Marka PDF
       const markaLabel = selectedMarka !== 'all' ? selectedMarka : 'MULTI_MARKA';
@@ -1332,15 +1349,27 @@ export default function DispatcherPortalPage() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
-                {/* Button 1: REGENERATE PDF */}
+                {/* Button: PRINT BOTH (INVOICE + E-WAY BILL) */}
                 <button
                   type="button"
-                  onClick={() => handleRegeneratePDF()}
+                  onClick={() => handleRegeneratePDF(undefined, 'both')}
+                  disabled={!vehicleNumber.trim() || selectedBillIds.size === 0}
+                  className="flex-1 sm:flex-initial px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-xl text-xs transition shadow-lg shadow-emerald-950/40 flex items-center justify-center space-x-1.5 disabled:opacity-40"
+                  title="बिल और सरकारी ई-वे बिल दोनों एक साथ प्रिंट करें (Print Both Invoice & Government e-Way Bill in 1 PDF)"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>🖨️ Print Both (Bill + e-Way)</span>
+                </button>
+
+                {/* Button 1: REGENERATE INVOICE PDF */}
+                <button
+                  type="button"
+                  onClick={() => handleRegeneratePDF(undefined, 'bill')}
                   disabled={!vehicleNumber.trim() || selectedBillIds.size === 0}
                   className="flex-1 sm:flex-initial px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/30 font-bold rounded-xl text-xs transition shadow-lg flex items-center justify-center space-x-2 disabled:opacity-40"
                 >
-                  <Printer className="w-4 h-4" />
-                  <span>रीजेनरेट पीडीएफ (Regenerate PDF)</span>
+                  <FileText className="w-4 h-4" />
+                  <span>Invoice PDF</span>
                 </button>
 
                 {/* Button 2: MARK AS DISPATCHED */}
@@ -1762,13 +1791,38 @@ export default function DispatcherPortalPage() {
                           )}
                         </td>
                         <td className="p-3.5 text-center" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={() => handleRegeneratePDF(b)}
-                            title="Regenerate & Download PDF with Vehicle No."
-                            className="p-1.5 bg-slate-800 hover:bg-emerald-500/20 hover:text-emerald-300 text-slate-300 rounded-lg transition"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex items-center justify-center space-x-1.5">
+                            {/* Print Both (Invoice + e-Way Bill) */}
+                            <button
+                              type="button"
+                              onClick={() => handleRegeneratePDF(b, 'both')}
+                              title="बिल और सरकारी ई-वे बिल दोनों एक साथ प्रिंट करें (Print Both Invoice & e-Way Bill)"
+                              className="p-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-lg transition shadow flex items-center space-x-1"
+                            >
+                              <Printer className="w-3.5 h-3.5" />
+                              <span className="hidden xl:inline text-[9px] font-black">BOTH</span>
+                            </button>
+
+                            {/* Print Actual Government e-Way Bill Standalone */}
+                            <button
+                              type="button"
+                              onClick={() => handleRegeneratePDF(b, 'eway')}
+                              title="सरकारी ई-वे बिल प्रिंट करें (Print Actual Government e-Way Bill PDF)"
+                              className="p-1.5 bg-slate-800 hover:bg-indigo-500/30 hover:text-indigo-300 text-slate-300 rounded-lg transition border border-slate-700"
+                            >
+                              <Truck className="w-3.5 h-3.5 text-indigo-400" />
+                            </button>
+
+                            {/* Regenerate Invoice PDF */}
+                            <button
+                              type="button"
+                              onClick={() => handleRegeneratePDF(b, 'bill')}
+                              title="Regenerate & Download Invoice PDF with Vehicle No."
+                              className="p-1.5 bg-slate-800 hover:bg-amber-500/20 hover:text-amber-300 text-slate-300 rounded-lg transition"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );

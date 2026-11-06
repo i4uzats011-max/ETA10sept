@@ -60,10 +60,13 @@ export interface IShipment extends Document {
   apiCalled?: boolean;          // Whether API was invoked for this container/shipment
   apiCallCount?: number;        // Count of API calls made
   rawEta?: string;              // Carrier raw ETA
-  etaBufferDays?: number;       // Clearance procedure buffer days added to raw ETA (default: 10)
+  etaBufferDays?: number;       // Clearance procedure buffer days added to raw ETA (default: 7)
+  lastModifiedBy?: string;      // Username of the user who last changed/updated data
+  lastModifiedByRole?: string;  // Role of the user who last changed/updated data
   phone?: string;               // Party contact / WhatsApp mobile
   partyPhone?: string;          // Party phone
   rate?: string;                // Party freight/shipping rate (e.g. '23k', '500')
+  'Overall / Receipt Freight Rate'?: string; // Exact DB field head for Overall / Receipt Freight Rate
   rateFixed?: boolean;          // Rate fixed flag
   totalCost?: number | string;  // Total cost of cargo items
   cost?: number | string;       // Cost alias
@@ -102,6 +105,7 @@ const ShipmentSchema = new Schema<IShipment>({
   phone: { type: String, default: '', trim: true },
   partyPhone: { type: String, default: '', trim: true },
   rate: { type: String, default: '', trim: true },
+  'Overall / Receipt Freight Rate': { type: String, default: '', trim: true },
   rateFixed: { type: Boolean, default: false },
   totalCost: { type: Schema.Types.Mixed, default: '' },
   cost: { type: Schema.Types.Mixed, default: '' },
@@ -133,7 +137,9 @@ const ShipmentSchema = new Schema<IShipment>({
 
   eta: { type: String, default: 'N/A' },
   rawEta: { type: String, default: '' },
-  etaBufferDays: { type: Number, default: 10 },
+  etaBufferDays: { type: Number, default: 7 },
+  lastModifiedBy: { type: String, default: '', index: true, trim: true },
+  lastModifiedByRole: { type: String, default: '', trim: true },
   status: { type: String, default: 'Pending' },
   deliveryDate: { type: String, default: '' },
   daysToDeliver: { type: Number, default: null },

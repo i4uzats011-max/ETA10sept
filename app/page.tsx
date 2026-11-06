@@ -7,6 +7,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { fetchGraphQL } from '@/lib/graphql';
 import { formatGlobalDate } from '@/lib/dateUtils';
+import { translateToEnglish } from '@/lib/translate';
 import {
   Package,
   Truck,
@@ -41,7 +42,9 @@ import {
   Download,
   Warehouse,
   Boxes,
+  ExternalLink,
 } from 'lucide-react';
+import { getCarrierTrackingUrl, getLdbRailwayTrackingUrl } from '@/lib/trackingUrls';
 
 function formatCBM(volume: any): string {
   if (volume === null || volume === undefined || volume === '' || volume === 'N/A') {
@@ -170,7 +173,7 @@ export default function PublicTrackerPage() {
         const dateColDisplay = lines.join('\n');
         return [
           idx + 1,
-          s.english || s.commodity || 'General Cargo',
+          translateToEnglish(s.english || s.commodity || 'General Cargo'),
           [s.mainMarka ? `M:${s.mainMarka}` : '', (s.subMarka && s.subMarka !== '??') ? `S:${s.subMarka}` : ''].filter(Boolean).join(' ') || 'N/A',
           `${s.quantity || s.cartons || '0'} CTN`,
           s.weight ? `${s.weight} KG` : 'N/A',
@@ -368,6 +371,23 @@ export default function PublicTrackerPage() {
             setIsLoading(false);
             return;
           }
+
+          // Check if any cargo shipments or warehouse receipts actually exist
+          const hasCargo = (trackData.shipments && trackData.shipments.length > 0) || trackData.warehouseReceipt;
+          if (!hasCargo && !cartons) {
+            // Smart Fallback: User might have entered a Container number while on receipt tab (e.g. USSI-300)
+            const containerRes = await fetch(`/api/track/container?container=${encodeURIComponent(queryInput)}`);
+            const cData = await containerRes.json();
+            if (containerRes.ok && cData.container) {
+              setActiveTab('container');
+              setContainerResult(cData);
+              setPendingCartonReceipt(null);
+              setCartonVerificationError(null);
+              setIsLoading(false);
+              return;
+            }
+          }
+
           setReceiptResult(trackData);
           setPendingCartonReceipt(null);
           setCartonVerificationError(null);
@@ -474,8 +494,17 @@ export default function PublicTrackerPage() {
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!searchQuery.trim()) return;
-    performDirectSearch(searchQuery.trim(), activeTab);
+    const cleanQ = searchQuery.trim();
+    if (!cleanQ) return;
+
+    // Smart Container Detection: If query looks like a container number (e.g. USSI-300, USI-01, TCLU1234567), auto-switch to container tab
+    const isContainerPattern = /^(USI|USSI)[-_\s]?\d+/i.test(cleanQ) || /^[A-Z]{4}\d{7}$/i.test(cleanQ);
+    const targetTab = (activeTab === 'receipt' && isContainerPattern) ? 'container' : activeTab;
+    if (targetTab !== activeTab) {
+      setActiveTab('container');
+    }
+
+    performDirectSearch(cleanQ, targetTab);
   };
 
   const handleSelectSuggestion = (suggestion: { type: 'receipt' | 'container'; value: string }) => {
@@ -568,7 +597,7 @@ export default function PublicTrackerPage() {
 
   const primaryGoods = whReceipt || receiptShipmentsList[0] || {};
   const partyName = whReceipt?.party || receiptShipmentsList[0]?.party || 'General Party';
-  const commodityName = primaryGoods.english || primaryGoods.commodity || 'General Cargo';
+  const commodityName = translateToEnglish(primaryGoods.english || primaryGoods.commodity || 'General Cargo');
   const chineseCommodity = primaryGoods.chinese && primaryGoods.chinese !== commodityName ? primaryGoods.chinese : '';
   const packagingType = primaryGoods.packaging || 'Carton';
   const warehouseLocation = whReceipt?.warehouse || receiptShipmentsList[0]?.warehouse || 'China Warehouse';
@@ -1030,8 +1059,8 @@ export default function PublicTrackerPage() {
 
                   <div className="bg-white/80 p-3.5 rounded-2xl border border-blue-100">
                     <span className="text-[11px] font-bold text-slate-400 uppercase">Commodity</span>
-                    <div className="font-bold text-slate-900 text-sm mt-0.5 truncate" title={receiptResult.warehouseReceipt.english || receiptResult.warehouseReceipt.commodity}>
-                      {receiptResult.warehouseReceipt.english || receiptResult.warehouseReceipt.commodity || 'General Cargo'}
+                    <div className="font-bold text-slate-900 text-sm mt-0.5 truncate" title={translateToEnglish(receiptResult.warehouseReceipt.english || receiptResult.warehouseReceipt.commodity)}>
+                      {translateToEnglish(receiptResult.warehouseReceipt.english || receiptResult.warehouseReceipt.commodity || 'General Cargo')}
                     </div>
                   </div>
                 </div>
@@ -1531,7 +1560,7 @@ export default function PublicTrackerPage() {
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                             <div>
                               <span className="text-slate-400 font-semibold block">Commodity Description:</span>
-                              <strong className="text-slate-800 text-sm">{item.english || item.commodity || 'General Cargo'}</strong>
+                              <strong className="text-slate-800 text-sm">{translateToEnglish(item.english || item.commodity || 'General Cargo')}</strong>
                             </div>
                             <div>
                               <span className="text-slate-400 font-semibold block">Shipping Marks:</span>
@@ -1621,6 +1650,38 @@ export default function PublicTrackerPage() {
                       <p className="text-[11px] text-slate-400">
                         Estimated arrival date for container {containerResult.container}.
                       </p>
+
+                      <div className="pt-3 border-t border-slate-800 flex flex-wrap items-center justify-center gap-2">
+                        {containerResult.shippingLine && (
+                          <a
+                            href={getCarrierTrackingUrl(containerResult.shippingLine, containerResult.containerNumber)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold bg-blue-900/50 hover:bg-blue-800 text-blue-200 border border-blue-700/60 transition group shadow-sm"
+                            title={`Click to open official ${containerResult.shippingLine} carrier tracking website`}
+                          >
+                            <span>Ocean Carrier ({containerResult.shippingLine})</span>
+                            <ExternalLink className="w-3.5 h-3.5 text-blue-400 group-hover:translate-x-0.5 transition-transform" />
+                          </a>
+                        )}
+                        {containerResult.containerNumber && (
+                          <a
+                            href={getLdbRailwayTrackingUrl(containerResult.containerNumber)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={() => {
+                              if (containerResult.containerNumber && navigator.clipboard) {
+                                navigator.clipboard.writeText(containerResult.containerNumber);
+                              }
+                            }}
+                            className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold bg-emerald-950/70 hover:bg-emerald-900 text-emerald-200 border border-emerald-700/60 transition group shadow-sm"
+                            title="Track container on Indian Railway Logistics Data Bank (ldb.co.in) - Copies container no to clipboard & opens LDB"
+                          >
+                            <span>🚆 Indian Railway (LDB)</span>
+                            <ExternalLink className="w-3.5 h-3.5 text-emerald-400 group-hover:translate-x-0.5 transition-transform" />
+                          </a>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

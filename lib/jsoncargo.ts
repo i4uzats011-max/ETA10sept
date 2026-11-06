@@ -168,51 +168,8 @@ export function shouldSyncContainer(
   status?: string | undefined,
   rawEta?: string | undefined
 ): boolean {
-  // If container has arrived at final destination, reached port, or is delivered/customs cleared,
-  // automated ETA tracking halts completely
-  if (status) {
-    const s = status.toLowerCase();
-    if (
-      s.includes('delivered') ||
-      s.includes('custom clear') ||
-      s.includes('completed') ||
-      s.includes('reached') ||
-      s.includes('final destination') ||
-      s.includes('arrived') ||
-      s.includes('discharged')
-    ) {
-      return false;
-    }
-  }
-
-  // Always sync if never synced
-  if (!lastApiSync) {
-    return true;
-  }
-
-  // Determine actual carrier ETA date (rawEta preferred over buffered clearance eta)
-  // Per user rule: Sync schedule is calculated based on actual vessel ETA date, NOT buffered +10 days
-  const etaStringToUse = rawEta || eta;
-  let daysUntilEta: number | null = null;
-
-  if (etaStringToUse && etaStringToUse !== 'N/A' && etaStringToUse !== 'Pending') {
-    const dateMatch = String(etaStringToUse).match(/\d{4}-\d{2}-\d{2}/);
-    let baseDate: Date | null = null;
-    if (dateMatch) {
-      baseDate = new Date(dateMatch[0]);
-    } else if (!isNaN(new Date(etaStringToUse).getTime())) {
-      baseDate = new Date(etaStringToUse);
-    }
-    if (baseDate && !isNaN(baseDate.getTime())) {
-      const today = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
-      const etaDay = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate());
-      daysUntilEta = Math.round((etaDay.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-    }
-  }
-
-  const requiredIntervalDays = getRequiredSyncIntervalDays(daysUntilEta);
-  const daysSinceLastSync = (currentDate.getTime() - new Date(lastApiSync).getTime()) / (1000 * 60 * 60 * 24);
-  return daysSinceLastSync >= requiredIntervalDays;
+  // Automated API tracking is stopped for all containers
+  return false;
 }
 
 /**
@@ -233,9 +190,9 @@ export function getRequiredSyncIntervalDays(daysUntilEta: number | null | undefi
 }
 
 /**
- * Adds clearance procedure buffer days to any base ETA date (default +10 days for customs clearance procedure).
+ * Adds clearance procedure buffer days to any base ETA date (default +7 days when API tracks data).
  */
-export function addFilingBufferDays(etaDateInput: string | Date, daysToAdd: number = 10): string {
+export function addFilingBufferDays(etaDateInput: string | Date, daysToAdd: number = 7): string {
   const dateMatch = String(etaDateInput).match(/\d{4}-\d{2}-\d{2}/);
   let baseDate: Date | null = null;
   
@@ -249,7 +206,7 @@ export function addFilingBufferDays(etaDateInput: string | Date, daysToAdd: numb
     return 'N/A';
   }
 
-  // Add clearance procedure buffer days (+10 days)
+  // Add clearance procedure buffer days (+7 days)
   baseDate.setDate(baseDate.getDate() + daysToAdd);
   const yyyy = baseDate.getFullYear();
   const mm = String(baseDate.getMonth() + 1).padStart(2, '0');
@@ -352,6 +309,7 @@ export async function fetchContainerTracking(
 
   let loadingDate = '';
   let existingEta = '';
+  let rawEta = '';
   let existingStatus = 'In Transit';
   let shippedFrom = 'Ningbo / Shanghai, China';
   let shippedTo = 'Nhava Sheva / Mundra, India';
@@ -378,6 +336,7 @@ export async function fetchContainerTracking(
       if (shipmentDoc.eta && shipmentDoc.eta !== 'N/A' && shipmentDoc.eta !== 'Pending') {
         existingEta = shipmentDoc.eta;
       }
+      rawEta = shipmentDoc.rawEta || shipmentDoc.eta || '';
       if (shipmentDoc.status) existingStatus = shipmentDoc.status;
       if (shipmentDoc.shippedFrom) shippedFrom = shipmentDoc.shippedFrom;
       if (shipmentDoc.shippedTo) shippedTo = shipmentDoc.shippedTo;
@@ -388,66 +347,23 @@ export async function fetchContainerTracking(
     // silent db fallback
   }
 
-  // Calculate ETA based on loading date if available (20 days sea voyage + 10 days clearance = 30 days total)
-  let calculatedEta = existingEta || 'Pending';
-  let rawCarrierEta = '';
-
-  if (loadingDate) {
-    const dateMatch = String(loadingDate).match(/\d{4}-\d{2}-\d{2}/);
-    let baseDate: Date | null = null;
-    if (dateMatch) {
-      baseDate = new Date(dateMatch[0]);
-    } else if (!isNaN(new Date(loadingDate).getTime())) {
-      baseDate = new Date(loadingDate);
-    }
-
-    if (baseDate && !isNaN(baseDate.getTime())) {
-      // 20 days sea voyage
-      const seaArrival = new Date(baseDate.getTime());
-      seaArrival.setUTCDate(seaArrival.getUTCDate() + 20);
-      const yyyy = seaArrival.getUTCFullYear();
-      const mm = String(seaArrival.getUTCMonth() + 1).padStart(2, '0');
-      const dd = String(seaArrival.getUTCDate()).padStart(2, '0');
-      rawCarrierEta = `${yyyy}-${mm}-${dd}`;
-
-      // Final clearance delivery ETA (+10 days clearance procedure)
-      calculatedEta = addFilingBufferDays(seaArrival, 10);
-    }
-  }
-
+  // Zero-API Mode: Strictly return existing database data without artificial mock ETAs
   const finalStatus = existingStatus || (loadingDate ? 'In Transit' : 'Planning');
-  const currentLocation = loadingDate ? `At Sea (${carrierName})` : 'In Transit';
-
-  const mockData: JSONCargoContainerData = {
-    container_id: cleanNum,
-    container_status: finalStatus,
-    shipping_line_name: carrierName,
-    eta_final_destination: calculatedEta,
-    raw_carrier_eta: rawCarrierEta || calculatedEta,
-    clearance_eta: calculatedEta,
-    shipped_from: shippedFrom,
-    shipped_to: shippedTo,
-    last_location: currentLocation,
-    atd_origin: loadingDate || undefined,
-    loading_date: loadingDate || undefined,
-    current_vessel_name: vesselName || undefined,
-    current_voyage_number: voyageNumber || undefined,
-    last_updated: new Date().toISOString(),
-  };
+  const currentLocation = existingStatus || 'In Transit';
 
   return {
-    eta: calculatedEta,
-    rawEta: rawCarrierEta || calculatedEta,
+    eta: existingEta || 'Pending',
+    rawEta: rawEta || existingEta || '',
     status: finalStatus,
     shippedFrom,
     shippedTo,
     currentLocation,
     startDate: loadingDate,
     loadingDate,
-    destinationDate: calculatedEta,
+    destinationDate: existingEta || 'Pending',
     vesselName,
     voyageNumber,
-    dataDetails: mockData,
+    dataDetails: null,
   };
 }
 

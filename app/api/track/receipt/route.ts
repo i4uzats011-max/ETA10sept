@@ -29,10 +29,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Receipt parameter is required' }, { status: 400 });
   }
 
+  const cartonsParam = searchParams.get('cartons')?.trim();
+
   try {
     await connectToDatabase();
-
-    const cartonsParam = searchParams.get('cartons')?.trim();
 
     // Fetch all WarehouseReceipt documents matching this receipt number
     const matchingWhItems: any[] = await WarehouseReceipt.find({
@@ -263,7 +263,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({
+    const payload = {
       success: true,
       count: publicCargoDetails.length,
       receipt: receiptQuery,
@@ -271,6 +271,10 @@ export async function GET(req: NextRequest) {
       data: publicCargoDetails[0],
       shipments: publicCargoDetails,
       warehouseReceipt: sanitizedWhItem,
+    };
+
+    return NextResponse.json(payload, {
+      headers: { 'X-Cache': 'BYPASS', 'X-Cache-Priority': 'receipt-live' },
     });
   } catch (error: any) {
     return NextResponse.json(

@@ -51,6 +51,7 @@ export interface IWarehouseReceipt extends Document {
   phone?: string;               // Party contact / WhatsApp mobile
   partyPhone?: string;          // Party phone
   rate?: string;                // Party shipping/freight rate (e.g. '23k', '25,000')
+  'Overall / Receipt Freight Rate'?: string; // Exact DB field head for Overall / Receipt Freight Rate
   rateFixed?: boolean;          // Whether rate is fixed
   totalCost?: number | string;  // Total cost of cargo
   cost?: number | string;       // Cost alias
@@ -60,6 +61,8 @@ export interface IWarehouseReceipt extends Document {
   messageSentDate?: string;     // Formatted message sent date/time
   uploadBatchId?: string;       // ID of upload batch for tracking & rollback
   uploadedAt: Date;             // Entry creation timestamp
+  lastModifiedBy?: string;
+  lastModifiedByRole?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -123,6 +126,7 @@ const WarehouseReceiptSchema = new Schema<IWarehouseReceipt>(
     phone: { type: String, default: '', trim: true },
     partyPhone: { type: String, default: '', trim: true },
     rate: { type: String, default: '', trim: true },
+    'Overall / Receipt Freight Rate': { type: String, default: '', trim: true },
     rateFixed: { type: Boolean, default: false },
     totalCost: { type: Schema.Types.Mixed, default: '' },
     cost: { type: Schema.Types.Mixed, default: '' },
@@ -132,6 +136,8 @@ const WarehouseReceiptSchema = new Schema<IWarehouseReceipt>(
     messageSentDate: { type: String, default: '' },
     uploadBatchId: { type: String, default: '', index: true },
     uploadedAt: { type: Date, default: Date.now },
+    lastModifiedBy: { type: String, default: '', trim: true },
+    lastModifiedByRole: { type: String, default: '', trim: true },
   },
   {
     timestamps: true,

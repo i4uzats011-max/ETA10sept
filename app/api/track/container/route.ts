@@ -3,6 +3,7 @@ import { connectToDatabase } from '@/lib/mongodb';
 import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
 import { formatGlobalDate } from '@/lib/dateUtils';
+import { getCache, setCache, deleteCache, evaluateContainerEtaTTL } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,7 +30,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Container parameter is required' }, { status: 400 });
   }
 
+  const cacheKey = `public:track:container:${containerQuery.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+
   try {
+    const cachedData = await getCache<any>(cacheKey);
+    if (cachedData) {
+      return NextResponse.json(cachedData, {
+        headers: { 'X-Cache': 'HIT', 'X-Cache-Priority': 'public-search' }
+      });
+    }
+
     await connectToDatabase();
 
     const { normalized, zeroPaddedRegex, clean, cleanEscaped } = buildContainerRegexes(containerQuery);
@@ -121,9 +131,11 @@ export async function GET(req: NextRequest) {
       (publicEta !== 'Pending' ? target.updatedAt || target.uploadedAt : null);
     const etaUpdatedAt = rawEtaUpdated ? new Date(rawEtaUpdated).toISOString() : null;
 
-    return NextResponse.json({
+    const payload = {
       success: true,
       container: target.container,
+      containerNumber: target.containerNumber || '',
+      shippingLine: target.shippingLine || '',
       portDate: portDate || null,
       eta: publicEta,
       deliveryDate: formattedDeliveryDate,
@@ -133,6 +145,31 @@ export async function GET(req: NextRequest) {
       daysToDeliver: target.daysToDeliver ?? null,
       etaUpdatedAt: null,
       remarks: target.remarks || target.containerRemarks || [],
+    };
+
+    // Container ETA Caching Rule:
+    // 1. If any container is marked delivered, remove from cache memory
+    // 2. If (ETA + 5 days) < today, strictly do NOT save in cache memory
+    // 3. If (ETA + 5 days) >= today, save in cache memory with TTL = (ETA + 7 days)
+    const etaForTTL = rawActualEta !== 'Pending' ? rawActualEta : (target.destinationDate || target.eta || target.rawEta);
+    const evalResult = evaluateContainerEtaTTL(etaForTTL);
+
+    const cleanQueryKey = cacheKey;
+    const aliasKey = target.container ? `public:track:container:${String(target.container).toLowerCase().replace(/[^a-z0-9]/g, '')}` : null;
+    const carrierKey = target.containerNumber ? `public:track:container:${String(target.containerNumber).toLowerCase().replace(/[^a-z0-9]/g, '')}` : null;
+
+    if (isDelivered || !evalResult.shouldCache) {
+      await deleteCache(cleanQueryKey);
+      if (aliasKey) await deleteCache(aliasKey);
+      if (carrierKey) await deleteCache(carrierKey);
+    } else {
+      await setCache(cleanQueryKey, payload, evalResult.ttlSeconds);
+      if (aliasKey && aliasKey !== cleanQueryKey) await setCache(aliasKey, payload, evalResult.ttlSeconds);
+      if (carrierKey && carrierKey !== cleanQueryKey) await setCache(carrierKey, payload, evalResult.ttlSeconds);
+    }
+
+    return NextResponse.json(payload, {
+      headers: { 'X-Cache': 'MISS', 'X-Cache-Priority': 'public-container-search' },
     });
   } catch (error: any) {
     return NextResponse.json(

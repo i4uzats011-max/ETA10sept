@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import Seller from '@/models/Seller';
 import { isAnyAuthenticated } from '@/lib/auth';
+import { recordEditLog } from '@/lib/auditLog';
 
 export const dynamic = 'force-dynamic';
 
@@ -115,6 +116,14 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    await recordEditLog(req, {
+      action: _id ? 'UPDATE' : 'CREATE',
+      entityType: 'Seller',
+      entityId: String(seller?._id || _id),
+      description: `${_id ? 'Updated' : 'Created'} seller company '${name.trim()}' (GST: ${gstin || 'N/A'})`,
+      details: { id: seller?._id, name: name.trim(), gstin, state, isDefault },
+    });
+
     return NextResponse.json({ success: true, seller });
   } catch (error: any) {
     console.error('Error saving seller:', error);
@@ -141,7 +150,16 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'At least one Seller party must remain in the system.' }, { status: 400 });
     }
 
-    await Seller.findByIdAndDelete(id);
+    const deletedSeller = await Seller.findByIdAndDelete(id);
+
+    await recordEditLog(req, {
+      action: 'DELETE',
+      entityType: 'Seller',
+      entityId: String(id),
+      description: `Deleted seller company '${deletedSeller?.name || id}'`,
+      details: { id, name: deletedSeller?.name },
+    });
+
     return NextResponse.json({ success: true, message: 'Seller deleted successfully' });
   } catch (error: any) {
     console.error('Error deleting seller:', error);

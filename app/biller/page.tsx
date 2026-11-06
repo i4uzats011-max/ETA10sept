@@ -46,11 +46,16 @@ import {
   Sparkles,
 } from 'lucide-react';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
-import { generateBillPDF } from '@/lib/billPdf';
+import { generateBillPDF, generateEWayBillPDF, generateBothBillAndEWayPDF } from '@/lib/billPdf';
+import { downloadEWayBillJson } from '@/lib/ewayBillJson';
 import { INDIAN_STATES, getStateCode, getStateName, getStateCodeByName, getStateByGstinOrCode, detectStateFromAddress } from '@/lib/states';
 import { inferHsnByItemName, findHsnSuggestions, MASTER_HSN_CATALOG } from '@/lib/hsnCatalog';
+<<<<<<< HEAD
 import { generateInvoiceNumberFromReceipt } from '@/lib/invoiceUtils';
 import { autoDetectPincodeFromAddress, searchPincodes, extractPincodeFromAddress, PincodeEntry } from '@/lib/pincodeUtils';
+=======
+import { translateToEnglish } from '@/lib/translate';
+>>>>>>> 4bcb0052f4e1ac8e656f82de2a3f7014aec61599
 
 export interface FormLineItem {
   itemNo: number;
@@ -225,6 +230,7 @@ export default function BillerPortalPage() {
 
   // Manual Form State
   const [receiptNo, setReceiptNo] = useState('');
+<<<<<<< HEAD
   const [manualInvoiceNo, setManualInvoiceNo] = useState(''); // Generated taking receipt as invoice no with last 2/3 digits random
 
   // Multi-Theme System State (Dark, Light, Midnight, Emerald, Amber, Purple)
@@ -237,6 +243,20 @@ export default function BillerPortalPage() {
   const [pinSearchQuery, setPinSearchQuery] = useState('');
   const [pinSearchResults, setPinSearchResults] = useState<PincodeEntry[]>([]);
   const [isSearchingPin, setIsSearchingPin] = useState(false);
+=======
+  const [formBillNumber, setFormBillNumber] = useState('');
+  const [eWayInvoiceNumber, setEWayInvoiceNumber] = useState('');
+  const [useSeparateEWayInvoice, setUseSeparateEWayInvoice] = useState(false);
+  const [justCreatedBill, setJustCreatedBill] = useState<any | null>(null);
+  const [justCreatedEWayNo, setJustCreatedEWayNo] = useState('');
+  const [isSavingJustCreatedEWay, setIsSavingJustCreatedEWay] = useState(false);
+
+  // E-Way Bill Quick Print / Number Entry Modal
+  const [eWayModalBill, setEWayModalBill] = useState<any | null>(null);
+  const [eWayModalInputNo, setEWayModalInputNo] = useState('');
+  const [eWayModalVehicleNo, setEWayModalVehicleNo] = useState('');
+  const [isSavingEWayModal, setIsSavingEWayModal] = useState(false);
+>>>>>>> 4bcb0052f4e1ac8e656f82de2a3f7014aec61599
   const [hsnCode, setHsnCode] = useState('9997');
   const [igstRate, setIgstRate] = useState<number>(18);
   const [billingUnit, setBillingUnit] = useState<'Pcs' | 'KG' | 'Cartons'>('KG');
@@ -611,15 +631,20 @@ export default function BillerPortalPage() {
   // Apply shipment object to manual form
   const applyShipmentToForm = (shipment: any, markaAddress?: any) => {
     setReceiptNo(shipment.receipt || '');
+<<<<<<< HEAD
     if (shipment.receipt) {
       setManualInvoiceNo(generateInvoiceNumberFromReceipt(shipment.receipt));
+=======
+    if (shipment.receipt && (!formBillNumber || formBillNumber.startsWith('BILL-') || formBillNumber === shipment.receipt)) {
+      setFormBillNumber(shipment.receipt);
+>>>>>>> 4bcb0052f4e1ac8e656f82de2a3f7014aec61599
     }
     setContainerAlias(shipment.container || singleContainer || '');
     const m = shipment.mainMarka || shipment.subMarka || shipment.marka || '';
     setMainMarka(shipment.mainMarka || shipment.marka || '');
     setSubMarka(shipment.subMarka || '');
     
-    const desc = (shipment.commodity || shipment.english || 'COMMERCIAL GOODS').trim();
+    const desc = translateToEnglish(shipment.english || shipment.commodity || 'COMMERCIAL GOODS').trim();
     setCommodity(desc);
     setLineDescription(desc);
     setLineHsn(shipment.hsnCode || '39269099');
@@ -907,7 +932,7 @@ export default function BillerPortalPage() {
         let overallReceipts: string[] = [];
 
         shipments.forEach((s: any) => {
-          const d = (s.commodity || s.english || 'COMMERCIAL GOODS').trim();
+          const d = translateToEnglish(s.english || s.commodity || 'COMMERCIAL GOODS').trim();
           const c = Number(s.cartons || s.quantity) || 0;
           const k = Number(s.weightKg || s.weight) || 0;
           const p = c > 0 ? c * 10 : 0;
@@ -1050,7 +1075,7 @@ export default function BillerPortalPage() {
       results.forEach((r) => {
         r.shipments.forEach((s: any) => {
           combinedShipments.push(s);
-          const d = (s.commodity || s.english || 'COMMERCIAL GOODS').trim();
+          const d = translateToEnglish(s.english || s.commodity || 'COMMERCIAL GOODS').trim();
           const c = Number(s.cartons || s.quantity) || 0;
           const k = Number(s.weightKg || s.weight) || 0;
           const p = c > 0 ? c * 10 : 0;
@@ -1314,8 +1339,12 @@ export default function BillerPortalPage() {
     setSingleAvailableReceipts([]);
     setSingleAvailableMarkas(globalMarkasList.map((m) => ({ marka: m })));
     setReceiptNo('');
+<<<<<<< HEAD
     setManualInvoiceNo('');
     setDetectedPincodeInfo(null);
+=======
+    setFormBillNumber('');
+>>>>>>> 4bcb0052f4e1ac8e656f82de2a3f7014aec61599
     setTotalCartons('');
     setQuantityPcs('');
     setQuantityKg('');
@@ -1390,6 +1419,9 @@ export default function BillerPortalPage() {
             setSingleSelectedMarka(af.mainMarka || af.subMarka);
           }
           setSingleSelectedReceipt(clean);
+          if (clean && (!formBillNumber || formBillNumber.startsWith('BILL-') || formBillNumber === clean)) {
+            setFormBillNumber(clean);
+          }
 
           // Now lookup Marka Purchaser details from directory
           const m = af.mainMarka || af.subMarka;
@@ -2003,6 +2035,92 @@ export default function BillerPortalPage() {
     }
   };
 
+  // Open e-Way Bill Quick Print Modal
+  const handleOpenEWayPrintModal = (bill: any, initialMode: 'both' | 'eway' = 'both') => {
+    setEWayModalBill({ ...bill, printMode: initialMode });
+    setEWayModalInputNo(bill.eWayBillNo || '');
+    setEWayModalVehicleNo(bill.vehicleNumber || '');
+  };
+
+  const handleConfirmPrintEWay = async (mode: 'both' | 'eway') => {
+    if (!eWayModalBill) return;
+    const cleanEWayNo = eWayModalInputNo.trim();
+    const cleanVehNo = eWayModalVehicleNo.trim();
+
+    if (eWayModalBill._id && (cleanEWayNo || cleanVehNo)) {
+      setIsSavingEWayModal(true);
+      try {
+        await fetch('/api/billing', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: eWayModalBill._id,
+            eWayBillNo: cleanEWayNo || undefined,
+            vehicleNumber: cleanVehNo || undefined,
+          }),
+        });
+
+        // Update local bills state
+        setBills((prev) =>
+          prev.map((b) =>
+            b._id === eWayModalBill._id
+              ? {
+                  ...b,
+                  eWayBillNo: cleanEWayNo || b.eWayBillNo,
+                  vehicleNumber: cleanVehNo || b.vehicleNumber,
+                }
+              : b
+          )
+        );
+      } catch (err) {
+        console.warn('Failed to update eWayBillNo:', err);
+      } finally {
+        setIsSavingEWayModal(false);
+      }
+    }
+
+    const updatedData = {
+      ...eWayModalBill,
+      eWayBillNo: cleanEWayNo || eWayModalBill.eWayBillNo,
+      vehicleNumber: cleanVehNo || eWayModalBill.vehicleNumber,
+    };
+
+    if (mode === 'both') {
+      generateBothBillAndEWayPDF(updatedData, true);
+    } else {
+      generateEWayBillPDF(updatedData, true);
+    }
+
+    setEWayModalBill(null);
+  };
+
+  const handleSaveJustCreatedEWayNo = async () => {
+    if (!justCreatedBill?._id || !justCreatedEWayNo.trim()) return;
+    setIsSavingJustCreatedEWay(true);
+    try {
+      const res = await fetch('/api/billing', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: justCreatedBill._id,
+          eWayBillNo: justCreatedEWayNo.trim(),
+        }),
+      });
+      if (res.ok) {
+        setJustCreatedBill((prev: any) => ({ ...prev, eWayBillNo: justCreatedEWayNo.trim() }));
+        setBills((prev) =>
+          prev.map((b) =>
+            b._id === justCreatedBill._id ? { ...b, eWayBillNo: justCreatedEWayNo.trim() } : b
+          )
+        );
+      }
+    } catch (err) {
+      console.error('Failed to save e-Way Bill No:', err);
+    } finally {
+      setIsSavingJustCreatedEWay(false);
+    }
+  };
+
   // Open quick vehicle modal
   const handleOpenVehicleModal = (bill: BillItem) => {
     setTargetBillForVehicle(bill);
@@ -2346,6 +2464,87 @@ export default function BillerPortalPage() {
     }
   };
 
+  // ---- PREFILL RANDOM DATA: UNREGISTERED DELHI PARTIES ONLY ----
+  const PREFILL_COMPANIES = [
+    { name: 'Delhi Trading Company', phone: '9811234567' },
+    { name: 'Shiv Trading Co.', phone: '9899876543' },
+    { name: 'Vishnu Trading Company', phone: '9412345678' },
+    { name: 'Aggarwal Trading Company', phone: '9871122334' },
+    { name: 'Kamakhya Trading Company', phone: '9435567890' },
+    { name: 'Krishna Trading Company', phone: '9837654321' },
+    { name: 'Aggarwal Brothers & Sons', phone: '9818899776' },
+  ];
+
+  // Comprehensive Delhi Industrial Areas and Main Business Markets
+  const DELHI_BUSINESS_AND_INDUSTRIAL_ADDRESSES = [
+    'SHOP NO -17/18, MAIN ROAD, SADAR BAZAR, DELHI - 110006',
+    'SHOP NO -17/18, MAIN ROAD, GANDHI NAGAR TEXTILE MARKET, DELHI - 110031',
+    'SHOP NO -17/18, MAIN ROAD, NAYA BAZAR, CHANDNI CHOWK, DELHI - 110006',
+    'SHOP NO -17/18, MAIN ROAD, BHAGIRATH PALACE ELECTRICAL MARKET, CHANDNI CHOWK, DELHI - 110006',
+    'SHOP NO -17/18, MAIN ROAD, CHAWRI BAZAR, DELHI - 110006',
+    'SHOP NO -17/18, MAIN ROAD, AJMAL KHAN ROAD, KAROL BAGH, NEW DELHI - 110005',
+    'SHOP NO -17/18, MAIN ROAD, GAFFAR MARKET, KAROL BAGH, NEW DELHI - 110005',
+    'SHOP NO -17/18, MAIN ROAD, KASHMERE GATE AUTO SPARE PARTS MARKET, DELHI - 110006',
+    'SHOP NO -17/18, MAIN ROAD, MORI GATE, DELHI - 110006',
+    'SHOP NO -17/18, MAIN ROAD, LAJPAT NAGAR CENTRAL MARKET, NEW DELHI - 110024',
+    'SHOP NO -17/18, MAIN ROAD, CENTRAL MARKET, TILAK NAGAR, NEW DELHI - 110018',
+    'SHOP NO -17/18, MAIN ROAD, BUNGALOW ROAD, KAMLA NAGAR, DELHI - 110007',
+    'SHOP NO -17/18, MAIN ROAD, OKHLA INDUSTRIAL AREA PHASE-I, NEW DELHI - 110020',
+    'SHOP NO -17/18, MAIN ROAD, OKHLA INDUSTRIAL AREA PHASE-II, NEW DELHI - 110020',
+    'SHOP NO -17/18, MAIN ROAD, OKHLA INDUSTRIAL AREA PHASE-III, NEW DELHI - 110020',
+    'SHOP NO -17/18, MAIN ROAD, NARAINA INDUSTRIAL AREA PHASE-I, NEW DELHI - 110028',
+    'SHOP NO -17/18, MAIN ROAD, NARAINA INDUSTRIAL AREA PHASE-II, NEW DELHI - 110028',
+    'SHOP NO -17/18, MAIN ROAD, MAYAPURI INDUSTRIAL AREA PHASE-I, NEW DELHI - 110064',
+    'SHOP NO -17/18, MAIN ROAD, MAYAPURI INDUSTRIAL AREA PHASE-II, NEW DELHI - 110064',
+    'SHOP NO -17/18, MAIN ROAD, KIRTI NAGAR INDUSTRIAL AREA, NEW DELHI - 110015',
+    'SHOP NO -17/18, MAIN ROAD, WAZIRPUR INDUSTRIAL AREA, DELHI - 110052',
+    'SHOP NO -17/18, MAIN ROAD, LAWRENCE ROAD INDUSTRIAL AREA, DELHI - 110035',
+    'SHOP NO -17/18, MAIN ROAD, SECTOR 1, BAWANA INDUSTRIAL AREA, DELHI - 110039',
+    'SHOP NO -17/18, MAIN ROAD, SECTOR 2, BAWANA INDUSTRIAL AREA, DELHI - 110039',
+    'SHOP NO -17/18, MAIN ROAD, SECTOR 3, BAWANA INDUSTRIAL AREA, DELHI - 110039',
+    'SHOP NO -17/18, MAIN ROAD, DSIIDC INDUSTRIAL AREA, NARELA, DELHI - 110040',
+    'SHOP NO -17/18, MAIN ROAD, PATPARGANJ FUNCTIONAL INDUSTRIAL ESTATE, DELHI - 110092',
+    'SHOP NO -17/18, MAIN ROAD, MANGOLPURI INDUSTRIAL AREA PHASE-I, DELHI - 110083',
+    'SHOP NO -17/18, MAIN ROAD, MANGOLPURI INDUSTRIAL AREA PHASE-II, DELHI - 110083',
+    'SHOP NO -17/18, MAIN ROAD, JHILMIL INDUSTRIAL AREA, SHAHDARA, DELHI - 110095',
+    'SHOP NO -17/18, MAIN ROAD, MOHAN COOPERATIVE INDUSTRIAL ESTATE, MATHURA ROAD, NEW DELHI - 110044',
+    'SHOP NO -17/18, MAIN ROAD, ANAND PARBAT INDUSTRIAL AREA, NEW DELHI - 110005',
+    'SHOP NO -17/18, MAIN ROAD, LIBASPUR INDUSTRIAL AREA, GT KARNAL ROAD, DELHI - 110042',
+    'SHOP NO -17/18, MAIN ROAD, SMA INDUSTRIAL ESTATE, GT KARNAL ROAD, DELHI - 110033',
+    'SHOP NO -17/18, MAIN ROAD, RAJASTHANI UDYOG NAGAR, GT KARNAL ROAD, DELHI - 110033',
+    'SHOP NO -17/18, MAIN ROAD, BADARPUR EXTENSION, NEW DELHI - 110044',
+    'SHOP NO -17/18, MAIN ROAD, SHAKURPUR INDUSTRIAL AREA, DELHI - 110034',
+    'SHOP NO -17/18, MAIN ROAD, SEELAMPUR MARKET, DELHI - 110053',
+  ];
+
+  const handlePrefillRandomData = () => {
+    const randomCompany = PREFILL_COMPANIES[Math.floor(Math.random() * PREFILL_COMPANIES.length)];
+    const randomAddress = DELHI_BUSINESS_AND_INDUSTRIAL_ADDRESSES[Math.floor(Math.random() * DELHI_BUSINESS_AND_INDUSTRIAL_ADDRESSES.length)];
+
+    // Strictly UNREGISTERED & DELHI PARTY ONLY
+    setRegistrationType('Unregistered');
+    setPurchaserGstin('');
+    setPurchaserName(randomCompany.name);
+    setConsigneeAddress(randomAddress);
+    setPurchaserAddress(randomAddress);
+    setConsigneeState('Delhi');
+    setConsigneeStateCode('07');
+    setPurchaserPhone(randomCompany.phone);
+
+    // Fill Buyer details (same as consignee, Unregistered Delhi)
+    setBuyerName(randomCompany.name);
+    setBuyerAddress(randomAddress);
+    setBuyerGstin('');
+    setBuyerState('Delhi');
+    setBuyerStateCode('07');
+    setSameAsConsignee(true);
+
+    // Switch to "new" address mode so the user can see, edit and save this address for the future!
+    setAddressMode('new');
+
+    setLookupMessage(`✓ Prefilled: ${randomCompany.name} (Unregistered / Delhi) | ${randomAddress.slice(0, 48)}...`);
+  };
+
   // Instant save current address and party name for selected Marka directly from form
   const handleInstantSaveMarkaAddress = async () => {
     const rawMarka = (mainMarka || subMarka || singleSelectedMarka).trim();
@@ -2585,11 +2784,17 @@ export default function BillerPortalPage() {
     const finalBuyerName = (sameAsConsignee ? finalPurchaser : buyerName || finalPurchaser).trim();
     const finalBuyerGstin = (sameAsConsignee ? (registrationType === 'Registered' ? purchaserGstin : '') : (buyerGstin || purchaserGstin || '')).trim().toUpperCase();
 
+    const separateEWayInv = (useSeparateEWayInvoice || isEWayBillRequired) && eWayInvoiceNumber.trim();
+    const finalBillNumber = (separateEWayInv ? eWayInvoiceNumber.trim() : (formBillNumber.trim() || finalReceiptNo)).trim();
+
     setIsSubmittingManual(true);
     setManualSuccessMsg(null);
+    setJustCreatedBill(null);
 
     try {
       const payload = {
+        billNumber: finalBillNumber,
+        eWayInvoiceNumber: separateEWayInv ? eWayInvoiceNumber.trim() : undefined,
         receipt: finalReceiptNo,
         billNumber: manualInvoiceNo.trim() || undefined,
         hsnCode: (finalItems[0]?.hsnCode || lineHsn || hsnCode || '39269099').trim(),
@@ -2655,16 +2860,25 @@ export default function BillerPortalPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to create bill');
 
+      const createdBillRecord = (data.bills && data.bills[0]) || data.bill || { ...payload, _id: data._id || 'temp', totalAmount: finalTotalBillAmt };
+      setJustCreatedBill(createdBillRecord);
+
       // Auto-save address for Marka
       if (currentMarka && finalPurchaser) {
         handleInstantSaveMarkaAddress().catch((err: any) => console.warn('Background marka save:', err));
       }
 
-      setManualSuccessMsg(`✓ बिल सफलतापूर्वक बन गया! Receipt #${finalReceiptNo}`);
+      setManualSuccessMsg(`✓ बिल सफलतापूर्वक बन गया! Bill No #${finalBillNumber} (Receipt #${finalReceiptNo})`);
       // Reset form
       setReceiptNo('');
+<<<<<<< HEAD
       setManualInvoiceNo('');
       setDetectedPincodeInfo(null);
+=======
+      setFormBillNumber('');
+      setEWayInvoiceNumber('');
+      setUseSeparateEWayInvoice(false);
+>>>>>>> 4bcb0052f4e1ac8e656f82de2a3f7014aec61599
       setHsnCode('39269099');
       setTotalCartons('');
       setQuantityPcs('');
@@ -3504,18 +3718,103 @@ export default function BillerPortalPage() {
           {activeTab === 'manual' && (
             <form onSubmit={handleManualSubmit} className="space-y-6">
               {manualSuccessMsg && (
-                <div className="p-4 rounded-2xl bg-emerald-950/60 border border-emerald-800 text-emerald-300 text-xs font-semibold flex items-center justify-between">
+                <div className="p-4 rounded-2xl bg-emerald-950/70 border border-emerald-500/60 text-emerald-300 text-xs font-semibold flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg">
                   <div className="flex items-center space-x-2">
-                    <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-                    <span>{manualSuccessMsg}</span>
+                    <CheckCircle2 className="w-5 h-5 flex-shrink-0 text-emerald-400" />
+                    <span className="font-bold">{manualSuccessMsg}</span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleResetCascade}
-                    className="px-3 py-1 bg-emerald-800/60 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold transition"
-                  >
-                    + Create Another Bill
-                  </button>
+                  <div className="flex items-center space-x-2 shrink-0 flex-wrap gap-2">
+                    {justCreatedBill && (
+                      <>
+                        {/* Quick e-Way Bill No. Input & Save */}
+                        <div className="flex items-center space-x-1.5 bg-slate-900 border border-amber-500/50 rounded-xl px-2.5 py-1">
+                          <span className="text-[10px] font-bold text-amber-300 shrink-0">e-Way No:</span>
+                          <input
+                            type="text"
+                            placeholder="12-digit e-Way No"
+                            value={justCreatedEWayNo}
+                            onChange={(e) => setJustCreatedEWayNo(e.target.value)}
+                            className="w-28 px-1.5 py-0.5 bg-slate-950 border border-slate-700 rounded text-amber-200 text-xs font-mono font-bold focus:outline-none focus:border-amber-400"
+                          />
+                          <button
+                            type="button"
+                            disabled={isSavingJustCreatedEWay || !justCreatedEWayNo.trim()}
+                            onClick={handleSaveJustCreatedEWayNo}
+                            className="px-2 py-0.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 font-bold text-[10px] rounded transition"
+                          >
+                            {isSavingJustCreatedEWay ? '...' : 'Save'}
+                          </button>
+                        </div>
+
+                        {/* Print Both (Invoice + e-Way Bill) Together */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const billWithEway = {
+                              ...justCreatedBill,
+                              eWayBillNo: justCreatedEWayNo || justCreatedBill.eWayBillNo,
+                            };
+                            generateBothBillAndEWayPDF(billWithEway, true);
+                          }}
+                          className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-xl text-xs transition flex items-center space-x-1.5 shadow-md shadow-emerald-950/40"
+                          title="बिल और सरकारी ई-वे बिल दोनों एक साथ प्रिंट करें (Print Invoice + e-Way Bill Together in 1 PDF)"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                          <span>🖨️ Print Both (Bill + e-Way)</span>
+                        </button>
+
+                        {/* Print Actual Government e-Way Bill Standalone */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const billWithEway = {
+                              ...justCreatedBill,
+                              eWayBillNo: justCreatedEWayNo || justCreatedBill.eWayBillNo,
+                            };
+                            generateEWayBillPDF(billWithEway, true);
+                          }}
+                          className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs transition flex items-center space-x-1.5 shadow"
+                          title="सरकारी ई-वे बिल प्रिंट करें (Print Actual Government e-Way Bill PDF)"
+                        >
+                          <Truck className="w-3.5 h-3.5" />
+                          <span>e-Way Bill</span>
+                        </button>
+
+                        {/* Download E-Way JSON for Portal */}
+                        <button
+                          type="button"
+                          onClick={() => downloadEWayBillJson(justCreatedBill)}
+                          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold rounded-xl text-xs transition flex items-center space-x-1.5 border border-amber-500/40"
+                          title="Download Government JSON file for E-Way Bill Portal upload"
+                        >
+                          <Download className="w-3.5 h-3.5 text-amber-400" />
+                          <span>E-Way JSON</span>
+                        </button>
+
+                        {/* Download Invoice PDF Standalone */}
+                        <button
+                          type="button"
+                          onClick={() => generateBillPDF(justCreatedBill, true)}
+                          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 font-bold rounded-xl text-xs transition flex items-center space-x-1.5 border border-slate-700"
+                          title="Download PDF Bill"
+                        >
+                          <FileText className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>Invoice PDF</span>
+                        </button>
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleResetCascade();
+                        setJustCreatedBill(null);
+                        setManualSuccessMsg(null);
+                      }}
+                      className="px-3 py-1.5 bg-emerald-800/80 hover:bg-emerald-700 text-white rounded-xl text-[11px] font-bold transition"
+                    >
+                      + Create Another Bill
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -3546,7 +3845,7 @@ export default function BillerPortalPage() {
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3.5">
                   {/* Container Selector */}
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
@@ -3706,7 +4005,7 @@ export default function BillerPortalPage() {
                         <option value="">-- Choose from {singleAvailableReceipts.length} Receipts --</option>
                         {singleAvailableReceipts.map((s: any) => (
                           <option key={s.receipt} value={s.receipt}>
-                            #{s.receipt} — {s.cartons} CTN, {s.weightKg} KG ({s.commodity || 'Cargo'})
+                            #{s.receipt} — {s.cartons} CTN, {s.weightKg} KG ({translateToEnglish(s.english || s.commodity || 'Cargo')})
                           </option>
                         ))}
                       </select>
@@ -3735,6 +4034,7 @@ export default function BillerPortalPage() {
                     </p>
                   </div>
 
+<<<<<<< HEAD
                   {/* INVOICE NUMBER GENERATED FROM RECEIPT WITH RANDOM 2 OR 3 DIGITS */}
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
@@ -3757,10 +4057,20 @@ export default function BillerPortalPage() {
                           <span>Randomize (2/3 digits)</span>
                         </button>
                       )}
+=======
+                  {/* 4. Invoice / Bill No. (Editable - Defaults to Receipt No.) */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-amber-300 flex items-center justify-between">
+                      <span>4. Invoice No. (इनवॉइस नंबर = रसीद नंबर) *</span>
+                      <span className="text-[9px] text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                        Default = Receipt No.
+                      </span>
+>>>>>>> 4bcb0052f4e1ac8e656f82de2a3f7014aec61599
                     </label>
                     <input
                       type="text"
                       required
+<<<<<<< HEAD
                       value={manualInvoiceNo}
                       onChange={(e) => setManualInvoiceNo(e.target.value)}
                       placeholder="Receipt आधार पर इनवॉइस नंबर (अंतिम 2 या 3 अंक रैंडम)"
@@ -3770,6 +4080,69 @@ export default function BillerPortalPage() {
                       Receipt as invoice no. with last 2 or 3 digits random (receipt से इनवॉइस नं., अंतिम 2/3 अंक रैंडम)
                     </p>
                   </div>
+=======
+                      value={formBillNumber}
+                      onChange={(e) => setFormBillNumber(e.target.value)}
+                      placeholder={receiptNo ? receiptNo : 'e.g. 260528007 or INV-001'}
+                      className="w-full px-3 py-2 bg-slate-900 border border-amber-500/50 rounded-xl text-xs font-bold text-amber-300 placeholder-slate-500 focus:ring-2 focus:ring-amber-500 outline-none font-mono"
+                    />
+                    <p className="text-[10px] text-slate-400">
+                      रसीद नंबर ही इनवॉइस नंबर रहेगा (Type custom if needed)
+                    </p>
+                  </div>
+                </div>
+
+                {/* Separate Tax Invoice No. for E-Way Bill Section */}
+                <div className={`p-3.5 rounded-2xl transition border ${
+                  isEWayBillRequired 
+                    ? 'bg-amber-950/40 border-amber-500/60 shadow-lg' 
+                    : 'bg-slate-900/60 border-slate-800'
+                }`}>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <label className="text-xs font-bold text-amber-300 flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={useSeparateEWayInvoice || isEWayBillRequired}
+                        onChange={(e) => setUseSeparateEWayInvoice(e.target.checked)}
+                        className="rounded border-amber-500 text-amber-500 focus:ring-amber-500 w-4 h-4 cursor-pointer"
+                      />
+                      <span className="flex items-center space-x-1.5">
+                        <FileText className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>ई-वे बिल हेतु अलग इनवॉइस नंबर (Provide Separate Invoice No. for E-Way Bill)</span>
+                      </span>
+                    </label>
+                    {isEWayBillRequired ? (
+                      <span className="text-[10px] bg-red-500/20 text-red-300 font-black px-2 py-0.5 rounded border border-red-500/40 uppercase tracking-wide flex items-center space-x-1">
+                        <span>⚡ E-Way Bill Required</span>
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-slate-400">
+                        Optional (e.g. NI/26-27/349)
+                      </span>
+                    )}
+                  </div>
+
+                  {(useSeparateEWayInvoice || isEWayBillRequired) && (
+                    <div className="mt-2.5 pt-2 border-t border-slate-800 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-amber-200">
+                          Tax Invoice No. (ई-वे बिल के लिए अलग टैक्स इनवॉइस नंबर):
+                        </span>
+                        <span className="text-[10px] text-slate-400">e.g. NI/26-27/349 (Max 16 chars)</span>
+                      </div>
+                      <input
+                        type="text"
+                        value={eWayInvoiceNumber}
+                        onChange={(e) => setEWayInvoiceNumber(e.target.value.toUpperCase())}
+                        placeholder="e.g. NI/26-27/349 or INV-001"
+                        className="w-full px-3 py-2 bg-slate-950 border border-amber-400/80 rounded-xl text-xs font-bold text-amber-300 uppercase placeholder-slate-500 focus:ring-2 focus:ring-amber-400 outline-none font-mono tracking-wider"
+                      />
+                      <p className="text-[10px] text-emerald-400">
+                        ✓ यह अलग इनवॉइस नंबर सीधे E-Way Bill JSON में &apos;docNo&apos; के रूप में जाएगा।
+                      </p>
+                    </div>
+                  )}
+>>>>>>> 4bcb0052f4e1ac8e656f82de2a3f7014aec61599
                 </div>
 
                 {/* Auto-fill Status Banner */}
@@ -4005,13 +4378,22 @@ export default function BillerPortalPage() {
                       </select>
 
                       {/* Editable Text Field */}
-                      <input
-                        type="text"
-                        value={lineDescription}
-                        onChange={(e) => setLineDescription(e.target.value)}
-                        placeholder="चूज़ करने के बाद यहाँ से बदल सकते हैं (Edit / Customize Description)"
-                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 font-bold"
-                      />
+                      <div className="relative">
+                        <input
+                          type="text"
+                          required
+                          value={lineDescription}
+                          onChange={(e) => {
+                            setLineDescription(e.target.value);
+                            setCommodity(e.target.value);
+                          }}
+                          placeholder="वस्तु का नाम बदलें / टाइप करें (Item Name - Type or Edit)"
+                          className="w-full px-3 py-2 bg-slate-900 border border-amber-500/60 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 font-bold"
+                        />
+                        <span className="absolute right-2.5 top-2 text-[9px] text-amber-400 font-bold bg-amber-500/10 px-1 py-0.5 rounded pointer-events-none">
+                          Editable
+                        </span>
+                      </div>
                     </div>
 
                     {/* Quick Chips for Items in Marka */}
@@ -4458,35 +4840,48 @@ export default function BillerPortalPage() {
                   </div>
 
                   {/* Primary Option: Select Saved Address vs Add New Address & Party */}
-                  <div className="flex bg-slate-900 border border-slate-700/80 p-1 rounded-2xl shrink-0">
+                  <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                    <div className="flex bg-slate-900 border border-slate-700/80 p-1 rounded-2xl">
+                      <button
+                        type="button"
+                        onClick={() => setAddressMode('select')}
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 ${
+                          addressMode === 'select'
+                            ? 'bg-gradient-to-r from-sky-600 to-cyan-600 text-white shadow-md'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <MapPin className="w-3.5 h-3.5" />
+                        <span>📍 सहेजा पता चुनें (Select Address)</span>
+                        {currentMarkaAddresses.length > 0 && (
+                          <span className="ml-1 px-1.5 py-0.2 bg-white/20 text-white rounded-full text-[10px]">
+                            {currentMarkaAddresses.length}
+                          </span>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAddressMode('new')}
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 ${
+                          addressMode === 'new'
+                            ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>➕ नया पता व पार्टी जोड़ें (Add Address)</span>
+                      </button>
+                    </div>
+
+                    {/* PREFILL RANDOM DATA BUTTON */}
                     <button
                       type="button"
-                      onClick={() => setAddressMode('select')}
-                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 ${
-                        addressMode === 'select'
-                          ? 'bg-gradient-to-r from-sky-600 to-cyan-600 text-white shadow-md'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
+                      onClick={handlePrefillRandomData}
+                      className="px-3.5 py-2 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white rounded-xl text-xs font-black transition flex items-center space-x-1.5 shadow-lg shadow-amber-950/40 border border-amber-500/50 animate-pulse hover:animate-none"
+                      title="ऑटो-फ़िल: रैंडम कंपनी का नाम और पता भरें (Prefill random company name & address)"
                     >
-                      <MapPin className="w-3.5 h-3.5" />
-                      <span>📍 सहेजा पता चुनें (Select Address)</span>
-                      {currentMarkaAddresses.length > 0 && (
-                        <span className="ml-1 px-1.5 py-0.2 bg-white/20 text-white rounded-full text-[10px]">
-                          {currentMarkaAddresses.length}
-                        </span>
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAddressMode('new')}
-                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 ${
-                        addressMode === 'new'
-                          ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>➕ नया पता व पार्टी जोड़ें (Add Address)</span>
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>⚡ Prefill (ऑटो-फ़िल)</span>
                     </button>
                   </div>
                 </div>
@@ -4712,6 +5107,7 @@ export default function BillerPortalPage() {
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                       <div className="sm:col-span-2">
                         <div className="flex items-center justify-between mb-1">
+<<<<<<< HEAD
                           <label className="text-xs text-slate-300 font-bold">
                             Delivery / Shipping Address (पूरा पता) *
                           </label>
@@ -4730,10 +5126,60 @@ export default function BillerPortalPage() {
                             <span>पिन कोड खोजें (Search PIN)</span>
                           </button>
                         </div>
+=======
+                          <label className="text-xs text-slate-300 font-bold block">
+                            Delivery / Shipping Address (पूरा पता) *
+                          </label>
+                          <span className="text-[10px] text-emerald-400 font-semibold">
+                            💡 टाइप करते ही दिल्ली के प्रमुख इंडस्ट्रियल एरिया व बाजार लिस्ट होंगे
+                          </span>
+                        </div>
+
+                        {/* Quick Dropdown Picker for Delhi Industrial Areas & Business Markets */}
+                        <div className="mb-2">
+                          <select
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val) {
+                                setConsigneeAddress(val);
+                                setPurchaserAddress(val);
+                                setConsigneeState('Delhi');
+                                setConsigneeStateCode('07');
+                                if (sameAsConsignee) {
+                                  setBuyerAddress(val);
+                                  setBuyerState('Delhi');
+                                  setBuyerStateCode('07');
+                                }
+                              }
+                            }}
+                            defaultValue=""
+                            className="w-full px-3 py-1.5 bg-slate-900 border border-emerald-500/40 rounded-xl text-xs text-emerald-300 font-semibold focus:ring-2 focus:ring-emerald-500 outline-none"
+                          >
+                            <option value="">-- 🏢 दिल्ली के मुख्य बाजार व औद्योगिक क्षेत्र चुनें (Select Delhi Market / Industrial Area) --</option>
+                            <optgroup label="🏭 दिल्ली औद्योगिक क्षेत्र (Industrial Areas)">
+                              {DELHI_BUSINESS_AND_INDUSTRIAL_ADDRESSES.filter((a) => a.includes('INDUSTRIAL') || a.includes('ESTATE') || (a.includes('NAGAR') && a.includes('UDYOG'))).map((addr, idx) => (
+                                <option key={`ind-${idx}`} value={addr}>
+                                  {addr}
+                                </option>
+                              ))}
+                            </optgroup>
+                            <optgroup label="🛍️ दिल्ली मुख्य व्यापारिक बाजार (Main Wholesale Markets)">
+                              {DELHI_BUSINESS_AND_INDUSTRIAL_ADDRESSES.filter((a) => !a.includes('INDUSTRIAL') && !a.includes('ESTATE') && !(a.includes('NAGAR') && a.includes('UDYOG'))).map((addr, idx) => (
+                                <option key={`mkt-${idx}`} value={addr}>
+                                  {addr}
+                                </option>
+                              ))}
+                            </optgroup>
+                          </select>
+                        </div>
+
+>>>>>>> 4bcb0052f4e1ac8e656f82de2a3f7014aec61599
                         <input
                           type="text"
                           required
+                          list="delhi-industrial-addresses"
                           value={consigneeAddress || purchaserAddress}
+<<<<<<< HEAD
                           onChange={(e) => handleAddressInputChange(e.target.value)}
                           placeholder="e.g. Shop No 4, Badli Road, Badli, New Delhi"
                           className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-emerald-500 outline-none"
@@ -4763,6 +5209,26 @@ export default function BillerPortalPage() {
                             </button>
                           </div>
                         )}
+=======
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setConsigneeAddress(val);
+                            setPurchaserAddress(val);
+                            const detected = detectStateFromAddress(val);
+                            if (detected) handleConsigneeStateChange(detected.name);
+                          }}
+                          placeholder="e.g. SHOP NO -17/18, MAIN ROAD, SADAR BAZAR, DELHI - 110006"
+                          className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-emerald-500 outline-none font-medium"
+                        />
+                        <datalist id="delhi-industrial-addresses">
+                          {DELHI_BUSINESS_AND_INDUSTRIAL_ADDRESSES.map((addr, idx) => (
+                            <option key={`dl-${idx}`} value={addr} />
+                          ))}
+                        </datalist>
+                        <p className="text-[10px] text-slate-400 mt-1">
+                          ✍️ आप इस पते को एडिट भी कर सकते हैं (जैसे दुकान नंबर या फ्लोर बदलना)। नीचे <strong>"Save Party & Address to Marka"</strong> दबाकर भविष्य के लिए सहेजें।
+                        </p>
+>>>>>>> 4bcb0052f4e1ac8e656f82de2a3f7014aec61599
                       </div>
 
                       <div className="grid grid-cols-2 gap-2">
@@ -4939,28 +5405,80 @@ export default function BillerPortalPage() {
                     </div>
                   </div>
 
-                  <button
-                    type="submit"
-                    disabled={isSubmittingManual || isEWayBillMissing || invoiceTaxableTotal <= 0}
-                    className="w-full sm:w-auto px-7 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-2xl text-xs transition shadow-lg shadow-amber-500/20 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
-                  >
-                    {isSubmittingManual ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
-                        <span>Generating Bill...</span>
-                      </>
-                    ) : formVehicleNumber.trim() ? (
-                      <>
-                        <Truck className="w-4 h-4" />
-                        <span>Generate Tax Invoice (गाड़ी नं: {formVehicleNumber.trim()})</span>
-                      </>
-                    ) : (
-                      <>
-                        <Check className="w-4 h-4" />
-                        <span>Generate Tax Invoice (गाड़ी नं. बाद में डिस्पैचर द्वारा डाला जाएगा)</span>
-                      </>
-                    )}
-                  </button>
+                  <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full sm:w-auto">
+                    <button
+                      type="button"
+                      disabled={invoiceTaxableTotal <= 0}
+                      onClick={() => {
+                        const separateEWayInv = (useSeparateEWayInvoice || isEWayBillRequired) && eWayInvoiceNumber.trim();
+                        const curBill = {
+                          billNumber: separateEWayInv ? eWayInvoiceNumber.trim() : (formBillNumber.trim() || receiptNo.trim() || 'RCP-DRAFT'),
+                          eWayInvoiceNumber: separateEWayInv ? eWayInvoiceNumber.trim() : undefined,
+                          receipt: receiptNo.trim() || 'RCP-DRAFT',
+                          hsnCode: lineHsn || hsnCode || '94039900',
+                          igst: igstRate,
+                          billingUnit: lineUnit || billingUnit || 'CTN',
+                          quantityPcs: parseFloat(quantityPcs) || (lineUnit.toUpperCase() === 'PCS' ? parseFloat(lineQuantity) : 0) || 1,
+                          quantityKg: parseFloat(quantityKg) || (lineUnit.toUpperCase().includes('KG') ? parseFloat(lineQuantity) : 0) || 1,
+                          totalCartons: parseFloat(totalCartons) || (lineUnit.toUpperCase().includes('CTN') ? parseFloat(lineQuantity) : 0) || 1,
+                          taxableValue: invoiceTaxableTotal,
+                          commodity: lineDescription || commodity || 'COMMERCIAL GOODS',
+                          sellerName: currentSeller?.name || 'NORDEX INTERNATIONAL',
+                          sellerGstin: currentSeller?.gstin || '07AAIHH1727F1ZH',
+                          sellerAddress: currentSeller?.address || '',
+                          sellerState: currentSeller?.state || 'Delhi',
+                          sellerStateCode: currentSeller?.stateCode || '07',
+                          purchaserName: purchaserName.trim() || partyName || 'General Party',
+                          purchaserRegistrationType: registrationType,
+                          purchaserGstin: registrationType === 'Registered' ? purchaserGstin : '',
+                          consigneeAddress: consigneeAddress || purchaserAddress,
+                          consigneeState: consigneeState,
+                          consigneeStateCode: consigneeStateCode,
+                          vehicleNumber: formVehicleNumber.trim(),
+                          items: invoiceItems.length > 0 ? invoiceItems : [
+                            {
+                              itemNo: 1,
+                              description: lineDescription || commodity || 'COMMERCIAL GOODS',
+                              hsnCode: lineHsn || hsnCode || '94039900',
+                              quantity: parseFloat(lineQuantity) || parseFloat(totalCartons) || 1,
+                              unit: lineUnit || 'CTN',
+                              rate: parseFloat(lineRate) || 0,
+                              amount: invoiceTaxableTotal,
+                            },
+                          ],
+                        };
+                        downloadEWayBillJson(curBill);
+                      }}
+                      className="w-full sm:w-auto px-4 py-3 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-amber-300 font-bold rounded-2xl text-xs transition border border-amber-500/40 flex items-center justify-center space-x-2"
+                      title="Download Government NIC E-Way Bill JSON directly for this invoice"
+                    >
+                      <Download className="w-4 h-4 text-amber-400" />
+                      <span>Download E-Way JSON</span>
+                    </button>
+
+                    <button
+                      type="submit"
+                      disabled={isSubmittingManual || invoiceTaxableTotal <= 0}
+                      className="w-full sm:w-auto px-7 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-2xl text-xs transition shadow-lg shadow-amber-500/20 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                    >
+                      {isSubmittingManual ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                          <span>Generating Bill...</span>
+                        </>
+                      ) : formVehicleNumber.trim() ? (
+                        <>
+                          <Truck className="w-4 h-4" />
+                          <span>Generate Tax Invoice (गाड़ी नं: {formVehicleNumber.trim()})</span>
+                        </>
+                      ) : (
+                        <>
+                          <Check className="w-4 h-4" />
+                          <span>Generate Tax Invoice (गाड़ी नं. बाद में डिस्पैचर द्वारा डाला जाएगा)</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             </form>
@@ -5074,6 +5592,19 @@ export default function BillerPortalPage() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => {
+                    const selectedBills = bills.filter((b) => selectedBillIds.has(b._id));
+                    if (selectedBills.length === 0) return;
+                    downloadEWayBillJson(selectedBills);
+                  }}
+                  className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-xl text-xs transition flex items-center space-x-1.5 shadow flex-shrink-0"
+                  title="Download combined Government E-Way Bill JSON for selected bills"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download E-Way JSON ({selectedBillIds.size})</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => setSelectedBillIds(new Set())}
                   className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold transition flex-shrink-0"
                 >
@@ -5140,6 +5671,25 @@ export default function BillerPortalPage() {
                       <td className="p-3.5">
                         <div className="font-bold text-white">{b.receipt}</div>
                         <div className="text-[10px] text-slate-500 font-mono">{b.billNumber}</div>
+                        {b.eWayBillNo ? (
+                          <div
+                            onClick={() => handleOpenEWayPrintModal(b, 'both')}
+                            title="ई-वे बिल नंबर (प्रिंट करने के लिए क्लिक करें)"
+                            className="inline-flex items-center space-x-1 text-[9px] font-mono font-bold text-amber-300 hover:text-amber-200 bg-amber-950/60 border border-amber-800/60 rounded px-1.5 py-0.5 mt-0.5 cursor-pointer"
+                          >
+                            <Truck className="w-2.5 h-2.5 text-amber-400" />
+                            <span>{b.eWayBillNo}</span>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEWayPrintModal(b, 'both')}
+                            className="text-[9px] text-amber-400/80 hover:text-amber-300 underline block mt-0.5"
+                            title="ई-वे बिल नंबर दर्ज करें और प्रिंट करें"
+                          >
+                            + e-Way No.
+                          </button>
+                        )}
                       </td>
                       <td className="p-3.5">
                         <span className="font-semibold text-cyan-300">
@@ -5221,21 +5771,66 @@ export default function BillerPortalPage() {
                       </td>
                       <td className="p-3.5 text-center">
                         <div className="flex items-center justify-center space-x-1.5">
+                          {/* Print Both (Invoice + e-Way Bill) */}
                           <button
+                            type="button"
+                            onClick={() => handleOpenEWayPrintModal(b, 'both')}
+                            title="बिल और सरकारी ई-वे बिल दोनों एक साथ प्रिंट करें (Print Both: Invoice + e-Way Bill in 1 PDF)"
+                            className="p-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-lg transition shadow flex items-center space-x-1"
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                            <span className="hidden xl:inline text-[9px] font-black">BOTH</span>
+                          </button>
+
+                          {/* Print Actual Government e-Way Bill Standalone */}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEWayPrintModal(b, 'eway')}
+                            title="सरकारी ई-वे बिल प्रिंट करें (Print Actual Government e-Way Bill PDF)"
+                            className="p-1.5 bg-slate-800 hover:bg-indigo-500/30 hover:text-indigo-300 text-slate-300 rounded-lg transition flex items-center space-x-1 border border-slate-700"
+                          >
+                            <Truck className="w-3.5 h-3.5 text-indigo-400" />
+                            <span className="hidden xl:inline text-[9px] font-bold text-indigo-300">e-Way</span>
+                          </button>
+
+                          {/* Edit Bill */}
+                          <button
+                            type="button"
                             onClick={() => handleOpenEditBillModal(b)}
                             title="बिल की जानकारी बदलें / एडिट करें (Edit Bill)"
                             className="p-1.5 bg-slate-800 hover:bg-cyan-500/20 hover:text-cyan-400 text-slate-300 rounded-lg transition"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
+
+                          {/* Download Invoice PDF */}
                           <button
+<<<<<<< HEAD
                             onClick={() => generateBillPDF({ ...b, theme: pdfTheme }, true)}
+=======
+                            type="button"
+                            onClick={() => generateBillPDF(b, true)}
+>>>>>>> 4bcb0052f4e1ac8e656f82de2a3f7014aec61599
                             title="Download PDF Bill"
                             className="p-1.5 bg-slate-800 hover:bg-amber-500/20 hover:text-amber-400 text-slate-300 rounded-lg transition"
                           >
                             <Download className="w-3.5 h-3.5" />
                           </button>
+
+                          {/* Download E-Way JSON */}
                           <button
+                            type="button"
+                            onClick={() => downloadEWayBillJson(b)}
+                            title="Download Government NIC E-Way Bill JSON (e-Way Bill Portal Upload)"
+                            className="p-1.5 bg-slate-800 hover:bg-emerald-500/20 hover:text-emerald-400 text-slate-300 rounded-lg transition flex items-center space-x-1"
+                          >
+                            <FileText className="w-3.5 h-3.5 text-emerald-400" />
+                            <span className="hidden xl:inline text-[9px] font-bold text-emerald-300">JSON</span>
+                          </button>
+
+                          {/* Delete Bill */}
+                          <button
+                            type="button"
                             onClick={() => handleDeleteBill(b._id, b.receipt)}
                             title="Delete Bill"
                             className="p-1.5 bg-slate-800 hover:bg-red-500/20 hover:text-red-400 text-slate-400 rounded-lg transition"
@@ -7143,6 +7738,83 @@ export default function BillerPortalPage() {
                   रद्द करें (Cancel)
                 </button>
                 <button
+                  type="button"
+                  onClick={() => {
+                    if (billToEdit) {
+                      const snapshot = {
+                        ...billToEdit,
+                        billNumber: editBillData.billNumber.trim() || billToEdit.billNumber,
+                        purchaserName: editBillData.purchaserName.trim(),
+                        purchaserRegistrationType: editBillData.purchaserRegistrationType,
+                        purchaserGstin: editBillData.purchaserRegistrationType === 'Registered' ? editBillData.purchaserGstin : '',
+                        consigneeAddress: editBillData.consigneeAddress.trim(),
+                        consigneeState: editBillData.consigneeState.trim(),
+                        consigneeStateCode: editBillData.consigneeStateCode.trim(),
+                        buyerName: editBillData.sameAsConsignee ? editBillData.purchaserName : editBillData.buyerName,
+                        buyerAddress: editBillData.sameAsConsignee ? editBillData.consigneeAddress : editBillData.buyerAddress,
+                        buyerGstin: editBillData.sameAsConsignee ? editBillData.purchaserGstin : editBillData.buyerGstin,
+                        vehicleNumber: editBillData.vehicleNumber.trim(),
+                        destination: editBillData.destination.trim(),
+                        items: editBillData.items,
+                        commodity: editBillData.items[0]?.description || billToEdit.commodity,
+                      };
+                      downloadEWayBillJson(snapshot);
+                    }
+                  }}
+                  className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold rounded-xl text-xs transition flex items-center space-x-1.5 border border-amber-500/30"
+                  title="Download Government NIC E-Way Bill JSON for this invoice"
+                >
+                  <Download className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Download E-Way JSON</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (billToEdit) {
+                      const snapshot: any = {
+                        ...billToEdit,
+                        ...editBillData,
+                        billNumber: editBillData.billNumber.trim(),
+                        eWayBillNo: editBillData.eWayBillNo.trim(),
+                        vehicleNumber: editBillData.vehicleNumber.trim(),
+                        destination: editBillData.destination.trim(),
+                        items: editBillData.items,
+                      };
+                      generateBothBillAndEWayPDF(snapshot, true);
+                    }
+                  }}
+                  className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-xl text-xs transition flex items-center space-x-1.5 shadow"
+                  title="बिल और सरकारी ई-वे बिल दोनों एक साथ प्रिंट करें (Print Both Invoice & e-Way Bill)"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Print Both (Bill + e-Way)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (billToEdit) {
+                      const snapshot: any = {
+                        ...billToEdit,
+                        ...editBillData,
+                        billNumber: editBillData.billNumber.trim(),
+                        eWayBillNo: editBillData.eWayBillNo.trim(),
+                        vehicleNumber: editBillData.vehicleNumber.trim(),
+                        destination: editBillData.destination.trim(),
+                        items: editBillData.items,
+                      };
+                      generateEWayBillPDF(snapshot, true);
+                    }
+                  }}
+                  className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs transition flex items-center space-x-1.5 shadow"
+                  title="सरकारी ई-वे बिल प्रिंट करें (Print Actual Government e-Way Bill PDF)"
+                >
+                  <Truck className="w-3.5 h-3.5" />
+                  <span>e-Way Bill</span>
+                </button>
+
+                <button
                   type="submit"
                   disabled={isSavingEditBill}
                   className="px-6 py-2.5 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white font-black rounded-xl text-xs transition flex items-center space-x-2 shadow-lg shadow-cyan-900/40"
@@ -7156,6 +7828,100 @@ export default function BillerPortalPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ENTER E-WAY BILL NUMBER & PRINT */}
+      {eWayModalBill && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-amber-500/40 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-2 bg-amber-500/20 text-amber-400 rounded-xl">
+                  <Truck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white">ई-वे बिल प्रिंट करें (Print e-Way Bill)</h3>
+                  <p className="text-[11px] text-slate-400">Bill No: #{eWayModalBill.billNumber || eWayModalBill.receipt}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEWayModalBill(null)}
+                className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-1">
+                <div className="flex justify-between text-slate-300">
+                  <span className="text-slate-500">Party Name:</span>
+                  <span className="font-bold text-white truncate max-w-[200px]">{eWayModalBill.party || eWayModalBill.purchaserName || 'General Party'}</span>
+                </div>
+                <div className="flex justify-between text-slate-300">
+                  <span className="text-slate-500">Total Value:</span>
+                  <span className="font-bold text-emerald-400">₹{Number(eWayModalBill.totalAmount || 0).toLocaleString('en-IN')}</span>
+                </div>
+                <div className="flex justify-between text-slate-300">
+                  <span className="text-slate-500">Quantity:</span>
+                  <span className="font-bold text-amber-300">{eWayModalBill.totalCartons || 0} CTN</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-amber-300 mb-1">
+                  सरकारी ई-वे बिल नंबर दर्ज करें (12-Digit e-Way Bill No.) *
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. 2418 9201 8472"
+                  value={eWayModalInputNo}
+                  onChange={(e) => setEWayModalInputNo(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-amber-500/50 rounded-xl text-amber-200 font-mono font-bold text-sm focus:outline-none focus:border-amber-400"
+                  autoFocus
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  पोर्टल (ewaybillgst.gov.in) पर जनरेट होने के बाद प्राप्त हुआ 12-अंकों का नंबर दर्ज करें।
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                  गाड़ी नंबर (Vehicle Number)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. DL01LAH5192"
+                  value={eWayModalVehicleNo}
+                  onChange={(e) => setEWayModalVehicleNo(e.target.value.toUpperCase())}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white font-mono font-bold text-xs focus:outline-none focus:border-cyan-400"
+                />
+              </div>
+            </div>
+
+            <div className="pt-2 flex flex-col sm:flex-row gap-2">
+              <button
+                type="button"
+                disabled={isSavingEWayModal}
+                onClick={() => handleConfirmPrintEWay('both')}
+                className="flex-1 py-2.5 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-xl text-xs transition flex items-center justify-center space-x-1.5 shadow-lg shadow-emerald-950/40"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>🖨️ Print Both (Bill + e-Way)</span>
+              </button>
+              <button
+                type="button"
+                disabled={isSavingEWayModal}
+                onClick={() => handleConfirmPrintEWay('eway')}
+                className="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold rounded-xl text-xs transition flex items-center justify-center space-x-1.5 border border-amber-500/30"
+              >
+                <Truck className="w-3.5 h-3.5" />
+                <span>e-Way Bill Only</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

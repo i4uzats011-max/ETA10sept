@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import MarkaAddress from '@/models/MarkaAddress';
 import { isAnyAuthenticated } from '@/lib/auth';
+import { recordEditLog } from '@/lib/auditLog';
 
 export const dynamic = 'force-dynamic';
 
@@ -173,6 +174,14 @@ export async function POST(req: NextRequest) {
 
     await record.save();
 
+    await recordEditLog(req, {
+      action: 'UPDATE',
+      entityType: 'MarkaAddress',
+      entityId: cleanMarka,
+      description: `Saved Marka purchaser/address details for '${cleanMarka}' (${purchaserName || 'N/A'})`,
+      details: { marka: cleanMarka, purchaserName, registrationType, gstin },
+    });
+
     return NextResponse.json({
       success: true,
       message: 'Marka purchaser details and address updated successfully',
@@ -228,6 +237,14 @@ export async function PUT(req: NextRequest) {
 
     await record.save();
 
+    await recordEditLog(req, {
+      action: 'UPDATE',
+      entityType: 'MarkaAddress',
+      entityId: `${cleanMarka} / ${addressId}`,
+      description: `Updated delivery location '${targetAddr.title || 'Location'}' for Marka '${cleanMarka}'`,
+      details: { marka: cleanMarka, addressId, title, address, city, state, isDefault },
+    });
+
     return NextResponse.json({
       success: true,
       message: 'Address updated successfully',
@@ -266,6 +283,13 @@ export async function DELETE(req: NextRequest) {
     if (addressId) {
       record.addresses.pull({ _id: addressId });
       await record.save();
+      await recordEditLog(req, {
+        action: 'DELETE',
+        entityType: 'MarkaAddress',
+        entityId: `${marka} / ${addressId}`,
+        description: `Deleted address from Marka '${marka}'`,
+        details: { marka, addressId },
+      });
       return NextResponse.json({
         success: true,
         message: 'Address deleted successfully',
@@ -273,6 +297,13 @@ export async function DELETE(req: NextRequest) {
       });
     } else {
       await MarkaAddress.deleteOne({ _id: record._id });
+      await recordEditLog(req, {
+        action: 'DELETE',
+        entityType: 'MarkaAddress',
+        entityId: marka,
+        description: `Deleted entire Marka '${marka}' from directory`,
+        details: { marka },
+      });
       return NextResponse.json({
         success: true,
         message: `Marka '${marka}' deleted from directory successfully`,

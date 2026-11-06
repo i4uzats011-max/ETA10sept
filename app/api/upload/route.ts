@@ -5,7 +5,8 @@ import Container from '@/models/Container';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
 import Warehouse from '@/models/Warehouse';
 import UploadHistory from '@/models/UploadHistory';
-import { isSuperAdminAuthenticated } from '@/lib/auth';
+import { isSuperAdminAuthenticated, getAuthenticatedUser } from '@/lib/auth';
+import { recordEditLog } from '@/lib/auditLog';
 import * as XLSX from 'xlsx';
 import { parse } from 'csv-parse/sync';
 import { formatReceiptDate } from '@/lib/dateUtils';
@@ -371,7 +372,7 @@ export async function POST(req: NextRequest) {
           const rEnglish = englishHeader && r[englishHeader] !== undefined ? String(r[englishHeader]).trim() : '';
 
           const { english: tEn, chinese: tCn } = translateCommodity(rCommodity);
-          const itEn = rEnglish ? (hasChineseCharacters(rEnglish) ? translateToEnglish(rEnglish) : rEnglish) : tEn;
+          const itEn = (rEnglish && rEnglish !== 'General Merchandise') ? (hasChineseCharacters(rEnglish) ? translateToEnglish(rEnglish) : rEnglish) : tEn;
           const itCn = tCn || (hasChineseCharacters(rCommodity) ? rCommodity : '');
           const itPkg = translatePackaging(packagingHeader && r[packagingHeader] !== undefined ? String(r[packagingHeader]).trim() : '');
           const itWt = weightHeader && r[weightHeader] !== undefined ? String(r[weightHeader]).trim() : '';
@@ -535,6 +536,22 @@ export async function POST(req: NextRequest) {
       const message = savedReceipts.length > 0
         ? `China Warehouse Inward: Successfully uploaded ${savedReceipts.length} unique cargo record(s) in '${defaultWarehouse}'.${duplicatesList.length > 0 ? ` Skipped ${duplicatesList.length} duplicate receipt(s) (list provided).` : ''}${missingDetails.length > 0 ? ` Skipped ${missingDetails.length} row(s) missing mandatory receipt/date.` : ''}`
         : `No records uploaded: ${duplicatesList.length} duplicate receipt(s) and ${missingDetails.length} row(s) with missing receipt/date were skipped.`;
+
+      if (savedReceipts.length > 0) {
+        await recordEditLog(req, {
+          action: 'CREATE',
+          entityType: 'WarehouseStock',
+          entityId: uploadBatchId,
+          description: `Uploaded warehouse stock file '${file.name}' (${savedReceipts.length} records saved, warehouse: ${defaultWarehouse})`,
+          details: {
+            fileName: file.name,
+            warehouse: defaultWarehouse,
+            savedCount: savedReceipts.length,
+            duplicateCount: duplicatesList.length,
+            missingCount: missingDetails.length,
+          },
+        });
+      }
 
       return NextResponse.json({
         success: savedReceipts.length > 0,
@@ -813,7 +830,7 @@ export async function POST(req: NextRequest) {
       const rawCommodity = commodityHeader && row[commodityHeader] !== undefined ? String(row[commodityHeader]).trim() : '';
       const rawEnglish = englishHeader && row[englishHeader] !== undefined ? String(row[englishHeader]).trim() : '';
       const { english: translatedEnglish, chinese: translatedChinese } = translateCommodity(rawCommodity);
-      const finalEnglish = rawEnglish ? (hasChineseCharacters(rawEnglish) ? translateToEnglish(rawEnglish) : rawEnglish) : translatedEnglish;
+      const finalEnglish = (rawEnglish && rawEnglish !== 'General Merchandise') ? (hasChineseCharacters(rawEnglish) ? translateToEnglish(rawEnglish) : rawEnglish) : translatedEnglish;
       const finalChinese = translatedChinese || (hasChineseCharacters(rawCommodity) ? rawCommodity : '');
       const finalPackaging = translatePackaging(packagingHeader && row[packagingHeader] !== undefined ? String(row[packagingHeader]).trim() : '');
       const finalWarehouse = translateWarehouse(warehouseHeader && row[warehouseHeader] !== undefined ? String(row[warehouseHeader]).trim() : defaultWarehouse);
@@ -1056,6 +1073,20 @@ export async function POST(req: NextRequest) {
         errorType: 'Missing Mandatory Field',
         reason: m.reason,
       });
+    });
+
+    // Record Edit Log for Loading Plan upload
+    await recordEditLog(req, {
+      action: 'CREATE',
+      entityType: 'LoadingPlan',
+      entityId: uploadBatchId,
+      description: `Uploaded loading plan file '${file.name}' (${countInserted || bulkOperations.length} records, container: ${targetContainer || distinctUploadContainers[0] || 'N/A'})`,
+      details: {
+        fileName: file.name,
+        targetContainer: targetContainer || distinctUploadContainers[0] || '',
+        savedCount: countInserted || bulkOperations.length,
+        totalRows: records.length,
+      },
     });
 
     // JSONCargo API is NOT called during upload to preserve API quota and prevent timeouts.

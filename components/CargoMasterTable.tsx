@@ -25,6 +25,9 @@ import {
 import { formatGlobalDate, parseReceiptDate } from '@/lib/dateUtils';
 import CargoMasterChart from './CargoMasterChart';
 import MarkDeliveredModal from './MarkDeliveredModal';
+import ContainerRateDownloadModal from './ContainerRateDownloadModal';
+import { getCarrierTrackingUrl, getLdbRailwayTrackingUrl } from '@/lib/trackingUrls';
+import { downloadContainerWiseRateExcel, downloadReceiptWiseRateExcel } from '@/lib/containerRateExport';
 import * as XLSX from 'xlsx';
 import {
   Search,
@@ -53,6 +56,7 @@ import {
   SlidersHorizontal,
   ChevronDown,
   ChevronUp,
+  ExternalLink,
 } from 'lucide-react';
 
 export const ALL_CARGO_COLUMNS: { key: string; label: string }[] = [
@@ -89,13 +93,11 @@ export const isContainerDelivered = (c?: { isDelivered?: boolean; deliveryDate?:
 
 interface CargoMasterTableProps {
   onEditDates?: (containerAlias: string) => void;
-  onSyncApi?: (containerAlias: string) => void;
   isStaffOnly?: boolean;
 }
 
 export default function CargoMasterTable({
   onEditDates,
-  onSyncApi,
   isStaffOnly = false,
 }: CargoMasterTableProps) {
   const dispatch = useAppDispatch();
@@ -106,6 +108,10 @@ export default function CargoMasterTable({
   const [showCharts, setShowCharts] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<'admin' | 'staff' | null>(null);
+  const [isDownloadingRates, setIsDownloadingRates] = useState(false);
+  const [isDownloadingReceiptRates, setIsDownloadingReceiptRates] = useState(false);
+  const [isRateModalOpen, setIsRateModalOpen] = useState(false);
+  const [selectedContainerForModal, setSelectedContainerForModal] = useState<string>('ALL');
 
   useEffect(() => {
     fetch('/api/auth/me')
@@ -178,7 +184,6 @@ export default function CargoMasterTable({
   };
 
   const [apiStats, setApiStats] = useState<any | null>(null);
-  const [syncingContainer, setSyncingContainer] = useState<string | null>(null);
 
   const fetchTableApiStats = async () => {
     try {
@@ -355,39 +360,7 @@ export default function CargoMasterTable({
     }
   };
 
-  // Handle Direct API Status & ETA Sync
-  const handleSyncContainer = async (containerAlias: string, containerNumber?: string, shippingLine?: string) => {
-    if (!containerNumber || !containerNumber.trim()) {
-      alert(`Container '${containerAlias}' does not have an actual carrier container number allotted yet.`);
-      return;
-    }
-    setSyncingContainer(containerAlias);
-    try {
-      const res = await fetch('/api/containers/sync-eta', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          containerNumber: containerNumber.trim(),
-          shippingLine: shippingLine || 'MSC',
-          forceRefresh: true,
-          planContainer: containerAlias,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to sync carrier status');
-      alert(`Status updated successfully for '${containerAlias}' (${containerNumber}).\nStatus: ${data.status || 'In Transit'}\nETA: ${data.eta || 'Updated'}`);
-      dispatch(fetchCargoFleet());
-      if (data.apiStats) {
-        setApiStats(data.apiStats);
-      } else {
-        fetchTableApiStats();
-      }
-    } catch (err: any) {
-      alert(err.message || 'API sync failed');
-    } finally {
-      setSyncingContainer(null);
-    }
-  };
+
 
 
   // Define Columns using TanStack React Table
@@ -437,6 +410,19 @@ export default function CargoMasterTable({
               >
                 {isCopied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
               </button>
+              <a
+                href={getLdbRailwayTrackingUrl(num)}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => {
+                  if (navigator.clipboard) navigator.clipboard.writeText(num);
+                }}
+                className="inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-sans font-bold transition"
+                title="Track on Indian Railway LDB (ldb.co.in) - Copies container no & opens LDB"
+              >
+                <span>Rail LDB</span>
+                <ExternalLink className="w-2.5 h-2.5 text-emerald-600" />
+              </a>
             </div>
           );
         },
@@ -444,11 +430,23 @@ export default function CargoMasterTable({
       {
         accessorKey: 'shippingLine',
         header: 'Shipping Line',
-        cell: ({ row }) => (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200">
-            {row.original.shippingLine || 'MSC'}
-          </span>
-        ),
+        cell: ({ row }) => {
+          const line = row.original.shippingLine || 'MSC';
+          const containerNo = row.original.containerNumber;
+          const trackingUrl = getCarrierTrackingUrl(line, containerNo);
+          return (
+            <a
+              href={trackingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 hover:text-blue-900 border border-blue-200 transition group cursor-pointer shadow-2xs"
+              title={`Click to open official ${line} tracking website`}
+            >
+              <span>{line}</span>
+              <ExternalLink className="w-3 h-3 text-blue-500 group-hover:text-blue-700 group-hover:translate-x-0.5 transition-transform" />
+            </a>
+          );
+        },
       },
       {
         accessorKey: 'warehouse',
@@ -853,6 +851,20 @@ export default function CargoMasterTable({
                 </button>
               )}
 
+              {/* Download Rates for this specific Container (Receipt-Wise) */}
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedContainerForModal(c.container);
+                  setIsRateModalOpen(true);
+                }}
+                className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-300 rounded-lg text-xs font-bold transition flex items-center space-x-1 shadow-2xs"
+                title={`Select & download receipt-wise rates for container ${c.container}`}
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Rates</span>
+              </button>
+
               {/* Click to view full logistics details for this container (Available for everyone) */}
               <button
                 type="button"
@@ -889,24 +901,37 @@ export default function CargoMasterTable({
                 <span>Logistics</span>
               </button>
 
-              {/* Super Admin Mutations: Sync / De-map / Delete */}
+              {/* Super Admin Mutations: Track on Carrier / De-map / Delete */}
               {isSuperAdmin && (
                 <>
-                  {!isDelivered && hasActualContainer && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onSyncApi
-                          ? onSyncApi(c.container)
-                          : handleSyncContainer(c.container, c.containerNumber, c.shippingLine)
-                      }
-                      disabled={syncingContainer === c.container}
-                      className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-300 rounded-lg text-xs font-semibold transition flex items-center space-x-1"
-                      title="Manual API Sync (Immediate carrier tracking & ETA status update)"
-                    >
-                      <Zap className={`w-3.5 h-3.5 text-indigo-600 ${syncingContainer === c.container ? 'animate-spin' : ''}`} />
-                      <span>Sync</span>
-                    </button>
+                  {hasActualContainer && (
+                    <>
+                      <a
+                        href={getCarrierTrackingUrl(c.shippingLine, c.containerNumber)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-300 rounded-lg text-xs font-semibold transition flex items-center space-x-1"
+                        title={`Open official ${c.shippingLine || 'carrier'} tracking website`}
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Track</span>
+                      </a>
+                      <a
+                        href={getLdbRailwayTrackingUrl(c.containerNumber)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => {
+                          if (c.containerNumber && navigator.clipboard) {
+                            navigator.clipboard.writeText(c.containerNumber);
+                          }
+                        }}
+                        className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-semibold transition flex items-center space-x-1"
+                        title="Track on Indian Railway LDB (ldb.co.in) - Copies container no & opens LDB"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Rail LDB</span>
+                      </a>
+                    </>
                   )}
 
                   {/* De-map Actual Container Button */}
@@ -946,7 +971,7 @@ export default function CargoMasterTable({
         },
       },
     ];
-  }, [copiedId, dispatch, onEditDates, onSyncApi, isStaffOnly, isSuperAdmin, syncingContainer]);
+  }, [copiedId, dispatch, onEditDates, isStaffOnly, isSuperAdmin]);
 
   // Master Logistics Columns Reveal State
   const isLogisticsRevealed = Boolean(
@@ -1061,6 +1086,11 @@ export default function CargoMasterTable({
   return (
     <div className="space-y-6">
       <MarkDeliveredModal />
+      <ContainerRateDownloadModal
+        isOpen={isRateModalOpen}
+        onClose={() => setIsRateModalOpen(false)}
+        initialContainer={selectedContainerForModal}
+      />
 
       {/* Action Notification Banner */}
       {actionMessage && (
@@ -1115,31 +1145,6 @@ export default function CargoMasterTable({
                 <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full font-bold text-[11px]">
                   {filteredData.length} records
                 </span>
-                {apiStats && (
-                  <span
-                    className={`inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full font-bold text-[11px] border ${
-                      apiStats.status === 'invalid_key'
-                        ? 'bg-rose-50 text-rose-700 border-rose-200'
-                        : (apiStats.remainingCalls ?? apiStats.requests_available ?? 0) < 50
-                        ? 'bg-rose-50 text-rose-700 border-rose-200'
-                        : (apiStats.remainingCalls ?? apiStats.requests_available ?? 0) < 150
-                        ? 'bg-amber-50 text-amber-700 border-amber-200'
-                        : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                    }`}
-                    title={
-                      apiStats.status === 'invalid_key'
-                        ? `JSONCargo API Key Error: ${apiStats.error || 'Key invalid or rejected by JSONCargo'}`
-                        : `JSONCargo Carrier API Quota: ${apiStats.usedCalls ?? apiStats.requests_made ?? 0} used / ${apiStats.totalCalls ?? apiStats.requests_total ?? 1000} total (Plan: ${apiStats.plan || 'Standard'})`
-                    }
-                  >
-                    <Zap className={`w-3 h-3 ${apiStats.status === 'invalid_key' ? 'text-rose-500' : 'text-amber-500 fill-amber-400'}`} />
-                    <span>
-                      {apiStats.status === 'invalid_key'
-                        ? '0 API Syncs Left (Key Error)'
-                        : `${apiStats.remainingCalls ?? apiStats.requests_available ?? 0} API Syncs Left`}
-                    </span>
-                  </span>
-                )}
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
                 Manage carrier actual container numbers, shipping lines, China departure, and delivery turnaround dates.
@@ -1173,7 +1178,7 @@ export default function CargoMasterTable({
                 )}
               </button>
 
-              {/* Dual Download Buttons */}
+              {/* Dual Download Buttons + Container Rates */}
               <div className="flex flex-wrap items-center gap-1.5">
                 <button
                   type="button"
@@ -1194,6 +1199,41 @@ export default function CargoMasterTable({
                   <FileSpreadsheet className="w-3.5 h-3.5 text-blue-600" />
                   <span className="hidden sm:inline">Download All Buckets (.xlsx)</span>
                   <span className="sm:hidden">All Buckets</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedContainerForModal('ALL');
+                    setIsRateModalOpen(true);
+                  }}
+                  className="px-2.5 sm:px-3 py-1.5 sm:py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-300 rounded-xl font-bold text-xs transition flex items-center space-x-1 shadow-xs"
+                  title="Select a container and download its receipt-wise freight rate list in Excel (.xlsx)"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-600" />
+                  <span className="hidden sm:inline">Select Container &amp; Download Rates</span>
+                  <span className="sm:hidden">Rates (.xlsx)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setIsDownloadingRates(true);
+                    try {
+                      await downloadContainerWiseRateExcel();
+                    } catch (e: any) {
+                      alert(e?.message || 'Failed to download container rates');
+                    } finally {
+                      setIsDownloadingRates(false);
+                    }
+                  }}
+                  disabled={isDownloadingRates}
+                  className="px-2.5 sm:px-3 py-1.5 sm:py-2 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-300 rounded-xl font-bold text-xs transition flex items-center space-x-1 shadow-xs disabled:opacity-50"
+                  title="Download container-wise rate manifest with Overall / Receipt Freight Rates in Excel (.xlsx)"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-purple-600" />
+                  <span className="hidden sm:inline">
+                    {isDownloadingRates ? 'Generating...' : 'Container Rates (.xlsx)'}
+                  </span>
+                  <span className="sm:hidden">Rates (.xlsx)</span>
                 </button>
               </div>
 

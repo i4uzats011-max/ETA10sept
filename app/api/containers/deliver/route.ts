@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import Container from '@/models/Container';
 import Shipment from '@/models/Shipment';
-import { isStaffOrAdminAuthenticated } from '@/lib/auth';
+import { isStaffOrAdminAuthenticated, getAuthenticatedUser } from '@/lib/auth';
+import { recordEditLog } from '@/lib/auditLog';
 import { calculateDaysBetween, formatReceiptDate } from '@/lib/dateUtils';
+import { invalidateContainerCache } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +33,10 @@ export async function POST(req: NextRequest) {
 
     // 1. If explicitly unmarking / reverting delivery status
     if (isDelivered === false) {
+      const user = getAuthenticatedUser(req);
+      const modifiedBy = user?.username || 'admin';
+      const modifiedByRole = user?.role || 'admin';
+
       const updated = await Container.findOneAndUpdate(
         { container: cleanAlias },
         {
@@ -39,6 +45,8 @@ export async function POST(req: NextRequest) {
             deliveryDate: '',
             daysToDeliver: null,
             isDelivered: false,
+            lastModifiedBy: modifiedBy,
+            lastModifiedByRole: modifiedByRole,
           },
         },
         { new: true }
@@ -53,6 +61,8 @@ export async function POST(req: NextRequest) {
             deliveryDate: '',
             daysToDeliver: null,
             isDelivered: false,
+            lastModifiedBy: modifiedBy,
+            lastModifiedByRole: modifiedByRole,
           },
         }
       );
@@ -104,6 +114,22 @@ export async function POST(req: NextRequest) {
           await wh.save();
         }
       }
+
+      // Evict container from cache memory upon status change
+      await invalidateContainerCache(cleanAlias);
+      if (updated?.containerNumber) {
+        await invalidateContainerCache(updated.containerNumber);
+      }
+
+      await recordEditLog(req, {
+        action: 'UPDATE',
+        entityType: 'Container',
+        entityId: cleanAlias,
+        description: `Reverted delivery status for container '${cleanAlias}' to In Transit`,
+        details: { container: cleanAlias, isDelivered: false },
+        username: modifiedBy,
+        role: modifiedByRole,
+      });
 
       return NextResponse.json({
         success: true,
@@ -174,6 +200,10 @@ export async function POST(req: NextRequest) {
 
     const isAllDelivered = toExcludeShipments.length === 0;
 
+    const user = getAuthenticatedUser(req);
+    const modifiedBy = user?.username || 'admin';
+    const modifiedByRole = user?.role || 'admin';
+
     // 5. Update Container record in MongoDB
     const updatedContainer = await Container.findOneAndUpdate(
       { container: cleanAlias },
@@ -183,6 +213,8 @@ export async function POST(req: NextRequest) {
           deliveryDate: formattedDelivery,
           daysToDeliver: daysToDeliver,
           isDelivered: isAllDelivered,
+          lastModifiedBy: modifiedBy,
+          lastModifiedByRole: modifiedByRole,
         },
       },
       { new: true, upsert: true }
@@ -199,6 +231,8 @@ export async function POST(req: NextRequest) {
             deliveryDate: formattedDelivery,
             daysToDeliver: daysToDeliver,
             isDelivered: true,
+            lastModifiedBy: modifiedBy,
+            lastModifiedByRole: modifiedByRole,
           },
         }
       );
@@ -281,6 +315,29 @@ export async function POST(req: NextRequest) {
         );
       }
     }
+
+    // Evict container from cache memory upon being marked delivered
+    await invalidateContainerCache(cleanAlias);
+    if (updatedContainer?.containerNumber) {
+      await invalidateContainerCache(updatedContainer.containerNumber);
+    }
+
+    // Record Edit Log
+    await recordEditLog(req, {
+      action: 'UPDATE',
+      entityType: 'Container',
+      entityId: cleanAlias,
+      description: `Marked container '${cleanAlias}' as ${isAllDelivered ? 'Delivered' : 'Partially Delivered'} on ${formattedDelivery}`,
+      details: {
+        container: cleanAlias,
+        deliveryDate: formattedDelivery,
+        isDelivered: isAllDelivered,
+        deliveredShipmentsCount: toDeliverShipments.length,
+        excludedShipmentsCount: toExcludeShipments.length,
+      },
+      username: modifiedBy,
+      role: modifiedByRole,
+    });
 
     return NextResponse.json({
       success: true,

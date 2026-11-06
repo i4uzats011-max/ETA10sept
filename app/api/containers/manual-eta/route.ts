@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
-import { isSuperAdminAuthenticated } from '@/lib/auth';
+import { isSuperAdminAuthenticated, getAuthenticatedUser } from '@/lib/auth';
 import { addFilingBufferDays } from '@/lib/jsoncargo';
 import { calculateDaysBetween, formatReceiptDate } from '@/lib/dateUtils';
+import { invalidateContainerCache } from '@/lib/redis';
+import { recordEditLog } from '@/lib/auditLog';
 
 export const dynamic = 'force-dynamic';
 
@@ -67,9 +69,15 @@ export async function POST(req: NextRequest) {
     await connectToDatabase();
 
     const now = new Date();
+    const user = getAuthenticatedUser(req);
+    const modifiedBy = user?.username || 'admin';
+    const modifiedByRole = user?.role || 'admin';
+
     const updateFields: any = {
       lastApiSync: null,
       etaUpdatedAt: now,
+      lastModifiedBy: modifiedBy,
+      lastModifiedByRole: modifiedByRole,
     };
 
     if (finalAlias) {
@@ -220,6 +228,32 @@ export async function POST(req: NextRequest) {
         }
       ).catch(() => {});
     }
+
+    // Invalidate container cache memory upon status/ETA change
+    await invalidateContainerCache(effectiveTargetAlias);
+    if (finalContainerNo) {
+      await invalidateContainerCache(finalContainerNo);
+    }
+
+    // Record Edit Log for CUD operation
+    await recordEditLog(req, {
+      action: isNewContainer ? 'CREATE' : 'UPDATE',
+      entityType: 'Container',
+      entityId: effectiveTargetAlias,
+      description: isNewContainer
+        ? `Created container ${effectiveTargetAlias}`
+        : `Updated container ${effectiveTargetAlias}`,
+      details: {
+        container: effectiveTargetAlias,
+        containerNumber: finalContainerNo,
+        loadingDate: inputLoading,
+        rawEta: inputActualEta,
+        eta: inputGraceEta,
+        status: updateFields.status,
+      },
+      username: modifiedBy,
+      role: modifiedByRole,
+    });
 
     const message = isNewContainer
       ? `Successfully registered new container '${effectiveTargetAlias}' (${finalContainerNo || 'No Carrier Number'}) in fleet.`

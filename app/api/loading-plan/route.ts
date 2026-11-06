@@ -3,9 +3,11 @@ import { connectToDatabase } from '@/lib/mongodb';
 import Container from '@/models/Container';
 import Shipment from '@/models/Shipment';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
-import { isStaffOrAdminAuthenticated, isSuperAdminAuthenticated } from '@/lib/auth';
-import { fetchContainerTracking, addFilingBufferDays } from '@/lib/jsoncargo';
+import { isStaffOrAdminAuthenticated, isSuperAdminAuthenticated, getAuthenticatedUser } from '@/lib/auth';
+import { recordEditLog } from '@/lib/auditLog';
+import { addFilingBufferDays } from '@/lib/jsoncargo';
 import { parseMetricNumber } from '@/lib/metricUtils';
+import { invalidateContainerCache } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,7 +71,7 @@ export async function GET(req: NextRequest) {
         eta: effectiveEta,
         rawEta: c.rawEta || '',
         destinationDate: c.destinationDate || c.eta || 'N/A',
-        etaBufferDays: c.etaBufferDays !== undefined ? c.etaBufferDays : 10,
+        etaBufferDays: c.etaBufferDays !== undefined ? c.etaBufferDays : 7,
         status: c.status || 'Pending',
         lastApiSync: c.lastApiSync || null,
         etaUpdatedAt,
@@ -108,7 +110,7 @@ export async function GET(req: NextRequest) {
           rawEta: i.rawEta || c.rawEta || '',
           eta: i.eta,
           destinationDate: i.destinationDate || c.destinationDate || '',
-          etaBufferDays: i.etaBufferDays !== undefined ? i.etaBufferDays : (c.etaBufferDays !== undefined ? c.etaBufferDays : 10),
+          etaBufferDays: i.etaBufferDays !== undefined ? i.etaBufferDays : (c.etaBufferDays !== undefined ? c.etaBufferDays : 7),
           etaUpdatedAt: i.etaUpdatedAt ? new Date(i.etaUpdatedAt).toISOString() : etaUpdatedAt,
           status: i.status,
           rate: i.rate || '',
@@ -200,7 +202,7 @@ export async function POST(req: NextRequest) {
     // Action 2: Split and Allocate Cargo into Container
     // ----------------------------------------------------
     if (action === 'allocate-split') {
-      const { receipt, container, quantityToLoad, weightToLoad, volumeToLoad, receiptId, warehouse } = body;
+      const { receipt, container, quantityToLoad, weightToLoad, volumeToLoad, receiptId, warehouse, itemName, commodity, english } = body;
       const cleanReceipt = (receipt || '').trim();
       const cleanContainer = (container || '').trim();
       const qtyToLoad = parseInt(String(quantityToLoad), 10);
@@ -340,7 +342,11 @@ export async function POST(req: NextRequest) {
             ? targetContainer.status
             : 'Loaded');
 
-      // 3. Create Shipment allocation record (Strictly store whReceipt._id and whReceipt.warehouse)
+      // 3. Create Shipment allocation record with custom or original item name
+      const customItemName = (itemName || english || commodity || '').trim();
+      const loadedCommodity = customItemName || whReceipt.commodity || 'Goods';
+      const loadedEnglish = customItemName || whReceipt.english || whReceipt.commodity || 'Goods';
+
       const newShipment = await Shipment.create({
         receipt: whReceipt.receipt,
         receiptId: whReceipt._id,
@@ -351,11 +357,11 @@ export async function POST(req: NextRequest) {
         originalTotalQuantity: String(whReceipt.quantity),
         isSplit: isSplitOperation,
         splitIndex: existingSplitsCount + 1,
-        weight: weightToLoad || whReceipt.weight || '',
-        volume: volumeToLoad || whReceipt.volume || '',
-        commodity: whReceipt.commodity || '',
+        weight: weightToLoad !== undefined && String(weightToLoad).trim() !== '' ? String(weightToLoad).trim() : '',
+        volume: volumeToLoad !== undefined && String(volumeToLoad).trim() !== '' ? String(volumeToLoad).trim() : '',
+        commodity: loadedCommodity,
         chinese: whReceipt.chinese || '',
-        english: whReceipt.english || '',
+        english: loadedEnglish,
         packaging: whReceipt.packaging || '',
         mainMarka: whReceipt.mainMarka || '',
         subMarka: whReceipt.subMarka || '',
@@ -369,7 +375,20 @@ export async function POST(req: NextRequest) {
         cost: whReceipt.cost || whReceipt.totalCost || '',
         remarks: whReceipt.remarks || whReceipt.notes || '',
         isLabblerGoods: Boolean(whReceipt.isLabblerGoods || (whReceipt.remarks && whReceipt.remarks.trim().length > 0) || (whReceipt.notes && whReceipt.notes.trim().length > 0)),
-        goodsItems: Array.isArray(whReceipt.goodsItems) && whReceipt.goodsItems.length > 0 ? whReceipt.goodsItems : [],
+        goodsItems: customItemName
+          ? [
+              {
+                name: customItemName,
+                ctn: qtyToLoad,
+                cbm: volumeToLoad || '',
+                weight: weightToLoad || '',
+                rate: whReceipt.rate || '',
+                cost: whReceipt.totalCost || '',
+              },
+            ]
+          : Array.isArray(whReceipt.goodsItems) && whReceipt.goodsItems.length > 0
+          ? whReceipt.goodsItems
+          : [],
         eta: targetContainer.destinationDate || targetContainer.eta || 'Pending',
         status: initialShipmentStatus,
         uploadedAt: new Date(),
@@ -401,13 +420,26 @@ export async function POST(req: NextRequest) {
       whReceipt.loadedWeight = newLoadedWeight;
       whReceipt.remainingWeight = newRemainingWeight;
 
-      const origName = whReceipt.commodity || whReceipt.english || 'General Goods';
+      // Warehouse stock balance retains the ORIGINAL commodity/item name ("a")
+      const origName = whReceipt.balanceItem?.name || whReceipt.english || whReceipt.commodity || 'General Goods';
       whReceipt.balanceItem = {
         name: origName,
         ctn: whReceipt.remainingQuantity,
         cbm: newRemainingCbm,
         weight: newRemainingWeight,
       };
+
+      whReceipt.loadedItems = [
+        ...(Array.isArray(whReceipt.loadedItems) ? whReceipt.loadedItems : []),
+        {
+          name: loadedEnglish,
+          ctn: qtyToLoad,
+          cbm: loadedCbm,
+          weight: loadedWeight,
+          container: targetContainer.container,
+          shipmentId: newShipment._id,
+        },
+      ];
 
       if (hasDeliveredShipments) {
         whReceipt.isDelivered = false;
@@ -698,35 +730,16 @@ export async function POST(req: NextRequest) {
       let trackingStatus = 'In Transit';
       let trackingDetails: any = null;
 
-      // If container number provided, fetch live carrier ETA & loading date via API
-      if (cleanNum) {
-        try {
-          const tracking = await fetchContainerTracking(cleanNum, cleanCarrier);
-          // If API returns loading date, prioritize the API loading date
-          if (tracking.loadingDate) {
-            cleanLoadingDate = tracking.loadingDate;
-          }
-          if (tracking.eta && tracking.eta !== 'N/A') {
-            trackingEta = tracking.eta;
-          }
-          if (tracking.rawEta) {
-            trackingRawEta = tracking.rawEta;
-          }
-          if (tracking.status) {
-            trackingStatus = tracking.status;
-          }
-          trackingDetails = tracking.dataDetails;
-        } catch {
-          // Fallback gracefully without breaking allotment
-        }
-      }
+      const user = getAuthenticatedUser(req);
+      const modifiedBy = user?.username || 'admin';
+      const modifiedByRole = user?.role || 'admin';
 
       // Ensure cleanLoadingDate is a string
       cleanLoadingDate = cleanLoadingDate || '';
 
       const now = new Date();
-      let cleanBufferDays = etaBufferDays !== undefined ? parseInt(String(etaBufferDays), 10) : (targetContainer.etaBufferDays !== undefined ? targetContainer.etaBufferDays : 10);
-      if (isNaN(cleanBufferDays) || cleanBufferDays < 0) cleanBufferDays = 10;
+      let cleanBufferDays = etaBufferDays !== undefined ? parseInt(String(etaBufferDays), 10) : (targetContainer.etaBufferDays !== undefined ? targetContainer.etaBufferDays : 7);
+      if (isNaN(cleanBufferDays) || cleanBufferDays < 0) cleanBufferDays = 7;
       targetContainer.etaBufferDays = cleanBufferDays;
 
       targetContainer.containerNumber = cleanNum;
@@ -1101,6 +1114,12 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // Evict container from cache memory upon being marked delivered
+      await invalidateContainerCache(targetContainer.container);
+      if (targetContainer.containerNumber) {
+        await invalidateContainerCache(targetContainer.containerNumber);
+      }
+
       return NextResponse.json({
         success: true,
         message: isAllDelivered
@@ -1188,8 +1207,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: `Container '${cleanOldAlias}' not found` }, { status: 404 });
       }
 
-      let cleanBufferDays = etaBufferDays !== undefined ? parseInt(String(etaBufferDays), 10) : (targetContainer.etaBufferDays !== undefined ? targetContainer.etaBufferDays : 10);
-      if (isNaN(cleanBufferDays) || cleanBufferDays < 0) cleanBufferDays = 10;
+      let cleanBufferDays = etaBufferDays !== undefined ? parseInt(String(etaBufferDays), 10) : (targetContainer.etaBufferDays !== undefined ? targetContainer.etaBufferDays : 7);
+      if (isNaN(cleanBufferDays) || cleanBufferDays < 0) cleanBufferDays = 7;
       targetContainer.etaBufferDays = cleanBufferDays;
 
       const cleanNewAlias = (newContainer || '').trim().toUpperCase();
@@ -1214,42 +1233,9 @@ export async function POST(req: NextRequest) {
       let cleanLoadingDate = loadingDate !== undefined ? String(loadingDate).trim() : targetContainer.loadingDate;
       const cleanShippedTo = shippedTo !== undefined ? String(shippedTo).trim() : targetContainer.shippedTo;
 
-      // If carrier container provided or changed, query API for live loadingDate & ETA
-      if (cleanCarrierNum && (autoSync || !cleanLoadingDate)) {
-        try {
-          const tracking = await fetchContainerTracking(cleanCarrierNum, cleanShippingLine || 'MSC');
-          if (tracking.loadingDate) {
-            cleanLoadingDate = tracking.loadingDate;
-          }
-          if (tracking.eta && tracking.eta !== 'N/A') {
-            const nowSync = new Date();
-            targetContainer.eta = tracking.eta;
-            targetContainer.rawEta = tracking.rawEta || '';
-            targetContainer.destinationDate = tracking.rawEta
-              ? addFilingBufferDays(tracking.rawEta, cleanBufferDays)
-              : (tracking.destinationDate || tracking.eta);
-            targetContainer.status = tracking.status;
-            targetContainer.currentLocation = tracking.currentLocation;
-            targetContainer.vesselName = tracking.vesselName;
-            targetContainer.voyageNumber = tracking.voyageNumber;
-            targetContainer.jsonCargoData = tracking.dataDetails;
-            targetContainer.lastApiSync = nowSync;
-            targetContainer.etaUpdatedAt = nowSync;
-            targetContainer.apiCalled = true;
-            targetContainer.apiCallCount = (targetContainer.apiCallCount || 0) + 1;
-            targetContainer.apiCallHistory = targetContainer.apiCallHistory || [];
-            targetContainer.apiCallHistory.push({
-              timestamp: nowSync,
-              source: 'alter_container_sync',
-              eta: tracking.eta,
-              status: tracking.status,
-              loadingDate: tracking.loadingDate || null,
-            });
-          }
-        } catch (e: any) {
-          console.warn('API sync on alter container warning:', e?.message);
-        }
-      }
+      const user = getAuthenticatedUser(req);
+      const modifiedBy = user?.username || 'admin';
+      const modifiedByRole = user?.role || 'admin';
 
       // If carrier container assigned, but API could not find it and user did not enter manually
       if (cleanCarrierNum && !cleanLoadingDate) {
@@ -1606,7 +1592,7 @@ export async function POST(req: NextRequest) {
           }));
         }
 
-        if (primaryCommodity && (!whReceipt.commodity || whReceipt.commodity === 'Cargo' || formattedItems.length === 1)) {
+        if (primaryCommodity && (!whReceipt.commodity || whReceipt.commodity === 'Cargo' || (!shipment && formattedItems.length === 1))) {
           whReceipt.commodity = primaryCommodity;
           whReceipt.english = primaryCommodity;
         }

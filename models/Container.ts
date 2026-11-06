@@ -45,7 +45,10 @@ export interface IContainer extends Document {
   apiCallCount?: number;        // Number of times API was called
   apiCallHistory?: Array<{ timestamp: Date; source?: string; eta?: string; status?: string; rawSummary?: any }>; // Full API call audit log
   rawEta?: string;              // Carrier raw ETA before filing buffer
-  etaBufferDays?: number;       // Clearance procedure buffer days added to raw ETA (default: 10)
+  etaBufferDays?: number;       // Clearance procedure buffer days added to raw ETA (default: 7)
+  lastModifiedBy?: string;      // Username of the user who last changed/updated data
+  lastModifiedByRole?: string;  // Role of the user who last changed/updated data
+  modifiedHistory?: Array<{ timestamp: Date; username: string; action: string; details?: any }>; // Change audit trail
   createdAt: Date;
   updatedAt: Date;
 }
@@ -62,7 +65,10 @@ const ContainerSchema = new Schema<IContainer>(
     destinationDate: { type: String, default: 'N/A' },
     eta: { type: String, default: 'N/A' },
     rawEta: { type: String, default: '' },
-    etaBufferDays: { type: Number, default: 10 },
+    etaBufferDays: { type: Number, default: 7 },
+    lastModifiedBy: { type: String, default: '', index: true, trim: true },
+    lastModifiedByRole: { type: String, default: '', trim: true },
+    modifiedHistory: { type: [Schema.Types.Mixed], default: [] },
     status: { type: String, default: 'Pending' },
     deliveryDate: { type: String, default: '' },
     daysToDeliver: { type: Number, default: null },

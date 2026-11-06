@@ -4,8 +4,10 @@ import Bill from '@/models/Bill';
 import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
-import { isAnyAuthenticated } from '@/lib/auth';
+import { isAnyAuthenticated, getAuthenticatedUser } from '@/lib/auth';
 import { formatReceiptDate, calculateDaysBetween } from '@/lib/dateUtils';
+import { invalidateContainerCache } from '@/lib/redis';
+import { recordEditLog } from '@/lib/auditLog';
 
 export const dynamic = 'force-dynamic';
 
@@ -186,11 +188,25 @@ export async function POST(req: NextRequest) {
         if (contDays !== null) cont.daysToDeliver = contDays;
         await cont.save();
         updatedContainers.push(containerAlias);
+
+        // Remove delivered container from cache memory
+        await invalidateContainerCache(containerAlias);
+        if (cont.containerNumber) {
+          await invalidateContainerCache(cont.containerNumber);
+        }
       }
     }
 
     // Fetch updated bills to return
     const updatedBills = await Bill.find({ _id: { $in: billIdsList } });
+
+    await recordEditLog(req, {
+      action: 'UPDATE',
+      entityType: 'BillDispatch',
+      entityId: billIdsList.map(String).join(','),
+      description: `Dispatched ${updatedBills.length} bill(s) with vehicle '${cleanVehicle}' on ${formattedDate}`,
+      details: { vehicleNumber: cleanVehicle, deliveryDate: formattedDate, billIds: billIdsList, updatedContainers },
+    });
 
     return NextResponse.json({
       success: true,

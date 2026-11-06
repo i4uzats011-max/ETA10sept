@@ -3,7 +3,9 @@ import { connectToDatabase } from '@/lib/mongodb';
 import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
-import { isStaffOrAdminAuthenticated, isSuperAdminAuthenticated } from '@/lib/auth';
+import { isStaffOrAdminAuthenticated, isSuperAdminAuthenticated, getAuthenticatedUser } from '@/lib/auth';
+import { recordEditLog } from '@/lib/auditLog';
+import { translateToEnglish, hasChineseCharacters } from '@/lib/translate';
 
 export const dynamic = 'force-dynamic';
 
@@ -83,8 +85,44 @@ export async function PUT(req: NextRequest) {
       updateFields.etaUpdatedAt = new Date();
     }
 
+    // Auto-translate Chinese commodity name if provided or updated
+    const rawCn = updateFields.chinese || (hasChineseCharacters(updateFields.commodity) ? updateFields.commodity : '');
+    if (rawCn && hasChineseCharacters(rawCn)) {
+      if (!updateFields.english || updateFields.english === 'General Merchandise' || hasChineseCharacters(updateFields.english)) {
+        updateFields.english = translateToEnglish(rawCn);
+      }
+      if (!updateFields.chinese) {
+        updateFields.chinese = rawCn;
+      }
+    }
+
+    const authUser = getAuthenticatedUser(req);
+    updateFields.lastModifiedBy = authUser.username;
+    updateFields.lastModifiedByRole = authUser.role;
+
+    if (updateFields.rate !== undefined) {
+      updateFields['Overall / Receipt Freight Rate'] = String(updateFields.rate).trim();
+    }
+
     // Direct database update: Zero external API calls during user edits
     const updated = await Shipment.findByIdAndUpdate(id, { $set: updateFields }, { new: true });
+
+    // Sync "Overall / Receipt Freight Rate" receipt no. wise to WarehouseReceipt if updated
+    if (updateFields.rate !== undefined && updated?.receipt) {
+      const cleanRate = String(updateFields.rate).trim();
+      await WarehouseReceipt.updateMany(
+        { $or: [{ receipt: String(updated.receipt).trim() }, { receiptNumber: String(updated.receipt).trim() }] },
+        { $set: { rate: cleanRate, 'Overall / Receipt Freight Rate': cleanRate } }
+      );
+    }
+
+    await recordEditLog(req, {
+      action: 'UPDATE',
+      entityType: 'Shipment',
+      entityId: String(id),
+      description: `Updated cargo shipment ${updated?.receipt || id} (Container: ${updated?.container || 'N/A'})`,
+      details: { id, receipt: updated?.receipt, container: updated?.container, updatedFields: Object.keys(updateFields) },
+    });
 
     return NextResponse.json({ success: true, shipment: updated });
   } catch (error: any) {
@@ -172,6 +210,14 @@ export async function DELETE(req: NextRequest) {
 
     const deleted = await Shipment.findByIdAndDelete(idToDelete);
 
+    await recordEditLog(req, {
+      action: 'DELETE',
+      entityType: 'Shipment',
+      entityId: String(idToDelete),
+      description: `Deleted cargo shipment ${existingShipment.receipt} from container ${existingShipment.container || 'N/A'} (Restored ${qtyToRestore} ctns to warehouse)`,
+      details: { id: idToDelete, receipt: existingShipment.receipt, container: existingShipment.container, quantity: qtyToRestore },
+    });
+
     return NextResponse.json({ success: true, message: 'Shipment deleted successfully and warehouse stock restored.' });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Failed to delete shipment' }, { status: 500 });
@@ -194,13 +240,35 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Receipt and Container are required for creating a shipment' }, { status: 400 });
       }
 
+      const authUser = getAuthenticatedUser(req);
       const hasValidEta = createData.eta && createData.eta !== 'N/A' && createData.eta !== 'Pending';
       const created = await Shipment.create({
         ...createData,
         uploadedAt: new Date(),
+        lastModifiedBy: authUser.username,
+        lastModifiedByRole: authUser.role,
         eta: createData.eta || 'N/A',
         ...(hasValidEta ? { etaUpdatedAt: new Date() } : {}),
         status: createData.status || 'Pending',
+      });
+
+      if (createData.rate && created.receipt) {
+        const cleanRate = String(createData.rate).trim();
+        await WarehouseReceipt.updateMany(
+          { $or: [{ receipt: String(created.receipt).trim() }, { receiptNumber: String(created.receipt).trim() }] },
+          { $set: { rate: cleanRate, 'Overall / Receipt Freight Rate': cleanRate } }
+        );
+        await Shipment.findByIdAndUpdate(created._id, {
+          $set: { 'Overall / Receipt Freight Rate': cleanRate },
+        });
+      }
+
+      await recordEditLog(req, {
+        action: 'CREATE',
+        entityType: 'Shipment',
+        entityId: String(created._id),
+        description: `Created shipment for receipt ${created.receipt} in container ${created.container}`,
+        details: { receipt: created.receipt, container: created.container, quantity: created.quantity },
       });
 
       return NextResponse.json({
@@ -269,6 +337,15 @@ export async function POST(req: NextRequest) {
       }
 
       const result = await Shipment.deleteMany({ _id: { $in: ids } });
+
+      await recordEditLog(req, {
+        action: 'DELETE',
+        entityType: 'Shipment',
+        entityId: ids.slice(0, 10).join(', '),
+        description: `Bulk deleted ${result.deletedCount} cargo shipment records and restored warehouse inventory`,
+        details: { count: result.deletedCount, ids: ids.slice(0, 50) },
+      });
+
       return NextResponse.json({
         success: true,
         message: `Successfully deleted ${result.deletedCount} record(s) and restored warehouse inventory stock`,
@@ -291,11 +368,23 @@ export async function POST(req: NextRequest) {
         cleanedUpdateData.etaUpdatedAt = new Date();
       }
 
+      const authUser = getAuthenticatedUser(req);
+      cleanedUpdateData.lastModifiedBy = authUser.username;
+      cleanedUpdateData.lastModifiedByRole = authUser.role;
+
       // Direct database update: Zero external API calls during bulk edits
       const result = await Shipment.updateMany(
         { _id: { $in: ids } },
         { $set: cleanedUpdateData }
       );
+
+      await recordEditLog(req, {
+        action: 'UPDATE',
+        entityType: 'Shipment',
+        entityId: ids.slice(0, 10).join(', '),
+        description: `Bulk updated ${result.modifiedCount} cargo shipments (${Object.keys(cleanedUpdateData).filter(k => !k.startsWith('lastModified')).join(', ')})`,
+        details: { count: result.modifiedCount, updatedFields: Object.keys(cleanedUpdateData) },
+      });
 
       return NextResponse.json({
         success: true,

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import User from '@/models/User';
-import { isDeveloperAuthenticated } from '@/lib/auth';
+import { isDeveloperAuthenticated, getAuthenticatedUser } from '@/lib/auth';
+import { recordEditLog } from '@/lib/auditLog';
 import { hashPassword, setRolePassword } from '@/lib/passwordManager';
 
 export const dynamic = 'force-dynamic';
@@ -36,7 +37,10 @@ export async function POST(req: NextRequest) {
     }
 
     const cleanPassword = newPassword.trim();
+    const authUser = getAuthenticatedUser(req);
     user.passwordHash = hashPassword(cleanPassword);
+    user.lastModifiedBy = authUser.username;
+    user.lastModifiedByRole = authUser.role;
     await user.save();
 
     // Also sync RoleCredential for that role
@@ -45,6 +49,14 @@ export async function POST(req: NextRequest) {
     } catch (e) {
       // Ignore if role credential sync is non-blocking
     }
+
+    await recordEditLog(req, {
+      action: 'UPDATE',
+      entityType: 'User',
+      entityId: String(user._id),
+      description: `Reset password for user "${user.username}" (${user.role})`,
+      details: { username: user.username, role: user.role, action: 'password_reset' },
+    });
 
     return NextResponse.json({
       success: true,

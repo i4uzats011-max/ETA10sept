@@ -12,8 +12,9 @@ import {
   AlertTriangle, FileSpreadsheet, Image as ImageIcon, FileText,
   X, SlidersHorizontal, FileType, Star, Bookmark, ChevronDown,
   LayoutGrid, Filter, Check, CheckCircle2, Clock, TrendingUp, ArrowUpDown,
-  CheckSquare, Square, Eye, EyeOff, Lock, Key
+  CheckSquare, Square, Eye, EyeOff, Lock, Key, Languages, ExternalLink
 } from 'lucide-react';
+import { getCarrierTrackingUrl, getLdbRailwayTrackingUrl } from '@/lib/trackingUrls';
 import {
   calculateDaysToDeliver,
   parseReceiptDate,
@@ -22,8 +23,10 @@ import {
   isContainerLate,
   getDeliveryTurnaroundStatus
 } from '@/lib/dateUtils';
+import { translateToEnglish } from '@/lib/translate';
 import CargoMasterTable from '@/components/CargoMasterTable';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
+import LiveTranslatorModal from '@/components/LiveTranslatorModal';
 import { ReduxProvider } from '@/store/ReduxProvider';
 
 // Mark types for row marking
@@ -267,6 +270,7 @@ export default function InternalEmployeeViewPage() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [userRole, setUserRole] = useState<'admin' | 'staff' | 'developer'>('staff');
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showTranslatorModal, setShowTranslatorModal] = useState(false);
 
   const [shipments, setShipments] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -533,7 +537,7 @@ export default function InternalEmployeeViewPage() {
   const uniqueContainers = useMemo(() => [...new Set(shipments.map((s) => s.container).filter(Boolean))].sort(), [shipments]);
   const uniqueActualContainers = useMemo(() => [...new Set(shipments.map((s) => s.containerNumber).filter(Boolean))].sort(), [shipments]);
   const uniqueCarriers = useMemo(() => [...new Set(shipments.map((s) => s.shippingLine).filter(Boolean))].sort(), [shipments]);
-  const uniqueCommodities = useMemo(() => [...new Set(shipments.map((s) => s.english || s.commodity).filter(Boolean))].sort(), [shipments]);
+  const uniqueCommodities = useMemo(() => [...new Set(shipments.map((s) => translateToEnglish(s.english || s.commodity)).filter(Boolean))].sort(), [shipments]);
   const uniqueMainMarks = useMemo(() => [...new Set(shipments.map((s) => s.mainMarka).filter(Boolean))].sort(), [shipments]);
   const uniqueSubMarks = useMemo(() => [...new Set(shipments.map((s) => s.subMarka).filter(Boolean))].sort(), [shipments]);
   const uniqueStatuses = useMemo(() => [...new Set(shipments.map((s) => s.status).filter(Boolean))].sort(), [shipments]);
@@ -763,7 +767,7 @@ export default function InternalEmployeeViewPage() {
       if (selectedCarriers.size > 0 && !selectedCarriers.has(item.shippingLine)) return false;
 
       // 6. Commodity Filter
-      const commodityName = item.english || item.commodity || '';
+      const commodityName = translateToEnglish(item.english || item.commodity || '');
       if (selectedCommodities.size > 0 && !selectedCommodities.has(commodityName)) return false;
 
       // 7. Main Mark Filter (dedicated selectable list)
@@ -945,7 +949,7 @@ export default function InternalEmployeeViewPage() {
       if (showActualContainer) row['Actual Container No'] = s.containerNumber || '';
       if (showShippingLine) row['Shipping Line'] = s.shippingLine || '';
       if (showCommodity) {
-        row['Commodity (English)'] = s.english || s.commodity || '';
+        row['Commodity (English)'] = translateToEnglish(s.english || s.commodity || '');
         row['Commodity (Chinese)'] = s.commodity || '';
       }
       if (showCargoMetrics) {
@@ -1057,7 +1061,7 @@ export default function InternalEmployeeViewPage() {
         if (showContainer) row.push(s.container || '');
         if (showActualContainer) row.push(s.containerNumber || '-');
         if (showShippingLine) row.push(s.shippingLine || '-');
-        if (showCommodity) row.push(s.english || s.commodity || '');
+        if (showCommodity) row.push(translateToEnglish(s.english || s.commodity || ''));
         if (showCargoMetrics) {
           row.push(
             s.quantity ? `${s.quantity} CTN` : '-',
@@ -1189,6 +1193,14 @@ export default function InternalEmployeeViewPage() {
                 <span>Visitor Logs</span>
               </Link>
             )}
+            <button
+              onClick={() => setShowTranslatorModal(true)}
+              className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-200 text-xs font-bold transition flex items-center space-x-1.5 shadow-sm"
+              title="Live Google Translate"
+            >
+              <Languages className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Google Translate</span>
+            </button>
             <Link
               href="/"
               className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold transition hidden xs:inline-flex"
@@ -2230,7 +2242,24 @@ export default function InternalEmployeeViewPage() {
                         {/* 6. Actual Carrier Container */}
                         {showActualContainer && (
                           <td className="py-2.5 px-4 font-mono font-bold text-blue-700 whitespace-nowrap text-[11px]">
-                            {item.containerNumber || (
+                            {item.containerNumber ? (
+                              <div className="flex items-center space-x-1.5">
+                                <span>{item.containerNumber}</span>
+                                <a
+                                  href={getLdbRailwayTrackingUrl(item.containerNumber)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={() => {
+                                    if (navigator.clipboard) navigator.clipboard.writeText(item.containerNumber);
+                                  }}
+                                  className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-sans font-bold inline-flex items-center space-x-0.5 transition"
+                                  title="Track on Indian Railway LDB (ldb.co.in) - Copies container no to clipboard & opens LDB"
+                                >
+                                  <span>Rail LDB</span>
+                                  <ExternalLink className="w-2.5 h-2.5 text-emerald-600" />
+                                </a>
+                              </div>
+                            ) : (
                               <span className="text-slate-400 font-normal italic">Unassigned</span>
                             )}
                           </td>
@@ -2239,7 +2268,20 @@ export default function InternalEmployeeViewPage() {
                         {/* 7. Shipping Line */}
                         {showShippingLine && (
                           <td className="py-2.5 px-4 whitespace-nowrap font-semibold text-slate-700">
-                            {item.shippingLine || 'MSC'}
+                            {item.shippingLine ? (
+                              <a
+                                href={getCarrierTrackingUrl(item.shippingLine, item.containerNumber || item.container)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center space-x-1 font-bold text-xs text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded border border-blue-200 transition"
+                                title={`Click to open official ${item.shippingLine} tracking website`}
+                              >
+                                <span>{item.shippingLine}</span>
+                                <ExternalLink className="w-2.5 h-2.5 text-blue-500" />
+                              </a>
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
                           </td>
                         )}
 
@@ -2247,7 +2289,7 @@ export default function InternalEmployeeViewPage() {
                         {showCommodity && (
                           <td className="py-2.5 px-4 max-w-[220px]">
                             <div className="font-bold text-slate-900 truncate">
-                              {item.english || item.commodity}
+                              {translateToEnglish(item.english || item.commodity)}
                             </div>
                             {item.commodity && item.commodity !== item.english && (
                               <div className="text-[10px] text-slate-400 truncate">{item.commodity}</div>
@@ -2364,6 +2406,12 @@ export default function InternalEmployeeViewPage() {
         isOpen={showPasswordModal}
         onClose={() => setShowPasswordModal(false)}
         currentRole={userRole}
+      />
+
+      {/* Live Google Translator Modal */}
+      <LiveTranslatorModal
+        isOpen={showTranslatorModal}
+        onClose={() => setShowTranslatorModal(false)}
       />
     </div>
   );
