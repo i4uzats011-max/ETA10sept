@@ -231,6 +231,15 @@ export default function BillerPortalPage() {
 
   // Manual Form State
   const [receiptNo, setReceiptNo] = useState('');
+  // Quick e-Way Bill modal & just-created bill state
+  const [eWayModalBill, setEWayModalBill] = useState<BillItem | null>(null);
+  const [eWayModalInputNo, setEWayModalInputNo] = useState('');
+  const [eWayModalVehicleNo, setEWayModalVehicleNo] = useState('');
+  const [isSavingEWayModal, setIsSavingEWayModal] = useState(false);
+  const [justCreatedBill, setJustCreatedBill] = useState<BillItem | null>(null);
+  const [justCreatedEWayNo, setJustCreatedEWayNo] = useState('');
+  const [isSavingJustCreatedEWay, setIsSavingJustCreatedEWay] = useState(false);
+
   const [manualInvoiceNo, setManualInvoiceNo] = useState(''); // Generated taking receipt as invoice no with last 2/3 digits random
   const [formBillNumber, setFormBillNumber] = useState('');
   const [eWayInvoiceNumber, setEWayInvoiceNumber] = useState('');
@@ -2785,10 +2794,9 @@ export default function BillerPortalPage() {
 
     try {
       const payload = {
-        billNumber: finalBillNumber,
+        billNumber: (manualInvoiceNo.trim() || finalBillNumber),
         eWayInvoiceNumber: separateEWayInv ? eWayInvoiceNumber.trim() : undefined,
         receipt: finalReceiptNo,
-        billNumber: manualInvoiceNo.trim() || undefined,
         hsnCode: (finalItems[0]?.hsnCode || lineHsn || hsnCode || '39269099').trim(),
         igst: finalIgstRate,
         billingUnit: finalItems[0]?.unit || lineUnit || billingUnit || 'PCS',
@@ -5121,6 +5129,7 @@ export default function BillerPortalPage() {
                             <Search className="w-3 h-3" />
                             <span>पिन कोड खोजें (Search PIN)</span>
                           </button>
+                        </div>
                         <input
                           type="text"
                           required
@@ -5243,7 +5252,7 @@ export default function BillerPortalPage() {
                       ) : (
                         <>
                           <Save className="w-3.5 h-3.5" />
-                          <span>💾 Save Party & Address for [{(mainMarka || subMarka || singleSelectedMarka || 'Marka').split(',')[0].trim()}]</span>
+                          <span>{`💾 Save Party & Address for [${(mainMarka || subMarka || singleSelectedMarka || 'Marka').split(',')[0].trim()}]`}</span>
                         </>
                       )}
                     </button>

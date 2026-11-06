@@ -284,14 +284,14 @@ export async function PUT(req: NextRequest) {
       user.isActive = nextActive;
     }
 
+    const authUser = getAuthenticatedUser(req);
+
     if (body.adminAccessGranted !== undefined) {
       const isGranted = Boolean(body.adminAccessGranted);
       user.adminAccessGranted = isGranted;
       user.adminAccessGrantedBy = authUser?.username || 'developer';
       user.adminAccessGrantedAt = isGranted ? new Date() : null;
     }
-
-    const authUser = getAuthenticatedUser(req);
     user.lastModifiedBy = authUser.username;
     user.lastModifiedByRole = authUser.role;
 
