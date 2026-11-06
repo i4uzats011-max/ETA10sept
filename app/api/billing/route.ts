@@ -5,8 +5,8 @@ import Shipment from '@/models/Shipment';
 import ItemHsn from '@/models/ItemHsn';
 import MarkaAddress from '@/models/MarkaAddress';
 import { getStateCode, getStateName } from '@/lib/states';
-<<<<<<< HEAD
-import { isAnyAuthenticated } from '@/lib/auth';
+import { isAnyAuthenticated, getAuthenticatedUser } from '@/lib/auth';
+import { recordEditLog } from '@/lib/auditLog';
 import { generateInvoiceNumberFromReceipt } from '@/lib/invoiceUtils';
 
 /**
@@ -15,7 +15,6 @@ import { generateInvoiceNumberFromReceipt } from '@/lib/invoiceUtils';
 async function resolveUniqueBillNumber(rawReceipt: string, requestedBillNumber?: string): Promise<string> {
   const cleanReceipt = String(rawReceipt || '').trim();
 
-  // If user explicitly provided a custom billNumber, verify if available
   if (requestedBillNumber && requestedBillNumber.trim()) {
     const custom = requestedBillNumber.trim();
     const exists = await Bill.findOne({ billNumber: custom }).select('_id').lean();
@@ -24,7 +23,6 @@ async function resolveUniqueBillNumber(rawReceipt: string, requestedBillNumber?:
     }
   }
 
-  // Generate candidate taking receipt as invoice no., but taking last 2 or 3 digits on a random basis
   for (let attempt = 0; attempt < 30; attempt++) {
     const candidate = generateInvoiceNumberFromReceipt(cleanReceipt);
     const exists = await Bill.findOne({ billNumber: candidate }).select('_id').lean();
@@ -33,13 +31,8 @@ async function resolveUniqueBillNumber(rawReceipt: string, requestedBillNumber?:
     }
   }
 
-  // Safe fallback
   return `${cleanReceipt.slice(0, Math.max(1, cleanReceipt.length - 3))}${Math.floor(100 + Math.random() * 900)}`;
 }
-=======
-import { isAnyAuthenticated, getAuthenticatedUser } from '@/lib/auth';
-import { recordEditLog } from '@/lib/auditLog';
->>>>>>> 4bcb0052f4e1ac8e656f82de2a3f7014aec61599
 
 export const dynamic = 'force-dynamic';
 
