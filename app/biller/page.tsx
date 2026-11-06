@@ -56,6 +56,8 @@ import { translateToEnglish } from '@/lib/translate';
 import { generateInvoiceNumberFromReceipt } from '@/lib/invoiceUtils';
 import { autoDetectPincodeFromAddress, searchPincodes, extractPincodeFromAddress, PincodeEntry } from '@/lib/pincodeUtils';
 
+export type BillerTheme = 'dark' | 'light' | 'midnight' | 'emerald' | 'amber' | 'purple' | 'ocean' | 'crimson' | 'high-contrast-day';
+
 export interface FormLineItem {
   itemNo: number;
   description: string;
@@ -235,7 +237,7 @@ export default function BillerPortalPage() {
   const [useSeparateEWayInvoice, setUseSeparateEWayInvoice] = useState(false);
 
   // Multi-Theme System State (Dark, Light, Midnight, Emerald, Amber, Purple)
-  export type BillerTheme = 'dark' | 'light' | 'midnight' | 'emerald' | 'amber' | 'purple' | 'ocean' | 'crimson' | 'high-contrast-day';
+  
   const [currentTheme, setCurrentTheme] = useState<BillerTheme>('dark');
   const [pdfTheme, setPdfTheme] = useState<'classic' | 'navy' | 'emerald' | 'crimson' | 'dark'>('classic');
 
@@ -4084,31 +4086,9 @@ export default function BillerPortalPage() {
                       Receipt as invoice no. with last 2 or 3 digits random (receipt से इनवॉइस नं., अंतिम 2/3 अंक रैंडम)
                     </p>
                   </div>
-                    </label>
-                    <input
-                      type="text"
-                      required
-<<<<<<< HEAD
-                      value={manualInvoiceNo}
-                      onChange={(e) => setManualInvoiceNo(e.target.value)}
-                      placeholder="Receipt आधार पर इनवॉइस नंबर (अंतिम 2 या 3 अंक रैंडम)"
-                      className="w-full px-3 py-2 bg-slate-900 border border-emerald-600/50 rounded-xl text-xs font-bold text-emerald-300 placeholder-slate-500 focus:ring-2 focus:ring-emerald-500 outline-none font-mono"
-                    />
-                    <p className="text-[10px] text-slate-500">
-                      Receipt as invoice no. with last 2 or 3 digits random (receipt से इनवॉइस नं., अंतिम 2/3 अंक रैंडम)
-                    </p>
-                  </div>
-=======
-                      value={formBillNumber}
-                      onChange={(e) => setFormBillNumber(e.target.value)}
-                      placeholder={receiptNo ? receiptNo : 'e.g. 260528007 or INV-001'}
-                      className="w-full px-3 py-2 bg-slate-900 border border-amber-500/50 rounded-xl text-xs font-bold text-amber-300 placeholder-slate-500 focus:ring-2 focus:ring-amber-500 outline-none font-mono"
-                    />
-                    <p className="text-[10px] text-slate-400">
-                      रसीद नंबर ही इनवॉइस नंबर रहेगा (Type custom if needed)
-                    </p>
-                  </div>
                 </div>
+
+
 
                 {/* Separate Tax Invoice No. for E-Way Bill Section */}
                 <div className={`p-3.5 rounded-2xl transition border ${
@@ -4160,7 +4140,6 @@ export default function BillerPortalPage() {
                       </p>
                     </div>
                   )}
->>>>>>> 4bcb0052f4e1ac8e656f82de2a3f7014aec61599
                 </div>
 
                 {/* Auto-fill Status Banner */}

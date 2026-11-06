@@ -222,6 +222,8 @@ export default function AdminDashboardPage() {
   const router = useRouter();
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
+  const [adminAccessDenied, setAdminAccessDenied] = useState(false);
+  const [authUserData, setAuthUserData] = useState<any>(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   // 3-Column Container Update state
@@ -415,8 +417,16 @@ export default function AdminDashboardPage() {
       })
       .then((data) => {
         if (data) {
+          setAuthUserData(data);
           if (data.role === 'staff') {
             router.push('/admin/view');
+          } else if (data.role === 'biller') {
+            router.push('/biller');
+          } else if (data.role === 'dispatcher') {
+            router.push('/dispatcher');
+          } else if (data.role === 'admin' && !data.adminAccessGranted) {
+            setAdminAccessDenied(true);
+            setIsAuthenticated(false);
           } else {
             setIsAuthenticated(true);
             setCurrentUserRole(data.role || null);
@@ -1241,6 +1251,49 @@ export default function AdminDashboardPage() {
       return matchAlias || matchNumber || matchLine;
     });
   }, [allSearchableContainers, containerSearchInput]);
+
+  if (adminAccessDenied) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-4">
+        <div className="max-w-md w-full bg-slate-900 border border-amber-500/30 rounded-3xl p-8 shadow-2xl text-center space-y-5">
+          <div className="inline-flex p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400">
+            <Lock className="w-8 h-8" />
+          </div>
+          <div>
+            <h2 className="text-xl font-black text-white">Admin Access Restricted</h2>
+            <p className="text-xs text-amber-400 font-bold uppercase tracking-wider mt-1">
+              Developer Grant Required
+            </p>
+          </div>
+          <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 text-left text-xs space-y-2 text-slate-300">
+            <p className="leading-relaxed">
+              Your credentials are valid, but Admin Access has not yet been granted to this account by the Developer.
+            </p>
+            <p className="leading-relaxed text-slate-400">
+              <strong className="text-white">Rule:</strong> Admin access is strictly provided by Developer Login. Please request the Developer to grant Admin Access for username{' '}
+              <span className="font-mono text-cyan-300 font-bold">@{authUserData?.username || 'admin'}</span> from the Developer Console.
+            </p>
+          </div>
+          <div className="flex items-center justify-center space-x-3 pt-2">
+            <button
+              onClick={() => window.location.reload()}
+              className="px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold transition flex items-center space-x-1.5 shadow-md shadow-cyan-600/20"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Check Status (Refresh)</span>
+            </button>
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition flex items-center space-x-1.5"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Logout</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (isAuthenticated === null) {
     return (
