@@ -42,11 +42,15 @@ import {
   Scale,
   Calculator,
   Key,
+  Palette,
+  Sparkles,
 } from 'lucide-react';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
 import { generateBillPDF } from '@/lib/billPdf';
 import { INDIAN_STATES, getStateCode, getStateName, getStateCodeByName, getStateByGstinOrCode, detectStateFromAddress } from '@/lib/states';
 import { inferHsnByItemName, findHsnSuggestions, MASTER_HSN_CATALOG } from '@/lib/hsnCatalog';
+import { generateInvoiceNumberFromReceipt } from '@/lib/invoiceUtils';
+import { autoDetectPincodeFromAddress, searchPincodes, extractPincodeFromAddress, PincodeEntry } from '@/lib/pincodeUtils';
 
 export interface FormLineItem {
   itemNo: number;
@@ -221,6 +225,18 @@ export default function BillerPortalPage() {
 
   // Manual Form State
   const [receiptNo, setReceiptNo] = useState('');
+  const [manualInvoiceNo, setManualInvoiceNo] = useState(''); // Generated taking receipt as invoice no with last 2/3 digits random
+
+  // Multi-Theme System State (Dark, Light, Midnight, Emerald, Amber, Purple)
+  const [currentTheme, setCurrentTheme] = useState<'dark' | 'light' | 'midnight' | 'emerald' | 'amber' | 'purple'>('dark');
+  const [pdfTheme, setPdfTheme] = useState<'classic' | 'navy' | 'emerald' | 'crimson' | 'dark'>('classic');
+
+  // Address PIN Code Auto-Detection & Search State
+  const [detectedPincodeInfo, setDetectedPincodeInfo] = useState<PincodeEntry | null>(null);
+  const [showPinSearchModal, setShowPinSearchModal] = useState(false);
+  const [pinSearchQuery, setPinSearchQuery] = useState('');
+  const [pinSearchResults, setPinSearchResults] = useState<PincodeEntry[]>([]);
+  const [isSearchingPin, setIsSearchingPin] = useState(false);
   const [hsnCode, setHsnCode] = useState('9997');
   const [igstRate, setIgstRate] = useState<number>(18);
   const [billingUnit, setBillingUnit] = useState<'Pcs' | 'KG' | 'Cartons'>('KG');
@@ -455,11 +471,93 @@ export default function BillerPortalPage() {
   };
 
   useEffect(() => {
+    // Load persisted theme preference
+    try {
+      const savedTheme = localStorage.getItem('biller_ui_theme') as any;
+      if (savedTheme && ['dark', 'light', 'midnight', 'emerald', 'amber', 'purple'].includes(savedTheme)) {
+        setCurrentTheme(savedTheme);
+      }
+      const savedPdfTheme = localStorage.getItem('biller_pdf_theme') as any;
+      if (savedPdfTheme && ['classic', 'navy', 'emerald', 'crimson', 'dark'].includes(savedPdfTheme)) {
+        setPdfTheme(savedPdfTheme);
+      }
+    } catch (e) {}
+
     fetchSellers();
     fetchContainers();
     fetchCascadeOptions();
     loadBills();
   }, []);
+
+  const handleThemeChange = (newTheme: 'dark' | 'light' | 'midnight' | 'emerald' | 'amber' | 'purple') => {
+    setCurrentTheme(newTheme);
+    try {
+      localStorage.setItem('biller_ui_theme', newTheme);
+    } catch (e) {}
+  };
+
+  const handlePdfThemeChange = (newPdfTheme: 'classic' | 'navy' | 'emerald' | 'crimson' | 'dark') => {
+    setPdfTheme(newPdfTheme);
+    try {
+      localStorage.setItem('biller_pdf_theme', newPdfTheme);
+    } catch (e) {}
+  };
+
+  // Address PIN Code Auto-Detection and Search handlers
+  const handleAddressInputChange = (val: string) => {
+    setConsigneeAddress(val);
+    setPurchaserAddress(val);
+
+    const pinMatch = autoDetectPincodeFromAddress(val);
+    if (pinMatch) {
+      setDetectedPincodeInfo(pinMatch);
+      if (pinMatch.state) {
+        handleConsigneeStateChange(pinMatch.state);
+      }
+    } else {
+      setDetectedPincodeInfo(null);
+      const detected = detectStateFromAddress(val);
+      if (detected) handleConsigneeStateChange(detected.name);
+    }
+  };
+
+  const handleApplyDetectedPincode = (entry: PincodeEntry | null) => {
+    if (!entry || !entry.pincode) return;
+    const currentAddr = (consigneeAddress || purchaserAddress).trim();
+    if (!currentAddr.includes(entry.pincode)) {
+      const updatedAddr = currentAddr ? `${currentAddr}, PIN: ${entry.pincode}` : `PIN: ${entry.pincode}`;
+      setConsigneeAddress(updatedAddr);
+      setPurchaserAddress(updatedAddr);
+    }
+    if (entry.state) {
+      handleConsigneeStateChange(entry.state);
+    }
+  };
+
+  const handleSearchPincodes = async (queryText: string) => {
+    const q = (queryText || consigneeAddress || purchaserAddress).trim();
+    if (!q) {
+      setPinSearchResults(searchPincodes('', 10));
+      return;
+    }
+    setIsSearchingPin(true);
+    try {
+      const localMatches = searchPincodes(q, 8);
+      setPinSearchResults(localMatches);
+
+      const res = await fetch(`/api/pincode?q=${encodeURIComponent(q)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.results && data.results.length > 0) {
+          setPinSearchResults(data.results);
+        }
+      }
+    } catch (err) {
+      console.warn('PIN search warning:', err);
+    } finally {
+      setIsSearchingPin(false);
+    }
+  };
 
   // Calculated manual and multi-item values
   const invoiceTaxableTotal = useMemo(() => {
@@ -513,6 +611,9 @@ export default function BillerPortalPage() {
   // Apply shipment object to manual form
   const applyShipmentToForm = (shipment: any, markaAddress?: any) => {
     setReceiptNo(shipment.receipt || '');
+    if (shipment.receipt) {
+      setManualInvoiceNo(generateInvoiceNumberFromReceipt(shipment.receipt));
+    }
     setContainerAlias(shipment.container || singleContainer || '');
     const m = shipment.mainMarka || shipment.subMarka || shipment.marka || '';
     setMainMarka(shipment.mainMarka || shipment.marka || '');
@@ -1200,6 +1301,7 @@ export default function BillerPortalPage() {
   const handleSingleReceiptSelect = async (rNo: string) => {
     setSingleSelectedReceipt(rNo);
     if (!rNo.trim()) return;
+    setManualInvoiceNo(generateInvoiceNumberFromReceipt(rNo.trim()));
     await handleReceiptLookup(rNo);
   };
 
@@ -1212,6 +1314,8 @@ export default function BillerPortalPage() {
     setSingleAvailableReceipts([]);
     setSingleAvailableMarkas(globalMarkasList.map((m) => ({ marka: m })));
     setReceiptNo('');
+    setManualInvoiceNo('');
+    setDetectedPincodeInfo(null);
     setTotalCartons('');
     setQuantityPcs('');
     setQuantityKg('');
@@ -1255,6 +1359,7 @@ export default function BillerPortalPage() {
   const handleReceiptLookup = async (rNo: string) => {
     const clean = rNo.trim();
     if (!clean || clean.length < 3) return;
+    setManualInvoiceNo(generateInvoiceNumberFromReceipt(clean));
     setIsLookingUp(true);
     setLookupMessage(null);
 
@@ -1889,7 +1994,7 @@ export default function BillerPortalPage() {
       setEditBillModalOpen(false);
       setBillToEdit(null);
 
-      generateBillPDF(updatedBill, true);
+      generateBillPDF({ ...updatedBill, theme: pdfTheme }, true);
       alert('✓ बिल सफलतापूर्वक अपडेट (संशोधित) कर दिया गया है और नया PDF डाउनलोड हो गया है!');
     } catch (err: any) {
       alert(err.message || 'Error updating bill');
@@ -2486,6 +2591,7 @@ export default function BillerPortalPage() {
     try {
       const payload = {
         receipt: finalReceiptNo,
+        billNumber: manualInvoiceNo.trim() || undefined,
         hsnCode: (finalItems[0]?.hsnCode || lineHsn || hsnCode || '39269099').trim(),
         igst: finalIgstRate,
         billingUnit: finalItems[0]?.unit || lineUnit || billingUnit || 'PCS',
@@ -2557,6 +2663,8 @@ export default function BillerPortalPage() {
       setManualSuccessMsg(`✓ बिल सफलतापूर्वक बन गया! Receipt #${finalReceiptNo}`);
       // Reset form
       setReceiptNo('');
+      setManualInvoiceNo('');
+      setDetectedPincodeInfo(null);
       setHsnCode('39269099');
       setTotalCartons('');
       setQuantityPcs('');
@@ -2895,7 +3003,10 @@ export default function BillerPortalPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 pb-24">
+    <div
+      className="min-h-screen bg-slate-950 text-slate-100 pb-24 transition-colors duration-200"
+      data-theme={currentTheme}
+    >
       {/* Top Header */}
       <header className="bg-slate-900/90 backdrop-blur border-b border-slate-800 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2 sm:py-0 min-h-16 flex flex-wrap items-center justify-between gap-2.5">
@@ -2915,6 +3026,24 @@ export default function BillerPortalPage() {
           </div>
 
           <div className="flex items-center space-x-1.5 sm:space-x-2">
+            {/* MULTI-THEME SELECTOR (थीम सेलेक्टर: Dark, Light, Midnight, Emerald, Amber, Purple) */}
+            <div className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700/80 text-xs">
+              <Palette className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <select
+                value={currentTheme}
+                onChange={(e) => handleThemeChange(e.target.value as any)}
+                className="bg-transparent text-xs font-bold text-slate-200 outline-none cursor-pointer pr-1"
+                title="Select Billing System Theme (डार्क, लाइट व अन्य थीम)"
+              >
+                <option value="dark" className="bg-slate-900 text-white">🌙 Dark (डार्क)</option>
+                <option value="light" className="bg-white text-slate-900">☀️ Light (लाइट)</option>
+                <option value="midnight" className="bg-slate-950 text-cyan-300">🌌 Midnight</option>
+                <option value="emerald" className="bg-slate-950 text-emerald-300">🌲 Emerald</option>
+                <option value="amber" className="bg-slate-950 text-amber-300">🌅 Amber</option>
+                <option value="purple" className="bg-slate-950 text-purple-300">🟣 Purple</option>
+              </select>
+            </div>
+
             <Link
               href="/dispatcher"
               className="inline-flex items-center space-x-1 sm:space-x-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition"
@@ -3587,8 +3716,14 @@ export default function BillerPortalPage() {
                         required
                         value={receiptNo}
                         onChange={(e) => {
-                          setReceiptNo(e.target.value);
-                          setSingleSelectedReceipt(e.target.value);
+                          const val = e.target.value;
+                          setReceiptNo(val);
+                          setSingleSelectedReceipt(val);
+                          if (val.trim()) {
+                            setManualInvoiceNo(generateInvoiceNumberFromReceipt(val.trim()));
+                          } else {
+                            setManualInvoiceNo('');
+                          }
                         }}
                         onBlur={() => handleReceiptLookup(receiptNo)}
                         placeholder="e.g. 260528007"
@@ -3597,6 +3732,42 @@ export default function BillerPortalPage() {
                     )}
                     <p className="text-[10px] text-slate-500">
                       Auto-filled when Marka is picked, or type receipt directly
+                    </p>
+                  </div>
+
+                  {/* INVOICE NUMBER GENERATED FROM RECEIPT WITH RANDOM 2 OR 3 DIGITS */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
+                      <span className="flex items-center space-x-1.5">
+                        <FileText className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>4. Invoice No. (इनवॉइस नंबर) *</span>
+                      </span>
+                      {receiptNo && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (receiptNo.trim()) {
+                              setManualInvoiceNo(generateInvoiceNumberFromReceipt(receiptNo.trim()));
+                            }
+                          }}
+                          className="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold flex items-center space-x-1 px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-700/60 hover:border-emerald-500 transition"
+                          title="Generate new random 2 or 3 digits"
+                        >
+                          <RefreshCw className="w-2.5 h-2.5" />
+                          <span>Randomize (2/3 digits)</span>
+                        </button>
+                      )}
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={manualInvoiceNo}
+                      onChange={(e) => setManualInvoiceNo(e.target.value)}
+                      placeholder="Receipt आधार पर इनवॉइस नंबर (अंतिम 2 या 3 अंक रैंडम)"
+                      className="w-full px-3 py-2 bg-slate-900 border border-emerald-600/50 rounded-xl text-xs font-bold text-emerald-300 placeholder-slate-500 focus:ring-2 focus:ring-emerald-500 outline-none font-mono"
+                    />
+                    <p className="text-[10px] text-slate-500">
+                      Receipt as invoice no. with last 2 or 3 digits random (receipt से इनवॉइस नं., अंतिम 2/3 अंक रैंडम)
                     </p>
                   </div>
                 </div>
@@ -3609,9 +3780,16 @@ export default function BillerPortalPage() {
                       <span>{lookupMessage}</span>
                     </div>
                     {receiptNo && (
-                      <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">
-                        Receipt: #{receiptNo}
-                      </span>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">
+                          Receipt: #{receiptNo}
+                        </span>
+                        {manualInvoiceNo && (
+                          <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold flex items-center space-x-1">
+                            <span>Inv No: #{manualInvoiceNo}</span>
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
@@ -4533,23 +4711,58 @@ export default function BillerPortalPage() {
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                       <div className="sm:col-span-2">
-                        <label className="text-xs text-slate-300 font-bold block mb-1">
-                          Delivery / Shipping Address (पूरा पता) *
-                        </label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-xs text-slate-300 font-bold">
+                            Delivery / Shipping Address (पूरा पता) *
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const q = consigneeAddress || purchaserAddress || '';
+                              setPinSearchQuery(q);
+                              handleSearchPincodes(q);
+                              setShowPinSearchModal(true);
+                            }}
+                            className="text-[11px] text-sky-400 hover:text-sky-300 font-bold flex items-center space-x-1 transition"
+                            title="पते से पिन कोड खोजें (Search PIN Code by locality / city)"
+                          >
+                            <Search className="w-3 h-3" />
+                            <span>पिन कोड खोजें (Search PIN)</span>
+                          </button>
+                        </div>
                         <input
                           type="text"
                           required
                           value={consigneeAddress || purchaserAddress}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setConsigneeAddress(val);
-                            setPurchaserAddress(val);
-                            const detected = detectStateFromAddress(val);
-                            if (detected) handleConsigneeStateChange(detected.name);
-                          }}
-                          placeholder="e.g. Shop No 4, Main Bazar, Agra"
+                          onChange={(e) => handleAddressInputChange(e.target.value)}
+                          placeholder="e.g. Shop No 4, Badli Road, Badli, New Delhi"
                           className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:ring-2 focus:ring-emerald-500 outline-none"
                         />
+
+                        {/* PIN Code Auto-Detected Helper Banner */}
+                        {detectedPincodeInfo && (
+                          <div className="mt-1.5 p-2 bg-emerald-950/60 border border-emerald-500/40 rounded-xl flex items-center justify-between text-xs animate-fadeIn">
+                            <div className="flex items-center space-x-2 text-emerald-300 font-medium text-[11px]">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                              <span>
+                                <strong>Auto-Detected PIN:</strong>{' '}
+                                <span className="font-mono font-bold text-white bg-emerald-900/80 px-1.5 py-0.5 rounded">
+                                  {detectedPincodeInfo.pincode}
+                                </span>
+                                {detectedPincodeInfo.area ? ` — ${detectedPincodeInfo.area}` : ''}
+                                {detectedPincodeInfo.city ? `, ${detectedPincodeInfo.city}` : ''}
+                                {detectedPincodeInfo.state ? ` (${detectedPincodeInfo.state})` : ''}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleApplyDetectedPincode(detectedPincodeInfo)}
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[10px] font-bold shrink-0 ml-2 transition shadow"
+                            >
+                              + Apply to Address
+                            </button>
+                          </div>
+                        )}
                       </div>
 
                       <div className="grid grid-cols-2 gap-2">
@@ -4766,7 +4979,7 @@ export default function BillerPortalPage() {
               </p>
             </div>
 
-            <div className="flex items-center space-x-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={loadBills}
                 className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition"
@@ -4774,6 +4987,24 @@ export default function BillerPortalPage() {
               >
                 <RefreshCw className={`w-4 h-4 ${isLoadingBills ? 'animate-spin' : ''}`} />
               </button>
+
+              {/* PDF Invoice Theme Selector */}
+              <div className="flex items-center space-x-1.5 px-2.5 py-1 bg-slate-950 border border-slate-800 rounded-xl text-xs">
+                <Printer className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                <span className="text-slate-400 text-[10px] hidden md:inline">PDF Theme:</span>
+                <select
+                  value={pdfTheme}
+                  onChange={(e) => handlePdfThemeChange(e.target.value as any)}
+                  className="bg-transparent text-xs font-bold text-slate-200 outline-none cursor-pointer"
+                  title="Select Tax Invoice PDF Theme (क्लासिक, नेवी, एमराल्ड, क्रिमसन)"
+                >
+                  <option value="classic" className="bg-slate-900 text-white">Classic B&W</option>
+                  <option value="navy" className="bg-slate-900 text-cyan-300">Corporate Navy</option>
+                  <option value="emerald" className="bg-slate-900 text-emerald-300">Executive Emerald</option>
+                  <option value="crimson" className="bg-slate-900 text-rose-300">Royal Crimson</option>
+                  <option value="dark" className="bg-slate-900 text-slate-300">Charcoal Dark</option>
+                </select>
+              </div>
 
               <div className="flex bg-slate-950 border border-slate-800 rounded-xl p-1 text-xs font-semibold">
                 <button
@@ -4998,7 +5229,7 @@ export default function BillerPortalPage() {
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
                           <button
-                            onClick={() => generateBillPDF(b, true)}
+                            onClick={() => generateBillPDF({ ...b, theme: pdfTheme }, true)}
                             title="Download PDF Bill"
                             className="p-1.5 bg-slate-800 hover:bg-amber-500/20 hover:text-amber-400 text-slate-300 rounded-lg transition"
                           >
@@ -6218,6 +6449,126 @@ export default function BillerPortalPage() {
         </div>
       )}
 
+      {/* MODAL: PIN CODE SEARCH & AUTO-DETECTION (पिन कोड सर्च व डिटेक्शन) */}
+      {showPinSearchModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-xl w-full p-5 space-y-3.5 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2">
+                <MapPin className="w-5 h-5 text-sky-400" />
+                <div>
+                  <h3 className="text-sm font-black text-white">
+                    पिन कोड खोजें व ऑटो-डिटेक्ट करें (Search & Detect PIN Code)
+                  </h3>
+                  <p className="text-[10px] text-slate-400">
+                    एड्रेस, शहर या इलाके के नाम से 6-अंकों का पिन कोड ढूँढें और राज्य ऑटो-सेट करें।
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPinSearchModal(false)}
+                className="p-1 text-slate-400 hover:text-white rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Search Input */}
+            <div className="relative">
+              <input
+                type="text"
+                autoFocus
+                value={pinSearchQuery}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setPinSearchQuery(val);
+                  handleSearchPincodes(val);
+                }}
+                placeholder="उदा. Badli, Bawana, Kundli, Bhiwandi, Surat, Chandni Chowk, 110042..."
+                className="w-full pl-9 pr-4 py-2.5 bg-slate-950 border border-sky-500/50 rounded-2xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 font-medium"
+              />
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+            </div>
+
+            {/* Quick Popular Locality Pills */}
+            <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-thin text-[11px]">
+              <span className="text-slate-500 text-[10px] shrink-0 font-bold">Quick:</span>
+              {['Badli (110042)', 'Bawana (110039)', 'Kundli (131028)', 'Noida (201301)', 'Bhiwandi (421302)', 'Surat (395002)'].map((p) => {
+                const pin = p.match(/\d{6}/)?.[0] || '';
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => {
+                      setPinSearchQuery(pin);
+                      handleSearchPincodes(pin);
+                    }}
+                    className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[10px] font-mono shrink-0 transition"
+                  >
+                    {p}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Results List */}
+            <div className="max-h-72 overflow-y-auto space-y-1.5 pr-1 scrollbar-thin">
+              {isSearchingPin ? (
+                <div className="py-8 text-center text-xs text-slate-400 flex items-center justify-center space-x-2">
+                  <RefreshCw className="w-4 h-4 animate-spin text-sky-400" />
+                  <span>पिन कोड खोजा जा रहा है...</span>
+                </div>
+              ) : pinSearchResults.length > 0 ? (
+                pinSearchResults.map((item, idx) => (
+                  <div
+                    key={`${item.pincode}-${idx}`}
+                    onClick={() => {
+                      handleApplyDetectedPincode(item);
+                      setShowPinSearchModal(false);
+                    }}
+                    className="p-3 bg-slate-950/70 hover:bg-sky-950/40 border border-slate-800 hover:border-sky-500/40 rounded-2xl cursor-pointer transition flex items-center justify-between"
+                  >
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-xs font-black font-mono text-sky-300 px-2 py-0.5 rounded bg-sky-950/80 border border-sky-800/60">
+                          {item.pincode}
+                        </span>
+                        <span className="text-xs font-bold text-white">{item.area}</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        {item.city && `${item.city}, `}{item.district && `${item.district}, `}{item.state} (Code: {item.stateCode || '07'})
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="px-2.5 py-1 bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 font-bold rounded-xl text-[10px] transition shrink-0"
+                    >
+                      + चुनें (Select)
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <div className="py-8 text-center text-xs text-slate-400">
+                  कोई पिन कोड नहीं मिला। ऊपर नाम बदल कर खोजें।
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-slate-800 text-[10px] text-slate-400">
+              <span>सुझाव: पिन कोड चुनने पर राज्य व कोड अपने आप सेट हो जाते हैं।</span>
+              <button
+                type="button"
+                onClick={() => setShowPinSearchModal(false)}
+                className="px-3 py-1 bg-slate-800 text-slate-300 hover:text-white rounded-lg font-bold"
+              >
+                बंद करें
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL: EDIT BILL (बिल की जानकारी बदलें / संशोधित करें) */}
       {editBillModalOpen && billToEdit && (
         <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
@@ -6261,9 +6612,28 @@ export default function BillerPortalPage() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                   <div>
-                    <label className="text-[10px] font-bold text-slate-300 block mb-1">
-                      Invoice Bill No. *
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] font-bold text-slate-300">
+                        Invoice Bill No. *
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const r = editBillData.receipt || billToEdit?.receipt || '';
+                          if (r) {
+                            setEditBillData({
+                              ...editBillData,
+                              billNumber: generateInvoiceNumberFromReceipt(r),
+                            });
+                          }
+                        }}
+                        className="text-[9px] text-cyan-400 hover:text-cyan-300 font-bold flex items-center space-x-1 px-1.5 py-0.5 rounded bg-cyan-950/60 border border-cyan-800/60"
+                        title="Randomize last 2 or 3 digits from receipt"
+                      >
+                        <RefreshCw className="w-2.5 h-2.5" />
+                        <span>Randomize 2/3 digits</span>
+                      </button>
+                    </div>
                     <input
                       type="text"
                       required
@@ -6397,14 +6767,38 @@ export default function BillerPortalPage() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="sm:col-span-2">
-                    <label className="text-[10px] font-bold text-slate-300 block mb-1">
-                      Delivery Address (Ship to Address) *
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] font-bold text-slate-300">
+                        Delivery Address (Ship to Address) *
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const q = editBillData.consigneeAddress || '';
+                          setPinSearchQuery(q);
+                          handleSearchPincodes(q);
+                          setShowPinSearchModal(true);
+                        }}
+                        className="text-[9px] text-sky-400 hover:text-sky-300 font-bold flex items-center space-x-1"
+                        title="Search PIN code"
+                      >
+                        <Search className="w-2.5 h-2.5" />
+                        <span>Search PIN</span>
+                      </button>
+                    </div>
                     <input
                       type="text"
                       required
                       value={editBillData.consigneeAddress}
-                      onChange={(e) => setEditBillData({ ...editBillData, consigneeAddress: e.target.value })}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const pinMatch = autoDetectPincodeFromAddress(val);
+                        setEditBillData({
+                          ...editBillData,
+                          consigneeAddress: val,
+                          ...(pinMatch?.state ? { consigneeState: pinMatch.state, consigneeStateCode: pinMatch.stateCode || '07' } : {}),
+                        });
+                      }}
                       className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white"
                     />
                   </div>

@@ -6,6 +6,35 @@ import ItemHsn from '@/models/ItemHsn';
 import MarkaAddress from '@/models/MarkaAddress';
 import { getStateCode, getStateName } from '@/lib/states';
 import { isAnyAuthenticated } from '@/lib/auth';
+import { generateInvoiceNumberFromReceipt } from '@/lib/invoiceUtils';
+
+/**
+ * Resolve a unique bill / invoice number taking receipt as base, with last 2 or 3 digits randomized.
+ */
+async function resolveUniqueBillNumber(rawReceipt: string, requestedBillNumber?: string): Promise<string> {
+  const cleanReceipt = String(rawReceipt || '').trim();
+
+  // If user explicitly provided a custom billNumber, verify if available
+  if (requestedBillNumber && requestedBillNumber.trim()) {
+    const custom = requestedBillNumber.trim();
+    const exists = await Bill.findOne({ billNumber: custom }).select('_id').lean();
+    if (!exists) {
+      return custom;
+    }
+  }
+
+  // Generate candidate taking receipt as invoice no., but taking last 2 or 3 digits on a random basis
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const candidate = generateInvoiceNumberFromReceipt(cleanReceipt);
+    const exists = await Bill.findOne({ billNumber: candidate }).select('_id').lean();
+    if (!exists) {
+      return candidate;
+    }
+  }
+
+  // Safe fallback
+  return `${cleanReceipt.slice(0, Math.max(1, cleanReceipt.length - 3))}${Math.floor(100 + Math.random() * 900)}`;
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -180,7 +209,22 @@ export async function POST(req: NextRequest) {
       const destination = String(item.destination || item['Destination'] || '').trim();
       const termsOfDelivery = String(item.termsOfDelivery || item['Terms of Delivery'] || '').trim();
 
-      const billNumber = item.billNumber || `BILL-${rawReceipt}`;
+      // Check if bill for this receipt already exists
+      const existingBill = await Bill.findOne({
+        $or: [
+          { receipt: rawReceipt },
+          ...(item.billNumber ? [{ billNumber: item.billNumber }] : [])
+        ],
+      });
+
+      // Rule: Take receipt as invoice no, but take last 2 or 3 digits on random basis
+      // CRITICAL: Never modify existing data - if existingBill already has a billNumber, preserve it!
+      let billNumber = '';
+      if (existingBill) {
+        billNumber = (item.billNumber && String(item.billNumber).trim()) ? String(item.billNumber).trim() : existingBill.billNumber;
+      } else {
+        billNumber = await resolveUniqueBillNumber(rawReceipt, item.billNumber);
+      }
 
       // Seller Resolution: check if seller provided or fallback to default
       const Seller = (await import('@/models/Seller')).default;
@@ -373,10 +417,6 @@ export async function POST(req: NextRequest) {
       }
 
       // Upsert bill: if bill for this receipt already exists, update billing details without wiping vehicleNumber if already dispatched
-      const existingBill = await Bill.findOne({
-        $or: [{ receipt: rawReceipt }, { billNumber }],
-      });
-
       if (existingBill) {
         existingBill.receipt = rawReceipt;
         existingBill.billNumber = billNumber;

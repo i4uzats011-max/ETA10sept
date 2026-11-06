@@ -14,6 +14,7 @@ export interface BillLineItem {
 export interface BillPdfData {
   billNumber: string;
   receipt: string;
+  theme?: 'classic' | 'navy' | 'emerald' | 'crimson' | 'dark';
   hsnCode?: string;
   igst?: number;
   quantityPcs?: number;
@@ -250,7 +251,21 @@ export function generateBillPDF(bill: BillPdfData, autoDownload: boolean = true)
   const yTop = 10;
   const yBottom = 280;
 
-  doc.setDrawColor(0, 0, 0);
+  const pdfTheme = bill.theme || 'classic';
+  let primaryR = 0;
+  let primaryG = 0;
+  let primaryB = 0;
+  if (pdfTheme === 'navy') {
+    primaryR = 15; primaryG = 34; primaryB = 64; // Deep Corporate Navy
+  } else if (pdfTheme === 'emerald') {
+    primaryR = 10; primaryG = 61; primaryB = 46; // Executive Emerald
+  } else if (pdfTheme === 'crimson') {
+    primaryR = 90; primaryG = 15; primaryB = 25; // Royal Crimson
+  } else if (pdfTheme === 'dark') {
+    primaryR = 35; primaryG = 40; primaryB = 48; // Sleek Charcoal
+  }
+
+  doc.setDrawColor(primaryR, primaryG, primaryB);
   doc.setTextColor(0, 0, 0);
   doc.setLineWidth(0.3);
 
