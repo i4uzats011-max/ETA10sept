@@ -38,13 +38,15 @@ export async function GET(
     }
 
     // STRICT SANITIZATION: Only the allowed public fields and nothing else
+    // Specifically: Marka, Receipt No., Item Name, Container No. (not actual), CBM, Weight, CTN, ETA, remainDays, status
     const publicReceipts = trackingDoc.receipts.map((r: any) => ({
+      marka: r.marka || trackingDoc.name || '-',
       receiptNo: r.receiptNo || 'N/A',
       itemName: r.itemName || '-',
-      cbm: r.cbm || '0',
-      ctn: r.ctn || '0',
-      weight: r.weight || '-',
       containerNo: r.containerNo || 'N/A', // Container No. (not actual)
+      cbm: r.cbm || '0',
+      weight: r.weight || '-',
+      ctn: r.ctn || '0',
       eta: r.eta || null,
       status: r.status || 'In Transit',
       remainDays: calculateRemainDays(r.eta),

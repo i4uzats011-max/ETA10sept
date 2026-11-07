@@ -29,6 +29,7 @@ import {
 interface IAdminReceipt {
   id: string;
   receiptNo: string;
+  marka?: string;
   itemName?: string;
   cbm?: string;
   ctn?: string;
@@ -76,6 +77,7 @@ export default function AdminTrackingLinksPage() {
   // Single Add Form State
   const [formData, setFormData] = useState({
     receiptNo: '',
+    marka: '',
     itemName: '',
     cbm: '',
     ctn: '',
@@ -94,6 +96,7 @@ export default function AdminTrackingLinksPage() {
   const [editFormData, setEditFormData] = useState({
     id: '',
     receiptNo: '',
+    marka: '',
     itemName: '',
     cbm: '',
     ctn: '',
@@ -149,6 +152,7 @@ export default function AdminTrackingLinksPage() {
         setFormData(prev => ({
           ...prev,
           receiptNo: result.data.receiptNo || targetReceipt,
+          marka: result.data.marka || prev.marka || '',
           itemName: result.data.itemName || '',
           cbm: result.data.cbm || '',
           ctn: result.data.ctn || '',
@@ -256,6 +260,19 @@ export default function AdminTrackingLinksPage() {
     }
   };
 
+  const copyMessage = (r: IAdminReceipt) => {
+    const url = `${window.location.origin}/track/${r.trackingToken}`;
+    const msg = `US INTERNATIONAL LOGISTICS 📦\nShipment Tracking Update\nMarka: ${r.marka || r.trackingName || '-'}\nReceipt No.: ${r.receiptNo}\nItem: ${r.itemName || '-'}\nETA: ${r.eta || 'Pending'}\n\nTrack your shipment live here:\n${url}\n\nyou can track this via link 24 hrs`;
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(msg).then(() => {
+        showToast('📋 Message copied! "you can track this via link 24 hrs"');
+      });
+    } else {
+      window.prompt('Copy tracking message:', msg);
+    }
+  };
+
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -305,6 +322,7 @@ export default function AdminTrackingLinksPage() {
         setSelectedMarkaReceiptNos(new Set());
         setFormData({
           receiptNo: '',
+          marka: '',
           itemName: '',
           cbm: '',
           ctn: '',
@@ -377,6 +395,7 @@ export default function AdminTrackingLinksPage() {
     setEditFormData({
       id: r.id,
       receiptNo: r.receiptNo || '',
+      marka: r.marka || '',
       itemName: r.itemName || '',
       cbm: r.cbm || '',
       ctn: r.ctn || '',
@@ -395,6 +414,7 @@ export default function AdminTrackingLinksPage() {
     const q = searchQuery.toLowerCase();
     return (
       r.receiptNo?.toLowerCase().includes(q) ||
+      r.marka?.toLowerCase().includes(q) ||
       r.itemName?.toLowerCase().includes(q) ||
       r.containerNo?.toLowerCase().includes(q) ||
       r.trackingToken?.toLowerCase().includes(q) ||
@@ -500,7 +520,8 @@ export default function AdminTrackingLinksPage() {
               <thead>
                 <tr className="bg-slate-50 text-slate-600 border-b border-slate-200 font-bold uppercase tracking-wider text-[11px]">
                   <th className="py-3 px-4">Receipt No.</th>
-                  <th className="py-3 px-4">Allocated Link Name / Marka</th>
+                  <th className="py-3 px-4">Marka</th>
+                  <th className="py-3 px-4">Allocated Link Name</th>
                   <th className="py-3 px-4">Item Name</th>
                   <th className="py-3 px-4">CBM / CTN / Weight</th>
                   <th className="py-3 px-4">
@@ -516,7 +537,7 @@ export default function AdminTrackingLinksPage() {
               <tbody className="divide-y divide-slate-100">
                 {loading && (
                   <tr>
-                    <td colSpan={9} className="text-center py-10 text-slate-400">
+                    <td colSpan={10} className="text-center py-10 text-slate-400">
                       Loading tracking records...
                     </td>
                   </tr>
@@ -524,7 +545,7 @@ export default function AdminTrackingLinksPage() {
 
                 {!loading && filteredReceipts.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="text-center py-12 text-slate-500">
+                    <td colSpan={10} className="text-center py-12 text-slate-500">
                       No receipts found. Click <strong>&quot;Add / Map Receipts by Marka&quot;</strong> to generate a link!
                     </td>
                   </tr>
@@ -534,6 +555,9 @@ export default function AdminTrackingLinksPage() {
                   <tr key={r.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="py-3.5 px-4 font-bold text-slate-900">
                       {r.receiptNo}
+                    </td>
+                    <td className="py-3.5 px-4 font-bold text-slate-800">
+                      {r.marka || '-'}
                     </td>
                     <td className="py-3.5 px-4">
                       {r.trackingName ? (
@@ -581,18 +605,34 @@ export default function AdminTrackingLinksPage() {
                         <button
                           onClick={() => copyLink(r.trackingToken)}
                           title="Copy Public Link"
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1 rounded-md transition cursor-pointer"
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded-md transition cursor-pointer"
                         >
-                          <Copy className="w-3 h-3" /> Copy
+                          <Copy className="w-3 h-3" /> Link
                         </button>
+                        <button
+                          onClick={() => copyMessage(r)}
+                          title="Copy Customer Message (ends with: you can track this via link 24 hrs)"
+                          className="inline-flex items-center gap-1 text-[11px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-1 rounded-md transition cursor-pointer"
+                        >
+                          <Copy className="w-3 h-3 text-emerald-600" /> Msg
+                        </button>
+                        <a
+                          href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`US INTERNATIONAL LOGISTICS 📦\nShipment Tracking Update\nReceipt No.: ${r.receiptNo}\nMarka: ${r.marka || r.trackingName || '-'}\nTrack Link: ${typeof window !== 'undefined' ? window.location.origin : ''}/track/${r.trackingToken}\n\nyou can track this via link 24 hrs`)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Share directly via WhatsApp"
+                          className="inline-flex items-center gap-1 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded-md transition"
+                        >
+                          WA
+                        </a>
                         <a
                           href={`/track/${r.trackingToken}`}
                           target="_blank"
                           rel="noreferrer"
-                          title="View what public sees"
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 px-2.5 py-1 rounded-md transition"
+                          title="Open public table & download JPG"
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 px-2 py-1 rounded-md transition"
                         >
-                          <ExternalLink className="w-3 h-3" /> View
+                          <ExternalLink className="w-3 h-3" /> Table / JPG
                         </a>
                       </div>
                     </td>
@@ -769,19 +809,19 @@ export default function AdminTrackingLinksPage() {
               {/* ── MODE B: SINGLE RECEIPT AUTO-FILL ── */}
               {addMode === 'single' && (
                 <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-3 gap-3">
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="block font-bold text-slate-700">Receipt No. *</label>
                         <span className="text-[10px] text-blue-600 font-bold">
-                          {lookingUp ? 'Auto-filling...' : '✨ Auto-fill on select'}
+                          {lookingUp ? '...' : '✨ Auto'}
                         </span>
                       </div>
                       <input
                         type="text"
                         list="dbReceiptsList"
                         required={addMode === 'single'}
-                        placeholder="Type or select Receipt No..."
+                        placeholder="Receipt No..."
                         value={formData.receiptNo}
                         onChange={(e) => handleSelectReceiptNo(e.target.value)}
                         onBlur={() => {
@@ -796,6 +836,16 @@ export default function AdminTrackingLinksPage() {
                           <option key={r} value={r} />
                         ))}
                       </datalist>
+                    </div>
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Marka</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. VIP / SHANTI"
+                        value={formData.marka}
+                        onChange={(e) => setFormData({ ...formData, marka: e.target.value })}
+                        className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:border-blue-600 font-semibold"
+                      />
                     </div>
                     <div>
                       <label className="block font-bold text-slate-700 mb-1">Item Name</label>
@@ -1020,7 +1070,7 @@ export default function AdminTrackingLinksPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Receipt No. *</label>
                   <input
@@ -1029,6 +1079,15 @@ export default function AdminTrackingLinksPage() {
                     value={editFormData.receiptNo}
                     onChange={(e) => setEditFormData({ ...editFormData, receiptNo: e.target.value })}
                     className="w-full p-2.5 border border-slate-300 rounded-lg outline-none font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Marka</label>
+                  <input
+                    type="text"
+                    value={editFormData.marka}
+                    onChange={(e) => setEditFormData({ ...editFormData, marka: e.target.value })}
+                    className="w-full p-2.5 border border-slate-300 rounded-lg outline-none font-semibold"
                   />
                 </div>
                 <div>

@@ -29,6 +29,7 @@ export async function PUT(
 
     const {
       receiptNo,
+      marka,
       itemName,
       cbm,
       ctn,
@@ -56,6 +57,7 @@ export async function PUT(
     doc.receipts[receiptIndex] = {
       ...current,
       receiptNo: receiptNo !== undefined ? receiptNo.trim() : current.receiptNo,
+      marka: marka !== undefined ? marka.trim() : (current.marka || doc.name || ''),
       itemName: itemName !== undefined ? itemName.trim() : current.itemName,
       cbm: cbm !== undefined ? cbm.trim() : current.cbm,
       ctn: ctn !== undefined ? ctn.trim() : current.ctn,

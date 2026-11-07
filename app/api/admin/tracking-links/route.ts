@@ -83,9 +83,11 @@ export async function POST(req: NextRequest) {
       entriesToAdd = body.items.map((it: any, i: number) => {
         const rNo = String(it.receiptNo || it.receipt || '').trim();
         const etaVal = it.eta ? String(it.eta).trim() : (it.destinationDate ? String(it.destinationDate).trim() : '');
+        const markaVal = String(it.marka || it.mainMarka || it.subMarka || trackingName || '').trim();
         return {
           id: 'rec_' + Date.now() + '_' + i + '_' + Math.floor(Math.random() * 1000),
           receiptNo: rNo,
+          marka: markaVal,
           itemName: String(it.itemName || it.english || it.commodity || '').trim(),
           cbm: String(it.cbm || it.volume || '').trim(),
           ctn: String(it.ctn || it.quantity || '').trim(),
@@ -93,6 +95,7 @@ export async function POST(req: NextRequest) {
           containerNo: String(it.containerNo || it.container || '').trim(), // Container No. (not actual)
           actualContainerNo: String(it.actualContainerNo || it.containerNumber || '').trim(),
           eta: etaVal,
+          status: String(it.status || 'In Transit').trim(),
           adminNotes: String(it.adminNotes || '').trim(),
           createdAt: new Date(),
           updatedAt: new Date()
@@ -104,6 +107,7 @@ export async function POST(req: NextRequest) {
       entriesToAdd.push({
         id: 'rec_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
         receiptNo: body.receiptNo.trim(),
+        marka: String(body.marka || trackingName || '').trim(),
         itemName: (body.itemName || '').trim(),
         cbm: (body.cbm || '').trim(),
         ctn: (body.ctn || '').trim(),
@@ -111,6 +115,7 @@ export async function POST(req: NextRequest) {
         containerNo: (body.containerNo || '').trim(), // Container No. (not actual)
         actualContainerNo: (body.actualContainerNo || '').trim(),
         eta: body.eta ? body.eta.trim() : '',
+        status: String(body.status || 'In Transit').trim(),
         adminNotes: (body.adminNotes || '').trim(),
         createdAt: new Date(),
         updatedAt: new Date()

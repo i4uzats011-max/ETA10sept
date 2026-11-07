@@ -224,7 +224,9 @@ Weight: ${wt}
 Volume: ${vol}${rateLine}
 Please share the Warehouse Slip , Packing List ,Item Name and Item Image for our records.
 
-Please note without above details goods will not be load`;
+Please note without above details goods will not be load
+
+you can track this via link 24 hrs`;
   };
 
   // Save warehouse entry record # to database

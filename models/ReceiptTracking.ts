@@ -3,6 +3,7 @@ import mongoose, { Schema, Document, Model } from 'mongoose';
 export interface IReceiptEntry {
   id: string;
   receiptNo: string;
+  marka?: string;              // Shipping Mark / Marka e.g. "VIP", "SHANTI"
   itemName?: string;
   cbm?: string;
   ctn?: string;
@@ -28,6 +29,7 @@ const ReceiptEntrySchema = new Schema(
   {
     id: { type: String, required: true },
     receiptNo: { type: String, required: true, trim: true },
+    marka: { type: String, default: '', trim: true },
     itemName: { type: String, default: '', trim: true },
     cbm: { type: String, default: '', trim: true },
     ctn: { type: String, default: '', trim: true },

@@ -12,7 +12,7 @@ import {
   AlertTriangle, FileSpreadsheet, Image as ImageIcon, FileText,
   X, SlidersHorizontal, FileType, Star, Bookmark, ChevronDown,
   LayoutGrid, Filter, Check, CheckCircle2, Clock, TrendingUp, ArrowUpDown,
-  CheckSquare, Square, Eye, EyeOff, Lock, Key, Languages, ExternalLink
+  CheckSquare, Square, Eye, EyeOff, Lock, Key, Languages, ExternalLink, Copy
 } from 'lucide-react';
 import { getCarrierTrackingUrl, getLdbRailwayTrackingUrl } from '@/lib/trackingUrls';
 import {
@@ -338,6 +338,7 @@ export default function InternalEmployeeViewPage() {
     token: string;
     count: number;
     receipts: string[];
+    customerMessage?: string;
   } | null>(null);
   const [trackingToast, setTrackingToast] = useState<string | null>(null);
   const [isGeneratingLink, setIsGeneratingLink] = useState(false);
@@ -375,6 +376,7 @@ export default function InternalEmployeeViewPage() {
         trackingName: allocatedName.trim() || defaultName,
         items: itemsToLink.map(item => ({
           receiptNo: item.receipt,
+          marka: item.mainMarka || item.subMarka || item.party || allocatedName.trim() || defaultName,
           itemName: translateToEnglish(item.english || item.commodity || item.chinese),
           cbm: item.volume,
           ctn: item.quantity,
@@ -396,16 +398,19 @@ export default function InternalEmployeeViewPage() {
 
       if (res.ok && data.success) {
         const fullUrl = `${window.location.origin}/track/${data.trackingToken}`;
+        const customerMessage = `US INTERNATIONAL LOGISTICS 📦\nShipment Tracking Update\nMarka / Party: ${allocatedName.trim() || defaultName}\nReceipt No.: ${itemsToLink.map(i => i.receipt).join(', ')}\n\nLive Tracking Link:\n${fullUrl}\n\nyou can track this via link 24 hrs`;
+
         if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(fullUrl);
+          navigator.clipboard.writeText(customerMessage);
         }
         setTrackingModalData({
           open: true,
           token: data.trackingToken,
           count: data.count,
-          receipts: itemsToLink.map(i => i.receipt).slice(0, 10)
+          receipts: itemsToLink.map(i => i.receipt).slice(0, 10),
+          customerMessage
         });
-        showTrackingToast(`✅ Public link allocated to "${allocatedName.trim() || defaultName}" & copied!`);
+        showTrackingToast(`✅ Public link allocated & message copied! "you can track this via link 24 hrs"`);
       } else {
         alert(data.message || 'Failed to generate link.');
       }
@@ -427,6 +432,7 @@ export default function InternalEmployeeViewPage() {
         trackingName: allocatedName,
         items: [{
           receiptNo: item.receipt,
+          marka: item.mainMarka || item.subMarka || item.party || allocatedName,
           itemName: translateToEnglish(item.english || item.commodity || item.chinese),
           cbm: item.volume,
           ctn: item.quantity,
@@ -448,10 +454,12 @@ export default function InternalEmployeeViewPage() {
 
       if (res.ok && data.success) {
         const fullUrl = `${window.location.origin}/track/${data.trackingToken}`;
+        const customerMessage = `US INTERNATIONAL LOGISTICS 📦\nShipment Tracking Reminder\nMarka: ${allocatedName}\nReceipt No.: ${item.receipt}\nItem: ${item.english || item.commodity || item.chinese || '-'}\nETA: ${item.destinationDate || item.eta || 'Pending Schedule'}\n\nLive Tracking Link:\n${fullUrl}\n\nyou can track this via link 24 hrs`;
+
         if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(fullUrl);
+          navigator.clipboard.writeText(customerMessage);
         }
-        showTrackingToast(`📋 ETA Reminder link copied for Receipt #${item.receipt}!`);
+        showTrackingToast(`📋 Reminder message copied! "you can track this via link 24 hrs"`);
       } else {
         alert(data.message || 'Failed to generate link.');
       }
@@ -2647,10 +2655,49 @@ export default function InternalEmployeeViewPage() {
                     if (navigator.clipboard) navigator.clipboard.writeText(url);
                     showTrackingToast('Link copied to clipboard!');
                   }}
-                  className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shrink-0 transition"
+                  className="px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold shrink-0 transition cursor-pointer"
                 >
-                  Copy
+                  Copy Link
                 </button>
+              </div>
+            </div>
+
+            {/* Customer Message Box with "you can track this via link 24 hrs" */}
+            <div className="bg-emerald-50/60 border border-emerald-200 p-3 rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">
+                  Ready-to-Send Message:
+                </span>
+                <span className="text-[10px] text-emerald-600 font-bold">
+                  Includes 24hr tracking notice
+                </span>
+              </div>
+              <div className="p-2.5 bg-white border border-emerald-200 rounded-lg text-xs font-mono text-slate-800 whitespace-pre-wrap select-all max-h-28 overflow-y-auto">
+                {trackingModalData.customerMessage || `US INTERNATIONAL LOGISTICS 📦\nShipment Tracking Link:\n${typeof window !== 'undefined' ? window.location.origin : ''}/track/${trackingModalData.token}\n\nyou can track this via link 24 hrs`}
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const msg = trackingModalData.customerMessage || `${window.location.origin}/track/${trackingModalData.token}\n\nyou can track this via link 24 hrs`;
+                    if (navigator.clipboard) navigator.clipboard.writeText(msg);
+                    showTrackingToast('📋 Message copied! "you can track this via link 24 hrs"');
+                  }}
+                  className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Copy Message for Customer</span>
+                </button>
+                <a
+                  href={`https://api.whatsapp.com/send?text=${encodeURIComponent(trackingModalData.customerMessage || `${typeof window !== 'undefined' ? window.location.origin : ''}/track/${trackingModalData.token}\n\nyou can track this via link 24 hrs`)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 shrink-0"
+                  title="Share directly via WhatsApp"
+                >
+                  <span>WhatsApp</span>
+                  <ExternalLink className="w-3 h-3 text-emerald-200" />
+                </a>
               </div>
             </div>
 
@@ -2662,14 +2709,14 @@ export default function InternalEmployeeViewPage() {
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-900 flex items-start gap-2">
               <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
               <span>
-                <strong>Restricted & Sanitized:</strong> Public view displays ONLY Receipt No, Item Name, CBM, CTN, Weight, Container No. (not actual), ETA, and Remain Days. Zero sensitive carrier, party or cost details are exposed.
+                <strong>Restricted & Sanitized:</strong> Public view displays ONLY Marka, Receipt No, Item Name, Container No. (not actual), CBM, Weight, CTN, ETA, and Remain Days. Customer can download table as JPG directly!
               </span>
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
               <button
                 onClick={() => setTrackingModalData(null)}
-                className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-50"
+                className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-50 cursor-pointer"
               >
                 Close
               </button>
@@ -2680,7 +2727,7 @@ export default function InternalEmployeeViewPage() {
                 className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5"
               >
                 <Eye className="w-3.5 h-3.5" />
-                <span>Open Public View</span>
+                <span>Open & Download JPG Table</span>
               </a>
             </div>
           </div>

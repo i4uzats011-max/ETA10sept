@@ -54,6 +54,7 @@ export async function GET(req: NextRequest) {
         if (s.receipt && !receiptMap.has(s.receipt)) {
           receiptMap.set(s.receipt, {
             receiptNo: s.receipt,
+            marka: s.mainMarka || s.subMarka || s.party || markaQuery,
             itemName: s.english || s.commodity || s.chinese || '',
             cbm: s.volume || '',
             ctn: String(s.quantity || ''),
@@ -73,6 +74,7 @@ export async function GET(req: NextRequest) {
         if (w.receipt && !receiptMap.has(w.receipt)) {
           receiptMap.set(w.receipt, {
             receiptNo: w.receipt,
+            marka: w.mainMarka || w.subMarka || w.party || markaQuery,
             itemName: w.english || w.commodity || w.chinese || (w.items && w.items[0]?.itemName) || '',
             cbm: w.volume || '',
             ctn: String(w.quantity || ''),
@@ -121,6 +123,7 @@ export async function GET(req: NextRequest) {
         success: true,
         data: {
           receiptNo: shipment.receipt || receiptQuery,
+          marka: shipment.mainMarka || shipment.subMarka || shipment.party || '',
           itemName: shipment.english || shipment.commodity || shipment.chinese || '',
           cbm: shipment.volume || '',
           ctn: String(shipment.quantity || ''),
@@ -141,6 +144,7 @@ export async function GET(req: NextRequest) {
         success: true,
         data: {
           receiptNo: whItem.receipt || receiptQuery,
+          marka: whItem.mainMarka || whItem.subMarka || whItem.party || '',
           itemName: whItem.english || whItem.commodity || whItem.chinese || (whItem.items && whItem.items[0]?.itemName) || '',
           cbm: whItem.volume || '',
           ctn: String(whItem.quantity || ''),
