@@ -8,13 +8,24 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const receiptQuery = searchParams.get('receipt')?.trim();
-
-  if (!receiptQuery) {
-    return NextResponse.json({ success: false, message: 'Receipt query is required' }, { status: 400 });
-  }
+  const listParam = searchParams.get('list');
 
   try {
     await connectToDatabase();
+
+    // If requested, return distinct list of receipts for autocomplete dropdown
+    if (listParam === 'true') {
+      const shipmentReceipts = await Shipment.distinct('receipt');
+      const whReceipts = await WarehouseReceipt.distinct('receipt');
+      const allReceipts = Array.from(new Set([...shipmentReceipts, ...whReceipts]))
+        .filter(Boolean)
+        .slice(0, 200);
+      return NextResponse.json({ success: true, receipts: allReceipts });
+    }
+
+    if (!receiptQuery) {
+      return NextResponse.json({ success: false, message: 'Receipt query is required' }, { status: 400 });
+    }
 
     const regex = new RegExp(`^${receiptQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
 
@@ -28,7 +39,7 @@ export async function GET(req: NextRequest) {
           receiptNo: shipment.receipt || receiptQuery,
           itemName: shipment.english || shipment.commodity || shipment.chinese || '',
           cbm: shipment.volume || '',
-          ctn: shipment.quantity || '',
+          ctn: String(shipment.quantity || ''),
           weight: shipment.weight || '',
           containerNo: shipment.container || '', // Container alias e.g. USI-01 (not actual)
           actualContainerNo: shipment.containerNumber || '', // Actual container number

@@ -331,6 +331,125 @@ export default function InternalEmployeeViewPage() {
   // Toolbar Filter Panel Visibility
   const [activeFilterPanel, setActiveFilterPanel] = useState(true);
 
+  // Public Restricted Tracking Link Generator States
+  const [selectedReceiptIds, setSelectedReceiptIds] = useState<Set<string>>(new Set());
+  const [trackingModalData, setTrackingModalData] = useState<{
+    open: boolean;
+    token: string;
+    count: number;
+    receipts: string[];
+  } | null>(null);
+  const [trackingToast, setTrackingToast] = useState<string | null>(null);
+  const [isGeneratingLink, setIsGeneratingLink] = useState(false);
+
+  const showTrackingToast = (msg: string) => {
+    setTrackingToast(msg);
+    setTimeout(() => setTrackingToast(null), 3000);
+  };
+
+  // Generate tracking link for multiple receipts (Filtered or Selected) - 100% auto-filled
+  const handleGenerateTrackingLink = async (targetItems?: any[]) => {
+    const itemsToLink = targetItems || (selectedReceiptIds.size > 0 
+      ? filteredShipments.filter(s => selectedReceiptIds.has(s._id))
+      : filteredShipments);
+
+    if (!itemsToLink || itemsToLink.length === 0) {
+      alert('No cargo records available to generate link.');
+      return;
+    }
+
+    setIsGeneratingLink(true);
+    try {
+      const payload = {
+        trackingTokenOption: 'new',
+        trackingName: `Cargo Master Filtered (${itemsToLink.length} receipts)`,
+        items: itemsToLink.map(item => ({
+          receiptNo: item.receipt,
+          itemName: translateToEnglish(item.english || item.commodity || item.chinese),
+          cbm: item.volume,
+          ctn: item.quantity,
+          weight: item.weight,
+          containerNo: item.container, // Container alias (not actual)
+          actualContainerNo: item.containerNumber, // Admin record (hidden from public)
+          eta: item.destinationDate || item.eta,
+          adminNotes: `Generated from Employee View on ${new Date().toLocaleDateString()}`
+        }))
+      };
+
+      const res = await fetch('/api/admin/tracking-links', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        const fullUrl = `${window.location.origin}/track/${data.trackingToken}`;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(fullUrl);
+        }
+        setTrackingModalData({
+          open: true,
+          token: data.trackingToken,
+          count: data.count,
+          receipts: itemsToLink.map(i => i.receipt).slice(0, 10)
+        });
+        showTrackingToast(`✅ Public tracking link created & copied for ${data.count} receipts!`);
+      } else {
+        alert(data.message || 'Failed to generate link.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error generating link.');
+    } finally {
+      setIsGeneratingLink(false);
+    }
+  };
+
+  // Generate tracking link from a single row to remind party/customer - 100% auto-filled
+  const handleGenerateRowLink = async (item: any) => {
+    setIsGeneratingLink(true);
+    try {
+      const payload = {
+        trackingTokenOption: 'new',
+        trackingName: `Receipt #${item.receipt}`,
+        items: [{
+          receiptNo: item.receipt,
+          itemName: translateToEnglish(item.english || item.commodity || item.chinese),
+          cbm: item.volume,
+          ctn: item.quantity,
+          weight: item.weight,
+          containerNo: item.container, // Container alias (not actual)
+          actualContainerNo: item.containerNumber,
+          eta: item.destinationDate || item.eta,
+          adminNotes: `Reminder link for Receipt #${item.receipt}`
+        }]
+      };
+
+      const res = await fetch('/api/admin/tracking-links', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        const fullUrl = `${window.location.origin}/track/${data.trackingToken}`;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(fullUrl);
+        }
+        showTrackingToast(`📋 ETA Reminder link copied for Receipt #${item.receipt}!`);
+      } else {
+        alert(data.message || 'Failed to generate link.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error creating link for row.');
+    } finally {
+      setIsGeneratingLink(false);
+    }
+  };
+
 
   // ── MODULAR EMPLOYEE MENU TABS (Read-Only) ──
   type EmployeeTab = 'shipments' | 'containers';
@@ -1877,8 +1996,8 @@ export default function InternalEmployeeViewPage() {
         {/* ── DATA TABLE (WITH EXCEL MULTI-SELECT HEADERS ON ALL COLUMNS) ── */}
         <div ref={tableRef} className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
           {/* Table Header Banner */}
-          <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
-            <div className="flex items-center space-x-2 text-xs font-semibold text-slate-600">
+          <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-50 flex-wrap gap-2">
+            <div className="flex items-center space-x-2 text-xs font-semibold text-slate-600 flex-wrap gap-1">
               <span className="font-black text-slate-900">US INTERNATIONAL LOGISTICS</span>
               <span className="text-slate-300">|</span>
               <span>Cargo Master Table</span>
@@ -1886,7 +2005,24 @@ export default function InternalEmployeeViewPage() {
                 {filteredShipments.length} records displayed
               </span>
             </div>
-            <span className="text-[11px] text-slate-400 font-mono">{new Date().toLocaleDateString()}</span>
+
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={() => handleGenerateTrackingLink()}
+                disabled={isGeneratingLink || filteredShipments.length === 0}
+                className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition disabled:opacity-50 cursor-pointer"
+                title="Generate public restricted link for these filtered cargo records"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>
+                  {selectedReceiptIds.size > 0
+                    ? `Generate Link (${selectedReceiptIds.size} Selected)`
+                    : `Generate Link for Filtered (${filteredShipments.length})`}
+                </span>
+              </button>
+              <span className="text-[11px] text-slate-400 font-mono hidden sm:inline">{new Date().toLocaleDateString()}</span>
+            </div>
           </div>
 
           {isLoading ? (
@@ -1913,6 +2049,23 @@ export default function InternalEmployeeViewPage() {
               <table className="w-full text-xs border-collapse">
                 <thead>
                   <tr className="bg-slate-100 text-slate-700 text-[10px] font-bold uppercase tracking-wider border-b border-slate-200 select-none">
+                    {/* 0. Row Selection for Batch Link Generation */}
+                    <th className="py-3 px-2 text-center w-8">
+                      <input
+                        type="checkbox"
+                        checked={filteredShipments.length > 0 && filteredShipments.every(s => selectedReceiptIds.has(s._id))}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedReceiptIds(new Set(filteredShipments.map(s => s._id)));
+                          } else {
+                            setSelectedReceiptIds(new Set());
+                          }
+                        }}
+                        className="w-3.5 h-3.5 rounded text-blue-600 cursor-pointer"
+                        title="Select/Deselect all filtered records"
+                      />
+                    </th>
+
                     {/* 1. Mark */}
                     {showMarks && (
                       <th className="py-3 px-3 text-center w-12">
@@ -2146,6 +2299,21 @@ export default function InternalEmployeeViewPage() {
                             : 'bg-slate-50/50 hover:bg-slate-100/70'
                         }`}
                       >
+                        {/* 0. Row Checkbox */}
+                        <td className="py-2.5 px-2 text-center" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedReceiptIds.has(item._id)}
+                            onChange={(e) => {
+                              const next = new Set(selectedReceiptIds);
+                              if (e.target.checked) next.add(item._id);
+                              else next.delete(item._id);
+                              setSelectedReceiptIds(next);
+                            }}
+                            className="w-3.5 h-3.5 rounded text-blue-600 cursor-pointer"
+                          />
+                        </td>
+
                         {/* 1. Mark Toggle */}
                         {showMarks && (
                           <td className="py-2.5 px-3 text-center">
@@ -2206,7 +2374,21 @@ export default function InternalEmployeeViewPage() {
                         {/* 4. Receipt No */}
                         {showReceiptNo && (
                           <td className="py-2.5 px-4 font-mono font-black text-slate-950 whitespace-nowrap">
-                            <span>{item.receipt}</span>
+                            <div className="flex items-center space-x-1.5">
+                              <span>{item.receipt}</span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleGenerateRowLink(item);
+                                }}
+                                title={`Copy ETA Reminder link for Receipt #${item.receipt}`}
+                                className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 inline-flex items-center gap-1 transition cursor-pointer"
+                              >
+                                <ExternalLink className="w-2.5 h-2.5" />
+                                <span>Remind</span>
+                              </button>
+                            </div>
                             {item.party && (
                               <div className="font-sans font-medium text-[10px] text-slate-500 truncate max-w-[130px]" title={item.party}>
                                 {item.party}
@@ -2413,6 +2595,92 @@ export default function InternalEmployeeViewPage() {
         isOpen={showTranslatorModal}
         onClose={() => setShowTranslatorModal(false)}
       />
+
+      {/* Public Tracking Link Result Modal */}
+      {trackingModalData && trackingModalData.open && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                  <ExternalLink className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-900">Public Tracking Link Generated</h3>
+                  <p className="text-[11px] text-slate-500">{trackingModalData.count} receipt(s) included</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setTrackingModalData(null)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl">
+              <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Shareable Public URL:</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={`${typeof window !== 'undefined' ? window.location.origin : ''}/track/${trackingModalData.token}`}
+                  className="w-full text-xs font-mono bg-white p-2 border border-slate-300 rounded-lg select-all"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const url = `${window.location.origin}/track/${trackingModalData.token}`;
+                    if (navigator.clipboard) navigator.clipboard.writeText(url);
+                    showTrackingToast('Link copied to clipboard!');
+                  }}
+                  className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shrink-0 transition"
+                >
+                  Copy
+                </button>
+              </div>
+            </div>
+
+            <div className="text-[11px] text-slate-600 space-y-1">
+              <p className="font-semibold text-slate-800">Included Receipts:</p>
+              <p className="font-mono text-slate-500 truncate">{trackingModalData.receipts.join(', ')}</p>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-900 flex items-start gap-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+              <span>
+                <strong>Restricted & Sanitized:</strong> Public view displays ONLY Receipt No, Item Name, CBM, CTN, Weight, Container No. (not actual), ETA, and Remain Days. Zero sensitive carrier, party or cost details are exposed.
+              </span>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setTrackingModalData(null)}
+                className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-50"
+              >
+                Close
+              </button>
+              <a
+                href={`/track/${trackingModalData.token}`}
+                target="_blank"
+                rel="noreferrer"
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>Open Public View</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Toast Notification */}
+      {trackingToast && (
+        <div className="fixed bottom-6 right-6 bg-slate-900 text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-xl flex items-center gap-2 z-50 animate-bounce">
+          <Check className="w-4 h-4 text-emerald-400" />
+          <span>{trackingToast}</span>
+        </div>
+      )}
     </div>
   );
 }

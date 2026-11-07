@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { connectToDatabase } from '@/lib/mongodb';
 import ReceiptTracking, { IReceiptEntry } from '@/models/ReceiptTracking';
-import Shipment from '@/models/Shipment';
-import WarehouseReceipt from '@/models/WarehouseReceipt';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,32 +56,17 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST create a receipt or attach to existing link
+// POST create receipt(s) or attach to existing link (supports single or multiple items)
 export async function POST(req: NextRequest) {
   try {
     await connectToDatabase();
 
     const body = await req.json();
     const {
-      receiptNo,
-      itemName,
-      cbm,
-      ctn,
-      weight,
-      containerNo,
-      actualContainerNo,
-      eta,
-      adminNotes,
       trackingTokenOption, // 'new' or 'existing'
       existingToken,
       trackingName
     } = body;
-
-    if (!receiptNo || !receiptNo.trim()) {
-      return NextResponse.json({ success: false, message: 'Receipt No. is required' }, { status: 400 });
-    }
-
-    const cleanReceiptNo = receiptNo.trim();
 
     // Determine tracking token
     let token = '';
@@ -93,27 +76,57 @@ export async function POST(req: NextRequest) {
       token = 'trk_' + crypto.randomBytes(6).toString('hex');
     }
 
-    const newEntry: IReceiptEntry = {
-      id: 'rec_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
-      receiptNo: cleanReceiptNo,
-      itemName: (itemName || '').trim(),
-      cbm: (cbm || '').trim(),
-      ctn: (ctn || '').trim(),
-      weight: (weight || '').trim(),
-      containerNo: (containerNo || '').trim(), // Public display: Container No. (not actual)
-      actualContainerNo: (actualContainerNo || '').trim(),
-      eta: eta ? eta.trim() : '',
-      adminNotes: (adminNotes || '').trim(),
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
+    let entriesToAdd: IReceiptEntry[] = [];
+
+    // Support 1: Multiple items provided
+    if (Array.isArray(body.items) && body.items.length > 0) {
+      entriesToAdd = body.items.map((it: any, i: number) => {
+        const rNo = String(it.receiptNo || it.receipt || '').trim();
+        const etaVal = it.eta ? String(it.eta).trim() : (it.destinationDate ? String(it.destinationDate).trim() : '');
+        return {
+          id: 'rec_' + Date.now() + '_' + i + '_' + Math.floor(Math.random() * 1000),
+          receiptNo: rNo,
+          itemName: String(it.itemName || it.english || it.commodity || '').trim(),
+          cbm: String(it.cbm || it.volume || '').trim(),
+          ctn: String(it.ctn || it.quantity || '').trim(),
+          weight: String(it.weight || '').trim(),
+          containerNo: String(it.containerNo || it.container || '').trim(), // Container No. (not actual)
+          actualContainerNo: String(it.actualContainerNo || it.containerNumber || '').trim(),
+          eta: etaVal,
+          adminNotes: String(it.adminNotes || '').trim(),
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+      }).filter((e: IReceiptEntry) => Boolean(e.receiptNo));
+    } 
+    // Support 2: Single item provided
+    else if (body.receiptNo && body.receiptNo.trim()) {
+      entriesToAdd.push({
+        id: 'rec_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+        receiptNo: body.receiptNo.trim(),
+        itemName: (body.itemName || '').trim(),
+        cbm: (body.cbm || '').trim(),
+        ctn: (body.ctn || '').trim(),
+        weight: (body.weight || '').trim(),
+        containerNo: (body.containerNo || '').trim(), // Container No. (not actual)
+        actualContainerNo: (body.actualContainerNo || '').trim(),
+        eta: body.eta ? body.eta.trim() : '',
+        adminNotes: (body.adminNotes || '').trim(),
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+    }
+
+    if (entriesToAdd.length === 0) {
+      return NextResponse.json({ success: false, message: 'At least one valid receipt is required.' }, { status: 400 });
+    }
 
     // Find if tracking doc exists for this token
     let trackingDoc = await ReceiptTracking.findOne({ token });
 
     if (trackingDoc) {
-      // Append to existing link
-      trackingDoc.receipts.push(newEntry);
+      // Append to existing link (Same link given to customer)
+      trackingDoc.receipts.push(...entriesToAdd);
       if (trackingName && trackingName.trim()) {
         trackingDoc.name = trackingName.trim();
       }
@@ -124,18 +137,20 @@ export async function POST(req: NextRequest) {
       trackingDoc = await ReceiptTracking.create({
         token,
         name: (trackingName || '').trim(),
-        receipts: [newEntry]
+        receipts: entriesToAdd
       });
     }
 
     return NextResponse.json({
       success: true,
-      message: 'Receipt added successfully.',
-      receipt: {
-        ...newEntry,
+      message: `${entriesToAdd.length} receipt(s) saved to tracking link.`,
+      trackingToken: token,
+      count: entriesToAdd.length,
+      receipts: entriesToAdd.map(e => ({
+        ...e,
         trackingToken: token,
-        remainDays: calculateRemainDays(newEntry.eta)
-      }
+        remainDays: calculateRemainDays(e.eta)
+      }))
     });
   } catch (error: any) {
     console.error('Error adding tracking receipt:', error);

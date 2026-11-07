@@ -95,37 +95,54 @@ export default function AdminTrackingLinksPage() {
   };
 
   const [lookingUp, setLookingUp] = useState(false);
+  const [availableReceipts, setAvailableReceipts] = useState<string[]>([]);
 
-  const handleLookup = async () => {
-    if (!formData.receiptNo.trim()) {
-      alert('Please enter a Receipt No. to look up');
+  const loadAvailableReceipts = async () => {
+    try {
+      const res = await fetch('/api/admin/tracking-links/lookup?list=true');
+      const data = await res.json();
+      if (data.success && data.receipts) {
+        setAvailableReceipts(data.receipts);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleLookup = async (receiptOverride?: string) => {
+    const targetReceipt = (receiptOverride || formData.receiptNo).trim();
+    if (!targetReceipt) {
       return;
     }
     setLookingUp(true);
     try {
-      const res = await fetch(`/api/admin/tracking-links/lookup?receipt=${encodeURIComponent(formData.receiptNo.trim())}`);
+      const res = await fetch(`/api/admin/tracking-links/lookup?receipt=${encodeURIComponent(targetReceipt)}`);
       const result = await res.json();
       if (res.ok && result.success && result.data) {
         setFormData(prev => ({
           ...prev,
-          receiptNo: result.data.receiptNo || prev.receiptNo,
-          itemName: result.data.itemName || prev.itemName,
-          cbm: result.data.cbm || prev.cbm,
-          ctn: result.data.ctn || prev.ctn,
-          weight: result.data.weight || prev.weight,
-          containerNo: result.data.containerNo || prev.containerNo,
-          actualContainerNo: result.data.actualContainerNo || prev.actualContainerNo,
-          eta: result.data.eta || prev.eta
+          receiptNo: result.data.receiptNo || targetReceipt,
+          itemName: result.data.itemName || '',
+          cbm: result.data.cbm || '',
+          ctn: result.data.ctn || '',
+          weight: result.data.weight || '',
+          containerNo: result.data.containerNo || '',
+          actualContainerNo: result.data.actualContainerNo || '',
+          eta: result.data.eta || ''
         }));
-        showToast('Receipt details auto-filled from database!');
-      } else {
-        alert(result.message || 'No matching receipt found in database.');
+        showToast('All fields auto-filled from database!');
       }
     } catch (err) {
       console.error(err);
-      alert('Failed to lookup receipt');
     } finally {
       setLookingUp(false);
+    }
+  };
+
+  const handleSelectReceiptNo = (val: string) => {
+    setFormData(prev => ({ ...prev, receiptNo: val }));
+    if (val.trim()) {
+      handleLookup(val.trim());
     }
   };
 
@@ -147,6 +164,7 @@ export default function AdminTrackingLinksPage() {
 
   useEffect(() => {
     loadData();
+    loadAvailableReceipts();
   }, []);
 
   const copyLink = (token: string) => {
@@ -503,23 +521,29 @@ export default function AdminTrackingLinksPage() {
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block font-bold text-slate-700">Receipt No. *</label>
-                    <button
-                      type="button"
-                      onClick={handleLookup}
-                      disabled={lookingUp}
-                      className="text-[10px] text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1 cursor-pointer"
-                    >
-                      <Search className="w-2.5 h-2.5" /> {lookingUp ? 'Finding...' : 'Auto-fill from DB'}
-                    </button>
+                    <span className="text-[10px] text-blue-600 font-bold">
+                      {lookingUp ? 'Auto-filling...' : '✨ Select receipt to auto-fill'}
+                    </span>
                   </div>
                   <input
                     type="text"
+                    list="dbReceiptsList"
                     required
-                    placeholder="e.g. REC-9081"
+                    placeholder="Type or select Receipt No..."
                     value={formData.receiptNo}
-                    onChange={(e) => setFormData({ ...formData, receiptNo: e.target.value })}
-                    className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:border-blue-600"
+                    onChange={(e) => handleSelectReceiptNo(e.target.value)}
+                    onBlur={() => {
+                      if (formData.receiptNo.trim()) {
+                        handleLookup(formData.receiptNo.trim());
+                      }
+                    }}
+                    className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:border-blue-600 font-bold"
                   />
+                  <datalist id="dbReceiptsList">
+                    {availableReceipts.map((r) => (
+                      <option key={r} value={r} />
+                    ))}
+                  </datalist>
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Item Name</label>
