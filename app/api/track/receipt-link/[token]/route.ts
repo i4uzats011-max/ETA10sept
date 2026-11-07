@@ -37,7 +37,7 @@ export async function GET(
       );
     }
 
-    // STRICT SANITIZATION: Only the 8 requested fields and nothing else
+    // STRICT SANITIZATION: Only the allowed public fields and nothing else
     const publicReceipts = trackingDoc.receipts.map((r: any) => ({
       receiptNo: r.receiptNo || 'N/A',
       itemName: r.itemName || '-',
@@ -46,6 +46,7 @@ export async function GET(
       weight: r.weight || '-',
       containerNo: r.containerNo || 'N/A', // Container No. (not actual)
       eta: r.eta || null,
+      status: r.status || 'In Transit',
       remainDays: calculateRemainDays(r.eta),
       updatedAt: r.updatedAt || trackingDoc.updatedAt
     }));

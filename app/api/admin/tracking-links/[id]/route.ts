@@ -36,7 +36,9 @@ export async function PUT(
       containerNo,
       actualContainerNo,
       eta,
-      adminNotes
+      status,
+      adminNotes,
+      trackingName
     } = body;
 
     const doc = await ReceiptTracking.findOne({ 'receipts.id': id });
@@ -61,9 +63,14 @@ export async function PUT(
       containerNo: containerNo !== undefined ? containerNo.trim() : current.containerNo,
       actualContainerNo: actualContainerNo !== undefined ? actualContainerNo.trim() : current.actualContainerNo,
       eta: eta !== undefined ? eta.trim() : current.eta,
+      status: status !== undefined ? status.trim() : (current.status || 'In Transit'),
       adminNotes: adminNotes !== undefined ? adminNotes.trim() : current.adminNotes,
       updatedAt: new Date()
     };
+
+    if (trackingName !== undefined && trackingName.trim()) {
+      doc.name = trackingName.trim();
+    }
 
     doc.updatedAt = new Date();
     await doc.save();

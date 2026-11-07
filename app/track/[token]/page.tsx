@@ -23,6 +23,7 @@ interface IPublicReceipt {
   weight: string;
   containerNo: string; // Container No. (not actual)
   eta: string | null;
+  status?: string;
   remainDays: number | null;
   updatedAt?: string;
 }
@@ -80,6 +81,7 @@ export default function PublicReceiptTrackingPage() {
   const token = typeof params.token === 'string' ? params.token : Array.isArray(params.token) ? params.token[0] : '';
 
   const [receipts, setReceipts] = useState<IPublicReceipt[]>([]);
+  const [linkName, setLinkName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string>('');
@@ -98,9 +100,11 @@ export default function PublicReceiptTrackingPage() {
       if (!res.ok || !data.success || !data.receipts || data.receipts.length === 0) {
         setError(data.message || 'Tracking link not found or expired.');
         setReceipts([]);
+        setLinkName(null);
       } else {
         setError(null);
         setReceipts(data.receipts);
+        setLinkName(data.name || null);
         const now = new Date();
         setLastUpdated(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
       }
@@ -136,6 +140,12 @@ export default function PublicReceiptTrackingPage() {
           <p className="text-sm text-slate-500 mt-1">
             Real-time Estimated Time of Arrival & Package Information
           </p>
+          {linkName && (
+            <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-blue-100 text-blue-900 text-xs font-bold mt-2.5 border border-blue-200">
+              <span className="text-blue-600 font-medium">Link Reference:</span>
+              <span className="font-extrabold">{linkName}</span>
+            </div>
+          )}
         </div>
 
         {/* Status Banner */}
@@ -192,11 +202,18 @@ export default function PublicReceiptTrackingPage() {
               >
                 {/* Card Header: Receipt Number & Status Badge */}
                 <div className="bg-slate-900 text-white px-5 py-4 flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center gap-2">
-                    <Package className="w-5 h-5 text-blue-400" />
-                    <span className="text-base sm:text-lg font-bold tracking-wide">
-                      Receipt No. {r.receiptNo}
-                    </span>
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <Package className="w-5 h-5 text-blue-400" />
+                      <span className="text-base sm:text-lg font-bold tracking-wide">
+                        Receipt No. {r.receiptNo}
+                      </span>
+                    </div>
+                    {r.status && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-950 text-blue-200 border border-blue-500/30">
+                        {r.status}
+                      </span>
+                    )}
                   </div>
                   <div>{renderRemainDaysBadge(r.remainDays)}</div>
                 </div>

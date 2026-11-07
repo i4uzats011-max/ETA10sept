@@ -358,11 +358,21 @@ export default function InternalEmployeeViewPage() {
       return;
     }
 
+    const defaultName = itemsToLink[0]?.mainMarka || itemsToLink[0]?.subMarka || itemsToLink[0]?.party || `Shipment (${itemsToLink.length} receipts)`;
+    const allocatedName = window.prompt(
+      `Enter an Allocated Name / Marka for this link (so you can map new receipts to it next time):`,
+      defaultName
+    );
+
+    if (allocatedName === null) {
+      return;
+    }
+
     setIsGeneratingLink(true);
     try {
       const payload = {
         trackingTokenOption: 'new',
-        trackingName: `Cargo Master Filtered (${itemsToLink.length} receipts)`,
+        trackingName: allocatedName.trim() || defaultName,
         items: itemsToLink.map(item => ({
           receiptNo: item.receipt,
           itemName: translateToEnglish(item.english || item.commodity || item.chinese),
@@ -372,7 +382,8 @@ export default function InternalEmployeeViewPage() {
           containerNo: item.container, // Container alias (not actual)
           actualContainerNo: item.containerNumber, // Admin record (hidden from public)
           eta: item.destinationDate || item.eta,
-          adminNotes: `Generated from Employee View on ${new Date().toLocaleDateString()}`
+          status: item.status || 'In Transit',
+          adminNotes: `Allocated to ${allocatedName.trim() || defaultName} from Cargo Master Table on ${new Date().toLocaleDateString()}`
         }))
       };
 
@@ -394,7 +405,7 @@ export default function InternalEmployeeViewPage() {
           count: data.count,
           receipts: itemsToLink.map(i => i.receipt).slice(0, 10)
         });
-        showTrackingToast(`✅ Public tracking link created & copied for ${data.count} receipts!`);
+        showTrackingToast(`✅ Public link allocated to "${allocatedName.trim() || defaultName}" & copied!`);
       } else {
         alert(data.message || 'Failed to generate link.');
       }
@@ -410,9 +421,10 @@ export default function InternalEmployeeViewPage() {
   const handleGenerateRowLink = async (item: any) => {
     setIsGeneratingLink(true);
     try {
+      const allocatedName = item.mainMarka || item.party || `Receipt #${item.receipt}`;
       const payload = {
         trackingTokenOption: 'new',
-        trackingName: `Receipt #${item.receipt}`,
+        trackingName: allocatedName,
         items: [{
           receiptNo: item.receipt,
           itemName: translateToEnglish(item.english || item.commodity || item.chinese),
@@ -422,7 +434,8 @@ export default function InternalEmployeeViewPage() {
           containerNo: item.container, // Container alias (not actual)
           actualContainerNo: item.containerNumber,
           eta: item.destinationDate || item.eta,
-          adminNotes: `Reminder link for Receipt #${item.receipt}`
+          status: item.status || 'In Transit',
+          adminNotes: `Reminder link for ${allocatedName}`
         }]
       };
 

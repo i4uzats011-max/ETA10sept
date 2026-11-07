@@ -10,6 +10,7 @@ export interface IReceiptEntry {
   containerNo?: string;        // Public display: Container No. (not actual)
   actualContainerNo?: string;  // Admin internal only
   eta?: string;                // YYYY-MM-DD
+  status?: string;             // Status: 'In Transit', 'Loaded', 'Customs Clearance', 'Arrived', 'Delivered', etc.
   adminNotes?: string;         // Admin internal only
   createdAt?: Date;
   updatedAt?: Date;
@@ -17,7 +18,7 @@ export interface IReceiptEntry {
 
 export interface IReceiptTracking extends Document {
   token: string;               // Unique tracking token, e.g. trk_982ab1
-  name?: string;               // Optional label or customer description
+  name?: string;               // Link Name / Allocated Party Name e.g. "Rahul Electronics"
   receipts: IReceiptEntry[];
   createdAt: Date;
   updatedAt: Date;
@@ -34,6 +35,7 @@ const ReceiptEntrySchema = new Schema(
     containerNo: { type: String, default: '', trim: true }, // Container No. (not actual)
     actualContainerNo: { type: String, default: '', trim: true },
     eta: { type: String, default: '', trim: true },
+    status: { type: String, default: 'In Transit', trim: true },
     adminNotes: { type: String, default: '', trim: true },
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now }
@@ -44,7 +46,7 @@ const ReceiptEntrySchema = new Schema(
 const ReceiptTrackingSchema = new Schema<IReceiptTracking>(
   {
     token: { type: String, required: true, unique: true, index: true, trim: true },
-    name: { type: String, default: '', trim: true },
+    name: { type: String, default: '', trim: true, index: true },
     receipts: [ReceiptEntrySchema]
   },
   {
