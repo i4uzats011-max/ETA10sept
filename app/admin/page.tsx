@@ -1350,6 +1350,15 @@ export default function AdminDashboardPage() {
               <span>Dispatcher (डिस्पैचर)</span>
             </Link>
 
+            <Link
+              href="/admin/tracking-links"
+              className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-800 text-xs font-bold border border-blue-300 transition flex items-center space-x-1"
+              title="Public Receipt ETA Tracking Links"
+            >
+              <Truck className="w-3.5 h-3.5 text-blue-600" />
+              <span>Receipt ETA Links</span>
+            </Link>
+
             {currentUserRole === 'developer' && (
               <Link
                 href="/admin/visitors"
