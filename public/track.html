@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shipment Status & ETA</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    body {
+      background: linear-gradient(180deg, #f1f5f9 0%, #f8fafc 100%);
+    }
+    .status-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .refresh-btn {
+      font-size: 0.825rem;
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      border: 1px solid #cbd5e1;
+      background: white;
+      color: #334155;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .refresh-btn:hover {
+      background: #f8fafc;
+      border-color: #94a3b8;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      background: white;
+      border-radius: 12px;
+      border: 1px solid var(--border-color);
+      box-shadow: var(--shadow-sm);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="tracking-wrapper">
+
+    <!-- Public Page Header -->
+    <div class="tracking-header">
+      <div style="display: inline-flex; align-items: center; justify-content: center; width: 52px; height: 52px; background: #2563eb; color: white; border-radius: 14px; font-size: 26px; margin-bottom: 12px; box-shadow: 0 4px 12px rgba(37,99,235,0.25);">
+        🚢
+      </div>
+      <h2>Shipment ETA Tracker</h2>
+      <p>Real-time Estimated Time of Arrival & Package Information</p>
+    </div>
+
+    <!-- Live Controls -->
+    <div class="status-banner">
+      <div style="font-size: 0.85rem; color: #64748b;" id="lastUpdatedText">Checking status...</div>
+      <button class="refresh-btn" id="refreshBtn" onclick="loadTrackingData()">
+        <span id="refreshIcon">🔄</span> Refresh Status
+      </button>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loadingState" style="text-align: center; padding: 50px 20px; color: #64748b;">
+      <div style="font-size: 32px; animation: spin 1s infinite linear; display: inline-block;">⏳</div>
+      <p style="margin-top: 10px; font-weight: 500;">Loading tracking details...</p>
+    </div>
+
+    <!-- Error State -->
+    <div id="errorState" style="display: none;" class="empty-state">
+      <div style="font-size: 40px; margin-bottom: 12px;">🔍</div>
+      <h3 style="color: #0f172a; margin-bottom: 6px;" id="errorMessage">Shipment Not Found</h3>
+      <p style="color: #64748b; font-size: 0.9rem;">Please check the link provided by your administrator.</p>
+    </div>
+
+    <!-- Receipts Container -->
+    <div id="receiptsContainer" style="display: none;"></div>
+
+    <div class="tracking-footer">
+      <p>🔒 Secure Verified Tracking Link • Only authorized shipment details are displayed.</p>
+    </div>
+
+  </div>
+
+  <script src="/js/track.js"></script>
+</body>
+</html>

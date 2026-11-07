@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard - Receipt & ETA Manager</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .search-bar {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    .search-input {
+      flex: 1;
+      min-width: 240px;
+    }
+    .link-cell {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .quick-token-badge {
+      font-family: monospace;
+      font-size: 0.8rem;
+      background: #f1f5f9;
+      padding: 3px 6px;
+      border-radius: 4px;
+      color: #334155;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    
+    <!-- Top Navigation / Header -->
+    <header class="header">
+      <div class="brand">
+        <div class="brand-icon">📦</div>
+        <div>
+          <h1>Receipt & ETA Manager</h1>
+          <p>Admin Portal • Manage shipments and public ETA tracking links</p>
+        </div>
+      </div>
+      <div>
+        <button class="btn btn-primary" onclick="openAddReceiptModal()">
+          <span>➕</span> Add New Receipt
+        </button>
+      </div>
+    </header>
+
+    <!-- Stats Summary -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon" style="background: #eff6ff; color: #2563eb;">📄</div>
+        <div class="stat-info">
+          <div class="stat-value" id="statTotalReceipts">0</div>
+          <div class="stat-label">Total Receipts</div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon" style="background: #f0fdf4; color: #16a34a;">🔗</div>
+        <div class="stat-info">
+          <div class="stat-value" id="statActiveLinks">0</div>
+          <div class="stat-label">Active Tracking Links</div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-icon" style="background: #fef3c7; color: #d97706;">⏳</div>
+        <div class="stat-info">
+          <div class="stat-value" id="statUpcoming">0</div>
+          <div class="stat-label">Arrivals This Week</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Receipts Table Card -->
+    <div class="card">
+      <div class="search-bar">
+        <input 
+          type="text" 
+          id="searchInput" 
+          class="search-input" 
+          placeholder="Search by Receipt No, Item, Container or Link Token..."
+          oninput="handleSearch()"
+        >
+        <button class="btn btn-secondary" onclick="loadReceipts()">
+          🔄 Refresh
+        </button>
+      </div>
+
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Receipt No.</th>
+              <th>Item Name</th>
+              <th>CBM / CTN / Weight</th>
+              <th>Container No. <br><span style="font-size: 0.72rem; color: #64748b;">(Public Display)</span></th>
+              <th>Actual Container <br><span style="font-size: 0.72rem; color: #64748b;">(Admin Internal)</span></th>
+              <th>ETA</th>
+              <th>Remain Days</th>
+              <th>Public Tracking Link</th>
+              <th style="text-align: right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="receiptsTableBody">
+            <tr>
+              <td colspan="9" style="text-align: center; padding: 40px; color: #64748b;">Loading receipts...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Modal: Add New Receipt -->
+  <div class="modal-overlay" id="addModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">Add New Receipt</h3>
+        <button class="close-btn" onclick="closeAddReceiptModal()">&times;</button>
+      </div>
+      
+      <form id="addReceiptForm" onsubmit="submitAddReceipt(event)">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="receiptNo">Receipt No. *</label>
+            <input type="text" id="receiptNo" placeholder="e.g. REC-9083" required>
+          </div>
+          <div class="form-group">
+            <label for="itemName">Item Name</label>
+            <input type="text" id="itemName" placeholder="e.g. Garments & Fabrics">
+          </div>
+        </div>
+
+        <div class="form-row-3">
+          <div class="form-group">
+            <label for="cbm">CBM (m³)</label>
+            <input type="text" id="cbm" placeholder="e.g. 2.45">
+          </div>
+          <div class="form-group">
+            <label for="ctn">CTN (Cartons)</label>
+            <input type="text" id="ctn" placeholder="e.g. 18">
+          </div>
+          <div class="form-group">
+            <label for="weight">Weight</label>
+            <input type="text" id="weight" placeholder="e.g. 350 kg">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="containerNo">Container No. (not actual) *</label>
+            <input type="text" id="containerNo" placeholder="e.g. CONT-****612" required>
+            <div class="form-helper">This masked/display number is visible to the public.</div>
+          </div>
+          <div class="form-group">
+            <label for="actualContainerNo">Actual Container No. (Admin only)</label>
+            <input type="text" id="actualContainerNo" placeholder="e.g. MSCU-9921430">
+            <div class="form-helper">🔒 Hidden from public tracking link.</div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="eta">Estimated Time of Arrival (ETA) *</label>
+          <input type="date" id="eta" required>
+        </div>
+
+        <!-- Tracking Link Selection: New vs Existing Link -->
+        <div class="form-group">
+          <label>Tracking Link Assignment</label>
+          <div class="radio-group">
+            <label class="radio-option">
+              <input type="radio" name="tokenOption" value="new" checked onchange="toggleTokenOption()">
+              <div>
+                <strong>Generate New Unique Tracking Link</strong>
+                <div class="form-helper">Creates a brand-new unguessable link for this receipt.</div>
+              </div>
+            </label>
+
+            <label class="radio-option">
+              <input type="radio" name="tokenOption" value="existing" onchange="toggleTokenOption()">
+              <div>
+                <strong>Add to Existing Tracking Link (Same Link Given to Customer)</strong>
+                <div class="form-helper">Customer will see this new receipt under the exact same tracking link already given!</div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group" id="existingTokenContainer" style="display: none;">
+          <label for="existingTokenSelect">Select Existing Tracking Link / Shipment:</label>
+          <select id="existingTokenSelect">
+            <option value="">-- Choose existing link --</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="adminNotes">Admin Internal Notes (Optional)</label>
+          <textarea id="adminNotes" rows="2" placeholder="Internal notes (hidden from public view)"></textarea>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+          <button type="button" class="btn btn-secondary" onclick="closeAddReceiptModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="saveReceiptBtn">Save Receipt</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Quick Edit ETA & Receipt Details -->
+  <div class="modal-overlay" id="editModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">Update Receipt & ETA</h3>
+        <button class="close-btn" onclick="closeEditModal()">&times;</button>
+      </div>
+
+      <form id="editReceiptForm" onsubmit="submitEditReceipt(event)">
+        <input type="hidden" id="editId">
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="editReceiptNo">Receipt No. *</label>
+            <input type="text" id="editReceiptNo" required>
+          </div>
+          <div class="form-group">
+            <label for="editItemName">Item Name</label>
+            <input type="text" id="editItemName">
+          </div>
+        </div>
+
+        <div class="form-row-3">
+          <div class="form-group">
+            <label for="editCbm">CBM (m³)</label>
+            <input type="text" id="editCbm">
+          </div>
+          <div class="form-group">
+            <label for="editCtn">CTN</label>
+            <input type="text" id="editCtn">
+          </div>
+          <div class="form-group">
+            <label for="editWeight">Weight</label>
+            <input type="text" id="editWeight">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="editContainerNo">Container No. (not actual) *</label>
+            <input type="text" id="editContainerNo" required>
+          </div>
+          <div class="form-group">
+            <label for="editActualContainerNo">Actual Container No. (Admin only)</label>
+            <input type="text" id="editActualContainerNo">
+          </div>
+        </div>
+
+        <div class="form-group" style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 12px; border-radius: 8px;">
+          <label for="editEta" style="color: #166534; font-weight: 700;">⚡ Update ETA (Estimated Time of Arrival) *</label>
+          <input type="date" id="editEta" required style="border-color: #86efac;">
+          <div class="form-helper" style="color: #15803d;">Updating the ETA instantly updates what the customer sees on their tracking link.</div>
+        </div>
+
+        <div class="form-group">
+          <label for="editAdminNotes">Admin Notes (Hidden from public)</label>
+          <textarea id="editAdminNotes" rows="2"></textarea>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+          <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="saveEditBtn">Update Receipt</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="toast">
+    <span id="toastIcon">📋</span>
+    <span id="toastMessage">Tracking link copied to clipboard!</span>
+  </div>
+
+  <script src="/js/admin.js"></script>
+</body>
+</html>

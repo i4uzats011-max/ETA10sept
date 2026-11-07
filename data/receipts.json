@@ -1,0 +1,62 @@
+[
+  {
+    "id": "rec_1794044708687_16",
+    "trackingToken": "trk_alpha789",
+    "receiptNo": "REC-9083",
+    "itemName": "Cotton Buttons & Zippers",
+    "cbm": "0.50",
+    "ctn": "6",
+    "weight": "80 kg",
+    "containerNo": "CONT-****612",
+    "actualContainerNo": "MSCU-8849612",
+    "eta": "2026-11-14",
+    "adminNotes": "Added to same container",
+    "createdAt": "2026-11-07T09:45:08.687Z",
+    "updatedAt": "2026-11-07T09:45:08.687Z"
+  },
+  {
+    "id": "rec_001",
+    "trackingToken": "trk_alpha789",
+    "receiptNo": "REC-9081",
+    "itemName": "Textile Fabrics & Garments",
+    "cbm": "3.85",
+    "ctn": "42",
+    "weight": "850 kg",
+    "containerNo": "CONT-****612",
+    "actualContainerNo": "MSCU-8849612",
+    "eta": "2026-11-18",
+    "adminNotes": "Client requested express customs clearance.",
+    "createdAt": "2026-11-05T10:00:00.000Z",
+    "updatedAt": "2026-11-07T09:45:22.897Z"
+  },
+  {
+    "id": "rec_002",
+    "trackingToken": "trk_alpha789",
+    "receiptNo": "REC-9082",
+    "itemName": "Sewing Threads & Accessories",
+    "cbm": "1.20",
+    "ctn": "15",
+    "weight": "240 kg",
+    "containerNo": "CONT-****612",
+    "actualContainerNo": "MSCU-8849612",
+    "eta": "2026-11-14",
+    "adminNotes": "Added to same shipment container as REC-9081",
+    "createdAt": "2026-11-06T14:30:00.000Z",
+    "updatedAt": "2026-11-07T12:00:00.000Z"
+  },
+  {
+    "id": "rec_003",
+    "trackingToken": "trk_beta456",
+    "receiptNo": "REC-9105",
+    "itemName": "Electronic Hardware & Sensors",
+    "cbm": "0.75",
+    "ctn": "8",
+    "weight": "115 kg",
+    "containerNo": "CONT-****904",
+    "actualContainerNo": "CMAU-1284904",
+    "eta": "2026-11-20",
+    "adminNotes": "Fragile items. Handle with care.",
+    "createdAt": "2026-11-07T09:15:00.000Z",
+    "updatedAt": "2026-11-07T09:15:00.000Z"
+  }
+]
