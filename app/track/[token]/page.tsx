@@ -689,14 +689,24 @@ export default function PublicReceiptTrackingPage() {
         htmlEl.style.setProperty('max-width', 'none', 'important');
       });
 
-      // 3. Force table and all rows/cells to be completely rendered
+      // 3. Force table and all rows/cells to be completely rendered with fixed layout
       const tables = clone.querySelectorAll('table');
       tables.forEach((tbl) => {
         const htmlTbl = tbl as HTMLElement;
         htmlTbl.style.setProperty('display', 'table', 'important');
         htmlTbl.style.setProperty('width', '100%', 'important');
+        htmlTbl.style.setProperty('min-width', '100%', 'important');
         htmlTbl.style.setProperty('visibility', 'visible', 'important');
-        htmlTbl.style.setProperty('table-layout', 'auto', 'important');
+        htmlTbl.style.setProperty('table-layout', 'fixed', 'important');
+      });
+
+      // Distribute fixed widths across all 9 columns in the cloned header so CBM, Weight, and CTN are 100% visible
+      const ths = clone.querySelectorAll('thead th');
+      const colWidths = ['13%', '10%', '11%', '23%', '11%', '18%', '5%', '4.5%', '4.5%'];
+      ths.forEach((th, idx) => {
+        if (colWidths[idx]) {
+          (th as HTMLElement).style.setProperty('width', colWidths[idx], 'important');
+        }
       });
 
       const tableRows = clone.querySelectorAll('tr');
@@ -713,26 +723,26 @@ export default function PublicReceiptTrackingPage() {
       });
 
       // 4. Create an invisible offscreen sandbox container at (0, 0) with z-index: -99999
-      // NEVER set left: -9999px on clone because SVG foreignObject renders at (x, y),
-      // which places the elements 9999px outside the canvas, producing a blank/black image!
+      // Wide 1450px container ensures all 9 columns (including CBM, Weight, CTN) are fully visible without clipping
+      const exportWidth = 1450;
       container = document.createElement('div');
       container.id = 'jpg-render-sandbox';
       container.style.position = 'fixed';
       container.style.top = '0';
       container.style.left = '0';
-      container.style.width = '1250px';
+      container.style.width = `${exportWidth}px`;
       container.style.zIndex = '-99999';
       container.style.pointerEvents = 'none';
       container.style.opacity = '1';
-      container.style.overflow = 'hidden';
+      container.style.overflow = 'visible';
       container.style.backgroundColor = '#ffffff';
 
       clone.style.position = 'relative';
       clone.style.top = '0';
       clone.style.left = '0';
-      clone.style.width = '1250px';
-      clone.style.minWidth = '1250px';
-      clone.style.maxWidth = '1250px';
+      clone.style.width = `${exportWidth}px`;
+      clone.style.minWidth = `${exportWidth}px`;
+      clone.style.maxWidth = `${exportWidth}px`;
       clone.style.margin = '0';
       clone.style.boxShadow = 'none';
       clone.style.backgroundColor = '#ffffff';
@@ -750,9 +760,23 @@ export default function PublicReceiptTrackingPage() {
         table {
           display: table !important;
           width: 100% !important;
+          min-width: 100% !important;
+          table-layout: fixed !important;
           visibility: visible !important;
+          border-collapse: collapse !important;
         }
         thead, tbody, tfoot, tr, th, td {
+          visibility: visible !important;
+        }
+        th, td {
+          overflow: visible !important;
+        }
+        th:nth-child(7), td:nth-child(7),
+        th:nth-child(8), td:nth-child(8),
+        th:nth-child(9), td:nth-child(9) {
+          white-space: nowrap !important;
+          text-align: center !important;
+          font-weight: 800 !important;
           visibility: visible !important;
         }
         *::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
@@ -775,7 +799,7 @@ export default function PublicReceiptTrackingPage() {
           pixelRatio: 2,
           backgroundColor: '#ffffff',
           skipFonts: true, // Prevents CORS or font loader hanging on mobile
-          width: 1250,
+          width: exportWidth,
           height: targetHeight
         });
       } catch (jpegErr) {
@@ -784,7 +808,7 @@ export default function PublicReceiptTrackingPage() {
           pixelRatio: 2,
           backgroundColor: '#ffffff',
           skipFonts: true,
-          width: 1250,
+          width: exportWidth,
           height: targetHeight
         });
       }
@@ -795,7 +819,7 @@ export default function PublicReceiptTrackingPage() {
           pixelRatio: 2,
           backgroundColor: '#ffffff',
           skipFonts: true,
-          width: 1250,
+          width: exportWidth,
           height: targetHeight
         });
       }
