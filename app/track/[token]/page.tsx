@@ -32,7 +32,10 @@ import {
   EyeOff,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  FileText,
+  FileSpreadsheet,
+  ChevronDown
 } from 'lucide-react';
 import { toJpeg } from 'html-to-image';
 
@@ -81,6 +84,13 @@ function getEffectiveDeliveryDate(r: IPublicReceipt): string | null {
     return r.eta.trim();
   }
   return null;
+}
+
+// Clean shipping line names (e.g. "(COSCO)", "(ONE)", "(MAERSK)") from public status display
+function cleanDisplayStatus(status?: string): string {
+  if (!status) return 'In Transit';
+  // Strip any shipping line name in parentheses, e.g. "(COSCO)", "(ONE)", "(MAERSK)"
+  return status.replace(/\s*\([^)]*\)/g, '').trim() || 'In Transit';
 }
 
 // Robust ETA Date Parser supporting chronological sorting (e.g. 12 sep, 10 oct, 4 nov, 8 nov)
@@ -240,6 +250,11 @@ export default function PublicReceiptTrackingPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [filterQuery, setFilterQuery] = useState('');
   const [downloadingJpg, setDownloadingJpg] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [downloadingExcel, setDownloadingExcel] = useState(false);
+  const [sharingWhatsApp, setSharingWhatsApp] = useState(false);
+  const [isShareDropdownOpen, setIsShareDropdownOpen] = useState(false);
+  const [mobileViewMode, setMobileViewMode] = useState<'cards' | 'table'>('cards');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const tableCardRef = useRef<HTMLDivElement>(null);
@@ -517,15 +532,10 @@ export default function PublicReceiptTrackingPage() {
   const filteredReceipts = useMemo(() => {
     let list = receipts;
     if (filterQuery.trim()) {
-      const q = filterQuery.toLowerCase();
+      const terms = filterQuery.toLowerCase().split(/\s+/).filter(Boolean);
       list = list.filter((r) => {
-        return (
-          r.marka?.toLowerCase().includes(q) ||
-          r.receiptNo?.toLowerCase().includes(q) ||
-          r.itemName?.toLowerCase().includes(q) ||
-          r.containerNo?.toLowerCase().includes(q) ||
-          r.status?.toLowerCase().includes(q)
-        );
+        const fullText = `${r.marka || ''} ${r.receiptNo || ''} ${r.itemName || ''} ${r.containerNo || ''} ${cleanDisplayStatus(r.status)}`.toLowerCase();
+        return terms.every(term => fullText.includes(term));
       });
     }
 
@@ -634,15 +644,48 @@ export default function PublicReceiptTrackingPage() {
     }
   };
 
-  // Download entire table as high-resolution JPG image to send to anyone
-  const handleDownloadJpg = async () => {
-    if (!tableCardRef.current) return;
+  // Download entire table as high-resolution JPG image without any scrollbars
+  const handleDownloadJpg = async (isForShare = false): Promise<File | null> => {
+    if (!tableCardRef.current) return null;
     setDownloadingJpg(true);
+    let clone: HTMLElement | null = null;
     try {
-      const node = tableCardRef.current;
+      const originalNode = tableCardRef.current;
+      clone = originalNode.cloneNode(true) as HTMLElement;
 
-      const dataUrl = await toJpeg(node, {
-        quality: 0.95,
+      // Fixed width container to eliminate any viewport squishing & remove scrollbars
+      clone.style.width = '1250px';
+      clone.style.maxWidth = 'none';
+      clone.style.overflow = 'visible';
+      clone.style.position = 'fixed';
+      clone.style.left = '-9999px';
+      clone.style.top = '0';
+      clone.style.zIndex = '-9999';
+      clone.style.boxShadow = 'none';
+
+      // Remove overflow on all nested containers (especially .overflow-x-auto)
+      const scrollContainers = clone.querySelectorAll('.overflow-x-auto, .overflow-y-auto, [class*="overflow"]');
+      scrollContainers.forEach((el) => {
+        const htmlEl = el as HTMLElement;
+        htmlEl.style.overflow = 'visible';
+        htmlEl.style.overflowX = 'visible';
+        htmlEl.style.overflowY = 'visible';
+        htmlEl.style.scrollbarWidth = 'none';
+        (htmlEl.style as any).msOverflowStyle = 'none';
+      });
+
+      // Completely suppress scrollbars in clone via style element
+      const style = document.createElement('style');
+      style.innerHTML = `
+        *::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
+        * { scrollbar-width: none !important; -ms-overflow-style: none !important; }
+      `;
+      clone.appendChild(style);
+
+      document.body.appendChild(clone);
+
+      const dataUrl = await toJpeg(clone, {
+        quality: 0.98,
         pixelRatio: 2,
         backgroundColor: '#ffffff',
         filter: (domNode: any) => {
@@ -653,17 +696,408 @@ export default function PublicReceiptTrackingPage() {
       const cleanName = (linkName || 'Cargo_Tracking').replace(/[^a-zA-Z0-9_-]/g, '_');
       const filename = `${cleanName}_${new Date().toISOString().slice(0, 10)}.jpg`;
 
-      const link = document.createElement('a');
-      link.download = filename;
-      link.href = dataUrl;
-      link.click();
+      const res = await fetch(dataUrl);
+      const blob = await res.blob();
+      const file = new File([blob], filename, { type: 'image/jpeg' });
 
-      showToast('📸 Table downloaded as JPG! Ready to send on WhatsApp or email.');
+      if (!isForShare) {
+        const link = document.createElement('a');
+        link.download = filename;
+        link.href = dataUrl;
+        link.click();
+        showToast('📸 Table downloaded as JPG (scrollbar-free)!');
+      }
+
+      return file;
     } catch (err) {
       console.error('Error generating JPG:', err);
       alert('Unable to generate JPG image. Please try again.');
+      return null;
     } finally {
+      if (clone && clone.parentNode) {
+        clone.parentNode.removeChild(clone);
+      }
       setDownloadingJpg(false);
+    }
+  };
+
+  // Download entire table as vector PDF document
+  const handleDownloadPdf = async (isForShare = false): Promise<File | null> => {
+    setDownloadingPdf(true);
+    try {
+      const { default: jsPDF } = await import('jspdf');
+      const { default: autoTable } = await import('jspdf-autotable');
+
+      const doc = new jsPDF({
+        orientation: 'landscape',
+        unit: 'pt',
+        format: 'a4'
+      });
+
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const cleanMarka = linkName || 'Cargo Tracking';
+
+      // Header Banner
+      doc.setFillColor(15, 23, 42); // Navy #0f172a
+      doc.rect(0, 0, pageWidth, 58, 'F');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(15);
+      doc.setTextColor(255, 255, 255);
+      doc.text('US INTERNATIONAL LOGISTICS', 30, 26);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(203, 213, 225);
+      doc.text('Cargo Master Status Table • Live Shipment Tracking', 30, 42);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(56, 189, 248);
+      doc.text(`Marka: ${cleanMarka}`, pageWidth - 30, 26, { align: 'right' });
+
+      doc.setFontSize(8.5);
+      doc.setTextColor(52, 211, 153);
+      doc.text('24 hrs Live Tracking Link', pageWidth - 30, 42, { align: 'right' });
+
+      const tableHeaders = [
+        'Receipt No.',
+        'Marka',
+        'Container No.',
+        'Item Name',
+        'Status & Date',
+        'CBM',
+        'Weight',
+        'CTN'
+      ];
+
+      const tableRows = filteredReceipts.map((r) => {
+        const isDelivered = isReceiptDelivered(r);
+        const effDate = isDelivered ? getEffectiveDeliveryDate(r) : r.eta;
+        const dateText = effDate ? formatDisplayDate(effDate) : 'Pending Schedule';
+        const cleanStat = cleanDisplayStatus(r.status);
+        const statusText = isDelivered
+          ? `Delivered (${dateText})`
+          : `${cleanStat} | ETA: ${dateText}`;
+
+        return [
+          r.receiptNo || '-',
+          r.marka || linkName || '-',
+          r.containerNo && r.containerNo !== '-' ? r.containerNo : 'Pending Allocation',
+          r.itemName || '-',
+          statusText,
+          r.cbm && r.cbm !== '-' ? `${r.cbm} m³` : '-',
+          r.weight || '-',
+          r.ctn && r.ctn !== '-' ? `${r.ctn} ctn` : '-'
+        ];
+      });
+
+      autoTable(doc, {
+        head: [tableHeaders],
+        body: tableRows,
+        startY: 70,
+        margin: { left: 30, right: 30 },
+        styles: {
+          fontSize: 8,
+          cellPadding: 5.5,
+          valign: 'middle'
+        },
+        headStyles: {
+          fillColor: [30, 41, 59],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          halign: 'left'
+        },
+        alternateRowStyles: {
+          fillColor: [248, 250, 252]
+        },
+        columnStyles: {
+          0: { fontStyle: 'bold', textColor: [29, 78, 216] },
+          1: { fontStyle: 'bold' },
+          2: { fontStyle: 'bold', textColor: [51, 65, 85] },
+          3: { cellWidth: 150 },
+          4: { cellWidth: 160 },
+          5: { halign: 'center', fontStyle: 'bold' },
+          6: { halign: 'center' },
+          7: { halign: 'center', fontStyle: 'bold' }
+        },
+        foot: [
+          [
+            `Summary (${filteredReceipts.length} Receipts)`,
+            '',
+            '',
+            '',
+            '',
+            `${totals.cbm} ${totals.cbm !== '-' ? 'm³' : ''}`,
+            `${totals.weight}`,
+            `${totals.ctn} ${totals.ctn !== '-' ? 'ctn' : ''}`
+          ]
+        ],
+        footStyles: {
+          fillColor: [226, 232, 240],
+          textColor: [15, 23, 42],
+          fontStyle: 'bold'
+        }
+      });
+
+      const filename = `${cleanMarka.replace(/[^a-zA-Z0-9_-]/g, '_')}_${new Date().toISOString().slice(0, 10)}.pdf`;
+
+      const pdfBlob = doc.output('blob');
+      const file = new File([pdfBlob], filename, { type: 'application/pdf' });
+
+      if (!isForShare) {
+        doc.save(filename);
+        showToast('📄 PDF downloaded successfully!');
+      }
+
+      return file;
+    } catch (err) {
+      console.error('Error generating PDF:', err);
+      alert('Unable to generate PDF. Please try again.');
+      return null;
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
+  // Download colorful Excel spreadsheet
+  const handleDownloadExcel = async () => {
+    setDownloadingExcel(true);
+    try {
+      const ExcelJS = await import('exceljs');
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = 'US International Logistics';
+      workbook.created = new Date();
+
+      const cleanMarka = linkName || 'Cargo Tracking';
+      const worksheet = workbook.addWorksheet(cleanMarka.slice(0, 31) || 'Cargo Status');
+
+      // Title Banner Row
+      worksheet.mergeCells('A1:H1');
+      const titleCell = worksheet.getCell('A1');
+      titleCell.value = 'US INTERNATIONAL LOGISTICS - CARGO MASTER STATUS';
+      titleCell.font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FFFFFFFF' } };
+      titleCell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF0F172A' }
+      };
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      worksheet.getRow(1).height = 30;
+
+      // Subheader Row: Marka, Export Date, 24-hr link info
+      worksheet.mergeCells('A2:H2');
+      const subCell = worksheet.getCell('A2');
+      subCell.value = `Marka: ${cleanMarka}  |  Exported: ${new Date().toLocaleDateString()}  |  Track Live 24/7: ${typeof window !== 'undefined' ? window.location.href : ''}`;
+      subCell.font = { name: 'Arial', size: 9, italic: true, color: { argb: 'FF334155' } };
+      subCell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFF1F5F9' }
+      };
+      subCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      worksheet.getRow(2).height = 20;
+
+      // Column Headers (Row 4)
+      worksheet.getRow(3).height = 8;
+      const headerRow = worksheet.getRow(4);
+      headerRow.values = [
+        'Receipt No.',
+        'Marka',
+        'Container No.',
+        'Item Name',
+        'Status & Date',
+        'CBM',
+        'Weight',
+        'CTN'
+      ];
+      headerRow.height = 25;
+      headerRow.eachCell((cell) => {
+        cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FF1E40AF' } // Royal Blue
+        };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          bottom: { style: 'medium', color: { argb: 'FF0F172A' } },
+          left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+        };
+      });
+
+      // Data Rows
+      filteredReceipts.forEach((r, idx) => {
+        const isDelivered = isReceiptDelivered(r);
+        const effDate = isDelivered ? getEffectiveDeliveryDate(r) : r.eta;
+        const dateText = effDate ? formatDisplayDate(effDate) : 'Pending Schedule';
+        const cleanStat = cleanDisplayStatus(r.status);
+        const statusText = isDelivered
+          ? `Delivered (${dateText})`
+          : `${cleanStat} | ETA: ${dateText}`;
+
+        const row = worksheet.addRow([
+          r.receiptNo || '-',
+          r.marka || linkName || '-',
+          r.containerNo && r.containerNo !== '-' ? r.containerNo : 'Pending Allocation',
+          r.itemName || '-',
+          statusText,
+          r.cbm && r.cbm !== '-' ? parseFloat(r.cbm) || r.cbm : '-',
+          r.weight || '-',
+          r.ctn && r.ctn !== '-' ? parseInt(r.ctn, 10) || r.ctn : '-'
+        ]);
+
+        row.height = 22;
+        const isEven = idx % 2 === 0;
+
+        // Color coding for status column
+        let statusBg = isDelivered ? 'FFD1FAE5' : cleanStat.toLowerCase().includes('warehouse') ? 'FFFEF3C7' : 'FFDBEAFE';
+        let statusFg = isDelivered ? 'FF065F46' : cleanStat.toLowerCase().includes('warehouse') ? 'FF92400E' : 'FF1E40AF';
+
+        row.eachCell((cell, colNumber) => {
+          cell.font = { name: 'Arial', size: 9 };
+          cell.alignment = { vertical: 'middle', horizontal: colNumber === 4 ? 'left' : 'center' };
+          cell.border = {
+            bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+          };
+
+          if (colNumber === 1) {
+            cell.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FF1D4ED8' } };
+          } else if (colNumber === 5) {
+            cell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: statusBg }
+            };
+            cell.font = { name: 'Arial', size: 9, bold: true, color: { argb: statusFg } };
+          } else if (!isEven) {
+            cell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FFF8FAFC' }
+            };
+          }
+        });
+      });
+
+      // Summary Row
+      const summaryRow = worksheet.addRow([
+        `Summary (${filteredReceipts.length} Receipts)`,
+        '',
+        '',
+        '',
+        '',
+        totals.cbm !== '-' ? `${totals.cbm} m³` : '-',
+        totals.weight !== '-' ? totals.weight : '-',
+        totals.ctn !== '-' ? `${totals.ctn} ctn` : '-'
+      ]);
+      summaryRow.height = 24;
+      summaryRow.eachCell((cell) => {
+        cell.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FF0F172A' } };
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFE2E8F0' }
+        };
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+        cell.border = {
+          top: { style: 'medium', color: { argb: 'FF94A3B8' } },
+          bottom: { style: 'medium', color: { argb: 'FF94A3B8' } }
+        };
+      });
+
+      worksheet.columns = [
+        { width: 16 },
+        { width: 14 },
+        { width: 18 },
+        { width: 28 },
+        { width: 32 },
+        { width: 14 },
+        { width: 14 },
+        { width: 14 }
+      ];
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${cleanMarka.replace(/[^a-zA-Z0-9_-]/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      showToast('📊 Colorful Excel (.xlsx) file downloaded!');
+    } catch (err) {
+      console.error('Error generating Excel:', err);
+      alert('Failed to generate Excel file. Please try again.');
+    } finally {
+      setDownloadingExcel(false);
+    }
+  };
+
+  // WhatsApp Share Handler (JPG, PDF, or Direct Link)
+  const handleShareWhatsApp = async (format: 'jpg' | 'pdf' | 'link') => {
+    setIsShareDropdownOpen(false);
+    setSharingWhatsApp(true);
+    const url = typeof window !== 'undefined' ? window.location.href : '';
+    const cleanMarka = linkName || 'Shipment';
+    const receiptsSummary = filteredReceipts.slice(0, 5).map(r => r.receiptNo).join(', ') + (filteredReceipts.length > 5 ? ` +${filteredReceipts.length - 5} more` : '');
+
+    const shareText = `*US INTERNATIONAL LOGISTICS* 📦\n*Shipment ETA & Cargo Tracking Update*\n\n📌 *Marka:* ${cleanMarka}\n📦 *Receipts (${filteredReceipts.length}):* ${receiptsSummary}\n📊 *Total CTN:* ${totals.ctn} | *CBM:* ${totals.cbm} | *Weight:* ${totals.weight}\n\n🔗 *Track Live 24/7:* \n${url}\n\n_you can track this via link 24 hrs_`;
+
+    try {
+      if (format === 'link') {
+        window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(shareText)}`, '_blank');
+        showToast('💬 Opening WhatsApp to share tracking link!');
+        return;
+      }
+
+      let fileToShare: File | null = null;
+      if (format === 'jpg') {
+        fileToShare = await handleDownloadJpg(true);
+      } else if (format === 'pdf') {
+        fileToShare = await handleDownloadPdf(true);
+      }
+
+      if (fileToShare) {
+        if (navigator.canShare && navigator.canShare({ files: [fileToShare] })) {
+          await navigator.share({
+            files: [fileToShare],
+            title: `US Logistics - Cargo Update (${cleanMarka})`,
+            text: shareText
+          });
+          showToast('✓ Shared to WhatsApp successfully!');
+          return;
+        }
+      }
+
+      // Fallback: download file and open WhatsApp Web with message
+      if (fileToShare) {
+        const fileUrl = URL.createObjectURL(fileToShare);
+        const a = document.createElement('a');
+        a.href = fileUrl;
+        a.download = fileToShare.name;
+        a.click();
+        URL.revokeObjectURL(fileUrl);
+      }
+
+      const note = format === 'jpg'
+        ? '\n\n*(📸 JPG Table Image downloaded to attach)*'
+        : '\n\n*(📄 PDF Cargo Table downloaded to attach)*';
+
+      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(shareText + note)}`, '_blank');
+      showToast(`📁 ${format.toUpperCase()} downloaded & opening WhatsApp!`);
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') {
+        console.error('WhatsApp share error:', err);
+        window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(shareText)}`, '_blank');
+      }
+    } finally {
+      setSharingWhatsApp(false);
     }
   };
 
@@ -703,8 +1137,8 @@ export default function PublicReceiptTrackingPage() {
               </div>
             </div>
 
-            {/* Header Actions */}
-            <div className="flex items-center gap-2 flex-wrap">
+            {/* Header Actions: Add Receipt, Query, Copy, JPG, PDF, Excel, WhatsApp */}
+            <div className="flex items-center gap-2 flex-wrap relative">
               <button
                 onClick={() => {
                   setAddError(null);
@@ -723,7 +1157,7 @@ export default function PublicReceiptTrackingPage() {
                 className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition shadow-sm cursor-pointer"
               >
                 <MessageSquare className="w-3.5 h-3.5" />
-                <span>Ask Query / Message {queriesList.length > 0 ? `(${queriesList.length})` : ''}</span>
+                <span>Ask Query {queriesList.length > 0 ? `(${queriesList.length})` : ''}</span>
               </button>
 
               <button
@@ -735,14 +1169,93 @@ export default function PublicReceiptTrackingPage() {
                 <span>Copy Message</span>
               </button>
 
+              {/* Download JPG (No Scrollbar) */}
               <button
-                onClick={handleDownloadJpg}
+                onClick={() => handleDownloadJpg(false)}
                 disabled={downloadingJpg || loading || receipts.length === 0}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition shadow-sm disabled:opacity-50 cursor-pointer"
+                title="Download table image (no scrollbars)"
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition shadow-sm disabled:opacity-50 cursor-pointer"
               >
                 <Download className={`w-3.5 h-3.5 ${downloadingJpg ? 'animate-bounce' : ''}`} />
-                <span>{downloadingJpg ? 'Generating JPG...' : 'Download JPG'}</span>
+                <span>{downloadingJpg ? 'JPG...' : 'JPG'}</span>
               </button>
+
+              {/* Download PDF */}
+              <button
+                onClick={() => handleDownloadPdf(false)}
+                disabled={downloadingPdf || loading || receipts.length === 0}
+                title="Download as clean printable PDF"
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-800 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl transition shadow-sm disabled:opacity-50 cursor-pointer"
+              >
+                <FileText className={`w-3.5 h-3.5 text-red-600 ${downloadingPdf ? 'animate-spin' : ''}`} />
+                <span>{downloadingPdf ? 'PDF...' : 'PDF'}</span>
+              </button>
+
+              {/* Download Excel */}
+              <button
+                onClick={handleDownloadExcel}
+                disabled={downloadingExcel || loading || receipts.length === 0}
+                title="Download colorful Excel spreadsheet"
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-xl transition shadow-sm disabled:opacity-50 cursor-pointer"
+              >
+                <FileSpreadsheet className={`w-3.5 h-3.5 text-emerald-600 ${downloadingExcel ? 'animate-spin' : ''}`} />
+                <span>{downloadingExcel ? 'Excel...' : 'Excel'}</span>
+              </button>
+
+              {/* Share on WhatsApp Dropdown */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsShareDropdownOpen(!isShareDropdownOpen)}
+                  disabled={sharingWhatsApp || loading || receipts.length === 0}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition shadow-sm cursor-pointer disabled:opacity-50"
+                  title="Share on WhatsApp (JPG / PDF / Link)"
+                >
+                  <MessageCircle className="w-3.5 h-3.5 text-white" />
+                  <span>{sharingWhatsApp ? 'Sharing...' : 'WhatsApp'}</span>
+                  <ChevronDown className="w-3 h-3 text-white/80" />
+                </button>
+
+                {isShareDropdownOpen && (
+                  <div className="absolute right-0 top-full mt-1.5 w-56 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-1.5 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => handleShareWhatsApp('jpg')}
+                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-emerald-50 text-slate-800 hover:text-emerald-900 font-bold flex items-center gap-2 cursor-pointer transition"
+                    >
+                      <Download className="w-4 h-4 text-emerald-600" />
+                      <div>
+                        <div>Share JPG Image</div>
+                        <div className="text-[10px] text-slate-400 font-normal">Clean image without scrollbar</div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleShareWhatsApp('pdf')}
+                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-emerald-50 text-slate-800 hover:text-emerald-900 font-bold flex items-center gap-2 cursor-pointer transition"
+                    >
+                      <FileText className="w-4 h-4 text-red-600" />
+                      <div>
+                        <div>Share PDF Document</div>
+                        <div className="text-[10px] text-slate-400 font-normal">Vector table document</div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleShareWhatsApp('link')}
+                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-emerald-50 text-slate-800 hover:text-emerald-900 font-bold flex items-center gap-2 cursor-pointer transition border-t border-slate-100"
+                    >
+                      <Share2 className="w-4 h-4 text-blue-600" />
+                      <div>
+                        <div>Share Live Link</div>
+                        <div className="text-[10px] text-slate-400 font-normal">Cargo summary with URL</div>
+                      </div>
+                    </button>
+                  </div>
+                )}
+              </div>
 
               <button
                 onClick={() => fetchTrackingDetails(true)}
@@ -1086,8 +1599,187 @@ export default function PublicReceiptTrackingPage() {
               )}
             </div>
 
+            {/* Mobile View Toggle (Cards vs Full Table) */}
+            <div className="flex md:hidden items-center justify-between p-2.5 bg-slate-100/90 border-b border-slate-200 text-xs no-jpg">
+              <span className="font-extrabold text-slate-700 flex items-center gap-1.5">
+                <span>📱 Mobile Layout:</span>
+              </span>
+              <div className="inline-flex bg-slate-200 p-0.5 rounded-lg font-bold">
+                <button
+                  type="button"
+                  onClick={() => setMobileViewMode('cards')}
+                  className={`px-3 py-1 rounded-md transition cursor-pointer ${
+                    mobileViewMode === 'cards' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600'
+                  }`}
+                >
+                  Cards View
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMobileViewMode('table')}
+                  className={`px-3 py-1 rounded-md transition cursor-pointer ${
+                    mobileViewMode === 'table' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600'
+                  }`}
+                >
+                  Table View
+                </button>
+              </div>
+            </div>
+
+            {/* ── MOBILE CARDS VIEW (Clean, touch-friendly, no horizontal scrolling needed) ── */}
+            {mobileViewMode === 'cards' && (
+              <div className="md:hidden p-2.5 space-y-3 bg-slate-50/60 no-jpg">
+                {filteredReceipts.map((r) => {
+                  const isDelivered = isReceiptDelivered(r);
+                  const effDate = isDelivered ? getEffectiveDeliveryDate(r) : r.eta;
+                  const dateText = effDate ? formatDisplayDate(effDate) : 'Pending Schedule';
+                  const cleanStat = cleanDisplayStatus(r.status);
+                  const isSelected = selectedReceiptNos.has(r.receiptNo);
+
+                  return (
+                    <div
+                      key={`card-${r.receiptNo}`}
+                      className={`p-3.5 bg-white border rounded-xl shadow-xs transition ${
+                        isSelected ? 'border-blue-400 bg-blue-50/40 ring-1 ring-blue-300' : 'border-slate-200'
+                      }`}
+                    >
+                      {/* Top Row: Checkbox, Receipt No, Marka, Status */}
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => toggleSelectReceipt(r.receiptNo)}
+                            className="cursor-pointer text-slate-400 hover:text-blue-600 transition"
+                          >
+                            {isSelected ? (
+                              <CheckSquare className="w-4 h-4 text-blue-600" />
+                            ) : (
+                              <Square className="w-4 h-4" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openQueryModal(r.receiptNo)}
+                            className="font-mono font-black text-blue-800 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md text-xs cursor-pointer hover:bg-blue-100"
+                          >
+                            #{r.receiptNo}
+                          </button>
+                          <span className="font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-[11px]">
+                            {r.marka || linkName || '-'}
+                          </span>
+                        </div>
+
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          isDelivered
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                            : cleanStat.toLowerCase().includes('warehouse')
+                            ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                            : 'bg-blue-100 text-blue-800 border border-blue-300'
+                        }`}>
+                          {isDelivered ? '✓ Delivered' : cleanStat}
+                        </span>
+                      </div>
+
+                      {/* Item Name */}
+                      <div className="font-bold text-slate-900 text-xs mb-2 leading-snug">
+                        {r.itemName || 'Cargo Item'}
+                      </div>
+
+                      {/* Container & ETA Box */}
+                      <div className="bg-slate-50 border border-slate-200/80 rounded-lg p-2.5 mb-2.5 space-y-1.5 text-[11px]">
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-500 font-semibold">Container (Loading Plan):</span>
+                          <span className="font-mono font-bold text-slate-800">
+                            {r.containerNo && r.containerNo !== '-' ? r.containerNo : 'Pending Allocation'}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-500 font-semibold">
+                            {isDelivered ? 'Delivered Date:' : 'Estimated Arrival (ETA):'}
+                          </span>
+                          <span className="font-extrabold text-blue-950 flex items-center gap-1">
+                            <Calendar className="w-3 h-3 text-blue-600" />
+                            {dateText}
+                          </span>
+                        </div>
+
+                        {!isDelivered && (
+                          <div className="flex items-center justify-between pt-0.5 border-t border-slate-200/60">
+                            <span className="text-slate-500 font-semibold">Countdown:</span>
+                            {renderRemainDaysBadge(getEffectiveRemainDays(r))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Cargo Metrics Grid: CBM / Weight / CTN */}
+                      <div className="grid grid-cols-3 gap-2 text-center text-xs mb-2.5">
+                        <div className="bg-slate-100/90 p-1.5 rounded-lg border border-slate-200">
+                          <div className="text-[10px] text-slate-400 uppercase font-extrabold">CBM</div>
+                          <div className="font-black text-slate-900 mt-0.5">
+                            {r.cbm && r.cbm !== '-' ? `${r.cbm} m³` : '-'}
+                          </div>
+                        </div>
+                        <div className="bg-slate-100/90 p-1.5 rounded-lg border border-slate-200">
+                          <div className="text-[10px] text-slate-400 uppercase font-extrabold">Weight</div>
+                          <div className="font-bold text-slate-800 mt-0.5">
+                            {r.weight || '-'}
+                          </div>
+                        </div>
+                        <div className="bg-slate-100/90 p-1.5 rounded-lg border border-slate-200">
+                          <div className="text-[10px] text-slate-400 uppercase font-extrabold">CTN</div>
+                          <div className="font-black text-slate-900 mt-0.5">
+                            {r.ctn && r.ctn !== '-' ? `${r.ctn} ctn` : '-'}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Touch action to ask query */}
+                      <button
+                        type="button"
+                        onClick={() => openQueryModal(r.receiptNo)}
+                        className="w-full py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs rounded-lg border border-blue-200 flex items-center justify-center gap-1.5 transition cursor-pointer"
+                      >
+                        <MessageCircle className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Ask Question about Receipt #{r.receiptNo}</span>
+                      </button>
+                    </div>
+                  );
+                })}
+
+                {/* Mobile Cards Summary Bar */}
+                <div className="p-3 bg-slate-900 text-white rounded-xl text-xs space-y-2">
+                  <div className="font-bold uppercase tracking-wider text-[11px] text-blue-300">
+                    Summary ({filteredReceipts.length} Receipts)
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="bg-white/10 p-1.5 rounded-lg">
+                      <div className="text-[10px] text-slate-300 font-bold">TOTAL CBM</div>
+                      <div className="font-black text-sm text-white">{totals.cbm} {totals.cbm !== '-' ? 'm³' : ''}</div>
+                    </div>
+                    <div className="bg-white/10 p-1.5 rounded-lg">
+                      <div className="text-[10px] text-slate-300 font-bold">TOTAL WEIGHT</div>
+                      <div className="font-black text-sm text-white">{totals.weight}</div>
+                    </div>
+                    <div className="bg-white/10 p-1.5 rounded-lg">
+                      <div className="text-[10px] text-slate-300 font-bold">TOTAL CTN</div>
+                      <div className="font-black text-sm text-white">{totals.ctn} {totals.ctn !== '-' ? 'ctn' : ''}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Swipe hint when table view is active on mobile */}
+            {mobileViewMode === 'table' && (
+              <div className="md:hidden text-[11px] text-slate-500 bg-blue-50/70 px-3 py-1.5 flex items-center justify-between border-b border-slate-200 no-jpg">
+                <span>👉 Swipe left / right to see all 8 table columns</span>
+                <span className="font-bold text-blue-700">8 Columns</span>
+              </div>
+            )}
+
             {/* Responsive Table */}
-            <div className="overflow-x-auto">
+            <div className={`overflow-x-auto touch-pan-x ${mobileViewMode === 'cards' ? 'hidden md:block' : 'block'}`}>
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-slate-900 text-white font-bold uppercase tracking-wider text-[11px]">
@@ -1186,7 +1878,7 @@ export default function PublicReceiptTrackingPage() {
                             <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60 group-hover:opacity-100" />
                           )}
                         </div>
-                        <span className="text-[10px] text-slate-400 font-normal lowercase">(not actual)</span>
+                        <span className="text-[10px] text-slate-400 font-normal lowercase">(loading plan container)</span>
                       </button>
                     </th>
 
@@ -1335,7 +2027,7 @@ export default function PublicReceiptTrackingPage() {
                 <tbody className="divide-y divide-slate-100">
                   {filteredReceipts.map((r, idx) => (
                     <tr
-                      key={idx}
+                      key={r.receiptNo || idx}
                       className={`hover:bg-blue-50/40 transition-colors odd:bg-white even:bg-slate-50/30 ${
                         selectedReceiptNos.has(r.receiptNo) ? 'bg-blue-50/70 ring-1 ring-inset ring-blue-300' : ''
                       }`}
@@ -1412,11 +2104,11 @@ export default function PublicReceiptTrackingPage() {
                           <div className="flex flex-col gap-1 items-start">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                String(r.status || '').toLowerCase().includes('warehouse')
+                                cleanDisplayStatus(r.status).toLowerCase().includes('warehouse')
                                   ? 'bg-amber-100 text-amber-800 border border-amber-300'
                                   : 'bg-blue-100 text-blue-800 border border-blue-300'
                               }`}>
-                                {r.status || 'In Transit'}
+                                {cleanDisplayStatus(r.status)}
                               </span>
                               {renderRemainDaysBadge(getEffectiveRemainDays(r))}
                             </div>

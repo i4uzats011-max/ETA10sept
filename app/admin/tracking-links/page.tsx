@@ -31,7 +31,12 @@ import {
   Warehouse,
   CheckCircle2,
   FolderX,
-  Trash
+  Trash,
+  Link2,
+  Sparkles,
+  Share2,
+  Globe,
+  Eye
 } from 'lucide-react';
 
 interface IAdminQuery {
@@ -79,6 +84,23 @@ export default function AdminTrackingLinksPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // View Mode: 'links' (Allocated links table overview) vs 'receipts' (Detailed cargo receipts table)
+  const [viewMode, setViewMode] = useState<'links' | 'receipts'>('links');
+
+  // Generate Link Modal State
+  const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
+  const [newLinkNameInput, setNewLinkNameInput] = useState('');
+  const [generatingLink, setGeneratingLink] = useState(false);
+
+  // Link Status Filter: 'all' | 'active' | 'inactive'
+  const [linkStatusFilter, setLinkStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+
+  // Marka Filter for Table
+  const [selectedMarkaFilter, setSelectedMarkaFilter] = useState<string | null>(null);
+
+  // Dedicated Receipt No. Filter
+  const [receiptNoFilter, setReceiptNoFilter] = useState<string>('');
 
   // Nick Name / Allocated Link Focused Filter
   const [selectedNickName, setSelectedNickName] = useState<string | null>(null);
@@ -348,6 +370,40 @@ export default function AdminTrackingLinksPage() {
     }
   };
 
+  // Generate a brand new tracking link in advance
+  const handleGenerateLink = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const linkName = newLinkNameInput.trim();
+    if (!linkName) {
+      alert('Please enter an Allocated Link Name or Marka');
+      return;
+    }
+    setGeneratingLink(true);
+    try {
+      const res = await fetch('/api/admin/tracking-links', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'generate_link',
+          trackingName: linkName
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast(`🔗 Tracking link "${linkName}" generated successfully!`);
+        setIsGenerateModalOpen(false);
+        setNewLinkNameInput('');
+        loadData();
+      } else {
+        alert(data.message || 'Failed to generate link');
+      }
+    } catch (err) {
+      alert('Network error while generating link');
+    } finally {
+      setGeneratingLink(false);
+    }
+  };
+
   // Allocated Link Management Handlers
   const handleDeleteLink = async (token: string, name?: string) => {
     const confirmMsg = `Are you sure you want to delete Allocated Link "${name || token}"? Associated receipts will be deleted.`;
@@ -609,6 +665,74 @@ export default function AdminTrackingLinksPage() {
     setIsEditOpen(true);
   };
 
+  // Unique Markas across all receipts
+  const uniqueMarkas = Array.from(
+    new Set(receipts.map(r => (r.marka || '').trim()).filter(Boolean))
+  ).sort();
+
+  // Active vs Inactive links calculation
+  const activeLinks = tokens.filter(t => (t.receipts && t.receipts.length > 0) || receipts.some(r => r.trackingToken === t.token));
+  const inactiveLinks = tokens.filter(t => (!t.receipts || t.receipts.length === 0) && !receipts.some(r => r.trackingToken === t.token));
+
+  const pendingQueriesCount = queriesList.filter(q => q.status === 'Pending').length;
+
+  // Nick Names / Allocated Link List for quick filter bar
+  const nickNameOptions = Array.from(
+    new Map(
+      tokens.map(t => [t.token, { token: t.token, name: t.name || 'Default Link', count: (t.receipts || []).length }])
+    ).values()
+  );
+
+  // Filtered Tokens (for the Allocated Links Table)
+  const filteredTokens = tokens.filter(t => {
+    const tokenReceipts = receipts.filter(r => r.trackingToken === t.token);
+    const isActive = (t.receipts && t.receipts.length > 0) || tokenReceipts.length > 0;
+
+    // Status Filter (All / Active / Inactive)
+    if (linkStatusFilter === 'active' && !isActive) return false;
+    if (linkStatusFilter === 'inactive' && isActive) return false;
+
+    // Allocated Link Name Filter
+    if (selectedNickName) {
+      const matchToken = t.token === selectedNickName;
+      const matchName = (t.name || '').trim().toLowerCase() === selectedNickName.trim().toLowerCase();
+      if (!matchToken && !matchName) return false;
+    }
+
+    // Marka Filter
+    if (selectedMarkaFilter) {
+      const mFilter = selectedMarkaFilter.toLowerCase();
+      const matchName = (t.name || '').toLowerCase().includes(mFilter);
+      const matchReceiptMarka = tokenReceipts.some(r => (r.marka || '').toLowerCase() === mFilter);
+      if (!matchName && !matchReceiptMarka) return false;
+    }
+
+    // Receipt No Filter
+    if (receiptNoFilter.trim()) {
+      const rFilter = receiptNoFilter.trim().toLowerCase();
+      const hasReceipt = (t.receipts || []).some(rn => rn.toLowerCase().includes(rFilter)) ||
+        tokenReceipts.some(r => r.receiptNo.toLowerCase().includes(rFilter));
+      if (!hasReceipt) return false;
+    }
+
+    // Search Query
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const matchName = (t.name || '').toLowerCase().includes(q);
+      const matchToken = t.token.toLowerCase().includes(q);
+      const matchReceipts = (t.receipts || []).some(rn => rn.toLowerCase().includes(q)) ||
+        tokenReceipts.some(r =>
+          r.receiptNo.toLowerCase().includes(q) ||
+          (r.marka || '').toLowerCase().includes(q) ||
+          (r.itemName || '').toLowerCase().includes(q)
+        );
+      if (!matchName && !matchToken && !matchReceipts) return false;
+    }
+
+    return true;
+  });
+
+  // Filtered Receipts (for the Detailed Receipts Table)
   const filteredReceipts = receipts.filter(r => {
     // 1. Nick Name / Allocated Link Focused Filter
     if (selectedNickName) {
@@ -619,7 +743,21 @@ export default function AdminTrackingLinksPage() {
       }
     }
 
-    // 2. Search Query Filter
+    // 2. Marka Filter
+    if (selectedMarkaFilter) {
+      if ((r.marka || '').trim().toLowerCase() !== selectedMarkaFilter.trim().toLowerCase()) {
+        return false;
+      }
+    }
+
+    // 3. Receipt No Filter
+    if (receiptNoFilter.trim()) {
+      if (!r.receiptNo.toLowerCase().includes(receiptNoFilter.trim().toLowerCase())) {
+        return false;
+      }
+    }
+
+    // 4. Search Query Filter
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       return (
@@ -635,33 +773,6 @@ export default function AdminTrackingLinksPage() {
 
     return true;
   });
-
-  const uniqueLinksCount = new Set(receipts.map(r => r.trackingToken)).size;
-
-  // Real-time Statistics
-  const inTransitCount = receipts.filter(r => {
-    const s = (r.status || 'In Transit').toLowerCase();
-    return s.includes('transit') || s.includes('loaded') || s.includes('sailing') || s.includes('sea');
-  }).length;
-
-  const inWarehouseCount = receipts.filter(r => {
-    const s = (r.status || '').toLowerCase();
-    return s.includes('warehouse') || s.includes('pending') || (!r.containerNo || r.containerNo === '-');
-  }).length;
-
-  const deliveredCount = receipts.filter(r => {
-    const s = (r.status || '').toLowerCase();
-    return s.includes('deliver') || s.includes('arrived') || s.includes('complete');
-  }).length;
-
-  const pendingQueriesCount = queriesList.filter(q => q.status === 'Pending').length;
-
-  // Nick Names / Allocated Link List for quick filter bar
-  const nickNameOptions = Array.from(
-    new Map(
-      tokens.map(t => [t.token, { token: t.token, name: t.name || 'Default Link', count: (t.receipts || []).length }])
-    ).values()
-  );
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900 py-8 px-4 sm:px-6 lg:px-8">
@@ -687,6 +798,14 @@ export default function AdminTrackingLinksPage() {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => setIsGenerateModalOpen(true)}
+              className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3.5 py-2.5 rounded-xl shadow-md transition cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Generate New Link</span>
+            </button>
+
             <button
               onClick={() => setIsQueriesModalOpen(true)}
               className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3.5 py-2.5 rounded-xl shadow-md transition cursor-pointer"
@@ -730,370 +849,710 @@ export default function AdminTrackingLinksPage() {
           </div>
         </div>
 
-        {/* Real-time Statistics Row */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-          {/* 1. In Transit */}
-          <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm">
-            <div className="flex items-center justify-between text-slate-500 mb-1">
-              <span className="text-[11px] font-bold uppercase tracking-wider">In Transit</span>
-              <Truck className="w-4 h-4 text-blue-600" />
+        {/* Real-time Link Generation & Allocation Metrics Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 mb-6">
+          {/* 1. Total Generated Links */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm hover:shadow transition">
+            <div className="flex items-center justify-between text-slate-500 mb-2">
+              <span className="text-[11px] font-black uppercase tracking-wider text-slate-700">Total Links Generated</span>
+              <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
+                <Link2 className="w-4 h-4" />
+              </div>
             </div>
-            <div className="text-2xl font-black text-blue-700">{inTransitCount}</div>
-            <div className="text-[10px] text-slate-400">Shipments sailing</div>
+            <div className="text-3xl font-black text-slate-900">{tokens.length}</div>
+            <div className="text-[11px] text-slate-500 mt-1">Total public ETA tracking links created</div>
           </div>
 
-          {/* 2. In Warehouse */}
-          <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm">
-            <div className="flex items-center justify-between text-slate-500 mb-1">
-              <span className="text-[11px] font-bold uppercase tracking-wider">In Warehouse</span>
-              <Warehouse className="w-4 h-4 text-amber-600" />
+          {/* 2. Active Links */}
+          <div className="bg-white border border-emerald-200/80 rounded-2xl p-4 shadow-sm hover:shadow transition">
+            <div className="flex items-center justify-between text-slate-500 mb-2">
+              <span className="text-[11px] font-black uppercase tracking-wider text-emerald-800">Active Links</span>
+              <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                <CheckCircle2 className="w-4 h-4" />
+              </div>
             </div>
-            <div className="text-2xl font-black text-amber-700">{inWarehouseCount}</div>
-            <div className="text-[10px] text-slate-400">Not loaded / pending</div>
+            <div className="text-3xl font-black text-emerald-700">{activeLinks.length}</div>
+            <div className="text-[11px] text-emerald-600 font-semibold mt-1 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Tracking live shipments ({receipts.length} receipts)</span>
+            </div>
           </div>
 
-          {/* 3. Delivered */}
-          <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm">
-            <div className="flex items-center justify-between text-slate-500 mb-1">
-              <span className="text-[11px] font-bold uppercase tracking-wider">Delivered</span>
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+          {/* 3. Generated but Not Active ("how manny link not active but genratated") */}
+          <div className="bg-white border border-amber-200/80 rounded-2xl p-4 shadow-sm hover:shadow transition">
+            <div className="flex items-center justify-between text-slate-500 mb-2">
+              <span className="text-[11px] font-black uppercase tracking-wider text-amber-800">Not Active / Empty</span>
+              <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
+                <Clock className="w-4 h-4" />
+              </div>
             </div>
-            <div className="text-2xl font-black text-emerald-700">{deliveredCount}</div>
-            <div className="text-[10px] text-slate-400">Completed shipments</div>
+            <div className="text-3xl font-black text-amber-700">{inactiveLinks.length}</div>
+            <div className="text-[11px] text-amber-600 font-semibold mt-1">
+              <span>Generated links with 0 receipts assigned</span>
+            </div>
           </div>
 
-          {/* 4. Allocated Links */}
-          <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm">
-            <div className="flex items-center justify-between text-slate-500 mb-1">
-              <span className="text-[11px] font-bold uppercase tracking-wider">Allocated Links</span>
-              <ExternalLink className="w-4 h-4 text-purple-600" />
+          {/* 4. How Links Are Generated & Action */}
+          <div className="bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 text-white rounded-2xl p-4 shadow-sm flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] font-black uppercase tracking-wider text-blue-200">How Links Are Generated</span>
+                <Sparkles className="w-4 h-4 text-amber-300" />
+              </div>
+              <p className="text-[11px] text-blue-100 leading-snug">
+                1. Auto-generated when mapping receipts by Marka.<br />
+                2. Or pre-generate a custom link in advance.
+              </p>
             </div>
-            <div className="text-2xl font-black text-purple-700">{uniqueLinksCount}</div>
-            <div className="text-[10px] text-slate-400">Active public links</div>
-          </div>
-
-          {/* 5. Total Receipts */}
-          <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm">
-            <div className="flex items-center justify-between text-slate-500 mb-1">
-              <span className="text-[11px] font-bold uppercase tracking-wider">Total Receipts</span>
-              <Package className="w-4 h-4 text-slate-600" />
-            </div>
-            <div className="text-2xl font-black text-slate-900">{receipts.length}</div>
-            <div className="text-[10px] text-slate-400">Tracked receipts</div>
-          </div>
-
-          {/* 6. Customer Queries */}
-          <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm">
-            <div className="flex items-center justify-between text-slate-500 mb-1">
-              <span className="text-[11px] font-bold uppercase tracking-wider">Queries</span>
-              <MessageSquare className="w-4 h-4 text-indigo-600" />
-            </div>
-            <div className="text-2xl font-black text-indigo-700">{queriesList.length}</div>
-            <div className="text-[10px] text-slate-400">
-              {pendingQueriesCount > 0 ? (
-                <span className="text-amber-600 font-bold">{pendingQueriesCount} awaiting reply</span>
-              ) : (
-                'All resolved'
-              )}
+            <div className="mt-2.5 pt-2 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setIsGenerateModalOpen(true)}
+                className="w-full inline-flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs px-3 py-1.5 rounded-xl transition shadow cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>➕ Generate New Link</span>
+              </button>
             </div>
           </div>
         </div>
 
-        {/* Allocated Link Names / Nick Names Quick Filter Bar */}
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm mb-4">
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
-              <Tag className="w-3.5 h-3.5 text-blue-600" />
-              <span>Filter by Allocated Link Name / Nick Name:</span>
-            </div>
-            {selectedNickName && (
+        {/* Filter & View Mode Controls Card */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm mb-6 space-y-3.5">
+          {/* Top Bar: View Mode Switcher & Status Filter Tabs */}
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pb-3 border-b border-slate-100">
+            {/* View Mode Tabs (Allocated Links vs Detailed Cargo Table) */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black uppercase tracking-wider text-slate-600 mr-1">
+                Display View:
+              </span>
               <button
-                onClick={() => setSelectedNickName(null)}
-                className="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
-              >
-                <X className="w-3 h-3" /> Show All Receipts
-              </button>
-            )}
-          </div>
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
-            <button
-              onClick={() => setSelectedNickName(null)}
-              className={`px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap cursor-pointer ${
-                selectedNickName === null
-                  ? 'bg-slate-900 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-              }`}
-            >
-              All Receipts ({receipts.length})
-            </button>
-            {nickNameOptions.map((opt) => (
-              <button
-                key={opt.token}
-                onClick={() => setSelectedNickName(opt.name || opt.token)}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap cursor-pointer ${
-                  selectedNickName === (opt.name || opt.token)
-                    ? 'bg-blue-600 text-white shadow-xs ring-2 ring-blue-300'
-                    : 'bg-blue-50 text-blue-900 border border-blue-200 hover:bg-blue-100'
+                type="button"
+                onClick={() => setViewMode('links')}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  viewMode === 'links'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                 }`}
               >
-                <span>{opt.name}</span>
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/30 text-current">
-                  {opt.count}
-                </span>
+                <Link2 className="w-3.5 h-3.5" />
+                <span>Allocated Links Overview ({filteredTokens.length})</span>
               </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Active Nick Name Filter Banner */}
-        {selectedNickName && (
-          <div className="bg-blue-50 border border-blue-200 text-blue-900 rounded-xl p-3 mb-4 flex items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2">
-              <span className="font-extrabold text-blue-800">🎯 Active Nick Name Filter:</span>
-              <span className="font-black text-blue-950 bg-white border border-blue-300 px-2.5 py-0.5 rounded-md">
-                {selectedNickName}
-              </span>
-              <span className="text-blue-600 font-semibold">
-                (Showing {filteredReceipts.length} receipt{filteredReceipts.length === 1 ? '' : 's'})
-              </span>
+              <button
+                type="button"
+                onClick={() => setViewMode('receipts')}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                  viewMode === 'receipts'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                <Package className="w-3.5 h-3.5" />
+                <span>Detailed Receipts Table ({filteredReceipts.length})</span>
+              </button>
             </div>
-            <button
-              onClick={() => setSelectedNickName(null)}
-              className="px-2.5 py-1 bg-white hover:bg-blue-100 text-blue-700 font-bold border border-blue-300 rounded-lg transition flex items-center gap-1 cursor-pointer"
-            >
-              <X className="w-3.5 h-3.5" /> Show All
-            </button>
-          </div>
-        )}
 
-        {/* Search Bar & Bulk Actions */}
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm mb-6 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-2 w-full sm:w-96">
-            <Search className="w-4 h-4 text-slate-400 ml-1" />
-            <input
-              type="text"
-              placeholder="Search by receipt no, marka, allocated link name, item, or container..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full text-xs sm:text-sm bg-transparent border-none outline-none text-slate-800 placeholder-slate-400"
-            />
-          </div>
-
-          {/* Multi-Select Floating Bulk Action Buttons */}
-          {selectedReceiptIds.size > 0 && (
-            <div className="flex items-center gap-2 bg-amber-50 border border-amber-300 px-3 py-1.5 rounded-xl text-xs">
-              <span className="font-extrabold text-amber-900">
-                ✓ {selectedReceiptIds.size} Selected
+            {/* Link Status Filter Tabs */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">
+                Status:
               </span>
               <button
-                onClick={handleBulkDeleteReceipts}
-                disabled={deletingBulk}
-                className="inline-flex items-center gap-1 bg-red-600 hover:bg-red-700 text-white font-bold px-3 py-1 rounded-lg transition shadow-xs cursor-pointer disabled:opacity-50"
+                type="button"
+                onClick={() => setLinkStatusFilter('all')}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  linkStatusFilter === 'all'
+                    ? 'bg-slate-900 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
               >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>{deletingBulk ? 'Deleting...' : `Delete Selected (${selectedReceiptIds.size})`}</span>
+                All Links ({tokens.length})
               </button>
               <button
-                onClick={() => setSelectedReceiptIds(new Set())}
-                className="text-slate-600 hover:text-slate-900 font-semibold text-[11px] underline cursor-pointer ml-1"
+                type="button"
+                onClick={() => setLinkStatusFilter('active')}
+                className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  linkStatusFilter === 'active'
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200'
+                }`}
               >
-                Clear
+                <CheckCircle2 className="w-3 h-3" />
+                <span>Active ({activeLinks.length})</span>
               </button>
+              <button
+                type="button"
+                onClick={() => setLinkStatusFilter('inactive')}
+                className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  linkStatusFilter === 'inactive'
+                    ? 'bg-amber-600 text-white'
+                    : 'bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200'
+                }`}
+              >
+                <Clock className="w-3 h-3" />
+                <span>Not Active / Generated ({inactiveLinks.length})</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Bottom Bar: Filters by Allocated Link Name, Marka, and Receipt No */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 gap-3 items-center">
+            {/* 1. Filter by Allocated Link Name */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                Filter by Allocated Link Name:
+              </label>
+              <select
+                value={selectedNickName || ''}
+                onChange={(e) => setSelectedNickName(e.target.value || null)}
+                className="w-full text-xs p-2 bg-slate-50 border border-slate-300 rounded-lg outline-none focus:border-blue-500 font-semibold text-slate-800"
+              >
+                <option value="">All Allocated Link Names</option>
+                {tokens.map((t) => (
+                  <option key={t.token} value={t.name || t.token}>
+                    {t.name || 'Default Link'} ({(t.receipts || []).length} receipts)
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* 2. Filter by Marka */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                Filter by Marka:
+              </label>
+              <select
+                value={selectedMarkaFilter || ''}
+                onChange={(e) => setSelectedMarkaFilter(e.target.value || null)}
+                className="w-full text-xs p-2 bg-slate-50 border border-slate-300 rounded-lg outline-none focus:border-blue-500 font-semibold text-slate-800"
+              >
+                <option value="">All Markas</option>
+                {uniqueMarkas.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* 3. Filter by Receipt No */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                Filter by Receipt No:
+              </label>
+              <div className="relative">
+                <Package className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="e.g. 260927017..."
+                  value={receiptNoFilter}
+                  onChange={(e) => setReceiptNoFilter(e.target.value)}
+                  className="w-full pl-8 pr-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg outline-none focus:border-blue-500 font-mono text-slate-800"
+                />
+              </div>
+            </div>
+
+            {/* 4. General Search & Clear Filters */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                Keyword Search:
+              </label>
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Search all columns..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-8 pr-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg outline-none focus:border-blue-500 text-slate-800"
+                  />
+                </div>
+                {(selectedNickName || selectedMarkaFilter || receiptNoFilter || searchQuery || linkStatusFilter !== 'all') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedNickName(null);
+                      setSelectedMarkaFilter(null);
+                      setReceiptNoFilter('');
+                      setSearchQuery('');
+                      setLinkStatusFilter('all');
+                    }}
+                    className="px-2.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs transition cursor-pointer shrink-0"
+                    title="Clear All Filters"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Active Filter Indicators */}
+          {(selectedNickName || selectedMarkaFilter || receiptNoFilter.trim() || searchQuery.trim()) && (
+            <div className="pt-2 border-t border-slate-100 flex items-center gap-2 flex-wrap text-xs">
+              <span className="font-extrabold text-blue-900">Active Filters:</span>
+              {selectedNickName && (
+                <span className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 px-2.5 py-0.5 rounded-full font-bold">
+                  Link: {selectedNickName}
+                  <button onClick={() => setSelectedNickName(null)} className="cursor-pointer ml-1 hover:text-blue-950">×</button>
+                </span>
+              )}
+              {selectedMarkaFilter && (
+                <span className="inline-flex items-center gap-1 bg-purple-100 text-purple-800 px-2.5 py-0.5 rounded-full font-bold">
+                  Marka: {selectedMarkaFilter}
+                  <button onClick={() => setSelectedMarkaFilter(null)} className="cursor-pointer ml-1 hover:text-purple-950">×</button>
+                </span>
+              )}
+              {receiptNoFilter.trim() && (
+                <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded-full font-bold font-mono">
+                  Receipt: {receiptNoFilter}
+                  <button onClick={() => setReceiptNoFilter('')} className="cursor-pointer ml-1 hover:text-amber-950">×</button>
+                </span>
+              )}
+              {searchQuery.trim() && (
+                <span className="inline-flex items-center gap-1 bg-slate-200 text-slate-800 px-2.5 py-0.5 rounded-full font-bold">
+                  &quot;{searchQuery}&quot;
+                  <button onClick={() => setSearchQuery('')} className="cursor-pointer ml-1 hover:text-slate-950">×</button>
+                </span>
+              )}
             </div>
           )}
         </div>
 
-        {/* Table Card */}
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-50 text-slate-600 border-b border-slate-200 font-bold uppercase tracking-wider text-[11px]">
-                  <th className="py-3 px-3 text-center w-10">
-                    <button
-                      type="button"
-                      onClick={toggleSelectAllReceipts}
-                      className="cursor-pointer text-slate-500 hover:text-blue-600 transition"
-                      title="Select / Deselect All Visible Receipts"
-                    >
-                      {selectedReceiptIds.size > 0 && selectedReceiptIds.size === filteredReceipts.length ? (
-                        <CheckSquare className="w-4 h-4 text-blue-600" />
-                      ) : (
-                        <Square className="w-4 h-4" />
-                      )}
-                    </button>
-                  </th>
-                  <th className="py-3 px-4">Receipt No.</th>
-                  <th className="py-3 px-4">Marka</th>
-                  <th className="py-3 px-4">Allocated Link Name</th>
-                  <th className="py-3 px-4">Item Name</th>
-                  <th className="py-3 px-4">CBM / CTN / Weight</th>
-                  <th className="py-3 px-4">
-                    Container No. <br />
-                    <span className="text-[10px] text-slate-400 font-normal">(Public Display)</span>
-                  </th>
-                  <th className="py-3 px-4">Status</th>
-                  <th className="py-3 px-4">ETA & Remain Days</th>
-                  <th className="py-3 px-4">Public Tracking Link</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {loading && (
-                  <tr>
-                    <td colSpan={11} className="text-center py-10 text-slate-400">
-                      Loading tracking records...
-                    </td>
-                  </tr>
-                )}
+        {/* ── VIEW A: ALLOCATED LINKS OVERVIEW TABLE (Default View) ── */}
+        {viewMode === 'links' && (
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden mb-6">
+            <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <h3 className="font-extrabold text-slate-900 text-sm flex items-center gap-2">
+                  <Link2 className="w-4 h-4 text-blue-600" /> Allocated Links Manager
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Click on any Allocated Link Name to drill down into its cargo table and manage receipts.
+                </p>
+              </div>
+              <div className="text-xs font-bold text-slate-600">
+                Showing {filteredTokens.length} of {tokens.length} Link(s)
+              </div>
+            </div>
 
-                {!loading && filteredReceipts.length === 0 && (
-                  <tr>
-                    <td colSpan={11} className="text-center py-12 text-slate-500">
-                      No receipts found. Click <strong>&quot;Add / Map Receipts by Marka&quot;</strong> to generate a link!
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-100/80 text-slate-700 font-bold uppercase tracking-wider text-[11px] border-b border-slate-200">
+                    <th className="py-3.5 px-4">Allocated Link Name</th>
+                    <th className="py-3.5 px-4">Public Tracking Link</th>
+                    <th className="py-3.5 px-4 text-center">Tracked Receipts</th>
+                    <th className="py-3.5 px-4 text-center">Status</th>
+                    <th className="py-3.5 px-4 text-right">Actions</th>
                   </tr>
-                )}
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {loading && (
+                    <tr>
+                      <td colSpan={5} className="text-center py-10 text-slate-400">
+                        Loading allocated links...
+                      </td>
+                    </tr>
+                  )}
 
-                {!loading && filteredReceipts.map((r) => (
-                  <tr
-                    key={r.id}
-                    className={`hover:bg-slate-50/80 transition-colors ${
-                      selectedReceiptIds.has(r.id) ? 'bg-blue-50/50' : ''
-                    }`}
+                  {!loading && filteredTokens.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="text-center py-12 text-slate-500">
+                        No tracking links found matching filters. Click <strong>&quot;Generate New Link&quot;</strong> to create one!
+                      </td>
+                    </tr>
+                  )}
+
+                  {!loading && filteredTokens.map((t) => {
+                    const tokenReceipts = receipts.filter(r => r.trackingToken === t.token);
+                    const count = (t.receipts && t.receipts.length > 0) ? t.receipts.length : tokenReceipts.length;
+                    const isActive = count > 0;
+
+                    return (
+                      <tr key={t.token} className="hover:bg-blue-50/40 transition">
+                        {/* 1. Allocated Link Name (Clickable link to drill down into its cargo table) */}
+                        <td className="py-3.5 px-4">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedNickName(t.name || t.token);
+                              setViewMode('receipts');
+                            }}
+                            className="text-left font-black text-sm text-blue-700 hover:text-blue-900 hover:underline flex items-center gap-1.5 cursor-pointer group"
+                            title="Click to view detailed cargo table & manage receipts for this link"
+                          >
+                            <Tag className="w-4 h-4 text-blue-500 group-hover:scale-110 transition-transform" />
+                            <span>{t.name || 'Default Link'}</span>
+                          </button>
+                          <div className="font-mono text-[10px] text-slate-400 mt-0.5">
+                            Token: {t.token}
+                          </div>
+                        </td>
+
+                        {/* 2. Public Tracking Link */}
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-[11px] bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-md text-slate-700 font-semibold">
+                              /track/{t.token}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => copyLink(t.token)}
+                              title="Copy link URL"
+                              className="p-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 transition cursor-pointer"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                            </button>
+                            <a
+                              href={`/track/${t.token}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              title="Open public tracking table"
+                              className="p-1.5 rounded-lg bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-700 transition cursor-pointer"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </a>
+                            <a
+                              href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`US INTERNATIONAL LOGISTICS 📦\nShipment Tracking Update\nMarka / Name: ${t.name || '-'}\nTrack live 24/7:\n${typeof window !== 'undefined' ? window.location.origin : ''}/track/${t.token}\n\nyou can track this via link 24 hrs`)}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              title="Share on WhatsApp"
+                              className="p-1.5 rounded-lg bg-emerald-50 border border-emerald-300 hover:bg-emerald-100 text-emerald-700 transition cursor-pointer"
+                            >
+                              <Share2 className="w-3.5 h-3.5" />
+                            </a>
+                          </div>
+                        </td>
+
+                        {/* 3. Tracked Receipts */}
+                        <td className="py-3.5 px-4 text-center">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedNickName(t.name || t.token);
+                              setViewMode('receipts');
+                            }}
+                            className={`inline-flex items-center gap-1 font-bold px-2.5 py-1 rounded-full text-xs transition cursor-pointer ${
+                              isActive
+                                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
+                                : 'bg-slate-100 text-slate-500 border border-slate-200'
+                            }`}
+                            title="Click to view receipts"
+                          >
+                            <Package className="w-3 h-3" />
+                            <span>{count} receipt{count === 1 ? '' : 's'}</span>
+                          </button>
+                        </td>
+
+                        {/* 4. Status */}
+                        <td className="py-3.5 px-4 text-center">
+                          {isActive ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                              <span>Active Tracking</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-300">
+                              <span>Generated (Idle)</span>
+                            </span>
+                          )}
+                        </td>
+
+                        {/* 5. Actions */}
+                        <td className="py-3.5 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedNickName(t.name || t.token);
+                                setViewMode('receipts');
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition cursor-pointer"
+                              title="Go to detailed Cargo Table for this link"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>View Cargo Table</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFormData(prev => ({
+                                  ...prev,
+                                  trackingTokenOption: 'existing',
+                                  existingToken: t.token,
+                                  trackingName: t.name || ''
+                                }));
+                                setAddMode('marka');
+                                setIsAddOpen(true);
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg transition cursor-pointer"
+                              title="Add more receipts to this link"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Add</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteLink(t.token, t.name)}
+                              className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 border border-transparent hover:border-red-200 transition cursor-pointer"
+                              title="Delete Allocated Link"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ── VIEW B: DETAILED RECEIPTS CARGO TABLE ── */}
+        {viewMode === 'receipts' && (
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden mb-6">
+            {/* Header / Breadcrumb Bar */}
+            <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedNickName(null);
+                    setViewMode('links');
+                  }}
+                  className="inline-flex items-center gap-1 text-xs font-bold text-blue-700 bg-white border border-blue-300 px-3 py-1.5 rounded-xl hover:bg-blue-50 transition cursor-pointer"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Back to Allocated Links Overview</span>
+                </button>
+                <div className="font-black text-slate-800 text-sm">
+                  Cargo Table {selectedNickName ? `for: ${selectedNickName}` : '(All Tracked Receipts)'}
+                </div>
+                <span className="bg-blue-100 text-blue-900 font-bold px-2.5 py-0.5 rounded-full text-xs">
+                  {filteredReceipts.length} Receipt{filteredReceipts.length === 1 ? '' : 's'}
+                </span>
+              </div>
+
+              {/* Bulk Actions for Selected Receipts */}
+              {selectedReceiptIds.size > 0 && (
+                <div className="flex items-center gap-2 bg-amber-50 border border-amber-300 px-3 py-1.5 rounded-xl text-xs">
+                  <span className="font-extrabold text-amber-900">
+                    ✓ {selectedReceiptIds.size} Selected
+                  </span>
+                  <button
+                    onClick={handleBulkDeleteReceipts}
+                    disabled={deletingBulk}
+                    className="inline-flex items-center gap-1 bg-red-600 hover:bg-red-700 text-white font-bold px-3 py-1 rounded-lg transition shadow-xs cursor-pointer disabled:opacity-50"
                   >
-                    <td className="py-3.5 px-3 text-center">
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>{deletingBulk ? 'Deleting...' : `Delete Selected (${selectedReceiptIds.size})`}</span>
+                  </button>
+                  <button
+                    onClick={() => setSelectedReceiptIds(new Set())}
+                    className="text-slate-600 hover:text-slate-900 font-semibold text-[11px] underline cursor-pointer ml-1"
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-100 text-slate-700 border-b border-slate-200 font-bold uppercase tracking-wider text-[11px]">
+                    <th className="py-3 px-3 text-center w-10">
                       <button
                         type="button"
-                        onClick={() => toggleSelectReceipt(r.id)}
+                        onClick={toggleSelectAllReceipts}
                         className="cursor-pointer text-slate-500 hover:text-blue-600 transition"
+                        title="Select / Deselect All Visible Receipts"
                       >
-                        {selectedReceiptIds.has(r.id) ? (
+                        {selectedReceiptIds.size > 0 && selectedReceiptIds.size === filteredReceipts.length ? (
                           <CheckSquare className="w-4 h-4 text-blue-600" />
                         ) : (
                           <Square className="w-4 h-4" />
                         )}
                       </button>
-                    </td>
-                    <td className="py-3.5 px-4 font-bold text-slate-900">
-                      {r.receiptNo}
-                    </td>
-                    <td className="py-3.5 px-4 font-bold text-slate-800">
-                      {r.marka || '-'}
-                    </td>
-                    <td className="py-3.5 px-4">
-                      {r.trackingName ? (
-                        <button
-                          type="button"
-                          onClick={() => setSelectedNickName(r.trackingName || null)}
-                          title="Click to show only receipts for this Nick Name"
-                          className="inline-flex items-center gap-1 font-bold text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-0.5 rounded-full text-[11px] cursor-pointer transition"
-                        >
-                          <Tag className="w-3 h-3 text-blue-600" />
-                          <span>{r.trackingName}</span>
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setSelectedNickName(r.trackingToken)}
-                          title="Click to show only receipts for this tracking link"
-                          className="text-slate-400 italic hover:text-slate-600 text-[11px] cursor-pointer underline"
-                        >
-                          Default Link
-                        </button>
-                      )}
-                    </td>
-                    <td className="py-3.5 px-4 text-slate-700">
-                      {r.itemName || '-'}
-                    </td>
-                    <td className="py-3.5 px-4 text-slate-600">
-                      {r.cbm ? `${r.cbm} m³` : '-'} / {r.ctn ? `${r.ctn} ctn` : '-'} / {r.weight || '-'}
-                    </td>
-                    <td className="py-3.5 px-4 font-mono font-bold text-blue-700">
-                      {r.containerNo || '-'}
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 text-slate-800 border border-slate-200">
-                        {r.status || 'In Transit'}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <div className="font-bold text-slate-900">{r.eta || '-'}</div>
-                      <div className="text-[11px]">
-                        {typeof r.remainDays === 'number' ? (
-                          r.remainDays >= 0 ? (
-                            <span className="text-blue-600 font-bold">⏳ {r.remainDays}d left</span>
-                          ) : (
-                            <span className="text-amber-600 font-semibold">Passed ({Math.abs(r.remainDays)}d)</span>
-                          )
-                        ) : (
-                          <span className="text-slate-400">Pending</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-[11px] bg-slate-100 px-2 py-0.5 rounded text-slate-600">
-                          {r.trackingToken}
-                        </span>
-                        <button
-                          onClick={() => copyLink(r.trackingToken)}
-                          title="Copy Public Link"
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded-md transition cursor-pointer"
-                        >
-                          <Copy className="w-3 h-3" /> Link
-                        </button>
-                        <button
-                          onClick={() => copyMessage(r)}
-                          title="Copy Customer Message (ends with: you can track this via link 24 hrs)"
-                          className="inline-flex items-center gap-1 text-[11px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-1 rounded-md transition cursor-pointer"
-                        >
-                          <Copy className="w-3 h-3 text-emerald-600" /> Msg
-                        </button>
-                        <a
-                          href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`US INTERNATIONAL LOGISTICS 📦\nShipment Tracking Update\nReceipt No.: ${r.receiptNo}\nMarka: ${r.marka || r.trackingName || '-'}\nTrack Link: ${typeof window !== 'undefined' ? window.location.origin : ''}/track/${r.trackingToken}\n\nyou can track this via link 24 hrs`)}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          title="Share directly via WhatsApp"
-                          className="inline-flex items-center gap-1 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded-md transition"
-                        >
-                          WA
-                        </a>
-                        <a
-                          href={`/track/${r.trackingToken}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          title="Open public table & download JPG"
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 px-2 py-1 rounded-md transition"
-                        >
-                          <ExternalLink className="w-3 h-3" /> Table / JPG
-                        </a>
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          onClick={() => openEdit(r)}
-                          title="Update ETA, Status & Link Name"
-                          className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-200 transition cursor-pointer"
-                        >
-                          <Edit className="w-4 h-4 text-blue-600" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(r.id, r.receiptNo)}
-                          title="Delete Receipt"
-                          className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 transition cursor-pointer"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
+                    </th>
+                    <th className="py-3 px-4">Receipt No.</th>
+                    <th className="py-3 px-4">Marka</th>
+                    <th className="py-3 px-4">Allocated Link Name</th>
+                    <th className="py-3 px-4">Item Name</th>
+                    <th className="py-3 px-4">CBM / CTN / Weight</th>
+                    <th className="py-3 px-4">
+                      Container No. <br />
+                      <span className="text-[10px] text-slate-400 font-normal">(Public Display)</span>
+                    </th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4">ETA & Remain Days</th>
+                    <th className="py-3 px-4">Public Tracking Link</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {loading && (
+                    <tr>
+                      <td colSpan={11} className="text-center py-10 text-slate-400">
+                        Loading tracking records...
+                      </td>
+                    </tr>
+                  )}
+
+                  {!loading && filteredReceipts.length === 0 && (
+                    <tr>
+                      <td colSpan={11} className="text-center py-12 text-slate-500">
+                        No receipts found. Click <strong>&quot;Add / Map Receipts by Marka&quot;</strong> to map receipts!
+                      </td>
+                    </tr>
+                  )}
+
+                  {!loading && filteredReceipts.map((r) => (
+                    <tr
+                      key={r.id}
+                      className={`hover:bg-slate-50/80 transition-colors ${
+                        selectedReceiptIds.has(r.id) ? 'bg-blue-50/50' : ''
+                      }`}
+                    >
+                      <td className="py-3.5 px-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => toggleSelectReceipt(r.id)}
+                          className="cursor-pointer text-slate-500 hover:text-blue-600 transition"
+                        >
+                          {selectedReceiptIds.has(r.id) ? (
+                            <CheckSquare className="w-4 h-4 text-blue-600" />
+                          ) : (
+                            <Square className="w-4 h-4" />
+                          )}
+                        </button>
+                      </td>
+                      <td className="py-3.5 px-4 font-bold text-slate-900">
+                        {r.receiptNo}
+                      </td>
+                      <td className="py-3.5 px-4 font-bold text-slate-800">
+                        {r.marka || '-'}
+                      </td>
+                      <td className="py-3.5 px-4">
+                        {r.trackingName ? (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedNickName(r.trackingName || null)}
+                            title="Click to show only receipts for this Nick Name"
+                            className="inline-flex items-center gap-1 font-bold text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-0.5 rounded-full text-[11px] cursor-pointer transition"
+                          >
+                            <Tag className="w-3 h-3 text-blue-600" />
+                            <span>{r.trackingName}</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedNickName(r.trackingToken)}
+                            title="Click to show only receipts for this tracking link"
+                            className="text-slate-400 italic hover:text-slate-600 text-[11px] cursor-pointer underline"
+                          >
+                            Default Link
+                          </button>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-700">
+                        {r.itemName || '-'}
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-600">
+                        {r.cbm ? `${r.cbm} m³` : '-'} / {r.ctn ? `${r.ctn} ctn` : '-'} / {r.weight || '-'}
+                      </td>
+                      <td className="py-3.5 px-4 font-mono font-bold text-blue-700">
+                        {r.containerNo || '-'}
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 text-slate-800 border border-slate-200">
+                          {r.status || 'In Transit'}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <div className="font-bold text-slate-900">{r.eta || '-'}</div>
+                        <div className="text-[11px]">
+                          {typeof r.remainDays === 'number' ? (
+                            r.remainDays >= 0 ? (
+                              <span className="text-blue-600 font-bold">⏳ {r.remainDays}d left</span>
+                            ) : (
+                              <span className="text-amber-600 font-semibold">Passed ({Math.abs(r.remainDays)}d)</span>
+                            )
+                          ) : (
+                            <span className="text-slate-400">Pending</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-[11px] bg-slate-100 px-2 py-0.5 rounded text-slate-600">
+                            {r.trackingToken}
+                          </span>
+                          <button
+                            onClick={() => copyLink(r.trackingToken)}
+                            title="Copy Public Link"
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded-md transition cursor-pointer"
+                          >
+                            <Copy className="w-3 h-3" /> Link
+                          </button>
+                          <button
+                            onClick={() => copyMessage(r)}
+                            title="Copy Customer Message (ends with: you can track this via link 24 hrs)"
+                            className="inline-flex items-center gap-1 text-[11px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-1 rounded-md transition cursor-pointer"
+                          >
+                            <Copy className="w-3 h-3 text-emerald-600" /> Msg
+                          </button>
+                          <a
+                            href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`US INTERNATIONAL LOGISTICS 📦\nShipment Tracking Update\nReceipt No.: ${r.receiptNo}\nMarka: ${r.marka || r.trackingName || '-'}\nTrack Link: ${typeof window !== 'undefined' ? window.location.origin : ''}/track/${r.trackingToken}\n\nyou can track this via link 24 hrs`)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="Share directly via WhatsApp"
+                            className="inline-flex items-center gap-1 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded-md transition"
+                          >
+                            WA
+                          </a>
+                          <a
+                            href={`/track/${r.trackingToken}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="Open public table & download JPG"
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 px-2 py-1 rounded-md transition"
+                          >
+                            <ExternalLink className="w-3 h-3" /> Table / JPG
+                          </a>
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => openEdit(r)}
+                            title="Update ETA, Status & Link Name"
+                            className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-200 transition cursor-pointer"
+                          >
+                            <Edit className="w-4 h-4 text-blue-600" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(r.id, r.receiptNo)}
+                            title="Delete Receipt"
+                            className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 transition cursor-pointer"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        )}
 
       </div>
 
@@ -1909,6 +2368,69 @@ export default function AdminTrackingLinksPage() {
                 })}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── GENERATE NEW TRACKING LINK MODAL ── */}
+      {isGenerateModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-blue-900 to-indigo-950 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center font-bold">
+                  <Link2 className="w-5 h-5 text-blue-200" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base leading-tight">Generate New Tracking Link</h3>
+                  <p className="text-[11px] text-blue-200">Pre-generate a public tracking link for a client or party</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsGenerateModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleGenerateLink} className="p-5 space-y-4 text-xs">
+              <div>
+                <label className="block text-slate-700 font-bold mb-1.5">
+                  Allocated Link Name / Marka / Party Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. ECG, USSI, ABC TRADERS"
+                  value={newLinkNameInput}
+                  onChange={(e) => setNewLinkNameInput(e.target.value)}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl outline-none focus:border-blue-600 focus:bg-white text-xs font-semibold"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  This generates a dedicated tracking URL token. You can share it immediately or map receipts to it later.
+                </p>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsGenerateModalOpen(false)}
+                  className="px-4 py-2 border border-slate-300 rounded-xl text-slate-700 font-bold hover:bg-slate-50 transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={generatingLink || !newLinkNameInput.trim()}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition shadow-sm disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>{generatingLink ? 'Generating...' : 'Generate Link'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

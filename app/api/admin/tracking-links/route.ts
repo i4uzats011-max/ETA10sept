@@ -76,6 +76,23 @@ export async function POST(req: NextRequest) {
       token = 'trk_' + crypto.randomBytes(6).toString('hex');
     }
 
+    // Support generating a new link in advance (empty/unlinked)
+    if (body.action === 'generate_link') {
+      const linkName = String(body.trackingName || body.marka || body.name || 'New Link').trim();
+      const generatedToken = 'trk_' + crypto.randomBytes(6).toString('hex');
+      const newDoc = await ReceiptTracking.create({
+        token: generatedToken,
+        name: linkName,
+        receipts: []
+      });
+      return NextResponse.json({
+        success: true,
+        message: `Tracking link "${linkName}" generated successfully.`,
+        token: newDoc.token,
+        name: newDoc.name
+      });
+    }
+
     let entriesToAdd: IReceiptEntry[] = [];
 
     // Support 1: Multiple items provided
