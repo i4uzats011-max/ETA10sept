@@ -29,7 +29,10 @@ import {
   CheckSquare,
   Square,
   Eye,
-  EyeOff
+  EyeOff,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { toJpeg } from 'html-to-image';
 
@@ -57,16 +60,110 @@ interface IPublicReceipt {
   updatedAt?: string;
 }
 
+// Robust ETA Date Parser supporting chronological sorting (e.g. 12 sep, 10 oct, 4 nov, 8 nov)
+function parseEtaTimestamp(val?: string | null): number | null {
+  if (!val) return null;
+  const str = String(val).trim();
+  if (!str || str === '-' || str.toLowerCase() === 'pending' || str.toLowerCase() === 'n/a') return null;
+
+  const currentYear = new Date().getFullYear();
+
+  const monthMap: Record<string, number> = {
+    jan: 0, january: 0,
+    feb: 1, february: 1,
+    mar: 2, march: 2,
+    apr: 3, april: 3,
+    may: 4,
+    jun: 5, june: 5,
+    jul: 6, july: 6,
+    aug: 7, august: 7,
+    sep: 8, sept: 8, september: 8,
+    oct: 9, october: 9,
+    nov: 10, november: 10,
+    dec: 11, december: 11
+  };
+
+  // Match: Day + MonthName (e.g. "12 sep", "12sep", "4 nov", "4nov", "12-sep", "12/sep", "12 sep 2026")
+  const dmMatch = str.match(/^(\d{1,2})\s*[-/ ]?\s*([a-zA-Z]+)(?:\s*[-/ ,]?\s*(\d{2,4}))?$/);
+  if (dmMatch) {
+    const day = parseInt(dmMatch[1], 10);
+    const mKey = dmMatch[2].toLowerCase();
+    let year = dmMatch[3] ? parseInt(dmMatch[3], 10) : currentYear;
+    if (year < 100) year += 2000;
+    if (monthMap[mKey] !== undefined) {
+      return new Date(year, monthMap[mKey], day, 12, 0, 0).getTime();
+    }
+  }
+
+  // Match: MonthName + Day (e.g. "sep 12", "nov 4", "nov 4, 2026", "November 4 2026")
+  const mdMatch = str.match(/^([a-zA-Z]+)\s*[-/ ]?\s*(\d{1,2})(?:[,\s]+(\d{2,4}))?$/);
+  if (mdMatch) {
+    const mKey = mdMatch[1].toLowerCase();
+    const day = parseInt(mdMatch[2], 10);
+    let year = mdMatch[3] ? parseInt(mdMatch[3], 10) : currentYear;
+    if (year < 100) year += 2000;
+    if (monthMap[mKey] !== undefined) {
+      return new Date(year, monthMap[mKey], day, 12, 0, 0).getTime();
+    }
+  }
+
+  // Match: YYYY-MM-DD or YYYY/MM/DD
+  const ymdMatch = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (ymdMatch) {
+    const year = parseInt(ymdMatch[1], 10);
+    const month = parseInt(ymdMatch[2], 10) - 1;
+    const day = parseInt(ymdMatch[3], 10);
+    return new Date(year, month, day, 12, 0, 0).getTime();
+  }
+
+  // Match: DD-MM-YYYY or DD/MM/YYYY
+  const dmyMatch = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})/);
+  if (dmyMatch) {
+    const day = parseInt(dmyMatch[1], 10);
+    const month = parseInt(dmyMatch[2], 10) - 1;
+    let year = parseInt(dmyMatch[3], 10);
+    if (year < 100) year += 2000;
+    return new Date(year, month, day, 12, 0, 0).getTime();
+  }
+
+  // Standard JavaScript Date parse fallback
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) {
+    if (d.getFullYear() === 2001 && !str.includes('2001')) {
+      d.setFullYear(currentYear);
+    }
+    return d.getTime();
+  }
+
+  return null;
+}
+
 function formatDisplayDate(dateStr: string | null): string {
   if (!dateStr) return 'Pending Schedule';
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr;
+  const ts = parseEtaTimestamp(dateStr);
+  if (ts === null) return dateStr;
+  const d = new Date(ts);
   return d.toLocaleDateString('en-US', {
     weekday: 'short',
     year: 'numeric',
     month: 'short',
     day: 'numeric'
   });
+}
+
+function getEffectiveRemainDays(r: IPublicReceipt): number | null {
+  if (r.remainDays !== null && r.remainDays !== undefined && Math.abs(r.remainDays) < 1000) {
+    return r.remainDays;
+  }
+  if (!r.eta) return null;
+  const ts = parseEtaTimestamp(r.eta);
+  if (ts === null) return null;
+  const etaDate = new Date(ts);
+  const now = new Date();
+  const etaStart = new Date(etaDate.getFullYear(), etaDate.getMonth(), etaDate.getDate());
+  const nowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffTime = etaStart.getTime() - nowStart.getTime();
+  return Math.round(diffTime / (1000 * 60 * 60 * 24));
 }
 
 function renderRemainDaysBadge(remainDays: number | null) {
@@ -105,6 +202,9 @@ function renderRemainDaysBadge(remainDays: number | null) {
   }
 }
 
+type SortField = 'eta' | 'receiptNo' | 'marka' | 'itemName' | 'containerNo' | 'cbm' | 'weight' | 'ctn' | 'status';
+type SortDirection = 'asc' | 'desc';
+
 export default function PublicReceiptTrackingPage() {
   const params = useParams();
   const token = typeof params.token === 'string' ? params.token : Array.isArray(params.token) ? params.token[0] : '';
@@ -124,6 +224,25 @@ export default function PublicReceiptTrackingPage() {
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  // Table Column Sorting State
+  // Default is ETA in chronological ascending order (e.g. 12 sep, 10 oct, 4 nov, 8 nov)
+  const [sortField, setSortField] = useState<SortField>('eta');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const resetSortToDefault = () => {
+    setSortField('eta');
+    setSortDirection('asc');
   };
 
   // Multi-Receipt Selection State
@@ -325,23 +444,51 @@ export default function PublicReceiptTrackingPage() {
     return 'warehouse';
   };
 
-  // Helper to sort by ETA in Ascending order (earliest arrival date first)
-  const compareEtaAsc = (a: IPublicReceipt, b: IPublicReceipt): number => {
-    if (!a.eta && !b.eta) return 0;
-    if (!a.eta) return 1; // Pending ETAs go to the bottom of group
-    if (!b.eta) return -1;
-    const timeA = new Date(a.eta).getTime();
-    const timeB = new Date(b.eta).getTime();
-    if (isNaN(timeA) && isNaN(timeB)) return 0;
-    if (isNaN(timeA)) return 1;
-    if (isNaN(timeB)) return -1;
-    return timeA - timeB;
+  // Compare function supporting interactive A-Z, Z-A, Min-Max, and chronological ETA
+  const compareItems = (a: IPublicReceipt, b: IPublicReceipt): number => {
+    // 1. ETA sorting (Ascending = earliest calendar date first: 12 sep, 10 oct, 4 nov, 8 nov)
+    if (sortField === 'eta') {
+      const timeA = parseEtaTimestamp(a.eta);
+      const timeB = parseEtaTimestamp(b.eta);
+      if (timeA === null && timeB === null) return 0;
+      if (timeA === null) return 1; // Pending ETAs placed at bottom
+      if (timeB === null) return -1;
+      if (timeA !== timeB) {
+        return sortDirection === 'asc' ? timeA - timeB : timeB - timeA;
+      }
+      return a.receiptNo.localeCompare(b.receiptNo, undefined, { numeric: true });
+    }
+
+    // 2. Numeric columns: CBM, Weight, CTN
+    if (sortField === 'cbm' || sortField === 'weight' || sortField === 'ctn') {
+      const numA = parseFloat(String(a[sortField] || '').replace(/[^0-9.-]/g, '')) || 0;
+      const numB = parseFloat(String(b[sortField] || '').replace(/[^0-9.-]/g, '')) || 0;
+      if (numA !== numB) {
+        return sortDirection === 'asc' ? numA - numB : numB - numA;
+      }
+      const timeA = parseEtaTimestamp(a.eta);
+      const timeB = parseEtaTimestamp(b.eta);
+      if (timeA && timeB && timeA !== timeB) return timeA - timeB;
+      return a.receiptNo.localeCompare(b.receiptNo, undefined, { numeric: true });
+    }
+
+    // 3. String columns: Marka, Receipt No, Item Name, Container No, Status
+    const strA = String(a[sortField] || '').trim();
+    const strB = String(b[sortField] || '').trim();
+    const diff = strA.localeCompare(strB, undefined, { numeric: true, sensitivity: 'base' });
+    if (diff !== 0) {
+      return sortDirection === 'asc' ? diff : -diff;
+    }
+    const timeA = parseEtaTimestamp(a.eta);
+    const timeB = parseEtaTimestamp(b.eta);
+    if (timeA && timeB && timeA !== timeB) return timeA - timeB;
+    return a.receiptNo.localeCompare(b.receiptNo, undefined, { numeric: true });
   };
 
   // Filtered and Sorted Receipts:
-  // 1. In Transit (ETA Ascending)
-  // 2. In Warehouse (Not loaded to container)
-  // 3. Delivered (Hidden by default, shown when toggled)
+  // - Default view: Delivered data hidden, In Transit shown first sorted by ETA ascending (e.g. 12 sep, 10 oct, 4 nov, 8 nov), then In Warehouse.
+  // - Public user can toggle or click Delivered tab to view delivered data (appended at bottom in sequence: Transit -> Warehouse -> Delivered).
+  // - User can click column headers to sort table data A to Z and Z to A (or toggle ETA asc/desc).
   const filteredReceipts = useMemo(() => {
     let list = receipts;
     if (filterQuery.trim()) {
@@ -357,30 +504,47 @@ export default function PublicReceiptTrackingPage() {
       });
     }
 
-    const transitItems = list.filter(r => getReceiptCategory(r) === 'transit').sort(compareEtaAsc);
-    const warehouseItems = list.filter(r => getReceiptCategory(r) === 'warehouse').sort(compareEtaAsc);
-    const deliveredItems = list.filter(r => getReceiptCategory(r) === 'delivered').sort(compareEtaAsc);
+    const transitItems = list.filter((r) => getReceiptCategory(r) === 'transit');
+    const warehouseItems = list.filter((r) => getReceiptCategory(r) === 'warehouse');
+    const deliveredItems = list.filter((r) => getReceiptCategory(r) === 'delivered');
 
-    // Tab-based filtering
+    // Tab-based single category views
     if (activeStatusTab === 'transit') {
-      return transitItems;
+      return [...transitItems].sort(compareItems);
     }
     if (activeStatusTab === 'warehouse') {
-      return warehouseItems;
+      return [...warehouseItems].sort(compareItems);
     }
     if (activeStatusTab === 'delivered') {
-      return deliveredItems;
-    }
-    if (activeStatusTab === 'all') {
-      return [...transitItems, ...warehouseItems, ...deliveredItems];
+      return [...deliveredItems].sort(compareItems);
     }
 
-    // Default view ('active'): Show In Transit FIRST, then In Warehouse, and Delivered HIDDEN by default!
-    if (showDelivered) {
-      return [...transitItems, ...warehouseItems, ...deliveredItems];
+    // Default ETA Ascending Sort:
+    // Respects status hierarchy: Transit -> Warehouse -> Delivered (if shown)
+    // Within each group, items are strictly ordered chronologically by ETA ascending (e.g. 12 sep, 10 oct, 4 nov, 8 nov)
+    if (sortField === 'eta' && sortDirection === 'asc') {
+      const sortedTransit = [...transitItems].sort(compareItems);
+      const sortedWarehouse = [...warehouseItems].sort(compareItems);
+      const sortedDelivered = [...deliveredItems].sort(compareItems);
+
+      if (activeStatusTab === 'all' || showDelivered) {
+        return [...sortedTransit, ...sortedWarehouse, ...sortedDelivered];
+      }
+      // Default view: Active Cargo (Transit then Warehouse; Delivered hidden)
+      return [...sortedTransit, ...sortedWarehouse];
     }
-    return [...transitItems, ...warehouseItems];
-  }, [receipts, filterQuery, activeStatusTab, showDelivered]);
+
+    // Custom Column Sort (A to Z / Z to A / Descending ETA):
+    // Determines the visible rows (active cargo by default, or all if delivered is enabled)
+    let visibleList: IPublicReceipt[] = [];
+    if (activeStatusTab === 'all' || showDelivered) {
+      visibleList = [...transitItems, ...warehouseItems, ...deliveredItems];
+    } else {
+      visibleList = [...transitItems, ...warehouseItems];
+    }
+
+    return [...visibleList].sort(compareItems);
+  }, [receipts, filterQuery, activeStatusTab, showDelivered, sortField, sortDirection]);
 
   // Aggregate Totals
   const totals = useMemo(() => {
@@ -854,6 +1018,46 @@ export default function PublicReceiptTrackingPage() {
               )}
             </div>
 
+            {/* Sorting Info & Quick Reset Bar */}
+            <div className="px-3 sm:px-4 py-2.5 bg-slate-100/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-extrabold text-[11px] uppercase tracking-wider text-slate-500">
+                  Current Sort:
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white text-slate-800 border border-slate-300 shadow-2xs">
+                  {sortField === 'eta' ? (
+                    <>
+                      <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                      <span>ETA Date ({sortDirection === 'asc' ? 'Earliest First • Ascending' : 'Latest First • Descending'})</span>
+                      {sortDirection === 'asc' && (
+                        <span className="text-[10px] text-blue-600 font-extrabold bg-blue-50 border border-blue-200 px-1.5 py-0.2 rounded">DEFAULT</span>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <span className="uppercase text-blue-700">{sortField}</span>
+                      <span>({sortDirection === 'asc' ? 'A to Z / Min to Max' : 'Z to A / Max to Min'})</span>
+                    </>
+                  )}
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  (Click any column header to sort A-Z or Z-A)
+                </span>
+              </div>
+
+              {(sortField !== 'eta' || sortDirection !== 'asc') && (
+                <button
+                  type="button"
+                  onClick={resetSortToDefault}
+                  className="inline-flex items-center gap-1 px-3 py-1 text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition cursor-pointer shadow-2xs"
+                  title="Reset table to default chronological ETA ascending sort"
+                >
+                  <RefreshCw className="w-3 h-3 text-blue-600" />
+                  <span>Reset to Default (ETA Ascending)</span>
+                </button>
+              )}
+            </div>
+
             {/* Responsive Table */}
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
@@ -873,21 +1077,259 @@ export default function PublicReceiptTrackingPage() {
                         )}
                       </button>
                     </th>
-                    <th className="py-3.5 px-4 whitespace-nowrap">Marka</th>
-                    <th className="py-3.5 px-4 whitespace-nowrap">Receipt No.</th>
-                    <th className="py-3.5 px-4 min-w-[180px]">Item Name</th>
-                    <th className="py-3.5 px-4 whitespace-nowrap">
-                      Container No.
-                      <span className="block text-[10px] text-slate-400 font-normal lowercase">(not actual)</span>
+
+                    {/* 1. Marka */}
+                    <th className="py-3.5 px-4 whitespace-nowrap select-none">
+                      <button
+                        type="button"
+                        onClick={() => handleSort('marka')}
+                        className={`inline-flex items-center gap-1.5 font-bold uppercase tracking-wider text-[11px] hover:text-blue-300 transition cursor-pointer group ${
+                          sortField === 'marka' ? 'text-blue-400' : 'text-white'
+                        }`}
+                        title="Sort by Marka (A to Z / Z to A)"
+                      >
+                        <span>Marka</span>
+                        {sortField === 'marka' ? (
+                          sortDirection === 'asc' ? (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-500/20 border border-blue-400/40 rounded text-[10px] font-mono text-blue-300">
+                              <ArrowUp className="w-3 h-3" /> A-Z
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-500/20 border border-blue-400/40 rounded text-[10px] font-mono text-blue-300">
+                              <ArrowDown className="w-3 h-3" /> Z-A
+                            </span>
+                          )
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60 group-hover:opacity-100" />
+                        )}
+                      </button>
                     </th>
-                    <th className="py-3.5 px-4 text-center whitespace-nowrap">CBM</th>
-                    <th className="py-3.5 px-4 text-center whitespace-nowrap">Weight</th>
-                    <th className="py-3.5 px-4 text-center whitespace-nowrap">CTN</th>
-                    <th className="py-3.5 px-4 whitespace-nowrap min-w-[200px]">
-                      ETA & Remain Days
-                      <span className="block text-[10px] text-slate-400 font-normal lowercase">(Ascending order)</span>
+
+                    {/* 2. Receipt No. */}
+                    <th className="py-3.5 px-4 whitespace-nowrap select-none">
+                      <button
+                        type="button"
+                        onClick={() => handleSort('receiptNo')}
+                        className={`inline-flex items-center gap-1.5 font-bold uppercase tracking-wider text-[11px] hover:text-blue-300 transition cursor-pointer group ${
+                          sortField === 'receiptNo' ? 'text-blue-400' : 'text-white'
+                        }`}
+                        title="Sort by Receipt No. (A to Z / Z to A)"
+                      >
+                        <span>Receipt No.</span>
+                        {sortField === 'receiptNo' ? (
+                          sortDirection === 'asc' ? (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-500/20 border border-blue-400/40 rounded text-[10px] font-mono text-blue-300">
+                              <ArrowUp className="w-3 h-3" /> A-Z
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-500/20 border border-blue-400/40 rounded text-[10px] font-mono text-blue-300">
+                              <ArrowDown className="w-3 h-3" /> Z-A
+                            </span>
+                          )
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60 group-hover:opacity-100" />
+                        )}
+                      </button>
                     </th>
-                    <th className="py-3.5 px-4 text-center whitespace-nowrap">Status</th>
+
+                    {/* 3. Item Name */}
+                    <th className="py-3.5 px-4 min-w-[180px] select-none">
+                      <button
+                        type="button"
+                        onClick={() => handleSort('itemName')}
+                        className={`inline-flex items-center gap-1.5 font-bold uppercase tracking-wider text-[11px] hover:text-blue-300 transition cursor-pointer group ${
+                          sortField === 'itemName' ? 'text-blue-400' : 'text-white'
+                        }`}
+                        title="Sort by Item Name (A to Z / Z to A)"
+                      >
+                        <span>Item Name</span>
+                        {sortField === 'itemName' ? (
+                          sortDirection === 'asc' ? (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-500/20 border border-blue-400/40 rounded text-[10px] font-mono text-blue-300">
+                              <ArrowUp className="w-3 h-3" /> A-Z
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-500/20 border border-blue-400/40 rounded text-[10px] font-mono text-blue-300">
+                              <ArrowDown className="w-3 h-3" /> Z-A
+                            </span>
+                          )
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60 group-hover:opacity-100" />
+                        )}
+                      </button>
+                    </th>
+
+                    {/* 4. Container No. */}
+                    <th className="py-3.5 px-4 whitespace-nowrap select-none">
+                      <button
+                        type="button"
+                        onClick={() => handleSort('containerNo')}
+                        className={`inline-flex flex-col items-start gap-0.5 font-bold uppercase tracking-wider text-[11px] hover:text-blue-300 transition cursor-pointer group ${
+                          sortField === 'containerNo' ? 'text-blue-400' : 'text-white'
+                        }`}
+                        title="Sort by Container No. (A to Z / Z to A)"
+                      >
+                        <div className="inline-flex items-center gap-1.5">
+                          <span>Container No.</span>
+                          {sortField === 'containerNo' ? (
+                            sortDirection === 'asc' ? (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-500/20 border border-blue-400/40 rounded text-[10px] font-mono text-blue-300">
+                                <ArrowUp className="w-3 h-3" /> A-Z
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-500/20 border border-blue-400/40 rounded text-[10px] font-mono text-blue-300">
+                                <ArrowDown className="w-3 h-3" /> Z-A
+                              </span>
+                            )
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60 group-hover:opacity-100" />
+                          )}
+                        </div>
+                        <span className="text-[10px] text-slate-400 font-normal lowercase">(not actual)</span>
+                      </button>
+                    </th>
+
+                    {/* 5. CBM */}
+                    <th className="py-3.5 px-4 text-center whitespace-nowrap select-none">
+                      <button
+                        type="button"
+                        onClick={() => handleSort('cbm')}
+                        className={`inline-flex items-center gap-1 font-bold uppercase tracking-wider text-[11px] hover:text-blue-300 transition cursor-pointer group mx-auto ${
+                          sortField === 'cbm' ? 'text-blue-400' : 'text-white'
+                        }`}
+                        title="Sort by CBM (Volume)"
+                      >
+                        <span>CBM</span>
+                        {sortField === 'cbm' ? (
+                          sortDirection === 'asc' ? (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-500/20 border border-blue-400/40 rounded text-[10px] font-mono text-blue-300">
+                              <ArrowUp className="w-3 h-3" /> Min
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-500/20 border border-blue-400/40 rounded text-[10px] font-mono text-blue-300">
+                              <ArrowDown className="w-3 h-3" /> Max
+                            </span>
+                          )
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60 group-hover:opacity-100" />
+                        )}
+                      </button>
+                    </th>
+
+                    {/* 6. Weight */}
+                    <th className="py-3.5 px-4 text-center whitespace-nowrap select-none">
+                      <button
+                        type="button"
+                        onClick={() => handleSort('weight')}
+                        className={`inline-flex items-center gap-1 font-bold uppercase tracking-wider text-[11px] hover:text-blue-300 transition cursor-pointer group mx-auto ${
+                          sortField === 'weight' ? 'text-blue-400' : 'text-white'
+                        }`}
+                        title="Sort by Weight"
+                      >
+                        <span>Weight</span>
+                        {sortField === 'weight' ? (
+                          sortDirection === 'asc' ? (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-500/20 border border-blue-400/40 rounded text-[10px] font-mono text-blue-300">
+                              <ArrowUp className="w-3 h-3" /> Min
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-500/20 border border-blue-400/40 rounded text-[10px] font-mono text-blue-300">
+                              <ArrowDown className="w-3 h-3" /> Max
+                            </span>
+                          )
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60 group-hover:opacity-100" />
+                        )}
+                      </button>
+                    </th>
+
+                    {/* 7. CTN */}
+                    <th className="py-3.5 px-4 text-center whitespace-nowrap select-none">
+                      <button
+                        type="button"
+                        onClick={() => handleSort('ctn')}
+                        className={`inline-flex items-center gap-1 font-bold uppercase tracking-wider text-[11px] hover:text-blue-300 transition cursor-pointer group mx-auto ${
+                          sortField === 'ctn' ? 'text-blue-400' : 'text-white'
+                        }`}
+                        title="Sort by Carton Count (CTN)"
+                      >
+                        <span>CTN</span>
+                        {sortField === 'ctn' ? (
+                          sortDirection === 'asc' ? (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-500/20 border border-blue-400/40 rounded text-[10px] font-mono text-blue-300">
+                              <ArrowUp className="w-3 h-3" /> Min
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-500/20 border border-blue-400/40 rounded text-[10px] font-mono text-blue-300">
+                              <ArrowDown className="w-3 h-3" /> Max
+                            </span>
+                          )
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60 group-hover:opacity-100" />
+                        )}
+                      </button>
+                    </th>
+
+                    {/* 8. ETA & Remain Days (Default: Chronological Ascending: 12 sep, 10 oct, 4 nov, 8 nov) */}
+                    <th className="py-3.5 px-4 whitespace-nowrap min-w-[210px] select-none">
+                      <button
+                        type="button"
+                        onClick={() => handleSort('eta')}
+                        className={`inline-flex flex-col items-start gap-0.5 font-bold uppercase tracking-wider text-[11px] hover:text-blue-300 transition cursor-pointer group ${
+                          sortField === 'eta' ? 'text-blue-400' : 'text-white'
+                        }`}
+                        title="Sort by ETA Date (Default: Chronological Ascending: 12 sep, 10 oct, 4 nov, 8 nov)"
+                      >
+                        <div className="inline-flex items-center gap-1.5">
+                          <span>ETA & Remain Days</span>
+                          {sortField === 'eta' ? (
+                            sortDirection === 'asc' ? (
+                              <span className="inline-flex items-center gap-0.5 px-2 py-0.5 bg-blue-500/30 border border-blue-400/60 rounded text-[10px] font-bold text-blue-200">
+                                <ArrowUp className="w-3.5 h-3.5 text-blue-300" /> Earliest First (Default)
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-0.5 px-2 py-0.5 bg-blue-500/30 border border-blue-400/60 rounded text-[10px] font-bold text-blue-200">
+                                <ArrowDown className="w-3.5 h-3.5 text-blue-300" /> Latest First
+                              </span>
+                            )
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60 group-hover:opacity-100" />
+                          )}
+                        </div>
+                        <span className="text-[10px] text-blue-300 font-semibold lowercase">
+                          {sortField === 'eta' && sortDirection === 'asc'
+                            ? '(calendar ascending order)'
+                            : '(click to toggle sort)'}
+                        </span>
+                      </button>
+                    </th>
+
+                    {/* 9. Status */}
+                    <th className="py-3.5 px-4 text-center whitespace-nowrap select-none">
+                      <button
+                        type="button"
+                        onClick={() => handleSort('status')}
+                        className={`inline-flex items-center gap-1 font-bold uppercase tracking-wider text-[11px] hover:text-blue-300 transition cursor-pointer group mx-auto ${
+                          sortField === 'status' ? 'text-blue-400' : 'text-white'
+                        }`}
+                        title="Sort by Status (A to Z / Z to A)"
+                      >
+                        <span>Status</span>
+                        {sortField === 'status' ? (
+                          sortDirection === 'asc' ? (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-500/20 border border-blue-400/40 rounded text-[10px] font-mono text-blue-300">
+                              <ArrowUp className="w-3 h-3" /> A-Z
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-500/20 border border-blue-400/40 rounded text-[10px] font-mono text-blue-300">
+                              <ArrowDown className="w-3 h-3" /> Z-A
+                            </span>
+                          )
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60 group-hover:opacity-100" />
+                        )}
+                      </button>
+                    </th>
                   </tr>
                 </thead>
 
@@ -976,7 +1418,7 @@ export default function PublicReceiptTrackingPage() {
                             <Calendar className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                             {formatDisplayDate(r.eta)}
                           </div>
-                          <div>{renderRemainDaysBadge(r.remainDays)}</div>
+                          <div>{renderRemainDaysBadge(getEffectiveRemainDays(r))}</div>
                         </div>
                       </td>
 
@@ -1013,23 +1455,34 @@ export default function PublicReceiptTrackingPage() {
               </table>
             </div>
 
-            {/* Delivered Shipments Hidden Notice (Delivered data hidden by default) */}
-            {!showDelivered && stats.delivered > 0 && (activeStatusTab === 'active' || activeStatusTab === 'transit') && (
+            {/* Delivered Shipments Visibility Toggle Banner */}
+            {stats.delivered > 0 && (activeStatusTab === 'active' || activeStatusTab === 'transit') && (
               <div className="p-3 bg-emerald-50/70 border-t border-emerald-200 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-emerald-900">
                 <div className="flex items-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   <span>
-                    📦 <strong>{stats.delivered} Delivered shipment(s)</strong> are hidden by default to keep your active shipments focused.
+                    📦 <strong>{stats.delivered} Delivered shipment(s)</strong> {showDelivered ? 'are currently displayed at the bottom.' : 'are hidden by default to keep active shipments focused.'}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setShowDelivered(true)}
-                  className="px-3 py-1 bg-white hover:bg-emerald-100 border border-emerald-300 text-emerald-800 font-bold rounded-lg transition text-[11px] flex items-center gap-1.5 cursor-pointer whitespace-nowrap shadow-xs"
-                >
-                  <Eye className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Show Delivered Shipments ({stats.delivered})</span>
-                </button>
+                {showDelivered ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowDelivered(false)}
+                    className="px-3 py-1 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 font-bold rounded-lg transition text-[11px] flex items-center gap-1.5 cursor-pointer whitespace-nowrap shadow-xs"
+                  >
+                    <EyeOff className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Hide Delivered Shipments</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowDelivered(true)}
+                    className="px-3 py-1 bg-white hover:bg-emerald-100 border border-emerald-300 text-emerald-800 font-bold rounded-lg transition text-[11px] flex items-center gap-1.5 cursor-pointer whitespace-nowrap shadow-xs"
+                  >
+                    <Eye className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Show Delivered Shipments ({stats.delivered})</span>
+                  </button>
+                )}
               </div>
             )}
 
