@@ -23,8 +23,29 @@ import {
   AlertCircle,
   Tag,
   CheckSquare,
-  Square
+  Square,
+  MessageSquare,
+  Send,
+  X,
+  Filter,
+  Warehouse,
+  CheckCircle2,
+  FolderX,
+  Trash
 } from 'lucide-react';
+
+interface IAdminQuery {
+  id: string;
+  token: string;
+  receiptNo: string;
+  marka?: string;
+  senderName?: string;
+  senderPhone?: string;
+  message: string;
+  reply?: string;
+  status: string;
+  createdAt: string;
+}
 
 interface IAdminReceipt {
   id: string;
@@ -58,6 +79,25 @@ export default function AdminTrackingLinksPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Nick Name / Allocated Link Focused Filter
+  const [selectedNickName, setSelectedNickName] = useState<string | null>(null);
+
+  // Multi-Select Receipts for Bulk Actions
+  const [selectedReceiptIds, setSelectedReceiptIds] = useState<Set<string>>(new Set());
+  const [deletingBulk, setDeletingBulk] = useState(false);
+
+  // Allocated Links Management (Delete one or more links)
+  const [isLinksManagerOpen, setIsLinksManagerOpen] = useState(false);
+  const [selectedLinkTokens, setSelectedLinkTokens] = useState<Set<string>>(new Set());
+  const [deletingLinks, setDeletingLinks] = useState(false);
+
+  // Customer Queries State
+  const [isQueriesModalOpen, setIsQueriesModalOpen] = useState(false);
+  const [queriesList, setQueriesList] = useState<IAdminQuery[]>([]);
+  const [loadingQueries, setLoadingQueries] = useState(false);
+  const [replyTextMap, setReplyTextMap] = useState<Record<string, string>>({});
+  const [savingReplyId, setSavingReplyId] = useState<string | null>(null);
 
   // Modal States
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -227,6 +267,21 @@ export default function AdminTrackingLinksPage() {
     }
   };
 
+  const loadQueries = async () => {
+    setLoadingQueries(true);
+    try {
+      const res = await fetch('/api/admin/tracking-queries');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.queries)) {
+        setQueriesList(data.queries);
+      }
+    } catch (err) {
+      console.error('Failed to load customer queries:', err);
+    } finally {
+      setLoadingQueries(false);
+    }
+  };
+
   const loadData = async () => {
     setLoading(true);
     try {
@@ -245,9 +300,153 @@ export default function AdminTrackingLinksPage() {
 
   useEffect(() => {
     loadData();
+    loadQueries();
     loadAvailableReceipts();
     loadAvailableMarkas();
   }, []);
+
+  // Multi-select Receipts Handlers
+  const toggleSelectReceipt = (id: string) => {
+    const next = new Set(selectedReceiptIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedReceiptIds(next);
+  };
+
+  const toggleSelectAllReceipts = () => {
+    if (selectedReceiptIds.size === filteredReceipts.length && filteredReceipts.length > 0) {
+      setSelectedReceiptIds(new Set());
+    } else {
+      setSelectedReceiptIds(new Set(filteredReceipts.map(r => r.id)));
+    }
+  };
+
+  const handleBulkDeleteReceipts = async () => {
+    if (selectedReceiptIds.size === 0) return;
+    const confirmMsg = `Are you sure you want to delete ${selectedReceiptIds.size} selected receipt(s)? This cannot be undone.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setDeletingBulk(true);
+    try {
+      const res = await fetch('/api/admin/tracking-links', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ receiptIds: Array.from(selectedReceiptIds) })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast(`🗑️ ${data.message || 'Deleted successfully'}`);
+        setSelectedReceiptIds(new Set());
+        loadData();
+      } else {
+        alert(data.message || 'Failed to delete selected receipts');
+      }
+    } catch (err) {
+      alert('Network error while deleting selected receipts');
+    } finally {
+      setDeletingBulk(false);
+    }
+  };
+
+  // Allocated Link Management Handlers
+  const handleDeleteLink = async (token: string, name?: string) => {
+    const confirmMsg = `Are you sure you want to delete Allocated Link "${name || token}"? Associated receipts will be deleted.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      const res = await fetch('/api/admin/tracking-links', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast(`🗑️ Allocated Link "${name || token}" deleted.`);
+        if (selectedNickName === (name || token)) {
+          setSelectedNickName(null);
+        }
+        loadData();
+      } else {
+        alert(data.message || 'Failed to delete link');
+      }
+    } catch (e) {
+      alert('Network error while deleting link');
+    }
+  };
+
+  const toggleSelectLinkToken = (token: string) => {
+    const next = new Set(selectedLinkTokens);
+    if (next.has(token)) next.delete(token);
+    else next.add(token);
+    setSelectedLinkTokens(next);
+  };
+
+  const handleBulkDeleteLinks = async () => {
+    if (selectedLinkTokens.size === 0) return;
+    const confirmMsg = `Delete ${selectedLinkTokens.size} selected Allocated Tracking Link(s) and their receipts?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setDeletingLinks(true);
+    try {
+      const res = await fetch('/api/admin/tracking-links', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tokens: Array.from(selectedLinkTokens) })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast(`🗑️ ${data.message || 'Links deleted successfully'}`);
+        setSelectedLinkTokens(new Set());
+        setSelectedNickName(null);
+        loadData();
+      } else {
+        alert(data.message || 'Failed to delete selected links');
+      }
+    } catch (e) {
+      alert('Network error while deleting links');
+    } finally {
+      setDeletingLinks(false);
+    }
+  };
+
+  // Customer Query Handlers
+  const handleSendReply = async (queryId: string) => {
+    const replyText = replyTextMap[queryId];
+    if (!replyText || !replyText.trim()) return;
+    setSavingReplyId(queryId);
+    try {
+      const res = await fetch(`/api/admin/tracking-queries/${queryId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reply: replyText.trim(), status: 'Answered' })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast('✓ Dispatch reply sent to customer!');
+        loadQueries();
+      } else {
+        alert(data.message || 'Failed to send reply');
+      }
+    } catch (e) {
+      alert('Network error while saving reply');
+    } finally {
+      setSavingReplyId(null);
+    }
+  };
+
+  const handleDeleteQuery = async (queryId: string) => {
+    if (!window.confirm('Delete this customer query?')) return;
+    try {
+      const res = await fetch(`/api/admin/tracking-queries/${queryId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast('Query deleted');
+        loadQueries();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const copyLink = (token: string) => {
     const url = `${window.location.origin}/track/${token}`;
@@ -411,18 +610,58 @@ export default function AdminTrackingLinksPage() {
   };
 
   const filteredReceipts = receipts.filter(r => {
-    const q = searchQuery.toLowerCase();
-    return (
-      r.receiptNo?.toLowerCase().includes(q) ||
-      r.marka?.toLowerCase().includes(q) ||
-      r.itemName?.toLowerCase().includes(q) ||
-      r.containerNo?.toLowerCase().includes(q) ||
-      r.trackingToken?.toLowerCase().includes(q) ||
-      r.trackingName?.toLowerCase().includes(q)
-    );
+    // 1. Nick Name / Allocated Link Focused Filter
+    if (selectedNickName) {
+      const matchToken = r.trackingToken === selectedNickName;
+      const matchName = (r.trackingName || '').trim().toLowerCase() === selectedNickName.trim().toLowerCase();
+      if (!matchToken && !matchName) {
+        return false;
+      }
+    }
+
+    // 2. Search Query Filter
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      return (
+        r.receiptNo?.toLowerCase().includes(q) ||
+        r.marka?.toLowerCase().includes(q) ||
+        r.itemName?.toLowerCase().includes(q) ||
+        r.containerNo?.toLowerCase().includes(q) ||
+        r.trackingToken?.toLowerCase().includes(q) ||
+        r.trackingName?.toLowerCase().includes(q) ||
+        r.status?.toLowerCase().includes(q)
+      );
+    }
+
+    return true;
   });
 
   const uniqueLinksCount = new Set(receipts.map(r => r.trackingToken)).size;
+
+  // Real-time Statistics
+  const inTransitCount = receipts.filter(r => {
+    const s = (r.status || 'In Transit').toLowerCase();
+    return s.includes('transit') || s.includes('loaded') || s.includes('sailing') || s.includes('sea');
+  }).length;
+
+  const inWarehouseCount = receipts.filter(r => {
+    const s = (r.status || '').toLowerCase();
+    return s.includes('warehouse') || s.includes('pending') || (!r.containerNo || r.containerNo === '-');
+  }).length;
+
+  const deliveredCount = receipts.filter(r => {
+    const s = (r.status || '').toLowerCase();
+    return s.includes('deliver') || s.includes('arrived') || s.includes('complete');
+  }).length;
+
+  const pendingQueriesCount = queriesList.filter(q => q.status === 'Pending').length;
+
+  // Nick Names / Allocated Link List for quick filter bar
+  const nickNameOptions = Array.from(
+    new Map(
+      tokens.map(t => [t.token, { token: t.token, name: t.name || 'Default Link', count: (t.receipts || []).length }])
+    ).values()
+  );
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900 py-8 px-4 sm:px-6 lg:px-8">
@@ -447,7 +686,28 @@ export default function AdminTrackingLinksPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => setIsQueriesModalOpen(true)}
+              className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3.5 py-2.5 rounded-xl shadow-md transition cursor-pointer"
+            >
+              <MessageSquare className="w-4 h-4" />
+              <span>Customer Queries</span>
+              {pendingQueriesCount > 0 && (
+                <span className="bg-amber-400 text-slate-900 text-[10px] font-black px-1.5 py-0.5 rounded-full animate-pulse">
+                  {pendingQueriesCount} new
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setIsLinksManagerOpen(true)}
+              className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold px-3.5 py-2.5 rounded-xl shadow-md transition cursor-pointer"
+            >
+              <Tag className="w-4 h-4 text-emerald-400" />
+              <span>Manage Links ({tokens.length})</span>
+            </button>
+
             <button
               onClick={() => {
                 setAddMode('marka');
@@ -458,59 +718,189 @@ export default function AdminTrackingLinksPage() {
               <Plus className="w-4 h-4" /> Add / Map Receipts by Marka
             </button>
             <button
-              onClick={loadData}
+              onClick={() => {
+                loadData();
+                loadQueries();
+              }}
               className="inline-flex items-center gap-1 bg-white border border-slate-300 text-slate-700 text-xs font-semibold px-3 py-2.5 rounded-xl hover:bg-slate-50 transition"
+              title="Refresh tracking data and queries"
             >
               <RefreshCw className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* Stats Row */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-xl">
-              <Package className="w-6 h-6" />
+        {/* Real-time Statistics Row */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+          {/* 1. In Transit */}
+          <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm">
+            <div className="flex items-center justify-between text-slate-500 mb-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider">In Transit</span>
+              <Truck className="w-4 h-4 text-blue-600" />
             </div>
-            <div>
-              <div className="text-2xl font-black text-slate-900">{receipts.length}</div>
-              <div className="text-xs font-medium text-slate-500">Total Tracked Receipts</div>
-            </div>
+            <div className="text-2xl font-black text-blue-700">{inTransitCount}</div>
+            <div className="text-[10px] text-slate-400">Shipments sailing</div>
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-xl">
-              <ExternalLink className="w-6 h-6" />
+          {/* 2. In Warehouse */}
+          <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm">
+            <div className="flex items-center justify-between text-slate-500 mb-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider">In Warehouse</span>
+              <Warehouse className="w-4 h-4 text-amber-600" />
             </div>
-            <div>
-              <div className="text-2xl font-black text-slate-900">{uniqueLinksCount}</div>
-              <div className="text-xs font-medium text-slate-500">Allocated Tracking Links</div>
-            </div>
+            <div className="text-2xl font-black text-amber-700">{inWarehouseCount}</div>
+            <div className="text-[10px] text-slate-400">Not loaded / pending</div>
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold text-xl">
-              <Clock className="w-6 h-6" />
+          {/* 3. Delivered */}
+          <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm">
+            <div className="flex items-center justify-between text-slate-500 mb-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider">Delivered</span>
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
             </div>
-            <div>
-              <div className="text-2xl font-black text-slate-900">
-                {receipts.filter(r => typeof r.remainDays === 'number' && r.remainDays >= 0 && r.remainDays <= 7).length}
-              </div>
-              <div className="text-xs font-medium text-slate-500">Arriving Within 7 Days</div>
+            <div className="text-2xl font-black text-emerald-700">{deliveredCount}</div>
+            <div className="text-[10px] text-slate-400">Completed shipments</div>
+          </div>
+
+          {/* 4. Allocated Links */}
+          <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm">
+            <div className="flex items-center justify-between text-slate-500 mb-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider">Allocated Links</span>
+              <ExternalLink className="w-4 h-4 text-purple-600" />
+            </div>
+            <div className="text-2xl font-black text-purple-700">{uniqueLinksCount}</div>
+            <div className="text-[10px] text-slate-400">Active public links</div>
+          </div>
+
+          {/* 5. Total Receipts */}
+          <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm">
+            <div className="flex items-center justify-between text-slate-500 mb-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider">Total Receipts</span>
+              <Package className="w-4 h-4 text-slate-600" />
+            </div>
+            <div className="text-2xl font-black text-slate-900">{receipts.length}</div>
+            <div className="text-[10px] text-slate-400">Tracked receipts</div>
+          </div>
+
+          {/* 6. Customer Queries */}
+          <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm">
+            <div className="flex items-center justify-between text-slate-500 mb-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider">Queries</span>
+              <MessageSquare className="w-4 h-4 text-indigo-600" />
+            </div>
+            <div className="text-2xl font-black text-indigo-700">{queriesList.length}</div>
+            <div className="text-[10px] text-slate-400">
+              {pendingQueriesCount > 0 ? (
+                <span className="text-amber-600 font-bold">{pendingQueriesCount} awaiting reply</span>
+              ) : (
+                'All resolved'
+              )}
             </div>
           </div>
         </div>
 
-        {/* Search Bar */}
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm mb-6 flex items-center gap-3">
-          <Search className="w-4 h-4 text-slate-400 ml-2" />
-          <input
-            type="text"
-            placeholder="Search by receipt no, marka, allocated link name, item, or container..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full text-xs sm:text-sm bg-transparent border-none outline-none text-slate-800 placeholder-slate-400"
-          />
+        {/* Allocated Link Names / Nick Names Quick Filter Bar */}
+        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm mb-4">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+              <Tag className="w-3.5 h-3.5 text-blue-600" />
+              <span>Filter by Allocated Link Name / Nick Name:</span>
+            </div>
+            {selectedNickName && (
+              <button
+                onClick={() => setSelectedNickName(null)}
+                className="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
+              >
+                <X className="w-3 h-3" /> Show All Receipts
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
+            <button
+              onClick={() => setSelectedNickName(null)}
+              className={`px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap cursor-pointer ${
+                selectedNickName === null
+                  ? 'bg-slate-900 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              All Receipts ({receipts.length})
+            </button>
+            {nickNameOptions.map((opt) => (
+              <button
+                key={opt.token}
+                onClick={() => setSelectedNickName(opt.name || opt.token)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap cursor-pointer ${
+                  selectedNickName === (opt.name || opt.token)
+                    ? 'bg-blue-600 text-white shadow-xs ring-2 ring-blue-300'
+                    : 'bg-blue-50 text-blue-900 border border-blue-200 hover:bg-blue-100'
+                }`}
+              >
+                <span>{opt.name}</span>
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/30 text-current">
+                  {opt.count}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Active Nick Name Filter Banner */}
+        {selectedNickName && (
+          <div className="bg-blue-50 border border-blue-200 text-blue-900 rounded-xl p-3 mb-4 flex items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2">
+              <span className="font-extrabold text-blue-800">🎯 Active Nick Name Filter:</span>
+              <span className="font-black text-blue-950 bg-white border border-blue-300 px-2.5 py-0.5 rounded-md">
+                {selectedNickName}
+              </span>
+              <span className="text-blue-600 font-semibold">
+                (Showing {filteredReceipts.length} receipt{filteredReceipts.length === 1 ? '' : 's'})
+              </span>
+            </div>
+            <button
+              onClick={() => setSelectedNickName(null)}
+              className="px-2.5 py-1 bg-white hover:bg-blue-100 text-blue-700 font-bold border border-blue-300 rounded-lg transition flex items-center gap-1 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" /> Show All
+            </button>
+          </div>
+        )}
+
+        {/* Search Bar & Bulk Actions */}
+        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm mb-6 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="flex items-center gap-2 w-full sm:w-96">
+            <Search className="w-4 h-4 text-slate-400 ml-1" />
+            <input
+              type="text"
+              placeholder="Search by receipt no, marka, allocated link name, item, or container..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full text-xs sm:text-sm bg-transparent border-none outline-none text-slate-800 placeholder-slate-400"
+            />
+          </div>
+
+          {/* Multi-Select Floating Bulk Action Buttons */}
+          {selectedReceiptIds.size > 0 && (
+            <div className="flex items-center gap-2 bg-amber-50 border border-amber-300 px-3 py-1.5 rounded-xl text-xs">
+              <span className="font-extrabold text-amber-900">
+                ✓ {selectedReceiptIds.size} Selected
+              </span>
+              <button
+                onClick={handleBulkDeleteReceipts}
+                disabled={deletingBulk}
+                className="inline-flex items-center gap-1 bg-red-600 hover:bg-red-700 text-white font-bold px-3 py-1 rounded-lg transition shadow-xs cursor-pointer disabled:opacity-50"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{deletingBulk ? 'Deleting...' : `Delete Selected (${selectedReceiptIds.size})`}</span>
+              </button>
+              <button
+                onClick={() => setSelectedReceiptIds(new Set())}
+                className="text-slate-600 hover:text-slate-900 font-semibold text-[11px] underline cursor-pointer ml-1"
+              >
+                Clear
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Table Card */}
@@ -519,6 +909,20 @@ export default function AdminTrackingLinksPage() {
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-50 text-slate-600 border-b border-slate-200 font-bold uppercase tracking-wider text-[11px]">
+                  <th className="py-3 px-3 text-center w-10">
+                    <button
+                      type="button"
+                      onClick={toggleSelectAllReceipts}
+                      className="cursor-pointer text-slate-500 hover:text-blue-600 transition"
+                      title="Select / Deselect All Visible Receipts"
+                    >
+                      {selectedReceiptIds.size > 0 && selectedReceiptIds.size === filteredReceipts.length ? (
+                        <CheckSquare className="w-4 h-4 text-blue-600" />
+                      ) : (
+                        <Square className="w-4 h-4" />
+                      )}
+                    </button>
+                  </th>
                   <th className="py-3 px-4">Receipt No.</th>
                   <th className="py-3 px-4">Marka</th>
                   <th className="py-3 px-4">Allocated Link Name</th>
@@ -537,7 +941,7 @@ export default function AdminTrackingLinksPage() {
               <tbody className="divide-y divide-slate-100">
                 {loading && (
                   <tr>
-                    <td colSpan={10} className="text-center py-10 text-slate-400">
+                    <td colSpan={11} className="text-center py-10 text-slate-400">
                       Loading tracking records...
                     </td>
                   </tr>
@@ -545,14 +949,32 @@ export default function AdminTrackingLinksPage() {
 
                 {!loading && filteredReceipts.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="text-center py-12 text-slate-500">
+                    <td colSpan={11} className="text-center py-12 text-slate-500">
                       No receipts found. Click <strong>&quot;Add / Map Receipts by Marka&quot;</strong> to generate a link!
                     </td>
                   </tr>
                 )}
 
                 {!loading && filteredReceipts.map((r) => (
-                  <tr key={r.id} className="hover:bg-slate-50/80 transition-colors">
+                  <tr
+                    key={r.id}
+                    className={`hover:bg-slate-50/80 transition-colors ${
+                      selectedReceiptIds.has(r.id) ? 'bg-blue-50/50' : ''
+                    }`}
+                  >
+                    <td className="py-3.5 px-3 text-center">
+                      <button
+                        type="button"
+                        onClick={() => toggleSelectReceipt(r.id)}
+                        className="cursor-pointer text-slate-500 hover:text-blue-600 transition"
+                      >
+                        {selectedReceiptIds.has(r.id) ? (
+                          <CheckSquare className="w-4 h-4 text-blue-600" />
+                        ) : (
+                          <Square className="w-4 h-4" />
+                        )}
+                      </button>
+                    </td>
                     <td className="py-3.5 px-4 font-bold text-slate-900">
                       {r.receiptNo}
                     </td>
@@ -561,12 +983,24 @@ export default function AdminTrackingLinksPage() {
                     </td>
                     <td className="py-3.5 px-4">
                       {r.trackingName ? (
-                        <span className="inline-flex items-center gap-1 font-bold text-blue-900 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded-full text-[11px]">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedNickName(r.trackingName || null)}
+                          title="Click to show only receipts for this Nick Name"
+                          className="inline-flex items-center gap-1 font-bold text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-0.5 rounded-full text-[11px] cursor-pointer transition"
+                        >
                           <Tag className="w-3 h-3 text-blue-600" />
-                          {r.trackingName}
-                        </span>
+                          <span>{r.trackingName}</span>
+                        </button>
                       ) : (
-                        <span className="text-slate-400 italic">Default Link</span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedNickName(r.trackingToken)}
+                          title="Click to show only receipts for this tracking link"
+                          className="text-slate-400 italic hover:text-slate-600 text-[11px] cursor-pointer underline"
+                        >
+                          Default Link
+                        </button>
                       )}
                     </td>
                     <td className="py-3.5 px-4 text-slate-700">
@@ -1208,6 +1642,273 @@ export default function AdminTrackingLinksPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── CUSTOMER QUERIES MODAL ── */}
+      {isQueriesModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-200">
+            {/* Header */}
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-indigo-900 to-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center font-bold">
+                  <MessageSquare className="w-5 h-5 text-indigo-200" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base leading-tight">Customer Tracking Queries</h3>
+                  <p className="text-[11px] text-indigo-200">
+                    Incoming messages & questions submitted from public tracking links
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsQueriesModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-4 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-700">
+                  Total Queries: {queriesList.length} ({pendingQueriesCount} Pending Reply)
+                </span>
+                <button
+                  type="button"
+                  onClick={loadQueries}
+                  className="text-blue-600 hover:text-blue-800 font-bold text-xs flex items-center gap-1 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingQueries ? 'animate-spin' : ''}`} /> Refresh
+                </button>
+              </div>
+
+              {loadingQueries && (
+                <div className="text-center py-8 text-slate-400">Loading queries...</div>
+              )}
+
+              {!loadingQueries && queriesList.length === 0 && (
+                <div className="text-center py-12 text-slate-400 italic bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                  No customer queries received yet. When a public user sends a message, it will show up here.
+                </div>
+              )}
+
+              <div className="space-y-4">
+                {queriesList.map((q) => (
+                  <div
+                    key={q.id}
+                    className={`p-4 rounded-xl border transition ${
+                      q.status === 'Pending'
+                        ? 'bg-amber-50/60 border-amber-300'
+                        : 'bg-slate-50 border-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-black text-blue-900 bg-blue-100 px-2 py-0.5 rounded text-[11px] font-mono">
+                          Receipt: {q.receiptNo}
+                        </span>
+                        {q.senderName && (
+                          <span className="font-bold text-slate-800 text-[11px]">
+                            from: {q.senderName} {q.senderPhone ? `(${q.senderPhone})` : ''}
+                          </span>
+                        )}
+                        {q.marka && (
+                          <span className="text-[10px] text-slate-500 font-semibold">
+                            [{q.marka}]
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            q.status === 'Answered'
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : 'bg-amber-100 text-amber-800 border border-amber-300 animate-pulse'
+                          }`}
+                        >
+                          {q.status === 'Answered' ? '✓ Replied' : '● Needs Reply'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteQuery(q.id)}
+                          className="text-slate-400 hover:text-red-600 transition p-1 cursor-pointer"
+                          title="Delete Query"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Customer Message */}
+                    <div className="bg-white p-3 rounded-lg border border-slate-200 text-slate-900 font-medium mb-3">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">
+                        Customer Message:
+                      </span>
+                      {q.message}
+                    </div>
+
+                    {/* Dispatch Reply Box */}
+                    {q.reply ? (
+                      <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-lg text-emerald-950 mb-2">
+                        <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider block mb-0.5">
+                          ✓ Dispatch Reply Sent:
+                        </span>
+                        <p className="font-semibold">{q.reply}</p>
+                      </div>
+                    ) : null}
+
+                    {/* Reply Input Form */}
+                    <div className="flex items-center gap-2 mt-2">
+                      <input
+                        type="text"
+                        placeholder={q.reply ? 'Update reply...' : 'Type dispatch reply for customer...'}
+                        value={replyTextMap[q.id] || ''}
+                        onChange={(e) =>
+                          setReplyTextMap({ ...replyTextMap, [q.id]: e.target.value })
+                        }
+                        className="w-full p-2 bg-white border border-slate-300 rounded-lg outline-none focus:border-blue-600 text-xs font-medium"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleSendReply(q.id)}
+                        disabled={savingReplyId === q.id || !replyTextMap[q.id]?.trim()}
+                        className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition disabled:opacity-50 whitespace-nowrap cursor-pointer flex items-center gap-1"
+                      >
+                        <Send className="w-3 h-3" />
+                        <span>{savingReplyId === q.id ? 'Sending...' : 'Reply'}</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── ALLOCATED LINKS MANAGER MODAL ── */}
+      {isLinksManagerOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-200">
+            {/* Header */}
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-900 to-blue-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center font-bold">
+                  <Tag className="w-5 h-5 text-emerald-300" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base leading-tight">Allocated Links Manager</h3>
+                  <p className="text-[11px] text-blue-200">
+                    Manage, filter, or delete one or more Allocated Tracking Link Names
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsLinksManagerOpen(false)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-4 text-xs">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="font-bold text-slate-700">
+                  Total Allocated Links: {tokens.length}
+                </div>
+
+                {selectedLinkTokens.size > 0 && (
+                  <button
+                    onClick={handleBulkDeleteLinks}
+                    disabled={deletingLinks}
+                    className="inline-flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white font-bold px-3 py-1.5 rounded-lg transition shadow-xs cursor-pointer disabled:opacity-50"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>{deletingLinks ? 'Deleting...' : `Delete Selected Links (${selectedLinkTokens.size})`}</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
+                {tokens.map((t) => {
+                  const matchingReceiptsCount = receipts.filter(r => r.trackingToken === t.token).length;
+                  return (
+                    <div
+                      key={t.token}
+                      className="p-3.5 flex items-center justify-between gap-3 hover:bg-slate-50 transition"
+                    >
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => toggleSelectLinkToken(t.token)}
+                          className="cursor-pointer text-slate-500 hover:text-blue-600 transition"
+                        >
+                          {selectedLinkTokens.has(t.token) ? (
+                            <CheckSquare className="w-4 h-4 text-blue-600" />
+                          ) : (
+                            <Square className="w-4 h-4" />
+                          )}
+                        </button>
+
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-black text-slate-900 text-sm">
+                              {t.name || 'Default Link'}
+                            </span>
+                            <span className="bg-blue-50 text-blue-800 border border-blue-200 font-bold px-2 py-0.5 rounded-full text-[10px]">
+                              {matchingReceiptsCount} receipt{matchingReceiptsCount === 1 ? '' : 's'}
+                            </span>
+                          </div>
+                          <div className="font-mono text-[11px] text-slate-400 mt-0.5">
+                            Token: {t.token}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedNickName(t.name || t.token);
+                            setIsLinksManagerOpen(false);
+                          }}
+                          className="px-2.5 py-1 text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md transition cursor-pointer"
+                        >
+                          Filter Table
+                        </button>
+
+                        <a
+                          href={`/track/${t.token}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-200 transition cursor-pointer"
+                          title="Open Public Tracking Page"
+                        >
+                          <ExternalLink className="w-4 h-4 text-blue-600" />
+                        </a>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteLink(t.token, t.name)}
+                          className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 transition cursor-pointer"
+                          title="Delete This Allocated Link"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
       )}

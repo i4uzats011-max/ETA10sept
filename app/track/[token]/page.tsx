@@ -18,9 +18,23 @@ import {
   Download,
   Copy,
   Check,
-  Share2
+  Share2,
+  MessageSquare,
+  Send,
+  X,
+  MessageCircle
 } from 'lucide-react';
 import { toJpeg } from 'html-to-image';
+
+interface ITrackingQuery {
+  id: string;
+  receiptNo: string;
+  senderName?: string;
+  message: string;
+  reply?: string;
+  status: string;
+  createdAt: string;
+}
 
 interface IPublicReceipt {
   marka: string;
@@ -105,6 +119,72 @@ export default function PublicReceiptTrackingPage() {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
+  // Customer Query State
+  const [isQueryModalOpen, setIsQueryModalOpen] = useState(false);
+  const [queryReceiptNo, setQueryReceiptNo] = useState('');
+  const [querySenderName, setQuerySenderName] = useState('');
+  const [querySenderPhone, setQuerySenderPhone] = useState('');
+  const [queryMessage, setQueryMessage] = useState('');
+  const [submittingQuery, setSubmittingQuery] = useState(false);
+  const [queriesList, setQueriesList] = useState<ITrackingQuery[]>([]);
+  const [loadingQueries, setLoadingQueries] = useState(false);
+
+  const fetchQueries = async () => {
+    if (!token) return;
+    try {
+      setLoadingQueries(true);
+      const res = await fetch(`/api/track/receipt-link/${encodeURIComponent(token)}/query`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.queries)) {
+        setQueriesList(data.queries);
+      }
+    } catch (e) {
+      console.error('Error fetching queries:', e);
+    } finally {
+      setLoadingQueries(false);
+    }
+  };
+
+  const openQueryModal = (receiptNo?: string) => {
+    setQueryReceiptNo(receiptNo || (receipts[0]?.receiptNo || ''));
+    setIsQueryModalOpen(true);
+    fetchQueries();
+  };
+
+  const handleSendQuery = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!queryMessage.trim() || !queryReceiptNo) {
+      showToast('Please enter both Receipt No. and your question.');
+      return;
+    }
+    setSubmittingQuery(true);
+    try {
+      const res = await fetch(`/api/track/receipt-link/${encodeURIComponent(token)}/query`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          receiptNo: queryReceiptNo,
+          message: queryMessage,
+          senderName: querySenderName,
+          senderPhone: querySenderPhone,
+          marka: linkName || ''
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast('✉️ Query sent to dispatch! We will respond shortly.');
+        setQueryMessage('');
+        fetchQueries();
+      } else {
+        showToast(data.message || 'Failed to send query.');
+      }
+    } catch (err) {
+      showToast('Error sending query. Please retry.');
+    } finally {
+      setSubmittingQuery(false);
+    }
+  };
+
   const fetchTrackingDetails = async (isManual = false) => {
     if (!token) return;
     if (isManual) setRefreshing(true);
@@ -137,8 +217,10 @@ export default function PublicReceiptTrackingPage() {
 
   useEffect(() => {
     fetchTrackingDetails();
+    fetchQueries();
     const interval = setInterval(() => {
       fetchTrackingDetails();
+      fetchQueries();
     }, 30000); // Auto-refresh every 30 seconds
     return () => clearInterval(interval);
   }, [token]);
@@ -265,6 +347,15 @@ export default function PublicReceiptTrackingPage() {
 
             {/* Header Actions */}
             <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => openQueryModal()}
+                title="Send a message or query to dispatch"
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition shadow-sm cursor-pointer"
+              >
+                <MessageSquare className="w-3.5 h-3.5" />
+                <span>Ask Query / Message {queriesList.length > 0 ? `(${queriesList.length})` : ''}</span>
+              </button>
+
               <button
                 onClick={copyTrackingMessage}
                 title="Copy shareable message"
@@ -450,12 +541,20 @@ export default function PublicReceiptTrackingPage() {
                         </span>
                       </td>
 
-                      {/* 2. Receipt No. */}
+                      {/* 2. Receipt No. (Clickable to send query) */}
                       <td className="py-3.5 px-4 whitespace-nowrap">
-                        <span className="inline-flex items-center gap-1 font-mono font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-md text-xs">
-                          <Package className="w-3.5 h-3.5 text-blue-500" />
-                          {r.receiptNo}
-                        </span>
+                        <button
+                          type="button"
+                          onClick={() => openQueryModal(r.receiptNo)}
+                          title="Click to ask a query about this receipt"
+                          className="inline-flex items-center gap-1.5 font-mono font-bold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 hover:border-blue-400 px-2.5 py-1 rounded-md text-xs cursor-pointer transition shadow-xs group"
+                        >
+                          <Package className="w-3.5 h-3.5 text-blue-500 group-hover:scale-110 transition-transform" />
+                          <span>{r.receiptNo}</span>
+                          <span className="text-[10px] text-blue-500 font-sans font-normal opacity-80 group-hover:opacity-100 flex items-center gap-0.5 ml-1">
+                            <MessageCircle className="w-3 h-3" /> Query
+                          </span>
+                        </button>
                       </td>
 
                       {/* 3. Item Name */}
@@ -563,6 +662,175 @@ export default function PublicReceiptTrackingPage() {
         </div>
 
       </div>
+
+      {/* Customer Query / Message Box Modal */}
+      {isQueryModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-200">
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-blue-900 to-indigo-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center font-bold">
+                  <MessageSquare className="w-5 h-5 text-blue-200" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base leading-tight">Send Query to Dispatch</h3>
+                  <p className="text-[11px] text-blue-200">
+                    US INTERNATIONAL LOGISTICS Support
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsQueryModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-5 text-xs">
+              <form onSubmit={handleSendQuery} className="space-y-4">
+                {/* Receipt Selector */}
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Receipt No. *</label>
+                  <select
+                    value={queryReceiptNo}
+                    onChange={(e) => setQueryReceiptNo(e.target.value)}
+                    required
+                    className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none focus:border-blue-600 focus:bg-white transition"
+                  >
+                    {receipts.map((r, i) => (
+                      <option key={i} value={r.receiptNo}>
+                        {r.receiptNo} — {r.itemName || 'Cargo'} ({r.cbm || '0'} m³)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Sender Details */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Your Name / Marka</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Rahul / VIP"
+                      value={querySenderName}
+                      onChange={(e) => setQuerySenderName(e.target.value)}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:border-blue-600 font-medium"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Phone / WhatsApp</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. +91 98765 43210"
+                      value={querySenderPhone}
+                      onChange={(e) => setQuerySenderPhone(e.target.value)}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:border-blue-600 font-medium"
+                    />
+                  </div>
+                </div>
+
+                {/* Message TextArea */}
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Message / Query *</label>
+                  <textarea
+                    rows={3}
+                    required
+                    placeholder="Type your query regarding this receipt (e.g. delivery status, customs update, document request)..."
+                    value={queryMessage}
+                    onChange={(e) => setQueryMessage(e.target.value)}
+                    className="w-full p-3 border border-slate-300 rounded-xl outline-none focus:border-blue-600 font-medium text-slate-800 placeholder-slate-400"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={submittingQuery}
+                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition shadow-md flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                >
+                  <Send className="w-4 h-4" />
+                  <span>{submittingQuery ? 'Sending...' : 'Send Message to Dispatch'}</span>
+                </button>
+              </form>
+
+              {/* Sent Queries History */}
+              <div className="pt-4 border-t border-slate-200">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="font-extrabold text-slate-800 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-blue-600" />
+                    Query History & Dispatch Replies ({queriesList.length})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={fetchQueries}
+                    className="text-blue-600 hover:text-blue-800 font-bold text-[11px] cursor-pointer"
+                  >
+                    Refresh
+                  </button>
+                </div>
+
+                {loadingQueries && (
+                  <div className="text-center py-4 text-slate-400 text-xs">
+                    Loading queries...
+                  </div>
+                )}
+
+                {!loadingQueries && queriesList.length === 0 && (
+                  <div className="text-center py-4 text-slate-400 text-xs italic bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                    No queries sent yet. Type a question above and send.
+                  </div>
+                )}
+
+                <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
+                  {queriesList.map((q) => (
+                    <div
+                      key={q.id}
+                      className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2 text-xs"
+                    >
+                      <div className="flex items-center justify-between flex-wrap gap-1">
+                        <span className="font-bold text-blue-900 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded text-[11px]">
+                          Receipt: {q.receiptNo}
+                        </span>
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            q.status === 'Answered'
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : 'bg-amber-100 text-amber-800 border border-amber-300'
+                          }`}
+                        >
+                          {q.status === 'Answered' ? '✓ Replied' : 'Pending Response'}
+                        </span>
+                      </div>
+
+                      <div className="text-slate-800 font-medium bg-white p-2.5 rounded-lg border border-slate-100">
+                        <p className="text-[11px] text-slate-400 mb-0.5 font-bold">Question:</p>
+                        {q.message}
+                      </div>
+
+                      {q.reply ? (
+                        <div className="bg-emerald-50 border border-emerald-200 text-emerald-950 p-2.5 rounded-lg">
+                          <p className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider mb-0.5 flex items-center gap-1">
+                            <ShieldCheck className="w-3 h-3 text-emerald-600" /> Dispatch Response:
+                          </p>
+                          <p className="font-semibold">{q.reply}</p>
+                        </div>
+                      ) : (
+                        <p className="text-[11px] text-slate-400 italic">
+                          Awaiting dispatch reply...
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Floating Toast Notification */}
       {toastMessage && (

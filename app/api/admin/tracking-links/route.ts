@@ -165,3 +165,101 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
+// PATCH: Rename Allocated Link Name
+export async function PATCH(req: NextRequest) {
+  try {
+    await connectToDatabase();
+    const body = await req.json();
+    const { token, name } = body;
+
+    if (!token) {
+      return NextResponse.json({ success: false, message: 'Tracking token required' }, { status: 400 });
+    }
+
+    const doc = await ReceiptTracking.findOne({ token });
+    if (!doc) {
+      return NextResponse.json({ success: false, message: 'Tracking link not found' }, { status: 404 });
+    }
+
+    doc.name = (name || '').trim();
+    doc.updatedAt = new Date();
+    await doc.save();
+
+    return NextResponse.json({
+      success: true,
+      message: 'Allocated Link Name updated successfully',
+      token: doc.token,
+      name: doc.name
+    });
+  } catch (error: any) {
+    console.error('Error updating link name:', error);
+    return NextResponse.json(
+      { success: false, message: error?.message || 'Failed to update link name' },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE: Bulk delete receipts or bulk delete tracking links
+export async function DELETE(req: NextRequest) {
+  try {
+    await connectToDatabase();
+    const body = await req.json();
+
+    // Case 1: Bulk delete receipts by IDs: { receiptIds: string[] }
+    if (Array.isArray(body.receiptIds) && body.receiptIds.length > 0) {
+      const idsToDelete = new Set(body.receiptIds.map(String));
+      const docs = await ReceiptTracking.find({ 'receipts.id': { $in: Array.from(idsToDelete) } });
+      let deletedCount = 0;
+
+      for (const doc of docs) {
+        const initialLen = doc.receipts.length;
+        doc.receipts = doc.receipts.filter((r: any) => !idsToDelete.has(String(r.id)));
+        deletedCount += (initialLen - doc.receipts.length);
+
+        if (doc.receipts.length === 0) {
+          await ReceiptTracking.findByIdAndDelete(doc._id);
+        } else {
+          doc.updatedAt = new Date();
+          await doc.save();
+        }
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: `Successfully deleted ${deletedCount} receipt(s).`,
+        deletedCount
+      });
+    }
+
+    // Case 2: Bulk delete tracking links: { tokens: string[], deleteReceipts?: boolean }
+    if (Array.isArray(body.tokens) && body.tokens.length > 0) {
+      const tokensToDelete = body.tokens.map(String);
+      const result = await ReceiptTracking.deleteMany({ token: { $in: tokensToDelete } });
+      return NextResponse.json({
+        success: true,
+        message: `Successfully deleted ${result.deletedCount} Allocated Link(s).`,
+        deletedCount: result.deletedCount
+      });
+    }
+
+    // Case 3: Single tracking link delete: { token: string }
+    if (body.token) {
+      const result = await ReceiptTracking.deleteOne({ token: String(body.token).trim() });
+      return NextResponse.json({
+        success: true,
+        message: 'Allocated Link deleted successfully.',
+        deletedCount: result.deletedCount
+      });
+    }
+
+    return NextResponse.json({ success: false, message: 'Invalid delete parameters' }, { status: 400 });
+  } catch (error: any) {
+    console.error('Error during bulk deletion:', error);
+    return NextResponse.json(
+      { success: false, message: error?.message || 'Failed to delete' },
+      { status: 500 }
+    );
+  }
+}
