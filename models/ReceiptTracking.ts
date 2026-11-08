@@ -11,6 +11,8 @@ export interface IReceiptEntry {
   containerNo?: string;        // Public display: Container No. (not actual)
   actualContainerNo?: string;  // Admin internal only
   eta?: string;                // YYYY-MM-DD
+  deliveryDate?: string;       // Delivery date (when marked delivered)
+  markedDate?: string;         // Marked date
   status?: string;             // Status: 'In Transit', 'Loaded', 'Customs Clearance', 'Arrived', 'Delivered', etc.
   adminNotes?: string;         // Admin internal only
   createdAt?: Date;
@@ -37,6 +39,8 @@ const ReceiptEntrySchema = new Schema(
     containerNo: { type: String, default: '', trim: true }, // Container No. (not actual)
     actualContainerNo: { type: String, default: '', trim: true },
     eta: { type: String, default: '', trim: true },
+    deliveryDate: { type: String, default: '', trim: true },
+    markedDate: { type: String, default: '', trim: true },
     status: { type: String, default: 'In Transit', trim: true },
     adminNotes: { type: String, default: '', trim: true },
     createdAt: { type: Date, default: Date.now },

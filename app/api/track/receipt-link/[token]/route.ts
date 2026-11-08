@@ -110,21 +110,55 @@ export async function GET(
       );
     }
 
+    // Look up matching Shipment records to pull marked deliveryDate if available
+    const Shipment = (await import('@/models/Shipment')).default;
+    const receiptNos = trackingDoc.receipts.map((r: any) => (r.receiptNo || '').trim()).filter(Boolean);
+    const shipmentMap = new Map<string, any>();
+    if (receiptNos.length > 0) {
+      try {
+        const matchingShipments = await Shipment.find({
+          receipt: { $in: receiptNos }
+        }).select('receipt deliveryDate isDelivered status').lean();
+
+        matchingShipments.forEach((s: any) => {
+          if (s.receipt) {
+            shipmentMap.set(s.receipt.toLowerCase().trim(), s);
+          }
+        });
+      } catch (err) {
+        console.warn('Shipment lookup in tracking route fallback:', err);
+      }
+    }
+
     // STRICT SANITIZATION: Only the allowed public fields and nothing else
-    // Specifically: Marka, Receipt No., Item Name, Container No. (not actual), CBM, Weight, CTN, ETA, remainDays, status
-    const publicReceipts = trackingDoc.receipts.map((r: any) => ({
-      marka: r.marka || trackingDoc.name || '-',
-      receiptNo: r.receiptNo || 'N/A',
-      itemName: r.itemName || '-',
-      containerNo: r.containerNo || 'N/A', // Container No. (not actual)
-      cbm: r.cbm || '0',
-      weight: r.weight || '-',
-      ctn: r.ctn || '0',
-      eta: r.eta || null,
-      status: r.status || 'In Transit',
-      remainDays: calculateRemainDays(r.eta),
-      updatedAt: r.updatedAt || trackingDoc.updatedAt
-    }));
+    // Specifically: Marka, Receipt No., Item Name, Container No. (not actual), CBM, Weight, CTN, ETA, deliveryDate, remainDays, status
+    const publicReceipts = trackingDoc.receipts.map((r: any) => {
+      const shipMatch = shipmentMap.get((r.receiptNo || '').toLowerCase().trim());
+      const rawStatus = r.status || (shipMatch?.isDelivered ? 'Delivered' : (shipMatch?.status || 'In Transit'));
+      const sLower = (rawStatus || '').toLowerCase();
+      const isDelivered = sLower.includes('deliver') || sLower.includes('arrived') || Boolean(shipMatch?.isDelivered);
+
+      // User Rule:
+      // "dilivery data = if marked availabe then delivery data is marked date if not available then eta is deilvery date"
+      const markedDate = r.deliveryDate || r.markedDate || shipMatch?.deliveryDate || null;
+      const effectiveDeliveryDate = isDelivered ? (markedDate || r.eta || null) : null;
+
+      return {
+        marka: r.marka || trackingDoc.name || '-',
+        receiptNo: r.receiptNo || 'N/A',
+        itemName: r.itemName || '-',
+        containerNo: r.containerNo || 'N/A', // Container No. (not actual)
+        cbm: r.cbm || '0',
+        weight: r.weight || '-',
+        ctn: r.ctn || '0',
+        eta: r.eta || null,
+        deliveryDate: effectiveDeliveryDate,
+        markedDate: markedDate,
+        status: isDelivered ? 'Delivered' : rawStatus,
+        remainDays: isDelivered ? null : calculateRemainDays(r.eta),
+        updatedAt: r.updatedAt || trackingDoc.updatedAt
+      };
+    });
 
     return NextResponse.json({
       success: true,

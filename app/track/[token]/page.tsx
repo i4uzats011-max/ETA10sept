@@ -55,9 +55,32 @@ interface IPublicReceipt {
   weight: string;
   ctn: string;
   eta: string | null;
+  deliveryDate?: string | null;
+  markedDate?: string | null;
   status?: string;
   remainDays: number | null;
   updatedAt?: string;
+}
+
+function isReceiptDelivered(r: IPublicReceipt): boolean {
+  const s = (r.status || '').toLowerCase();
+  return s.includes('deliver') || s.includes('arrived');
+}
+
+// User Delivery Date Rule:
+// "if user make deliver then show deliver date , dilivery data = if marked availabe then delivery data is marked date if not available then eta is deilvery date"
+function getEffectiveDeliveryDate(r: IPublicReceipt): string | null {
+  if (!isReceiptDelivered(r)) return null;
+  if (r.deliveryDate && r.deliveryDate.trim() && r.deliveryDate.trim() !== '-') {
+    return r.deliveryDate.trim();
+  }
+  if (r.markedDate && r.markedDate.trim() && r.markedDate.trim() !== '-') {
+    return r.markedDate.trim();
+  }
+  if (r.eta && r.eta.trim() && r.eta.trim() !== '-') {
+    return r.eta.trim();
+  }
+  return null;
 }
 
 // Robust ETA Date Parser supporting chronological sorting (e.g. 12 sep, 10 oct, 4 nov, 8 nov)
@@ -446,12 +469,14 @@ export default function PublicReceiptTrackingPage() {
 
   // Compare function supporting interactive A-Z, Z-A, Min-Max, and chronological ETA
   const compareItems = (a: IPublicReceipt, b: IPublicReceipt): number => {
-    // 1. ETA sorting (Ascending = earliest calendar date first: 12 sep, 10 oct, 4 nov, 8 nov)
+    // 1. ETA / Delivery Date sorting (Ascending = earliest calendar date first: 12 sep, 10 oct, 4 nov, 8 nov)
     if (sortField === 'eta') {
-      const timeA = parseEtaTimestamp(a.eta);
-      const timeB = parseEtaTimestamp(b.eta);
+      const dateA = isReceiptDelivered(a) ? getEffectiveDeliveryDate(a) : a.eta;
+      const dateB = isReceiptDelivered(b) ? getEffectiveDeliveryDate(b) : b.eta;
+      const timeA = parseEtaTimestamp(dateA);
+      const timeB = parseEtaTimestamp(dateB);
       if (timeA === null && timeB === null) return 0;
-      if (timeA === null) return 1; // Pending ETAs placed at bottom
+      if (timeA === null) return 1; // Pending dates placed at bottom
       if (timeB === null) return -1;
       if (timeA !== timeB) {
         return sortDirection === 'asc' ? timeA - timeB : timeB - timeA;
@@ -619,7 +644,10 @@ export default function PublicReceiptTrackingPage() {
       const dataUrl = await toJpeg(node, {
         quality: 0.95,
         pixelRatio: 2,
-        backgroundColor: '#ffffff'
+        backgroundColor: '#ffffff',
+        filter: (domNode: any) => {
+          return !(domNode.classList && domNode.classList.contains('no-jpg'));
+        }
       });
 
       const cleanName = (linkName || 'Cargo_Tracking').replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -873,7 +901,7 @@ export default function PublicReceiptTrackingPage() {
             </div>
 
             {/* Status Filter Tabs & Search Bar */}
-            <div className="p-3 sm:p-4 border-b border-slate-200 space-y-3 bg-slate-50/70">
+            <div className="p-3 sm:p-4 border-b border-slate-200 space-y-3 bg-slate-50/70 no-jpg">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs font-black uppercase tracking-wider text-slate-700 mr-1">
@@ -988,7 +1016,7 @@ export default function PublicReceiptTrackingPage() {
 
               {/* Multi-Select Floating / Sticky Action Bar for Customer */}
               {selectedReceiptNos.size > 0 && (
-                <div className="p-2.5 bg-blue-50 border border-blue-300 rounded-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs">
+                <div className="p-2.5 bg-blue-50 border border-blue-300 rounded-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs no-jpg">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-black text-blue-900">
                       ✓ {selectedReceiptNos.size} Receipt(s) Selected:
@@ -1019,7 +1047,7 @@ export default function PublicReceiptTrackingPage() {
             </div>
 
             {/* Sorting Info & Quick Reset Bar */}
-            <div className="px-3 sm:px-4 py-2.5 bg-slate-100/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+            <div className="px-3 sm:px-4 py-2.5 bg-slate-100/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600 no-jpg">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-extrabold text-[11px] uppercase tracking-wider text-slate-500">
                   Current Sort:
@@ -1063,7 +1091,7 @@ export default function PublicReceiptTrackingPage() {
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-slate-900 text-white font-bold uppercase tracking-wider text-[11px]">
-                    <th className="py-3 px-3 text-center w-10">
+                    <th className="py-3 px-3 text-center w-10 no-jpg">
                       <button
                         type="button"
                         onClick={toggleSelectAllReceipts}
@@ -1078,34 +1106,7 @@ export default function PublicReceiptTrackingPage() {
                       </button>
                     </th>
 
-                    {/* 1. Marka */}
-                    <th className="py-3.5 px-4 whitespace-nowrap select-none">
-                      <button
-                        type="button"
-                        onClick={() => handleSort('marka')}
-                        className={`inline-flex items-center gap-1.5 font-bold uppercase tracking-wider text-[11px] hover:text-blue-300 transition cursor-pointer group ${
-                          sortField === 'marka' ? 'text-blue-400' : 'text-white'
-                        }`}
-                        title="Sort by Marka (A to Z / Z to A)"
-                      >
-                        <span>Marka</span>
-                        {sortField === 'marka' ? (
-                          sortDirection === 'asc' ? (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-500/20 border border-blue-400/40 rounded text-[10px] font-mono text-blue-300">
-                              <ArrowUp className="w-3 h-3" /> A-Z
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-500/20 border border-blue-400/40 rounded text-[10px] font-mono text-blue-300">
-                              <ArrowDown className="w-3 h-3" /> Z-A
-                            </span>
-                          )
-                        ) : (
-                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60 group-hover:opacity-100" />
-                        )}
-                      </button>
-                    </th>
-
-                    {/* 2. Receipt No. */}
+                    {/* 1. Receipt No. */}
                     <th className="py-3.5 px-4 whitespace-nowrap select-none">
                       <button
                         type="button"
@@ -1132,18 +1133,18 @@ export default function PublicReceiptTrackingPage() {
                       </button>
                     </th>
 
-                    {/* 3. Item Name */}
-                    <th className="py-3.5 px-4 min-w-[180px] select-none">
+                    {/* 2. Marka */}
+                    <th className="py-3.5 px-4 whitespace-nowrap select-none">
                       <button
                         type="button"
-                        onClick={() => handleSort('itemName')}
+                        onClick={() => handleSort('marka')}
                         className={`inline-flex items-center gap-1.5 font-bold uppercase tracking-wider text-[11px] hover:text-blue-300 transition cursor-pointer group ${
-                          sortField === 'itemName' ? 'text-blue-400' : 'text-white'
+                          sortField === 'marka' ? 'text-blue-400' : 'text-white'
                         }`}
-                        title="Sort by Item Name (A to Z / Z to A)"
+                        title="Sort by Marka (A to Z / Z to A)"
                       >
-                        <span>Item Name</span>
-                        {sortField === 'itemName' ? (
+                        <span>Marka</span>
+                        {sortField === 'marka' ? (
                           sortDirection === 'asc' ? (
                             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-500/20 border border-blue-400/40 rounded text-[10px] font-mono text-blue-300">
                               <ArrowUp className="w-3 h-3" /> A-Z
@@ -1159,7 +1160,7 @@ export default function PublicReceiptTrackingPage() {
                       </button>
                     </th>
 
-                    {/* 4. Container No. */}
+                    {/* 3. Container No. */}
                     <th className="py-3.5 px-4 whitespace-nowrap select-none">
                       <button
                         type="button"
@@ -1189,7 +1190,66 @@ export default function PublicReceiptTrackingPage() {
                       </button>
                     </th>
 
-                    {/* 5. CBM */}
+                    {/* 4. Item Name */}
+                    <th className="py-3.5 px-4 min-w-[170px] select-none">
+                      <button
+                        type="button"
+                        onClick={() => handleSort('itemName')}
+                        className={`inline-flex items-center gap-1.5 font-bold uppercase tracking-wider text-[11px] hover:text-blue-300 transition cursor-pointer group ${
+                          sortField === 'itemName' ? 'text-blue-400' : 'text-white'
+                        }`}
+                        title="Sort by Item Name (A to Z / Z to A)"
+                      >
+                        <span>Item Name</span>
+                        {sortField === 'itemName' ? (
+                          sortDirection === 'asc' ? (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-500/20 border border-blue-400/40 rounded text-[10px] font-mono text-blue-300">
+                              <ArrowUp className="w-3 h-3" /> A-Z
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-500/20 border border-blue-400/40 rounded text-[10px] font-mono text-blue-300">
+                              <ArrowDown className="w-3 h-3" /> Z-A
+                            </span>
+                          )
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60 group-hover:opacity-100" />
+                        )}
+                      </button>
+                    </th>
+
+                    {/* 5. Status ("Deliver Date or ETA Date") */}
+                    <th className="py-3.5 px-4 whitespace-nowrap min-w-[210px] select-none">
+                      <button
+                        type="button"
+                        onClick={() => handleSort('eta')}
+                        className={`inline-flex flex-col items-start gap-0.5 font-bold uppercase tracking-wider text-[11px] hover:text-blue-300 transition cursor-pointer group ${
+                          sortField === 'eta' ? 'text-blue-400' : 'text-white'
+                        }`}
+                        title="Sort by Date (Default: Chronological Ascending: 12 sep, 10 oct, 4 nov, 8 nov)"
+                      >
+                        <div className="inline-flex items-center gap-1.5">
+                          <span>Status & Date</span>
+                          {sortField === 'eta' ? (
+                            sortDirection === 'asc' ? (
+                              <span className="inline-flex items-center gap-0.5 px-2 py-0.5 bg-blue-500/30 border border-blue-400/60 rounded text-[10px] font-bold text-blue-200">
+                                <ArrowUp className="w-3.5 h-3.5 text-blue-300" /> Earliest First (Default)
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-0.5 px-2 py-0.5 bg-blue-500/30 border border-blue-400/60 rounded text-[10px] font-bold text-blue-200">
+                                <ArrowDown className="w-3.5 h-3.5 text-blue-300" /> Latest First
+                              </span>
+                            )
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60 group-hover:opacity-100" />
+                          )}
+                        </div>
+                        <span className="text-[10px] text-blue-300 font-semibold lowercase">
+                          (deliver date or eta date)
+                        </span>
+                      </button>
+                    </th>
+
+                    {/* 6. CBM */}
                     <th className="py-3.5 px-4 text-center whitespace-nowrap select-none">
                       <button
                         type="button"
@@ -1216,7 +1276,7 @@ export default function PublicReceiptTrackingPage() {
                       </button>
                     </th>
 
-                    {/* 6. Weight */}
+                    {/* 7. Weight */}
                     <th className="py-3.5 px-4 text-center whitespace-nowrap select-none">
                       <button
                         type="button"
@@ -1243,7 +1303,7 @@ export default function PublicReceiptTrackingPage() {
                       </button>
                     </th>
 
-                    {/* 7. CTN */}
+                    {/* 8. CTN */}
                     <th className="py-3.5 px-4 text-center whitespace-nowrap select-none">
                       <button
                         type="button"
@@ -1269,67 +1329,6 @@ export default function PublicReceiptTrackingPage() {
                         )}
                       </button>
                     </th>
-
-                    {/* 8. ETA & Remain Days (Default: Chronological Ascending: 12 sep, 10 oct, 4 nov, 8 nov) */}
-                    <th className="py-3.5 px-4 whitespace-nowrap min-w-[210px] select-none">
-                      <button
-                        type="button"
-                        onClick={() => handleSort('eta')}
-                        className={`inline-flex flex-col items-start gap-0.5 font-bold uppercase tracking-wider text-[11px] hover:text-blue-300 transition cursor-pointer group ${
-                          sortField === 'eta' ? 'text-blue-400' : 'text-white'
-                        }`}
-                        title="Sort by ETA Date (Default: Chronological Ascending: 12 sep, 10 oct, 4 nov, 8 nov)"
-                      >
-                        <div className="inline-flex items-center gap-1.5">
-                          <span>ETA & Remain Days</span>
-                          {sortField === 'eta' ? (
-                            sortDirection === 'asc' ? (
-                              <span className="inline-flex items-center gap-0.5 px-2 py-0.5 bg-blue-500/30 border border-blue-400/60 rounded text-[10px] font-bold text-blue-200">
-                                <ArrowUp className="w-3.5 h-3.5 text-blue-300" /> Earliest First (Default)
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-0.5 px-2 py-0.5 bg-blue-500/30 border border-blue-400/60 rounded text-[10px] font-bold text-blue-200">
-                                <ArrowDown className="w-3.5 h-3.5 text-blue-300" /> Latest First
-                              </span>
-                            )
-                          ) : (
-                            <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60 group-hover:opacity-100" />
-                          )}
-                        </div>
-                        <span className="text-[10px] text-blue-300 font-semibold lowercase">
-                          {sortField === 'eta' && sortDirection === 'asc'
-                            ? '(calendar ascending order)'
-                            : '(click to toggle sort)'}
-                        </span>
-                      </button>
-                    </th>
-
-                    {/* 9. Status */}
-                    <th className="py-3.5 px-4 text-center whitespace-nowrap select-none">
-                      <button
-                        type="button"
-                        onClick={() => handleSort('status')}
-                        className={`inline-flex items-center gap-1 font-bold uppercase tracking-wider text-[11px] hover:text-blue-300 transition cursor-pointer group mx-auto ${
-                          sortField === 'status' ? 'text-blue-400' : 'text-white'
-                        }`}
-                        title="Sort by Status (A to Z / Z to A)"
-                      >
-                        <span>Status</span>
-                        {sortField === 'status' ? (
-                          sortDirection === 'asc' ? (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-500/20 border border-blue-400/40 rounded text-[10px] font-mono text-blue-300">
-                              <ArrowUp className="w-3 h-3" /> A-Z
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-500/20 border border-blue-400/40 rounded text-[10px] font-mono text-blue-300">
-                              <ArrowDown className="w-3 h-3" /> Z-A
-                            </span>
-                          )
-                        ) : (
-                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60 group-hover:opacity-100" />
-                        )}
-                      </button>
-                    </th>
                   </tr>
                 </thead>
 
@@ -1341,8 +1340,8 @@ export default function PublicReceiptTrackingPage() {
                         selectedReceiptNos.has(r.receiptNo) ? 'bg-blue-50/70 ring-1 ring-inset ring-blue-300' : ''
                       }`}
                     >
-                      {/* Checkbox Column */}
-                      <td className="py-3.5 px-3 text-center">
+                      {/* Checkbox Column (Hidden in JPG download) */}
+                      <td className="py-3.5 px-3 text-center no-jpg">
                         <button
                           type="button"
                           onClick={() => toggleSelectReceipt(r.receiptNo)}
@@ -1357,14 +1356,7 @@ export default function PublicReceiptTrackingPage() {
                         </button>
                       </td>
 
-                      {/* 1. Marka */}
-                      <td className="py-3.5 px-4 whitespace-nowrap">
-                        <span className="inline-flex items-center gap-1 font-bold text-slate-900 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-md text-xs">
-                          {r.marka || linkName || '-'}
-                        </span>
-                      </td>
-
-                      {/* 2. Receipt No. (Clickable to send query) */}
+                      {/* 1. Receipt No. */}
                       <td className="py-3.5 px-4 whitespace-nowrap">
                         <button
                           type="button"
@@ -1374,18 +1366,20 @@ export default function PublicReceiptTrackingPage() {
                         >
                           <Package className="w-3.5 h-3.5 text-blue-500 group-hover:scale-110 transition-transform" />
                           <span>{r.receiptNo}</span>
-                          <span className="text-[10px] text-blue-500 font-sans font-normal opacity-80 group-hover:opacity-100 flex items-center gap-0.5 ml-1">
+                          <span className="no-jpg text-[10px] text-blue-500 font-sans font-normal opacity-80 group-hover:opacity-100 flex items-center gap-0.5 ml-1">
                             <MessageCircle className="w-3 h-3" /> Ask
                           </span>
                         </button>
                       </td>
 
-                      {/* 3. Item Name */}
-                      <td className="py-3.5 px-4 font-semibold text-slate-800">
-                        {r.itemName || '-'}
+                      {/* 2. Marka */}
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1 font-bold text-slate-900 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-md text-xs">
+                          {r.marka || linkName || '-'}
+                        </span>
                       </td>
 
-                      {/* 4. Container No. (not actual) */}
+                      {/* 3. Container No. (not actual) */}
                       <td className="py-3.5 px-4 whitespace-nowrap font-mono font-bold text-slate-700">
                         {r.containerNo && r.containerNo !== '-' ? (
                           <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-800 border border-slate-200">
@@ -1396,37 +1390,57 @@ export default function PublicReceiptTrackingPage() {
                         )}
                       </td>
 
-                      {/* 5. CBM */}
+                      {/* 4. Item Name */}
+                      <td className="py-3.5 px-4 font-semibold text-slate-800">
+                        {r.itemName || '-'}
+                      </td>
+
+                      {/* 5. Status ("Deliver Date or ETA Date") */}
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        {isReceiptDelivered(r) ? (
+                          <div className="flex flex-col gap-1 items-start">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                              <span>Delivered</span>
+                            </span>
+                            <div className="font-extrabold text-emerald-900 flex items-center gap-1.5 text-xs">
+                              <Calendar className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <span>Delivered: {formatDisplayDate(getEffectiveDeliveryDate(r))}</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-1 items-start">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                String(r.status || '').toLowerCase().includes('warehouse')
+                                  ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                  : 'bg-blue-100 text-blue-800 border border-blue-300'
+                              }`}>
+                                {r.status || 'In Transit'}
+                              </span>
+                              {renderRemainDaysBadge(getEffectiveRemainDays(r))}
+                            </div>
+                            <div className="font-extrabold text-slate-900 flex items-center gap-1.5 text-xs">
+                              <Calendar className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                              <span>ETA: {formatDisplayDate(r.eta)}</span>
+                            </div>
+                          </div>
+                        )}
+                      </td>
+
+                      {/* 6. CBM */}
                       <td className="py-3.5 px-4 text-center whitespace-nowrap font-bold text-slate-900">
                         {r.cbm && r.cbm !== '-' ? `${r.cbm} m³` : '-'}
                       </td>
 
-                      {/* 6. Weight */}
+                      {/* 7. Weight */}
                       <td className="py-3.5 px-4 text-center whitespace-nowrap font-semibold text-slate-700">
                         {r.weight || '-'}
                       </td>
 
-                      {/* 7. CTN */}
+                      {/* 8. CTN */}
                       <td className="py-3.5 px-4 text-center whitespace-nowrap font-bold text-slate-900">
                         {r.ctn && r.ctn !== '-' ? `${r.ctn} ctn` : '-'}
-                      </td>
-
-                      {/* 8. ETA & Remain Days (Ascending order) */}
-                      <td className="py-3.5 px-4 whitespace-nowrap">
-                        <div className="flex flex-col gap-1">
-                          <div className="font-extrabold text-slate-900 flex items-center gap-1.5 text-xs">
-                            <Calendar className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                            {formatDisplayDate(r.eta)}
-                          </div>
-                          <div>{renderRemainDaysBadge(getEffectiveRemainDays(r))}</div>
-                        </div>
-                      </td>
-
-                      {/* Status Badge */}
-                      <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-800 border border-slate-200">
-                          {r.status || 'In Transit'}
-                        </span>
                       </td>
                     </tr>
                   ))}
@@ -1436,9 +1450,11 @@ export default function PublicReceiptTrackingPage() {
                 {filteredReceipts.length > 0 && (
                   <tfoot>
                     <tr className="bg-slate-100/90 text-slate-800 font-bold border-t-2 border-slate-300 text-xs">
-                      <td className="py-3 px-4 font-black uppercase text-slate-700" colSpan={5}>
+                      <td className="py-3 px-3 text-center no-jpg"></td>
+                      <td className="py-3 px-4 font-black uppercase text-slate-700" colSpan={4}>
                         Summary ({filteredReceipts.length} {filteredReceipts.length === 1 ? 'Receipt' : 'Receipts'})
                       </td>
+                      <td className="py-3 px-4"></td>
                       <td className="py-3 px-4 text-center font-black text-slate-900 whitespace-nowrap">
                         {totals.cbm} {totals.cbm !== '-' ? 'm³' : ''}
                       </td>
@@ -1448,7 +1464,6 @@ export default function PublicReceiptTrackingPage() {
                       <td className="py-3 px-4 text-center font-black text-slate-900 whitespace-nowrap">
                         {totals.ctn} {totals.ctn !== '-' ? 'ctn' : ''}
                       </td>
-                      <td className="py-3 px-4" colSpan={2}></td>
                     </tr>
                   </tfoot>
                 )}
@@ -1457,7 +1472,7 @@ export default function PublicReceiptTrackingPage() {
 
             {/* Delivered Shipments Visibility Toggle Banner */}
             {stats.delivered > 0 && (activeStatusTab === 'active' || activeStatusTab === 'transit') && (
-              <div className="p-3 bg-emerald-50/70 border-t border-emerald-200 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-emerald-900">
+              <div className="p-3 bg-emerald-50/70 border-t border-emerald-200 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-emerald-900 no-jpg">
                 <div className="flex items-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   <span>

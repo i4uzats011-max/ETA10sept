@@ -54,6 +54,11 @@ export async function PUT(
 
     const current = doc.receipts[receiptIndex];
 
+    const effectiveStatus = status !== undefined ? status.trim() : (current.status || 'In Transit');
+    const isNowDelivered = effectiveStatus.toLowerCase().includes('deliver') || effectiveStatus.toLowerCase().includes('arrived');
+    const newDeliveryDate = body.deliveryDate !== undefined ? String(body.deliveryDate).trim() : (current.deliveryDate || (isNowDelivered ? new Date().toISOString().slice(0, 10) : ''));
+    const newMarkedDate = body.markedDate !== undefined ? String(body.markedDate).trim() : (current.markedDate || (isNowDelivered ? new Date().toISOString().slice(0, 10) : ''));
+
     doc.receipts[receiptIndex] = {
       ...current,
       receiptNo: receiptNo !== undefined ? receiptNo.trim() : current.receiptNo,
@@ -65,7 +70,9 @@ export async function PUT(
       containerNo: containerNo !== undefined ? containerNo.trim() : current.containerNo,
       actualContainerNo: actualContainerNo !== undefined ? actualContainerNo.trim() : current.actualContainerNo,
       eta: eta !== undefined ? eta.trim() : current.eta,
-      status: status !== undefined ? status.trim() : (current.status || 'In Transit'),
+      deliveryDate: newDeliveryDate,
+      markedDate: newMarkedDate,
+      status: effectiveStatus,
       adminNotes: adminNotes !== undefined ? adminNotes.trim() : current.adminNotes,
       updatedAt: new Date()
     };
