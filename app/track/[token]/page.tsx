@@ -22,7 +22,10 @@ import {
   MessageSquare,
   Send,
   X,
-  MessageCircle
+  MessageCircle,
+  Warehouse,
+  CheckCircle2,
+  Plus
 } from 'lucide-react';
 import { toJpeg } from 'html-to-image';
 
@@ -185,6 +188,53 @@ export default function PublicReceiptTrackingPage() {
     }
   };
 
+  // Self-Add Receipt State (Two parameters: Receipt No. and CTN)
+  const [isAddReceiptOpen, setIsAddReceiptOpen] = useState(false);
+  const [addReceiptNo, setAddReceiptNo] = useState('');
+  const [addCtn, setAddCtn] = useState('');
+  const [submittingAdd, setSubmittingAdd] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+
+  const handleAddReceipt = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!addReceiptNo.trim() || !addCtn.trim()) {
+      setAddError('Both Receipt No. and Carton Count (CTN) are required.');
+      return;
+    }
+
+    setSubmittingAdd(true);
+    setAddError(null);
+
+    try {
+      const res = await fetch(`/api/track/receipt-link/${encodeURIComponent(token)}/add-receipt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          receiptNo: addReceiptNo.trim(),
+          ctn: addCtn.trim()
+        })
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        showToast(data.message || 'Receipt verified & added!');
+        setAddReceiptNo('');
+        setAddCtn('');
+        setAddError(null);
+        setIsAddReceiptOpen(false);
+        // Refresh tracking details to show the newly added receipt
+        fetchTrackingDetails(true);
+      } else {
+        setAddError(data.message || 'Verification failed. Please check Receipt No. and CTN.');
+      }
+    } catch (err) {
+      setAddError('Network error while verifying receipt. Please retry.');
+    } finally {
+      setSubmittingAdd(false);
+    }
+  };
+
   const fetchTrackingDetails = async (isManual = false) => {
     if (!token) return;
     if (isManual) setRefreshing(true);
@@ -262,6 +312,30 @@ export default function PublicReceiptTrackingPage() {
       ctn: totalCtn > 0 ? totalCtn : '-',
       weight: totalWeight > 0 ? `${totalWeight.toFixed(1)} kg` : '-'
     };
+  }, [receipts]);
+
+  // Delivery, In Transit, and In Warehouse (Not loaded to container) Statistics for Public User
+  const stats = useMemo(() => {
+    let delivered = 0;
+    let inTransit = 0;
+    let inWarehouse = 0;
+
+    receipts.forEach((r) => {
+      const s = (r.status || '').toLowerCase();
+      const hasContainer = r.containerNo && r.containerNo !== '-' && !r.containerNo.toLowerCase().includes('pending');
+      const isDelivered = s.includes('deliver') || s.includes('arrived');
+
+      if (isDelivered) {
+        delivered++;
+      } else if (hasContainer || s.includes('transit') || s.includes('loaded') || s.includes('sailing')) {
+        inTransit++;
+      } else {
+        // In warehouse: not loaded to container
+        inWarehouse++;
+      }
+    });
+
+    return { delivered, inTransit, inWarehouse };
   }, [receipts]);
 
   // Copy shareable customer message ending with "you can track this via link 24 hrs"
@@ -348,6 +422,18 @@ export default function PublicReceiptTrackingPage() {
             {/* Header Actions */}
             <div className="flex items-center gap-2 flex-wrap">
               <button
+                onClick={() => {
+                  setAddError(null);
+                  setIsAddReceiptOpen(true);
+                }}
+                title="Add receipt to this tracking link with Receipt No & Carton Count (CTN)"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition shadow-sm cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Receipt</span>
+              </button>
+
+              <button
                 onClick={() => openQueryModal()}
                 title="Send a message or query to dispatch"
                 className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition shadow-sm cursor-pointer"
@@ -386,42 +472,90 @@ export default function PublicReceiptTrackingPage() {
 
           </div>
 
-          {/* Quick Metrics Cards */}
+          {/* Real-time Shipment Statistics & Summary Cards for Public User */}
           {!loading && !error && receipts.length > 0 && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-6 border-t border-slate-100">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-6 pt-6 border-t border-slate-100">
+              {/* 1. In Transit */}
+              <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-3">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-blue-800 flex items-center justify-between">
+                  <span>In Transit</span>
+                  <Truck className="w-3.5 h-3.5 text-blue-600" />
+                </div>
+                <div className="text-xl font-black text-blue-900 mt-0.5">
+                  {stats.inTransit}
+                </div>
+                <div className="text-[10px] text-blue-600 font-semibold mt-0.5">
+                  Loaded to container
+                </div>
+              </div>
+
+              {/* 2. In Warehouse */}
+              <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-amber-800 flex items-center justify-between">
+                  <span>In Warehouse</span>
+                  <Warehouse className="w-3.5 h-3.5 text-amber-600" />
+                </div>
+                <div className="text-xl font-black text-amber-900 mt-0.5">
+                  {stats.inWarehouse}
+                </div>
+                <div className="text-[10px] text-amber-600 font-semibold mt-0.5">
+                  Not loaded to container
+                </div>
+              </div>
+
+              {/* 3. Delivered */}
+              <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-3">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-800 flex items-center justify-between">
+                  <span>Delivered</span>
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                </div>
+                <div className="text-xl font-black text-emerald-900 mt-0.5">
+                  {stats.delivered}
+                </div>
+                <div className="text-[10px] text-emerald-600 font-semibold mt-0.5">
+                  Completed arrivals
+                </div>
+              </div>
+
+              {/* 4. Total Receipts */}
               <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3">
-                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
-                  <Package className="w-3.5 h-3.5 text-blue-600" /> Total Receipts
+                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-600 flex items-center justify-between">
+                  <span>Total Receipts</span>
+                  <Package className="w-3.5 h-3.5 text-slate-500" />
                 </div>
                 <div className="text-xl font-black text-slate-900 mt-0.5">
                   {receipts.length}
                 </div>
-              </div>
-
-              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3">
-                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
-                  <Layers className="w-3.5 h-3.5 text-indigo-600" /> Total CBM
-                </div>
-                <div className="text-xl font-black text-slate-900 mt-0.5">
-                  {totals.cbm} {totals.cbm !== '-' ? 'm³' : ''}
+                <div className="text-[10px] text-slate-400 mt-0.5">
+                  In this tracking link
                 </div>
               </div>
 
+              {/* 5. Total CTN */}
               <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3">
-                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
-                  <Box className="w-3.5 h-3.5 text-emerald-600" /> Total CTN
+                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-600 flex items-center justify-between">
+                  <span>Total CTN</span>
+                  <Box className="w-3.5 h-3.5 text-slate-500" />
                 </div>
                 <div className="text-xl font-black text-slate-900 mt-0.5">
                   {totals.ctn} {totals.ctn !== '-' ? 'ctn' : ''}
                 </div>
+                <div className="text-[10px] text-slate-400 mt-0.5">
+                  Total cartons
+                </div>
               </div>
 
+              {/* 6. Total CBM */}
               <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3">
-                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
-                  <Weight className="w-3.5 h-3.5 text-amber-600" /> Total Weight
+                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-600 flex items-center justify-between">
+                  <span>Total CBM</span>
+                  <Layers className="w-3.5 h-3.5 text-slate-500" />
                 </div>
                 <div className="text-xl font-black text-slate-900 mt-0.5">
-                  {totals.weight}
+                  {totals.cbm} {totals.cbm !== '-' ? 'm³' : ''}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-0.5">
+                  Total volume
                 </div>
               </div>
             </div>
@@ -493,19 +627,32 @@ export default function PublicReceiptTrackingPage() {
                 </span>
               </div>
 
-              {/* Search / Filter Bar */}
-              {receipts.length > 1 && (
-                <div className="relative w-full sm:w-72">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    placeholder="Filter by Marka, Receipt, Item..."
-                    value={filterQuery}
-                    onChange={(e) => setFilterQuery(e.target.value)}
-                    className="w-full pl-9 pr-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg outline-none focus:border-blue-500 transition"
-                  />
-                </div>
-              )}
+              {/* Search / Filter Bar & Add Receipt Button */}
+              <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
+                {receipts.length > 1 && (
+                  <div className="relative w-full sm:w-64">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Filter by Marka, Receipt, Item..."
+                      value={filterQuery}
+                      onChange={(e) => setFilterQuery(e.target.value)}
+                      className="w-full pl-9 pr-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg outline-none focus:border-blue-500 transition"
+                    />
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddError(null);
+                    setIsAddReceiptOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition shadow-xs whitespace-nowrap cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Receipt</span>
+                </button>
+              </div>
             </div>
 
             {/* Responsive Table */}
@@ -827,6 +974,106 @@ export default function PublicReceiptTrackingPage() {
                 </div>
               </div>
 
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── ADD RECEIPT MODAL (Two-Parameter Verification: Receipt No. + CTN) ── */}
+      {isAddReceiptOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-emerald-800 to-teal-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center font-bold">
+                  <Plus className="w-5 h-5 text-emerald-200" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base leading-tight">Add Receipt to Link</h3>
+                  <p className="text-[11px] text-emerald-200">
+                    Two-Parameter Verification (Receipt No. + CTN)
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddReceiptOpen(false)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 sm:p-6 space-y-4 text-xs">
+              <div className="bg-emerald-50/70 border border-emerald-200 p-3 rounded-xl text-emerald-950 text-[11px] leading-relaxed">
+                <span className="font-bold flex items-center gap-1 text-emerald-900 mb-0.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Security Verification:
+                </span>
+                Enter your <strong>Receipt Number</strong> and the exact <strong>Carton Count (CTN)</strong> as written on your warehouse slip. If both parameters match our records, the shipment will be added to your tracking link immediately.
+              </div>
+
+              {addError && (
+                <div className="bg-red-50 border border-red-200 p-3 rounded-xl text-red-800 text-xs flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                  <span>{addError}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleAddReceipt} className="space-y-4">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    1. Receipt No. *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. REC-9083 or 9083"
+                    value={addReceiptNo}
+                    onChange={(e) => setAddReceiptNo(e.target.value)}
+                    className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:border-emerald-600 font-mono font-bold text-slate-900 uppercase"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    Printed at the top of your warehouse slip
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    2. Carton Count (CTN) *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. 15 or 15 ctn"
+                    value={addCtn}
+                    onChange={(e) => setAddCtn(e.target.value)}
+                    className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:border-emerald-600 font-bold text-slate-900"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    Exact number of packages / cartons
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsAddReceiptOpen(false)}
+                    className="w-1/2 py-2.5 border border-slate-300 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submittingAdd}
+                    className="w-1/2 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition shadow-md flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>{submittingAdd ? 'Verifying...' : 'Verify & Add'}</span>
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </div>
