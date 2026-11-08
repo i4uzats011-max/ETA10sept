@@ -25,6 +25,7 @@ import {
   MessageCircle,
   Warehouse,
   CheckCircle2,
+  Ship,
   Plus,
   CheckSquare,
   Square,
@@ -202,33 +203,33 @@ function getEffectiveRemainDays(r: IPublicReceipt): number | null {
 function renderRemainDaysBadge(remainDays: number | null) {
   if (remainDays === null || remainDays === undefined) {
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-        <Clock className="w-3 h-3" /> ETA Pending
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+        <Clock className="w-3 h-3 text-amber-500" /> ETA Pending
       </span>
     );
   }
   if (remainDays > 1) {
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 whitespace-nowrap">
-        <Clock className="w-3 h-3" /> {remainDays} Days Remaining
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200 whitespace-nowrap">
+        <Clock className="w-3 h-3 text-blue-600" /> {remainDays} Days to come ({remainDays}d left)
       </span>
     );
   } else if (remainDays === 1) {
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 animate-pulse whitespace-nowrap">
-        ⚡ 1 Day (Tomorrow)
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 animate-pulse whitespace-nowrap">
+        ⚡ 1 Day to come (Tomorrow)
       </span>
     );
   } else if (remainDays === 0) {
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-300 whitespace-nowrap">
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-300 whitespace-nowrap">
         📦 Arriving Today
       </span>
     );
   } else {
     const passed = Math.abs(remainDays);
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200 whitespace-nowrap">
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200 whitespace-nowrap">
         Past ETA ({passed}d ago)
       </span>
     );
@@ -653,8 +654,21 @@ export default function PublicReceiptTrackingPage() {
       const originalNode = tableCardRef.current;
       clone = originalNode.cloneNode(true) as HTMLElement;
 
-      // Fixed width container to eliminate any viewport squishing & remove scrollbars
-      clone.style.width = '1250px';
+      // 1. Force the table container to be completely visible in clone (unhide mobile-hidden table)
+      const tableContainers = clone.querySelectorAll('[data-role="jpg-cargo-table"], .overflow-x-auto');
+      tableContainers.forEach((el) => {
+        const htmlEl = el as HTMLElement;
+        htmlEl.classList.remove('hidden');
+        htmlEl.style.setProperty('display', 'block', 'important');
+        htmlEl.style.setProperty('visibility', 'visible', 'important');
+      });
+
+      // 2. Remove all elements with 'no-jpg' (mobile cards, toggles, interactive buttons)
+      const noJpgElements = clone.querySelectorAll('.no-jpg');
+      noJpgElements.forEach((el) => el.remove());
+
+      // 3. Set a fixed full width container so all 9 table columns render crisply without scrollbars
+      clone.style.width = '1300px';
       clone.style.maxWidth = 'none';
       clone.style.overflow = 'visible';
       clone.style.position = 'fixed';
@@ -663,10 +677,11 @@ export default function PublicReceiptTrackingPage() {
       clone.style.zIndex = '-9999';
       clone.style.boxShadow = 'none';
 
-      // Remove overflow on all nested containers (especially .overflow-x-auto)
+      // 4. Remove overflow on all nested scroll containers
       const scrollContainers = clone.querySelectorAll('.overflow-x-auto, .overflow-y-auto, [class*="overflow"]');
       scrollContainers.forEach((el) => {
         const htmlEl = el as HTMLElement;
+        htmlEl.classList.remove('hidden');
         htmlEl.style.overflow = 'visible';
         htmlEl.style.overflowX = 'visible';
         htmlEl.style.overflowY = 'visible';
@@ -674,23 +689,35 @@ export default function PublicReceiptTrackingPage() {
         (htmlEl.style as any).msOverflowStyle = 'none';
       });
 
-      // Completely suppress scrollbars in clone via style element
+      // 5. Inject styles in clone to guarantee full visibility & suppress scrollbars
       const style = document.createElement('style');
       style.innerHTML = `
+        [data-role="jpg-cargo-table"], .overflow-x-auto {
+          display: block !important;
+          visibility: visible !important;
+          width: 100% !important;
+          max-width: none !important;
+        }
+        table {
+          display: table !important;
+          width: 100% !important;
+          visibility: visible !important;
+        }
+        thead, tbody, tfoot, tr, th, td {
+          visibility: visible !important;
+        }
         *::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
         * { scrollbar-width: none !important; -ms-overflow-style: none !important; }
       `;
       clone.appendChild(style);
 
       document.body.appendChild(clone);
+      await new Promise((r) => setTimeout(r, 80));
 
       const dataUrl = await toJpeg(clone, {
         quality: 0.98,
         pixelRatio: 2,
-        backgroundColor: '#ffffff',
-        filter: (domNode: any) => {
-          return !(domNode.classList && domNode.classList.contains('no-jpg'));
-        }
+        backgroundColor: '#ffffff'
       });
 
       const cleanName = (linkName || 'Cargo_Tracking').replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -705,7 +732,7 @@ export default function PublicReceiptTrackingPage() {
         link.download = filename;
         link.href = dataUrl;
         link.click();
-        showToast('📸 Table downloaded as JPG (scrollbar-free)!');
+        showToast('📸 Table downloaded as JPG (data view complete & scrollbar-free)!');
       }
 
       return file;
@@ -721,7 +748,7 @@ export default function PublicReceiptTrackingPage() {
     }
   };
 
-  // Download entire table as vector PDF document
+  // Download entire table as vector PDF document with separate Status & ETA columns
   const handleDownloadPdf = async (isForShare = false): Promise<File | null> => {
     setDownloadingPdf(true);
     try {
@@ -760,12 +787,14 @@ export default function PublicReceiptTrackingPage() {
       doc.setTextColor(52, 211, 153);
       doc.text('24 hrs Live Tracking Link', pageWidth - 30, 42, { align: 'right' });
 
+      // 9 Separate Columns: Status and ETA (Days to Come) separated!
       const tableHeaders = [
         'Receipt No.',
         'Marka',
         'Container No.',
         'Item Name',
-        'Status & Date',
+        'Status',
+        'ETA & Days to Come',
         'CBM',
         'Weight',
         'CTN'
@@ -776,16 +805,20 @@ export default function PublicReceiptTrackingPage() {
         const effDate = isDelivered ? getEffectiveDeliveryDate(r) : r.eta;
         const dateText = effDate ? formatDisplayDate(effDate) : 'Pending Schedule';
         const cleanStat = cleanDisplayStatus(r.status);
-        const statusText = isDelivered
-          ? `Delivered (${dateText})`
-          : `${cleanStat} | ETA: ${dateText}`;
+        const remDays = getEffectiveRemainDays(r);
+        const daysText = isDelivered
+          ? 'Completed'
+          : remDays !== null
+          ? `${remDays} days to come`
+          : 'Pending Schedule';
 
         return [
           r.receiptNo || '-',
           r.marka || linkName || '-',
           r.containerNo && r.containerNo !== '-' ? r.containerNo : 'Pending Allocation',
           r.itemName || '-',
-          statusText,
+          isDelivered ? 'Delivered' : cleanStat,
+          isDelivered ? `Delivered: ${dateText}` : `${dateText} (${daysText})`,
           r.cbm && r.cbm !== '-' ? `${r.cbm} m³` : '-',
           r.weight || '-',
           r.ctn && r.ctn !== '-' ? `${r.ctn} ctn` : '-'
@@ -796,7 +829,7 @@ export default function PublicReceiptTrackingPage() {
         head: [tableHeaders],
         body: tableRows,
         startY: 70,
-        margin: { left: 30, right: 30 },
+        margin: { left: 26, right: 26 },
         styles: {
           fontSize: 8,
           cellPadding: 5.5,
@@ -815,15 +848,17 @@ export default function PublicReceiptTrackingPage() {
           0: { fontStyle: 'bold', textColor: [29, 78, 216] },
           1: { fontStyle: 'bold' },
           2: { fontStyle: 'bold', textColor: [51, 65, 85] },
-          3: { cellWidth: 150 },
-          4: { cellWidth: 160 },
-          5: { halign: 'center', fontStyle: 'bold' },
-          6: { halign: 'center' },
-          7: { halign: 'center', fontStyle: 'bold' }
+          3: { cellWidth: 130 },
+          4: { fontStyle: 'bold', cellWidth: 90 },
+          5: { cellWidth: 160 },
+          6: { halign: 'center', fontStyle: 'bold' },
+          7: { halign: 'center' },
+          8: { halign: 'center', fontStyle: 'bold' }
         },
         foot: [
           [
             `Summary (${filteredReceipts.length} Receipts)`,
+            '',
             '',
             '',
             '',
@@ -860,7 +895,7 @@ export default function PublicReceiptTrackingPage() {
     }
   };
 
-  // Download colorful Excel spreadsheet
+  // Download colorful Excel spreadsheet with separate Status and ETA columns
   const handleDownloadExcel = async () => {
     setDownloadingExcel(true);
     try {
@@ -872,8 +907,8 @@ export default function PublicReceiptTrackingPage() {
       const cleanMarka = linkName || 'Cargo Tracking';
       const worksheet = workbook.addWorksheet(cleanMarka.slice(0, 31) || 'Cargo Status');
 
-      // Title Banner Row
-      worksheet.mergeCells('A1:H1');
+      // Title Banner Row (Spans 9 columns A to I)
+      worksheet.mergeCells('A1:I1');
       const titleCell = worksheet.getCell('A1');
       titleCell.value = 'US INTERNATIONAL LOGISTICS - CARGO MASTER STATUS';
       titleCell.font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FFFFFFFF' } };
@@ -885,8 +920,8 @@ export default function PublicReceiptTrackingPage() {
       titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
       worksheet.getRow(1).height = 30;
 
-      // Subheader Row: Marka, Export Date, 24-hr link info
-      worksheet.mergeCells('A2:H2');
+      // Subheader Row: Marka, Export Date, 24-hr link info (Spans 9 columns A to I)
+      worksheet.mergeCells('A2:I2');
       const subCell = worksheet.getCell('A2');
       subCell.value = `Marka: ${cleanMarka}  |  Exported: ${new Date().toLocaleDateString()}  |  Track Live 24/7: ${typeof window !== 'undefined' ? window.location.href : ''}`;
       subCell.font = { name: 'Arial', size: 9, italic: true, color: { argb: 'FF334155' } };
@@ -898,7 +933,7 @@ export default function PublicReceiptTrackingPage() {
       subCell.alignment = { horizontal: 'center', vertical: 'middle' };
       worksheet.getRow(2).height = 20;
 
-      // Column Headers (Row 4)
+      // Column Headers (Row 4) - 9 Separate Columns
       worksheet.getRow(3).height = 8;
       const headerRow = worksheet.getRow(4);
       headerRow.values = [
@@ -906,7 +941,8 @@ export default function PublicReceiptTrackingPage() {
         'Marka',
         'Container No.',
         'Item Name',
-        'Status & Date',
+        'Status',
+        'ETA & Days to Come',
         'CBM',
         'Weight',
         'CTN'
@@ -934,16 +970,20 @@ export default function PublicReceiptTrackingPage() {
         const effDate = isDelivered ? getEffectiveDeliveryDate(r) : r.eta;
         const dateText = effDate ? formatDisplayDate(effDate) : 'Pending Schedule';
         const cleanStat = cleanDisplayStatus(r.status);
-        const statusText = isDelivered
-          ? `Delivered (${dateText})`
-          : `${cleanStat} | ETA: ${dateText}`;
+        const remDays = getEffectiveRemainDays(r);
+        const etaWithDays = isDelivered
+          ? `Delivered: ${dateText}`
+          : remDays !== null
+          ? `${dateText} (${remDays} days to come)`
+          : `${dateText} (Pending Schedule)`;
 
         const row = worksheet.addRow([
           r.receiptNo || '-',
           r.marka || linkName || '-',
           r.containerNo && r.containerNo !== '-' ? r.containerNo : 'Pending Allocation',
           r.itemName || '-',
-          statusText,
+          isDelivered ? 'Delivered' : cleanStat,
+          etaWithDays,
           r.cbm && r.cbm !== '-' ? parseFloat(r.cbm) || r.cbm : '-',
           r.weight || '-',
           r.ctn && r.ctn !== '-' ? parseInt(r.ctn, 10) || r.ctn : '-'
@@ -952,7 +992,7 @@ export default function PublicReceiptTrackingPage() {
         row.height = 22;
         const isEven = idx % 2 === 0;
 
-        // Color coding for status column
+        // Color coding for status column (Col 5)
         let statusBg = isDelivered ? 'FFD1FAE5' : cleanStat.toLowerCase().includes('warehouse') ? 'FFFEF3C7' : 'FFDBEAFE';
         let statusFg = isDelivered ? 'FF065F46' : cleanStat.toLowerCase().includes('warehouse') ? 'FF92400E' : 'FF1E40AF';
 
@@ -984,9 +1024,10 @@ export default function PublicReceiptTrackingPage() {
         });
       });
 
-      // Summary Row
+      // Summary Row (Cols 1-6 merged for label, Cols 7-9 for totals)
       const summaryRow = worksheet.addRow([
         `Summary (${filteredReceipts.length} Receipts)`,
+        '',
         '',
         '',
         '',
@@ -1011,14 +1052,15 @@ export default function PublicReceiptTrackingPage() {
       });
 
       worksheet.columns = [
-        { width: 16 },
-        { width: 14 },
-        { width: 18 },
-        { width: 28 },
-        { width: 32 },
-        { width: 14 },
-        { width: 14 },
-        { width: 14 }
+        { width: 16 }, // Receipt No
+        { width: 14 }, // Marka
+        { width: 18 }, // Container
+        { width: 26 }, // Item Name
+        { width: 18 }, // Status
+        { width: 28 }, // ETA & Days to Come
+        { width: 14 }, // CBM
+        { width: 14 }, // Weight
+        { width: 14 }  // CTN
       ];
 
       const buffer = await workbook.xlsx.writeBuffer();
@@ -1773,13 +1815,13 @@ export default function PublicReceiptTrackingPage() {
             {/* Swipe hint when table view is active on mobile */}
             {mobileViewMode === 'table' && (
               <div className="md:hidden text-[11px] text-slate-500 bg-blue-50/70 px-3 py-1.5 flex items-center justify-between border-b border-slate-200 no-jpg">
-                <span>👉 Swipe left / right to see all 8 table columns</span>
-                <span className="font-bold text-blue-700">8 Columns</span>
+                <span>👉 Swipe left / right to see all 9 table columns</span>
+                <span className="font-bold text-blue-700">9 Columns</span>
               </div>
             )}
 
             {/* Responsive Table */}
-            <div className={`overflow-x-auto touch-pan-x ${mobileViewMode === 'cards' ? 'hidden md:block' : 'block'}`}>
+            <div data-role="jpg-cargo-table" className={`overflow-x-auto touch-pan-x ${mobileViewMode === 'cards' ? 'hidden md:block' : 'block'}`}>
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-slate-900 text-white font-bold uppercase tracking-wider text-[11px]">
@@ -1909,7 +1951,34 @@ export default function PublicReceiptTrackingPage() {
                       </button>
                     </th>
 
-                    {/* 5. Status ("Deliver Date or ETA Date") */}
+                    {/* 5. Status */}
+                    <th className="py-3.5 px-4 whitespace-nowrap select-none">
+                      <button
+                        type="button"
+                        onClick={() => handleSort('status')}
+                        className={`inline-flex items-center gap-1.5 font-bold uppercase tracking-wider text-[11px] hover:text-blue-300 transition cursor-pointer group ${
+                          sortField === 'status' ? 'text-blue-400' : 'text-white'
+                        }`}
+                        title="Sort by Status (In Transit, Received in Warehouse, Delivered)"
+                      >
+                        <span>Status</span>
+                        {sortField === 'status' ? (
+                          sortDirection === 'asc' ? (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-500/20 border border-blue-400/40 rounded text-[10px] font-mono text-blue-300">
+                              <ArrowUp className="w-3 h-3" /> A-Z
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-500/20 border border-blue-400/40 rounded text-[10px] font-mono text-blue-300">
+                              <ArrowDown className="w-3 h-3" /> Z-A
+                            </span>
+                          )
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60 group-hover:opacity-100" />
+                        )}
+                      </button>
+                    </th>
+
+                    {/* 6. ETA & Days to Come */}
                     <th className="py-3.5 px-4 whitespace-nowrap min-w-[210px] select-none">
                       <button
                         type="button"
@@ -1917,10 +1986,10 @@ export default function PublicReceiptTrackingPage() {
                         className={`inline-flex flex-col items-start gap-0.5 font-bold uppercase tracking-wider text-[11px] hover:text-blue-300 transition cursor-pointer group ${
                           sortField === 'eta' ? 'text-blue-400' : 'text-white'
                         }`}
-                        title="Sort by Date (Default: Chronological Ascending: 12 sep, 10 oct, 4 nov, 8 nov)"
+                        title="Sort by Date (Default: Chronological Ascending: Earliest First)"
                       >
                         <div className="inline-flex items-center gap-1.5">
-                          <span>Status & Date</span>
+                          <span>ETA & Days to Come</span>
                           {sortField === 'eta' ? (
                             sortDirection === 'asc' ? (
                               <span className="inline-flex items-center gap-0.5 px-2 py-0.5 bg-blue-500/30 border border-blue-400/60 rounded text-[10px] font-bold text-blue-200">
@@ -1936,12 +2005,12 @@ export default function PublicReceiptTrackingPage() {
                           )}
                         </div>
                         <span className="text-[10px] text-blue-300 font-semibold lowercase">
-                          (deliver date or eta date)
+                          (eta date & how days to come)
                         </span>
                       </button>
                     </th>
 
-                    {/* 6. CBM */}
+                    {/* 7. CBM */}
                     <th className="py-3.5 px-4 text-center whitespace-nowrap select-none">
                       <button
                         type="button"
@@ -1968,7 +2037,7 @@ export default function PublicReceiptTrackingPage() {
                       </button>
                     </th>
 
-                    {/* 7. Weight */}
+                    {/* 8. Weight */}
                     <th className="py-3.5 px-4 text-center whitespace-nowrap select-none">
                       <button
                         type="button"
@@ -1995,7 +2064,7 @@ export default function PublicReceiptTrackingPage() {
                       </button>
                     </th>
 
-                    {/* 8. CTN */}
+                    {/* 9. CTN */}
                     <th className="py-3.5 px-4 text-center whitespace-nowrap select-none">
                       <button
                         type="button"
@@ -2087,50 +2156,66 @@ export default function PublicReceiptTrackingPage() {
                         {r.itemName || '-'}
                       </td>
 
-                      {/* 5. Status ("Deliver Date or ETA Date") */}
+                      {/* 5. Status */}
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        {isReceiptDelivered(r) ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            <span>Delivered</span>
+                          </span>
+                        ) : (
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold shadow-2xs ${
+                            cleanDisplayStatus(r.status).toLowerCase().includes('warehouse')
+                              ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                              : 'bg-blue-100 text-blue-800 border border-blue-300'
+                          }`}>
+                            {cleanDisplayStatus(r.status).toLowerCase().includes('warehouse') ? (
+                              <Warehouse className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                            ) : (
+                              <Ship className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                            )}
+                            <span>{cleanDisplayStatus(r.status)}</span>
+                          </span>
+                        )}
+                      </td>
+
+                      {/* 6. ETA & Days to Come */}
                       <td className="py-3.5 px-4 whitespace-nowrap">
                         {isReceiptDelivered(r) ? (
                           <div className="flex flex-col gap-1 items-start">
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                              <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-                              <span>Delivered</span>
-                            </span>
                             <div className="font-extrabold text-emerald-900 flex items-center gap-1.5 text-xs">
                               <Calendar className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                               <span>Delivered: {formatDisplayDate(getEffectiveDeliveryDate(r))}</span>
                             </div>
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                              <span>Completed</span>
+                            </span>
                           </div>
                         ) : (
                           <div className="flex flex-col gap-1 items-start">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                cleanDisplayStatus(r.status).toLowerCase().includes('warehouse')
-                                  ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                                  : 'bg-blue-100 text-blue-800 border border-blue-300'
-                              }`}>
-                                {cleanDisplayStatus(r.status)}
-                              </span>
-                              {renderRemainDaysBadge(getEffectiveRemainDays(r))}
-                            </div>
                             <div className="font-extrabold text-slate-900 flex items-center gap-1.5 text-xs">
                               <Calendar className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                               <span>ETA: {formatDisplayDate(r.eta)}</span>
+                            </div>
+                            <div>
+                              {renderRemainDaysBadge(getEffectiveRemainDays(r))}
                             </div>
                           </div>
                         )}
                       </td>
 
-                      {/* 6. CBM */}
+                      {/* 7. CBM */}
                       <td className="py-3.5 px-4 text-center whitespace-nowrap font-bold text-slate-900">
                         {r.cbm && r.cbm !== '-' ? `${r.cbm} m³` : '-'}
                       </td>
 
-                      {/* 7. Weight */}
+                      {/* 8. Weight */}
                       <td className="py-3.5 px-4 text-center whitespace-nowrap font-semibold text-slate-700">
                         {r.weight || '-'}
                       </td>
 
-                      {/* 8. CTN */}
+                      {/* 9. CTN */}
                       <td className="py-3.5 px-4 text-center whitespace-nowrap font-bold text-slate-900">
                         {r.ctn && r.ctn !== '-' ? `${r.ctn} ctn` : '-'}
                       </td>
@@ -2146,6 +2231,7 @@ export default function PublicReceiptTrackingPage() {
                       <td className="py-3 px-4 font-black uppercase text-slate-700" colSpan={4}>
                         Summary ({filteredReceipts.length} {filteredReceipts.length === 1 ? 'Receipt' : 'Receipts'})
                       </td>
+                      <td className="py-3 px-4"></td>
                       <td className="py-3 px-4"></td>
                       <td className="py-3 px-4 text-center font-black text-slate-900 whitespace-nowrap">
                         {totals.cbm} {totals.cbm !== '-' ? 'm³' : ''}
