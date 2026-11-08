@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin Dashboard - Receipt & ETA Manager</title>
+  <title>Admin Dashboard - Public ETA Tracking Links Manager</title>
   <link rel="stylesheet" href="/css/style.css">
   <style>
     .search-bar {
@@ -11,15 +11,13 @@
       gap: 12px;
       margin-bottom: 16px;
       flex-wrap: wrap;
-    }
-    .search-input {
-      flex: 1;
-      min-width: 240px;
+      align-items: center;
     }
     .link-cell {
       display: flex;
       align-items: center;
       gap: 6px;
+      flex-wrap: wrap;
     }
     .quick-token-badge {
       font-family: monospace;
@@ -28,6 +26,10 @@
       padding: 3px 6px;
       border-radius: 4px;
       color: #334155;
+      font-weight: 600;
+    }
+    .modal-lg {
+      max-width: 720px;
     }
   </style>
 </head>
@@ -40,98 +42,297 @@
       <div class="brand">
         <div class="brand-icon">📦</div>
         <div>
-          <h1>Receipt & ETA Manager</h1>
-          <p>Admin Portal • Manage shipments and public ETA tracking links</p>
+          <h1>Public ETA Tracking Links Manager</h1>
+          <p>Admin Portal • Manage allocated tracking links, shipments & warehouse inventory</p>
         </div>
       </div>
-      <div>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <a href="https://github.com/i4uzats011-max/ETA10sept" target="_blank" class="btn btn-secondary" title="View GitHub Repository" style="display: inline-flex; align-items: center; gap: 6px;">
+          <svg height="16" width="16" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path>
+          </svg>
+          <span>GitHub</span>
+        </a>
         <button class="btn btn-primary" onclick="openAddReceiptModal()">
           <span>➕</span> Add New Receipt
         </button>
       </div>
     </header>
 
-    <!-- Stats Summary -->
+    <!-- Statistics Overview: Delivered, In Transit, In Warehouse -->
     <div class="stats-grid">
-      <div class="stat-card">
+      <div class="stat-card" style="border-left: 4px solid #0284c7;">
+        <div class="stat-icon" style="background: #e0f2fe; color: #0284c7;">🚢</div>
+        <div class="stat-info">
+          <div class="stat-value" id="statInTransit">0</div>
+          <div class="stat-label">In Transit (Active Shipments)</div>
+        </div>
+      </div>
+
+      <div class="stat-card" style="border-left: 4px solid #d97706;">
+        <div class="stat-icon" style="background: #fef3c7; color: #d97706;">🏢</div>
+        <div class="stat-info">
+          <div class="stat-value" id="statWarehouseReceipts">0</div>
+          <div class="stat-label">In Warehouse (Not Loaded)</div>
+        </div>
+      </div>
+
+      <div class="stat-card" style="border-left: 4px solid #16a34a;">
+        <div class="stat-icon" style="background: #f0fdf4; color: #16a34a;">✅</div>
+        <div class="stat-info">
+          <div class="stat-value" id="statDelivered">0</div>
+          <div class="stat-label">Delivered Shipments</div>
+        </div>
+      </div>
+
+      <div class="stat-card" style="border-left: 4px solid #7c3aed;">
+        <div class="stat-icon" style="background: #f5f3ff; color: #7c3aed;">🔗</div>
+        <div class="stat-info">
+          <div class="stat-value" id="statTotalLinks">0</div>
+          <div class="stat-label">Allocated Links</div>
+        </div>
+      </div>
+
+      <div class="stat-card" style="border-left: 4px solid #2563eb;">
         <div class="stat-icon" style="background: #eff6ff; color: #2563eb;">📄</div>
         <div class="stat-info">
           <div class="stat-value" id="statTotalReceipts">0</div>
           <div class="stat-label">Total Receipts</div>
         </div>
       </div>
-
-      <div class="stat-card">
-        <div class="stat-icon" style="background: #f0fdf4; color: #16a34a;">🔗</div>
-        <div class="stat-info">
-          <div class="stat-value" id="statActiveLinks">0</div>
-          <div class="stat-label">Active Tracking Links</div>
-        </div>
-      </div>
-
-      <div class="stat-card">
-        <div class="stat-icon" style="background: #fef3c7; color: #d97706;">⏳</div>
-        <div class="stat-info">
-          <div class="stat-value" id="statUpcoming">0</div>
-          <div class="stat-label">Arrivals This Week</div>
-        </div>
-      </div>
     </div>
 
-    <!-- Receipts Table Card -->
+    <!-- Main Card Container -->
     <div class="card">
-      <div class="search-bar">
-        <input 
-          type="text" 
-          id="searchInput" 
-          class="search-input" 
-          placeholder="Search by Receipt No, Item, Container or Link Token..."
-          oninput="handleSearch()"
-        >
-        <button class="btn btn-secondary" onclick="loadReceipts()">
-          🔄 Refresh
+
+      <!-- Top Primary Navigation Tabs -->
+      <div class="main-nav-tabs">
+        <button class="nav-tab-btn active" id="navTabLinks" onclick="switchMainTab('links')">
+          <span>🔗</span> Public ETA Tracking Links Manager <span class="nav-tab-badge" id="badgeLinksCount">0</span>
+        </button>
+        <button class="nav-tab-btn" id="navTabReceipts" onclick="switchMainTab('receipts')">
+          <span>📄</span> All Receipts Inventory <span class="nav-tab-badge" id="badgeReceiptsCount">0</span>
         </button>
       </div>
 
-      <div class="table-wrapper">
-        <table>
-          <thead>
-            <tr>
-              <th>Receipt No.</th>
-              <th>Item Name</th>
-              <th>CBM / CTN / Weight</th>
-              <th>Container No. <br><span style="font-size: 0.72rem; color: #64748b;">(Public Display)</span></th>
-              <th>Actual Container <br><span style="font-size: 0.72rem; color: #64748b;">(Admin Internal)</span></th>
-              <th>ETA</th>
-              <th>Remain Days</th>
-              <th>Public Tracking Link</th>
-              <th style="text-align: right;">Actions</th>
-            </tr>
-          </thead>
-          <tbody id="receiptsTableBody">
-            <tr>
-              <td colspan="9" style="text-align: center; padding: 40px; color: #64748b;">Loading receipts...</td>
-            </tr>
-          </tbody>
-        </table>
+      <!-- ======================================================= -->
+      <!-- VIEW 1: PUBLIC ETA TRACKING LINKS MANAGER (DEFAULT)     -->
+      <!-- ======================================================= -->
+      <div id="viewLinksManager">
+
+        <!-- Search Bar for Links -->
+        <div class="search-bar">
+          <div class="search-input-wrapper">
+            <span class="search-icon">🔍</span>
+            <input 
+              type="text" 
+              id="linksSearchInput" 
+              placeholder="Search by Allocated Link Name, Receipt No, Item, Container or Status..."
+              oninput="handleLinksSearch()"
+            >
+          </div>
+          <button class="btn btn-secondary" onclick="loadAllData()">
+            🔄 Refresh
+          </button>
+        </div>
+
+        <!-- Bulk Bar for Allocated Links (Delete one or more Allocated Link Names) -->
+        <div class="bulk-bar" id="linksBulkBar" style="display: none; background: #7c2d12;">
+          <div class="bulk-info">
+            <span>☑️</span>
+            <span id="linksBulkCountText">0 Allocated Link(s) selected</span>
+          </div>
+          <div class="bulk-actions">
+            <button class="btn btn-danger btn-sm" onclick="promptBulkDeleteLinks()">
+              🗑️ Delete Selected Link(s)
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="clearLinksSelection()">
+              Deselect All
+            </button>
+          </div>
+        </div>
+
+        <!-- Links Table Wrapper -->
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 38px; text-align: center;">
+                  <input type="checkbox" id="selectAllLinksCheckbox" onchange="toggleSelectAllLinks(this)" title="Select all visible allocated links">
+                </th>
+                <th style="width: 32px; text-align: center;">#</th>
+                <th class="sortable" onclick="handleLinksSort('token')">
+                  Allocated Link Name <span class="sort-arrow" id="link_sort_token">↕</span>
+                </th>
+                <th class="sortable" onclick="handleLinksSort('receiptCount')">
+                  Total Receipts <span class="sort-arrow" id="link_sort_receiptCount">↕</span>
+                </th>
+                <th>Status Statistics</th>
+                <th>Total Cargo (CBM / CTN / Weight)</th>
+                <th class="sortable" onclick="handleLinksSort('date')">
+                  ETA Range <span class="sort-arrow" id="link_sort_date">▼</span>
+                </th>
+                <th>Public Tracking Link</th>
+                <th style="text-align: right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="linksTableBody">
+              <tr>
+                <td colspan="9" style="text-align: center; padding: 40px; color: #64748b;">Loading Allocated Links...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style="margin-top: 12px; font-size: 0.8rem; color: #64748b; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+          <span id="linksTableSummary">Loading data...</span>
+          <span>💡 Click on any <strong>Allocated Link Name</strong> to expand/view all receipt data under that link.</span>
+        </div>
+
       </div>
+
+      <!-- ======================================================= -->
+      <!-- VIEW 2: ALL RECEIPTS INVENTORY                          -->
+      <!-- ======================================================= -->
+      <div id="viewReceiptsInventory" style="display: none;">
+
+        <!-- Status Filter Tabs -->
+        <div class="filter-tabs">
+          <button class="filter-tab active" id="filterTabAll" onclick="setAdminFilter('all')">
+            🌐 All Receipts <span class="tab-count" id="tabCountAll">0</span>
+          </button>
+          <button class="filter-tab" id="filterTabActive" onclick="setAdminFilter('active')">
+            📦 Other than Delivered <span class="tab-count" id="tabCountActive">0</span>
+          </button>
+          <button class="filter-tab" id="filterTabWarehouse" onclick="setAdminFilter('in_warehouse')">
+            🏢 In Warehouse <span class="tab-count" id="tabCountWarehouse">0</span>
+          </button>
+          <button class="filter-tab" id="filterTabTransit" onclick="setAdminFilter('in_transit')">
+            🚢 In Transit <span class="tab-count" id="tabCountTransit">0</span>
+          </button>
+          <button class="filter-tab" id="filterTabDelivered" onclick="setAdminFilter('delivered')">
+            ✅ Delivered <span class="tab-count" id="tabCountDelivered">0</span>
+          </button>
+        </div>
+
+        <!-- Search Bar -->
+        <div class="search-bar">
+          <div class="search-input-wrapper">
+            <span class="search-icon">🔍</span>
+            <input 
+              type="text" 
+              id="searchInput" 
+              placeholder="Search by Receipt No, Item, Container, Tracking Link or Status..."
+              oninput="handleSearch()"
+            >
+          </div>
+          <button class="btn btn-secondary" onclick="loadAllData()">
+            🔄 Refresh
+          </button>
+        </div>
+
+        <!-- Bulk Actions Bar for Receipts -->
+        <div class="bulk-bar" id="bulkBar" style="display: none;">
+          <div class="bulk-info">
+            <span>☑️</span>
+            <span id="bulkCountText">0 receipts selected</span>
+          </div>
+          <div class="bulk-actions">
+            <button class="btn btn-primary btn-sm" onclick="openBulkUpdateModal()">
+              ⚡ Bulk Update ETA / Status
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="openBulkLinkModal()">
+              🔗 Link to Tracking Link
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="bulkUnlinkSelected()">
+              ❌ Remove from Link
+            </button>
+            <button class="btn btn-danger btn-sm" onclick="bulkDeleteSelectedReceipts()">
+              🗑️ Delete Selected
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="clearSelection()">
+              Deselect All
+            </button>
+          </div>
+        </div>
+
+        <!-- Flat Receipts Table -->
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 38px; text-align: center;">
+                  <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this)" title="Select all visible">
+                </th>
+                <th class="sortable" onclick="handleAdminSort('receiptNo')">
+                  Receipt No. <span class="sort-arrow" id="admin_sort_receiptNo">↕</span>
+                </th>
+                <th class="sortable" onclick="handleAdminSort('itemName')">
+                  Item Name <span class="sort-arrow" id="admin_sort_itemName">↕</span>
+                </th>
+                <th class="sortable" onclick="handleAdminSort('status')">
+                  Status <span class="sort-arrow" id="admin_sort_status">↕</span>
+                </th>
+                <th>CBM / CTN / Weight</th>
+                <th class="sortable" onclick="handleAdminSort('containerNo')">
+                  Container No. <span class="sort-arrow" id="admin_sort_containerNo">↕</span>
+                </th>
+                <th>Actual Container</th>
+                <th class="sortable" onclick="handleAdminSort('date')" id="admin_th_date">
+                  ETA / Delivery Date <span class="sort-arrow" id="admin_sort_date">▼</span>
+                </th>
+                <th class="sortable" onclick="handleAdminSort('remainDays')">
+                  Remain Days <span class="sort-arrow" id="admin_sort_remainDays">↕</span>
+                </th>
+                <th>Public Tracking Link</th>
+                <th style="text-align: right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="receiptsTableBody">
+              <tr>
+                <td colspan="11" style="text-align: center; padding: 40px; color: #64748b;">Loading receipts...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style="margin-top: 12px; font-size: 0.8rem; color: #64748b; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+          <span id="adminTableSummary">Loading data...</span>
+          <span>💡 Sorted by date newest first • Click column headers to sort</span>
+        </div>
+
+      </div>
+
     </div>
 
   </div>
 
   <!-- Modal: Add New Receipt -->
   <div class="modal-overlay" id="addModal">
-    <div class="modal">
+    <div class="modal modal-lg">
       <div class="modal-header">
         <h3 class="modal-title">Add New Receipt</h3>
         <button class="close-btn" onclick="closeAddReceiptModal()">&times;</button>
       </div>
       
       <form id="addReceiptForm" onsubmit="submitAddReceipt(event)">
+        <!-- Shipment Status Selector -->
+        <div class="form-group" style="background: #f8fafc; border: 1px solid var(--border-color); padding: 12px; border-radius: 8px;">
+          <label for="addStatus" style="font-weight: 700; color: #0f172a;">Shipment Status *</label>
+          <select id="addStatus" onchange="handleStatusChange('add')" required>
+            <option value="in_transit">🚢 In Transit (Loaded to Container)</option>
+            <option value="in_warehouse">🏢 In Warehouse (Not Loaded to Container)</option>
+            <option value="delivered">✅ Delivered</option>
+          </select>
+          <div class="form-helper" id="addStatusHelper">
+            Shipment has container assigned and active ETA.
+          </div>
+        </div>
+
         <div class="form-row">
           <div class="form-group">
             <label for="receiptNo">Receipt No. *</label>
-            <input type="text" id="receiptNo" placeholder="e.g. REC-9083" required>
+            <input type="text" id="receiptNo" placeholder="e.g. REC-9085" required>
           </div>
           <div class="form-group">
             <label for="itemName">Item Name</label>
@@ -154,11 +355,12 @@
           </div>
         </div>
 
+        <!-- Container Info -->
         <div class="form-row">
           <div class="form-group">
-            <label for="containerNo">Container No. (not actual) *</label>
-            <input type="text" id="containerNo" placeholder="e.g. CONT-****612" required>
-            <div class="form-helper">This masked/display number is visible to the public.</div>
+            <label for="containerNo" id="labelContainerNo">Container No. (not actual) *</label>
+            <input type="text" id="containerNo" placeholder="e.g. CONT-****612">
+            <div class="form-helper">Masked/display number visible to customer. If in warehouse, can be left blank.</div>
           </div>
           <div class="form-group">
             <label for="actualContainerNo">Actual Container No. (Admin only)</label>
@@ -167,12 +369,19 @@
           </div>
         </div>
 
-        <div class="form-group">
-          <label for="eta">Estimated Time of Arrival (ETA) *</label>
-          <input type="date" id="eta" required>
+        <!-- Date Row -->
+        <div class="form-row">
+          <div class="form-group" id="groupEta">
+            <label for="eta" id="labelEta">Estimated Time of Arrival (ETA) *</label>
+            <input type="date" id="eta">
+          </div>
+          <div class="form-group" id="groupDeliveryDate" style="display: none;">
+            <label for="deliveryDate">Actual Delivery Date *</label>
+            <input type="date" id="deliveryDate">
+          </div>
         </div>
 
-        <!-- Tracking Link Selection: New vs Existing Link -->
+        <!-- Tracking Link Selection -->
         <div class="form-group">
           <label>Tracking Link Assignment</label>
           <div class="radio-group">
@@ -187,8 +396,16 @@
             <label class="radio-option">
               <input type="radio" name="tokenOption" value="existing" onchange="toggleTokenOption()">
               <div>
-                <strong>Add to Existing Tracking Link (Same Link Given to Customer)</strong>
-                <div class="form-helper">Customer will see this new receipt under the exact same tracking link already given!</div>
+                <strong>Add to Existing Tracking Link</strong>
+                <div class="form-helper">Customer sees this new receipt under the exact same link already given!</div>
+              </div>
+            </label>
+
+            <label class="radio-option" id="optNoneLabel">
+              <input type="radio" name="tokenOption" value="none" onchange="toggleTokenOption()">
+              <div>
+                <strong>Keep Unlinked (Warehouse Receipt / No Link Yet)</strong>
+                <div class="form-helper">Keeps receipt in warehouse without a tracking link. Link it later when ready.</div>
               </div>
             </label>
           </div>
@@ -214,9 +431,9 @@
     </div>
   </div>
 
-  <!-- Modal: Quick Edit ETA & Receipt Details -->
+  <!-- Modal: Quick Edit Receipt Details & ETA -->
   <div class="modal-overlay" id="editModal">
-    <div class="modal">
+    <div class="modal modal-lg">
       <div class="modal-header">
         <h3 class="modal-title">Update Receipt & ETA</h3>
         <button class="close-btn" onclick="closeEditModal()">&times;</button>
@@ -224,6 +441,15 @@
 
       <form id="editReceiptForm" onsubmit="submitEditReceipt(event)">
         <input type="hidden" id="editId">
+
+        <div class="form-group" style="background: #f8fafc; border: 1px solid var(--border-color); padding: 12px; border-radius: 8px;">
+          <label for="editStatus" style="font-weight: 700; color: #0f172a;">Shipment Status *</label>
+          <select id="editStatus" onchange="handleStatusChange('edit')" required>
+            <option value="in_transit">🚢 In Transit (Loaded to Container)</option>
+            <option value="in_warehouse">🏢 In Warehouse (Not Loaded to Container)</option>
+            <option value="delivered">✅ Delivered</option>
+          </select>
+        </div>
 
         <div class="form-row">
           <div class="form-group">
@@ -253,8 +479,8 @@
 
         <div class="form-row">
           <div class="form-group">
-            <label for="editContainerNo">Container No. (not actual) *</label>
-            <input type="text" id="editContainerNo" required>
+            <label for="editContainerNo">Container No. (not actual)</label>
+            <input type="text" id="editContainerNo">
           </div>
           <div class="form-group">
             <label for="editActualContainerNo">Actual Container No. (Admin only)</label>
@@ -262,10 +488,25 @@
           </div>
         </div>
 
-        <div class="form-group" style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 12px; border-radius: 8px;">
-          <label for="editEta" style="color: #166534; font-weight: 700;">⚡ Update ETA (Estimated Time of Arrival) *</label>
-          <input type="date" id="editEta" required style="border-color: #86efac;">
-          <div class="form-helper" style="color: #15803d;">Updating the ETA instantly updates what the customer sees on their tracking link.</div>
+        <div class="form-row">
+          <div class="form-group" id="editGroupEta">
+            <label for="editEta" style="color: #166534; font-weight: 700;">⚡ Estimated Time of Arrival (ETA)</label>
+            <input type="date" id="editEta">
+          </div>
+          <div class="form-group" id="editGroupDeliveryDate" style="display: none;">
+            <label for="editDeliveryDate" style="color: #166534; font-weight: 700;">✅ Actual Delivery Date</label>
+            <input type="date" id="editDeliveryDate">
+          </div>
+        </div>
+
+        <div class="form-group" style="background: #f1f5f9; padding: 12px; border-radius: 8px;">
+          <label>Tracking Link Status</label>
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+            <div>
+              <span id="editTokenStatusText" style="font-weight: 600;">No link attached</span>
+            </div>
+            <div id="editTokenActions"></div>
+          </div>
         </div>
 
         <div class="form-group">
@@ -281,10 +522,144 @@
     </div>
   </div>
 
+  <!-- Modal: Bulk Update ETA & Status -->
+  <div class="modal-overlay" id="bulkModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">Bulk Update Selected Receipts</h3>
+        <button class="close-btn" onclick="closeBulkModal()">&times;</button>
+      </div>
+
+      <form id="bulkForm" onsubmit="submitBulkUpdate(event)">
+        <div style="background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; font-size: 0.875rem;">
+          📦 Updating <strong><span id="bulkModalCount">0</span> selected receipts</strong> at once.
+        </div>
+
+        <div class="form-group">
+          <label for="bulkEta">⚡ Set New ETA (Estimated Time of Arrival)</label>
+          <input type="date" id="bulkEta">
+        </div>
+
+        <div class="form-group">
+          <label for="bulkStatus">Set New Status</label>
+          <select id="bulkStatus" onchange="toggleBulkStatusFields()">
+            <option value="">-- Keep current status unchanged --</option>
+            <option value="in_transit">🚢 In Transit (Loaded to Container)</option>
+            <option value="in_warehouse">🏢 In Warehouse (Not Loaded)</option>
+            <option value="delivered">✅ Delivered</option>
+          </select>
+        </div>
+
+        <div class="form-group" id="bulkDeliveryDateGroup" style="display: none;">
+          <label for="bulkDeliveryDate">Delivery Date (if marking delivered)</label>
+          <input type="date" id="bulkDeliveryDate">
+        </div>
+
+        <div class="form-group">
+          <label for="bulkContainerNo">Update Container No. (Optional)</label>
+          <input type="text" id="bulkContainerNo" placeholder="Leave blank to keep unchanged">
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+          <button type="button" class="btn btn-secondary" onclick="closeBulkModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="saveBulkBtn">Apply Bulk Update</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Bulk Link Receipts to Tracking Link -->
+  <div class="modal-overlay" id="bulkLinkModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">Link Selected Receipts to ETA Link</h3>
+        <button class="close-btn" onclick="closeBulkLinkModal()">&times;</button>
+      </div>
+
+      <div style="background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; font-size: 0.875rem;">
+        🔗 Linking <strong><span id="bulkLinkModalCount">0</span> receipts</strong> to a public tracking link.
+      </div>
+
+      <div class="form-group">
+        <label>Tracking Link Destination</label>
+        <div class="radio-group">
+          <label class="radio-option">
+            <input type="radio" name="bulkLinkOption" value="existing" checked onchange="toggleBulkLinkOption()">
+            <div>
+              <strong>Attach to Existing Tracking Link</strong>
+              <div class="form-helper">Add selected receipts to an existing customer tracking link.</div>
+            </div>
+          </label>
+          <label class="radio-option">
+            <input type="radio" name="bulkLinkOption" value="new" onchange="toggleBulkLinkOption()">
+            <div>
+              <strong>Generate Brand-New Tracking Link</strong>
+              <div class="form-helper">Creates a new unique tracking token for all selected receipts.</div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <div class="form-group" id="bulkExistingLinkContainer">
+        <label for="bulkExistingLinkSelect">Choose Existing Link:</label>
+        <select id="bulkExistingLinkSelect">
+          <option value="">-- Select tracking link --</option>
+        </select>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+        <button type="button" class="btn btn-secondary" onclick="closeBulkLinkModal()">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="submitBulkLink()">Link Receipts</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Delete Allocated Link(s) Confirmation -->
+  <div class="modal-overlay" id="deleteLinkModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title" style="color: #b91c1c;">⚠️ Delete Allocated Link(s)</h3>
+        <button class="close-btn" onclick="closeDeleteLinkModal()">&times;</button>
+      </div>
+
+      <div style="margin-bottom: 16px; font-size: 0.95rem; color: #334155;">
+        You are about to delete Allocated Link(s):
+        <div id="deleteLinkNamesList" style="font-family: monospace; font-weight: 700; color: #b91c1c; margin: 8px 0; background: #fee2e2; padding: 8px 12px; border-radius: 6px;"></div>
+      </div>
+
+      <div class="form-group">
+        <label style="font-weight: 700; color: #0f172a;">What should happen to the receipts under this link?</label>
+        <div class="radio-group">
+          <label class="radio-option">
+            <input type="radio" name="deleteLinkReceiptsMode" value="keep" checked>
+            <div>
+              <strong>Keep Receipts in Warehouse (Recommended)</strong>
+              <div class="form-helper">Removes the tracking link, but preserves receipt records as unlinked warehouse receipts.</div>
+            </div>
+          </label>
+          <label class="radio-option">
+            <input type="radio" name="deleteLinkReceiptsMode" value="delete">
+            <div>
+              <strong style="color: #b91c1c;">Permanently Delete All Associated Receipts</strong>
+              <div class="form-helper" style="color: #dc2626;">Danger: This permanently erases the receipts from the database!</div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px;">
+        <button type="button" class="btn btn-secondary" onclick="closeDeleteLinkModal()">Cancel</button>
+        <button type="button" class="btn btn-danger" id="confirmDeleteLinkBtn" onclick="confirmExecuteDeleteLinks()">
+          Confirm Delete
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Notification -->
   <div class="toast" id="toast">
     <span id="toastIcon">📋</span>
-    <span id="toastMessage">Tracking link copied to clipboard!</span>
+    <span id="toastMessage">Done!</span>
   </div>
 
   <script src="/js/admin.js"></script>

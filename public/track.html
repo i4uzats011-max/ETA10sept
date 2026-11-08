@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Shipment Status & ETA</title>
+  <title>Shipment Status & ETA Tracking</title>
   <link rel="stylesheet" href="/css/style.css">
   <style>
     body {
@@ -13,7 +13,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 20px;
+      margin-bottom: 16px;
       flex-wrap: wrap;
       gap: 12px;
     }
@@ -36,11 +36,25 @@
     }
     .empty-state {
       text-align: center;
-      padding: 60px 20px;
+      padding: 50px 20px;
       background: white;
       border-radius: 12px;
       border: 1px solid var(--border-color);
       box-shadow: var(--shadow-sm);
+    }
+    .view-toggle-btn {
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      color: #334155;
+    }
+    .view-toggle-btn.active {
+      background: #2563eb;
+      color: white;
+      border-color: #2563eb;
     }
   </style>
 </head>
@@ -54,15 +68,17 @@
         🚢
       </div>
       <h2>Shipment ETA Tracker</h2>
-      <p>Real-time Estimated Time of Arrival & Package Information</p>
+      <p>Real-time Estimated Time of Arrival & Package Tracking</p>
     </div>
 
-    <!-- Live Controls -->
+    <!-- Live Controls Banner -->
     <div class="status-banner">
       <div style="font-size: 0.85rem; color: #64748b;" id="lastUpdatedText">Checking status...</div>
-      <button class="refresh-btn" id="refreshBtn" onclick="loadTrackingData()">
-        <span id="refreshIcon">🔄</span> Refresh Status
-      </button>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <button class="refresh-btn" id="refreshBtn" onclick="loadTrackingData()">
+          <span id="refreshIcon">🔄</span> Refresh Status
+        </button>
+      </div>
     </div>
 
     <!-- Loading State -->
@@ -78,9 +94,114 @@
       <p style="color: #64748b; font-size: 0.9rem;">Please check the link provided by your administrator.</p>
     </div>
 
-    <!-- Receipts Container -->
-    <div id="receiptsContainer" style="display: none;"></div>
+    <!-- Main Tracking Content (Visible once data loaded) -->
+    <div id="mainContent" style="display: none;">
 
+      <!-- Search & Status Filter Toolbar -->
+      <div class="track-table-card" style="margin-bottom: 16px;">
+        <div class="track-table-toolbar">
+          
+          <!-- Filter Tabs: Default is Other than Delivered (Active) -->
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+            <div class="filter-tabs" style="margin-bottom: 0;">
+              <button class="filter-tab active" id="tabActive" onclick="setStatusFilter('active')">
+                📦 Other than Delivered <span class="tab-count" id="countActive">0</span>
+              </button>
+              <button class="filter-tab" id="tabDelivered" onclick="setStatusFilter('delivered')">
+                ✅ Delivered <span class="tab-count" id="countDelivered">0</span>
+              </button>
+              <button class="filter-tab" id="tabAll" onclick="setStatusFilter('all')">
+                🌐 All Receipts <span class="tab-count" id="countAll">0</span>
+              </button>
+            </div>
+
+            <!-- View Switch (Table vs Cards) -->
+            <div style="display: flex; gap: 4px; align-items: center;">
+              <button class="view-toggle-btn active" id="viewBtnTable" onclick="switchView('table')">📋 Table View</button>
+              <button class="view-toggle-btn" id="viewBtnCards" onclick="switchView('cards')">🗂️ Cards View</button>
+            </div>
+          </div>
+
+          <!-- Text Search Filter -->
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <div class="search-input-wrapper">
+              <span class="search-icon">🔍</span>
+              <input 
+                type="text" 
+                id="trackSearchInput" 
+                placeholder="Filter by typing Receipt No, Item, Container or Status..." 
+                oninput="handleSearchInput()"
+              >
+            </div>
+            <button 
+              type="button" 
+              class="btn btn-secondary btn-sm" 
+              onclick="clearSearch()" 
+              id="clearSearchBtn" 
+              style="display: none;"
+            >
+              Clear
+            </button>
+          </div>
+
+          <!-- Meta Summary -->
+          <div class="track-table-meta">
+            <span id="filteredSummaryText">Showing active shipments</span>
+            <span id="sortNoticeText" style="font-size: 0.775rem; color: #475569;">
+              Sorted by date (newest first) • Click column headers to sort
+            </span>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ETA Table List View -->
+      <div id="tableViewContainer" class="table-wrapper" style="margin-bottom: 24px; box-shadow: var(--shadow-md);">
+        <table>
+          <thead>
+            <tr>
+              <th class="sortable" onclick="handleSort('receiptNo')">
+                Receipt No. <span class="sort-arrow" id="sort_receiptNo">↕</span>
+              </th>
+              <th class="sortable" onclick="handleSort('itemName')">
+                Item Name <span class="sort-arrow" id="sort_itemName">↕</span>
+              </th>
+              <th>CBM / CTN / Weight</th>
+              <th class="sortable" onclick="handleSort('containerNo')">
+                Allocated Container No. <span class="sort-arrow" id="sort_containerNo">↕</span>
+              </th>
+              <th class="sortable" onclick="handleSort('status')">
+                Status <span class="sort-arrow" id="sort_status">↕</span>
+              </th>
+              <th class="sortable" onclick="handleSort('date')" id="th_date">
+                ETA / Delivery Date <span class="sort-arrow" id="sort_date">▼</span>
+              </th>
+              <th class="sortable" onclick="handleSort('remainDays')">
+                Remain Days <span class="sort-arrow" id="sort_remainDays">↕</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody id="trackTableBody">
+            <!-- Rendered dynamically -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Card View Alternative -->
+      <div id="cardsViewContainer" style="display: none;">
+        <!-- Rendered dynamically -->
+      </div>
+
+      <!-- Empty Filter Results -->
+      <div id="noResultsState" style="display: none;" class="empty-state">
+        <div style="font-size: 36px; margin-bottom: 8px;">📦</div>
+        <h4 style="color: #0f172a; margin-bottom: 4px;">No matching receipts found</h4>
+        <p style="color: #64748b; font-size: 0.85rem;" id="noResultsDetail">Try changing your search text or switching to "All Receipts".</p>
+      </div>
+
+    </div>
+
+    <!-- Public Tracking Footer -->
     <div class="tracking-footer">
       <p>🔒 Secure Verified Tracking Link • Only authorized shipment details are displayed.</p>
     </div>
