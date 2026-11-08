@@ -38,7 +38,7 @@ import {
   FileSpreadsheet,
   ChevronDown
 } from 'lucide-react';
-import { toJpeg } from 'html-to-image';
+import { toJpeg, toPng } from 'html-to-image';
 
 interface ITrackingQuery {
   id: string;
@@ -469,6 +469,21 @@ export default function PublicReceiptTrackingPage() {
     return () => clearInterval(interval);
   }, [token]);
 
+  // Auto-focus / scroll directly to ETA cargo cards on mobile so users immediately see their ETA without scrolling down
+  useEffect(() => {
+    if (!loading && receipts.length > 0) {
+      if (typeof window !== 'undefined' && window.innerWidth < 768) {
+        const timer = setTimeout(() => {
+          const el = document.getElementById('cargo-data-section');
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        }, 250);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [loading, receipts.length]);
+
   // Helper to categorize receipt into Transit, Warehouse, or Delivered
   const getReceiptCategory = (r: IPublicReceipt): 'transit' | 'warehouse' | 'delivered' => {
     const s = (r.status || '').toLowerCase();
@@ -649,45 +664,78 @@ export default function PublicReceiptTrackingPage() {
   const handleDownloadJpg = async (isForShare = false): Promise<File | null> => {
     if (!tableCardRef.current) return null;
     setDownloadingJpg(true);
-    let clone: HTMLElement | null = null;
+    let container: HTMLElement | null = null;
     try {
       const originalNode = tableCardRef.current;
-      clone = originalNode.cloneNode(true) as HTMLElement;
+      const clone = originalNode.cloneNode(true) as HTMLElement;
 
-      // 1. Force the table container to be completely visible in clone (unhide mobile-hidden table)
+      // 1. Remove all elements with 'no-jpg' (mobile cards, toggles, interactive buttons)
+      const noJpgElements = clone.querySelectorAll('.no-jpg');
+      noJpgElements.forEach((el) => el.remove());
+
+      // 2. Unhide all hidden containers & ensure table container is fully expanded
+      clone.querySelectorAll('.hidden').forEach((el) => {
+        el.classList.remove('hidden');
+      });
+
       const tableContainers = clone.querySelectorAll('[data-role="jpg-cargo-table"], .overflow-x-auto');
       tableContainers.forEach((el) => {
         const htmlEl = el as HTMLElement;
         htmlEl.classList.remove('hidden');
         htmlEl.style.setProperty('display', 'block', 'important');
         htmlEl.style.setProperty('visibility', 'visible', 'important');
+        htmlEl.style.setProperty('width', '100%', 'important');
+        htmlEl.style.setProperty('overflow', 'visible', 'important');
+        htmlEl.style.setProperty('max-width', 'none', 'important');
       });
 
-      // 2. Remove all elements with 'no-jpg' (mobile cards, toggles, interactive buttons)
-      const noJpgElements = clone.querySelectorAll('.no-jpg');
-      noJpgElements.forEach((el) => el.remove());
+      // 3. Force table and all rows/cells to be completely rendered
+      const tables = clone.querySelectorAll('table');
+      tables.forEach((tbl) => {
+        const htmlTbl = tbl as HTMLElement;
+        htmlTbl.style.setProperty('display', 'table', 'important');
+        htmlTbl.style.setProperty('width', '100%', 'important');
+        htmlTbl.style.setProperty('visibility', 'visible', 'important');
+        htmlTbl.style.setProperty('table-layout', 'auto', 'important');
+      });
 
-      // 3. Set a fixed full width container so all 9 table columns render crisply without scrollbars
-      clone.style.width = '1300px';
-      clone.style.maxWidth = 'none';
-      clone.style.overflow = 'visible';
-      clone.style.position = 'fixed';
-      clone.style.left = '-9999px';
+      const tableRows = clone.querySelectorAll('tr');
+      tableRows.forEach((tr) => {
+        const htmlTr = tr as HTMLElement;
+        htmlTr.style.setProperty('display', 'table-row', 'important');
+        htmlTr.style.setProperty('visibility', 'visible', 'important');
+      });
+
+      const cells = clone.querySelectorAll('th, td');
+      cells.forEach((cell) => {
+        const htmlCell = cell as HTMLElement;
+        htmlCell.style.setProperty('visibility', 'visible', 'important');
+      });
+
+      // 4. Create an invisible offscreen sandbox container at (0, 0) with z-index: -99999
+      // NEVER set left: -9999px on clone because SVG foreignObject renders at (x, y),
+      // which places the elements 9999px outside the canvas, producing a blank/black image!
+      container = document.createElement('div');
+      container.id = 'jpg-render-sandbox';
+      container.style.position = 'fixed';
+      container.style.top = '0';
+      container.style.left = '0';
+      container.style.width = '1250px';
+      container.style.zIndex = '-99999';
+      container.style.pointerEvents = 'none';
+      container.style.opacity = '1';
+      container.style.overflow = 'hidden';
+      container.style.backgroundColor = '#ffffff';
+
+      clone.style.position = 'relative';
       clone.style.top = '0';
-      clone.style.zIndex = '-9999';
+      clone.style.left = '0';
+      clone.style.width = '1250px';
+      clone.style.minWidth = '1250px';
+      clone.style.maxWidth = '1250px';
+      clone.style.margin = '0';
       clone.style.boxShadow = 'none';
-
-      // 4. Remove overflow on all nested scroll containers
-      const scrollContainers = clone.querySelectorAll('.overflow-x-auto, .overflow-y-auto, [class*="overflow"]');
-      scrollContainers.forEach((el) => {
-        const htmlEl = el as HTMLElement;
-        htmlEl.classList.remove('hidden');
-        htmlEl.style.overflow = 'visible';
-        htmlEl.style.overflowX = 'visible';
-        htmlEl.style.overflowY = 'visible';
-        htmlEl.style.scrollbarWidth = 'none';
-        (htmlEl.style as any).msOverflowStyle = 'none';
-      });
+      clone.style.backgroundColor = '#ffffff';
 
       // 5. Inject styles in clone to guarantee full visibility & suppress scrollbars
       const style = document.createElement('style');
@@ -697,6 +745,7 @@ export default function PublicReceiptTrackingPage() {
           visibility: visible !important;
           width: 100% !important;
           max-width: none !important;
+          overflow: visible !important;
         }
         table {
           display: table !important;
@@ -711,14 +760,45 @@ export default function PublicReceiptTrackingPage() {
       `;
       clone.appendChild(style);
 
-      document.body.appendChild(clone);
-      await new Promise((r) => setTimeout(r, 80));
+      container.appendChild(clone);
+      document.body.appendChild(container);
 
-      const dataUrl = await toJpeg(clone, {
-        quality: 0.98,
-        pixelRatio: 2,
-        backgroundColor: '#ffffff'
-      });
+      // Allow DOM to compute complete layout and fonts
+      await new Promise((r) => setTimeout(r, 120));
+
+      const targetHeight = Math.max(clone.offsetHeight, clone.scrollHeight, 400);
+
+      let dataUrl = '';
+      try {
+        dataUrl = await toJpeg(clone, {
+          quality: 0.96,
+          pixelRatio: 2,
+          backgroundColor: '#ffffff',
+          skipFonts: true, // Prevents CORS or font loader hanging on mobile
+          width: 1250,
+          height: targetHeight
+        });
+      } catch (jpegErr) {
+        console.warn('toJpeg error, attempting toPng fallback:', jpegErr);
+        dataUrl = await toPng(clone, {
+          pixelRatio: 2,
+          backgroundColor: '#ffffff',
+          skipFonts: true,
+          width: 1250,
+          height: targetHeight
+        });
+      }
+
+      if (!dataUrl || dataUrl.length < 500) {
+        // Fallback directly to toPng
+        dataUrl = await toPng(clone, {
+          pixelRatio: 2,
+          backgroundColor: '#ffffff',
+          skipFonts: true,
+          width: 1250,
+          height: targetHeight
+        });
+      }
 
       const cleanName = (linkName || 'Cargo_Tracking').replace(/[^a-zA-Z0-9_-]/g, '_');
       const filename = `${cleanName}_${new Date().toISOString().slice(0, 10)}.jpg`;
@@ -741,8 +821,8 @@ export default function PublicReceiptTrackingPage() {
       alert('Unable to generate JPG image. Please try again.');
       return null;
     } finally {
-      if (clone && clone.parentNode) {
-        clone.parentNode.removeChild(clone);
+      if (container && container.parentNode) {
+        container.parentNode.removeChild(container);
       }
       setDownloadingJpg(false);
     }
@@ -1089,7 +1169,7 @@ export default function PublicReceiptTrackingPage() {
     const cleanMarka = linkName || 'Shipment';
     const receiptsSummary = filteredReceipts.slice(0, 5).map(r => r.receiptNo).join(', ') + (filteredReceipts.length > 5 ? ` +${filteredReceipts.length - 5} more` : '');
 
-    const shareText = `*US INTERNATIONAL LOGISTICS* 📦\n*Shipment ETA & Cargo Tracking Update*\n\n📌 *Marka:* ${cleanMarka}\n📦 *Receipts (${filteredReceipts.length}):* ${receiptsSummary}\n📊 *Total CTN:* ${totals.ctn} | *CBM:* ${totals.cbm} | *Weight:* ${totals.weight}\n\n🔗 *Track Live 24/7:* \n${url}\n\n_you can track this via link 24 hrs_`;
+    const shareText = `*US INTERNATIONAL LOGISTICS* 📦\n*Track Live ETA 24 hrs:* ${url}\n\n📍 *Marka:* ${cleanMarka}\n📦 *Receipts (${filteredReceipts.length}):* ${receiptsSummary}\n📊 *Total CTN:* ${totals.ctn} | *CBM:* ${totals.cbm} | *Weight:* ${totals.weight}\n\n🔗 *Live Tracking Link:* \n${url}\n\n_you can track this via link 24 hrs_`;
 
     try {
       if (format === 'link') {
@@ -1311,9 +1391,31 @@ export default function PublicReceiptTrackingPage() {
 
           </div>
 
-          {/* Real-time Shipment Statistics & Summary Cards for Public User */}
+          {/* Mobile-optimized Compact Status Strip & Quick Jump */}
           {!loading && !error && receipts.length > 0 && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-6 pt-6 border-t border-slate-100">
+            <div className="sm:hidden mt-3 pt-3 border-t border-slate-100 space-y-2">
+              <div className="flex items-center justify-between text-xs bg-slate-50 border border-slate-200 p-2.5 rounded-xl font-bold">
+                <span className="text-blue-800">🚢 {stats.inTransit} Transit</span>
+                <span className="text-amber-800">📦 {stats.inWarehouse} Warehouse</span>
+                <span className="text-emerald-800">✓ {stats.delivered} Done</span>
+                <span className="text-slate-700">{totals.ctn} CTN</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  document.getElementById('cargo-data-section')?.scrollIntoView({ behavior: 'smooth' });
+                }}
+                className="w-full py-2.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
+              >
+                <span>⚡ View ETA &amp; Cargo Details ({receipts.length} Receipts)</span>
+                <ArrowDown className="w-3.5 h-3.5 animate-bounce" />
+              </button>
+            </div>
+          )}
+
+          {/* Real-time Shipment Statistics & Summary Cards for Public User (Desktop & Tablet) */}
+          {!loading && !error && receipts.length > 0 && (
+            <div className="hidden sm:grid sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-6 pt-6 border-t border-slate-100">
               {/* 1. In Transit */}
               <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-3">
                 <div className="text-[11px] font-bold uppercase tracking-wider text-blue-800 flex items-center justify-between">
@@ -1426,8 +1528,9 @@ export default function PublicReceiptTrackingPage() {
         {/* Main Cargo Master Table Card (Capturable as JPG) */}
         {!loading && !error && receipts.length > 0 && (
           <div
+            id="cargo-data-section"
             ref={tableCardRef}
-            className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden p-1"
+            className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden p-1 scroll-mt-4"
           >
             {/* JPG Report Header Banner (renders in JPG) */}
             <div className="p-4 sm:p-5 border-b border-slate-200 bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white rounded-t-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">

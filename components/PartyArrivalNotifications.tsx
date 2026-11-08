@@ -44,6 +44,8 @@ export interface NotificationReceipt {
   volume: string | number;
   phone?: string;
   rate?: string;
+  trackingToken?: string | null;
+  trackingUrl?: string | null;
   messageSent: boolean;
   messageSentAt?: string | null;
   messageSentDate?: string;
@@ -207,6 +209,11 @@ export default function PartyArrivalNotifications({ initialDate, onClose }: Prop
     // If entered (e.g. '23k'), outputs "Rate 23k" directly after Volume details
     const currentRate = (rateInputs[r._id] !== undefined ? rateInputs[r._id] : (r.rate || '')).trim();
     let rateLine = '';
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+    const trackingFullUrl = r.trackingToken ? `${baseUrl}/track/${r.trackingToken}` : '';
+    const trackingLine = trackingFullUrl
+      ? `you can track this via link 24 hrs via link: ${trackingFullUrl}`
+      : 'you can track this via link 24 hrs';
     if (includeRateGlobal && currentRate) {
       if (/^rate[:\s]*/i.test(currentRate)) {
         rateLine = `\n${currentRate}`;
@@ -226,7 +233,7 @@ Please share the Warehouse Slip , Packing List ,Item Name and Item Image for our
 
 Please note without above details goods will not be load
 
-you can track this via link 24 hrs`;
+${trackingLine}`;
   };
 
   // Save warehouse entry record # to database
@@ -1288,6 +1295,25 @@ you can track this via link 24 hrs`;
                           {messageText}
                         </div>
                       </div>
+
+                        {r.trackingToken && (
+                          <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-xs font-bold text-blue-900 flex items-center justify-between">
+                            <div className="flex items-center gap-1.5">
+                              <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+                              <span>Live ETA Tracking Link:</span>
+                              <span className="font-mono text-blue-700 bg-white px-1.5 py-0.5 rounded border border-blue-200 text-[11px]">/track/{r.trackingToken}</span>
+                            </div>
+                            <a
+                              href={`/track/${r.trackingToken}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-800 underline text-xs flex items-center gap-0.5 font-bold"
+                            >
+                              <span>Open Link</span>
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </a>
+                          </div>
+                        )}
 
                       {/* Copy & Send Action Buttons */}
                       <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2 border-t border-slate-100">

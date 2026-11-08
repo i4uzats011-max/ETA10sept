@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import {
   Package,
@@ -174,6 +174,22 @@ export default function AdminTrackingLinksPage() {
   const [lookingUp, setLookingUp] = useState(false);
   const [availableReceipts, setAvailableReceipts] = useState<string[]>([]);
 
+  // Typeahead / Search State for "Map to Existing Link"
+  const [existingLinkSearch, setExistingLinkSearch] = useState('');
+  const [isExistingLinkDropdownOpen, setIsExistingLinkDropdownOpen] = useState(false);
+  const [additionalItems, setAdditionalItems] = useState<any[]>([]);
+
+  const filteredExistingTokens = useMemo(() => {
+    const q = existingLinkSearch.trim().toLowerCase();
+    if (!q) return tokens;
+    return tokens.filter((t) => {
+      const nameMatch = (t.name || '').toLowerCase().includes(q);
+      const tokenMatch = t.token.toLowerCase().includes(q);
+      const receiptMatch = (t.receipts || []).some((r) => r.toLowerCase().includes(q));
+      return nameMatch || tokenMatch || receiptMatch;
+    });
+  }, [tokens, existingLinkSearch]);
+
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 2500);
@@ -230,6 +246,67 @@ export default function AdminTrackingLinksPage() {
       console.error(err);
     } finally {
       setLookingUp(false);
+    }
+  };
+
+  const handleAddAdditionalItem = () => {
+    setAdditionalItems((prev) => [
+      ...prev,
+      {
+        id: Math.random().toString(36).substring(2, 9),
+        receiptNo: '',
+        marka: formData.marka || '',
+        itemName: '',
+        cbm: '',
+        ctn: '',
+        weight: '',
+        containerNo: formData.containerNo || '',
+        actualContainerNo: formData.actualContainerNo || '',
+        eta: formData.eta || '',
+        status: formData.status || 'In Transit'
+      }
+    ]);
+  };
+
+  const handleRemoveAdditionalItem = (index: number) => {
+    setAdditionalItems((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleUpdateAdditionalItem = (index: number, field: string, value: string) => {
+    setAdditionalItems((prev) => {
+      const copy = [...prev];
+      copy[index] = { ...copy[index], [field]: value };
+      return copy;
+    });
+  };
+
+  const handleLookupAdditionalItem = async (index: number, targetReceipt: string) => {
+    if (!targetReceipt.trim()) return;
+    try {
+      const res = await fetch(`/api/admin/tracking-links/lookup?receipt=${encodeURIComponent(targetReceipt.trim())}`);
+      const result = await res.json();
+      if (res.ok && result.success && result.data) {
+        setAdditionalItems((prev) => {
+          const copy = [...prev];
+          copy[index] = {
+            ...copy[index],
+            receiptNo: result.data.receiptNo || targetReceipt,
+            marka: result.data.marka || copy[index].marka || '',
+            itemName: result.data.itemName || '',
+            cbm: result.data.cbm || '',
+            ctn: result.data.ctn || '',
+            weight: result.data.weight || '',
+            containerNo: result.data.containerNo || copy[index].containerNo || '',
+            actualContainerNo: result.data.actualContainerNo || copy[index].actualContainerNo || '',
+            eta: result.data.eta || copy[index].eta || '',
+            status: result.data.status || 'In Transit'
+          };
+          return copy;
+        });
+        showToast(`Auto-filled item #${index + 2} (${targetReceipt})!`);
+      }
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -555,10 +632,35 @@ export default function AdminTrackingLinksPage() {
         alert('Receipt No. is required');
         return;
       }
-      payload = {
-        ...formData,
-        trackingName: formData.trackingName.trim() || `Receipt #${formData.receiptNo.trim()}`
-      };
+      const validAdditional = additionalItems.filter((it) => it.receiptNo && it.receiptNo.trim());
+      if (validAdditional.length > 0) {
+        payload = {
+          trackingTokenOption: formData.trackingTokenOption,
+          existingToken: formData.existingToken,
+          trackingName: formData.trackingName.trim() || formData.marka.trim() || `Receipt #${formData.receiptNo.trim()}`,
+          items: [
+            {
+              receiptNo: formData.receiptNo,
+              marka: formData.marka,
+              itemName: formData.itemName,
+              cbm: formData.cbm,
+              ctn: formData.ctn,
+              weight: formData.weight,
+              containerNo: formData.containerNo,
+              actualContainerNo: formData.actualContainerNo,
+              eta: formData.eta,
+              status: formData.status,
+              adminNotes: formData.adminNotes
+            },
+            ...validAdditional
+          ]
+        };
+      } else {
+        payload = {
+          ...formData,
+          trackingName: formData.trackingName.trim() || formData.marka.trim() || `Receipt #${formData.receiptNo.trim()}`
+        };
+      }
     }
 
     setSubmitting(true);
@@ -591,6 +693,9 @@ export default function AdminTrackingLinksPage() {
           existingToken: '',
           trackingName: ''
         });
+        setAdditionalItems([]);
+        setExistingLinkSearch('');
+        setIsExistingLinkDropdownOpen(false);
         loadData();
       } else {
         alert(data.message || 'Failed to save receipt.');
@@ -1838,6 +1943,106 @@ export default function AdminTrackingLinksPage() {
                       </select>
                     </div>
                   </div>
+
+                  {/* Additional Items: "user can select one more item" */}
+                  {additionalItems.length > 0 && (
+                    <div className="space-y-4 pt-3 border-t-2 border-dashed border-slate-200">
+                      {additionalItems.map((item, idx) => (
+                        <div key={item.id || idx} className="bg-slate-50/90 border border-slate-200 rounded-xl p-3.5 space-y-3 relative">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                              <Package className="w-3.5 h-3.5 text-blue-600" />
+                              <span>Additional Item #{idx + 2}</span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveAdditionalItem(idx)}
+                              className="text-red-600 hover:text-red-800 text-xs font-bold cursor-pointer hover:underline"
+                            >
+                              ✕ Remove Item
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block font-bold text-slate-700 mb-1">Receipt No. *</label>
+                              <div className="flex gap-1.5">
+                                <input
+                                  type="text"
+                                  placeholder="e.g. 260927026"
+                                  value={item.receiptNo}
+                                  onChange={(e) => handleUpdateAdditionalItem(idx, 'receiptNo', e.target.value)}
+                                  className="w-full p-2 border border-slate-300 rounded-lg outline-none font-bold"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleLookupAdditionalItem(idx, item.receiptNo)}
+                                  className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs cursor-pointer whitespace-nowrap shadow-xs"
+                                >
+                                  Auto-Fill
+                                </button>
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block font-bold text-slate-700 mb-1">Item Name</label>
+                              <input
+                                type="text"
+                                placeholder="Item description"
+                                value={item.itemName}
+                                onChange={(e) => handleUpdateAdditionalItem(idx, 'itemName', e.target.value)}
+                                className="w-full p-2 border border-slate-300 rounded-lg outline-none"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-3">
+                            <div>
+                              <label className="block font-bold text-slate-700 mb-1">CBM</label>
+                              <input
+                                type="text"
+                                placeholder="e.g. 1.2"
+                                value={item.cbm}
+                                onChange={(e) => handleUpdateAdditionalItem(idx, 'cbm', e.target.value)}
+                                className="w-full p-2 border border-slate-300 rounded-lg outline-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="block font-bold text-slate-700 mb-1">CTN</label>
+                              <input
+                                type="text"
+                                placeholder="e.g. 10"
+                                value={item.ctn}
+                                onChange={(e) => handleUpdateAdditionalItem(idx, 'ctn', e.target.value)}
+                                className="w-full p-2 border border-slate-300 rounded-lg outline-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="block font-bold text-slate-700 mb-1">Weight</label>
+                              <input
+                                type="text"
+                                placeholder="e.g. 200"
+                                value={item.weight}
+                                onChange={(e) => handleUpdateAdditionalItem(idx, 'weight', e.target.value)}
+                                className="w-full p-2 border border-slate-300 rounded-lg outline-none"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Add One More Item Button */}
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={handleAddAdditionalItem}
+                      className="px-3.5 py-2 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 font-bold rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>➕ Add One More Item / Receipt to this Link</span>
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -1892,27 +2097,93 @@ export default function AdminTrackingLinksPage() {
                     />
                     <div>
                       <span className="font-bold text-slate-800">Map to Existing Link (Same Link Given to Customer)</span>
-                      <p className="text-[11px] text-slate-500">Select previously allocated link name so customer sees new receipt under the SAME link!</p>
+                      <p className="text-[11px] text-slate-500">Type or select previously allocated link name so customer sees new receipt under the SAME link!</p>
                     </div>
                   </label>
 
                   {formData.trackingTokenOption === 'existing' && (
-                    <div className="pl-6 pt-1">
-                      <label className="block font-bold text-slate-700 mb-1">
-                        Select Existing Link by Allocated Name:
+                    <div className="pl-6 pt-1 space-y-2">
+                      <label className="block font-bold text-slate-700">
+                        Type to Search Existing Link (by Allocated Name, Marka, or Receipt #):
                       </label>
-                      <select
-                        value={formData.existingToken}
-                        onChange={(e) => setFormData({ ...formData, existingToken: e.target.value })}
-                        className="w-full p-2 border border-slate-300 rounded-lg bg-white outline-none font-semibold text-slate-900"
-                      >
-                        <option value="">-- Choose previously allocated link --</option>
-                        {tokens.map((t) => (
-                          <option key={t.token} value={t.token}>
-                            {t.name ? `🏷️ [${t.name}]` : 'Unnamed Link'} ({t.token}) — Receipts: {t.receipts.join(', ')}
-                          </option>
-                        ))}
-                      </select>
+                      
+                      <div className="relative">
+                        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <input
+                          type="text"
+                          placeholder="Type allocated name (e.g. Rahul, VIP, SHANTI, receipt #, token)..."
+                          value={existingLinkSearch}
+                          onChange={(e) => {
+                            setExistingLinkSearch(e.target.value);
+                            setIsExistingLinkDropdownOpen(true);
+                          }}
+                          onFocus={() => setIsExistingLinkDropdownOpen(true)}
+                          className="w-full pl-9 pr-8 py-2.5 border border-blue-300 rounded-lg outline-none font-bold text-slate-900 bg-white focus:ring-2 focus:ring-blue-400/40 shadow-xs"
+                        />
+                        {existingLinkSearch && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setExistingLinkSearch('');
+                              setFormData({ ...formData, existingToken: '' });
+                              setIsExistingLinkDropdownOpen(true);
+                            }}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-xs font-bold p-1 cursor-pointer"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Dropdown Options as user types */}
+                      {isExistingLinkDropdownOpen && (
+                        <div className="border border-slate-200 rounded-xl max-h-56 overflow-y-auto bg-white shadow-xl divide-y divide-slate-100 z-50">
+                          {filteredExistingTokens.length === 0 ? (
+                            <div className="p-3 text-slate-400 text-center italic text-xs">
+                              No matching allocated links found for &quot;{existingLinkSearch}&quot;
+                            </div>
+                          ) : (
+                            filteredExistingTokens.map((t) => {
+                              const isSelected = formData.existingToken === t.token;
+                              return (
+                                <button
+                                  key={t.token}
+                                  type="button"
+                                  onClick={() => {
+                                    setFormData({ ...formData, existingToken: t.token });
+                                    setExistingLinkSearch(t.name ? `${t.name} (${t.token})` : t.token);
+                                    setIsExistingLinkDropdownOpen(false);
+                                  }}
+                                  className={`w-full text-left p-3 transition flex items-center justify-between cursor-pointer ${
+                                    isSelected ? 'bg-blue-50 border-l-4 border-blue-600' : 'hover:bg-slate-50'
+                                  }`}
+                                >
+                                  <div>
+                                    <div className="font-black text-slate-900 flex items-center gap-1.5 text-xs">
+                                      <span className="text-blue-700">🏷️ {t.name || 'Unnamed Link'}</span>
+                                      <span className="font-mono text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded font-normal">{t.token}</span>
+                                    </div>
+                                    <div className="text-[11px] text-slate-500 mt-0.5">
+                                      Receipts: {t.receipts.length > 0 ? t.receipts.join(', ') : 'No receipts yet (Empty generated link)'}
+                                    </div>
+                                  </div>
+                                  {isSelected && <Check className="w-4 h-4 text-blue-600 shrink-0" />}
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                      )}
+
+                      {formData.existingToken && (
+                        <div className="p-2.5 bg-emerald-50 border border-emerald-300 rounded-lg text-emerald-900 text-xs font-bold flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            <Check className="w-4 h-4 text-emerald-600" />
+                            <span>Selected: {tokens.find(t => t.token === formData.existingToken)?.name || 'Link'}</span>
+                          </div>
+                          <span className="font-mono text-[11px] text-emerald-700 font-normal">Token: {formData.existingToken}</span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

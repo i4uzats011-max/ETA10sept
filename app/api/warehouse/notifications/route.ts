@@ -3,6 +3,7 @@ import { connectToDatabase } from '@/lib/mongodb';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
 import Shipment from '@/models/Shipment';
 import MarkaAddress from '@/models/MarkaAddress';
+import ReceiptTracking from '@/models/ReceiptTracking';
 import { isStaffOrAdminAuthenticated } from '@/lib/auth';
 import { formatGlobalDate } from '@/lib/dateUtils';
 
@@ -95,6 +96,40 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // 3. Find if any receipts or markas are linked to public tracking links
+    const receiptNumbers = Array.from(
+      new Set(receipts.map((r: any) => String(r.receipt || '').trim()).filter(Boolean))
+    );
+    const markNames = Array.from(
+      new Set(
+        receipts
+          .map((r: any) => (r.mainMarka || r.subMarka || r.party || '').trim())
+          .filter(Boolean)
+      )
+    );
+
+    const trackingDocs = await ReceiptTracking.find({
+      $or: [
+        { 'receipts.receiptNo': { $in: receiptNumbers } },
+        { name: { $in: markNames.map((m) => new RegExp(`^${m.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')) } }
+      ]
+    }).select('token name receipts.receiptNo').lean();
+
+    const receiptToTokenMap = new Map<string, string>();
+    const markaToTokenMap = new Map<string, string>();
+
+    trackingDocs.forEach((doc: any) => {
+      const docToken = doc.token;
+      if (doc.name) {
+        markaToTokenMap.set(doc.name.trim().toUpperCase(), docToken);
+      }
+      (doc.receipts || []).forEach((rec: any) => {
+        if (rec.receiptNo) {
+          receiptToTokenMap.set(String(rec.receiptNo).trim(), docToken);
+        }
+      });
+    });
+
     // Also populate stats for the selected date / filter
     let totalCartons = 0;
     let totalWeight = 0;
@@ -139,6 +174,10 @@ export async function GET(req: NextRequest) {
         volume: r.volume || '0',
         phone: resolvedPhone,
         rate: r.rate || '',
+        trackingToken: receiptToTokenMap.get(String(r.receipt || '').trim()) || markaToTokenMap.get(markKey) || null,
+        trackingUrl: (receiptToTokenMap.get(String(r.receipt || '').trim()) || markaToTokenMap.get(markKey))
+          ? `/track/${receiptToTokenMap.get(String(r.receipt || '').trim()) || markaToTokenMap.get(markKey)}`
+          : null,
         messageSent: isSent,
         messageSentAt: r.messageSentAt ? new Date(r.messageSentAt).toISOString() : null,
         messageSentDate: r.messageSentDate || (r.messageSentAt ? formatGlobalDate(r.messageSentAt) : ''),
