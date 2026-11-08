@@ -54,9 +54,13 @@ export async function POST(
     }
 
     const body = await req.json();
-    const { receiptNo, message, senderName, senderPhone, marka } = body;
+    const { receiptNo, receiptNos, message, senderName, senderPhone, marka } = body;
 
-    if (!receiptNo || !receiptNo.trim()) {
+    const formattedReceiptNo = Array.isArray(receiptNos) && receiptNos.length > 0
+      ? receiptNos.join(', ')
+      : String(receiptNo || '').trim();
+
+    if (!formattedReceiptNo) {
       return NextResponse.json({ success: false, message: 'Receipt No. is required' }, { status: 400 });
     }
     if (!message || !message.trim()) {
@@ -73,7 +77,7 @@ export async function POST(
 
     const newQuery = await TrackingQuery.create({
       token,
-      receiptNo: receiptNo.trim(),
+      receiptNo: formattedReceiptNo,
       marka: marka ? String(marka).trim() : (trackingDoc.name || ''),
       senderName: senderName ? String(senderName).trim() : '',
       senderPhone: senderPhone ? String(senderPhone).trim() : '',

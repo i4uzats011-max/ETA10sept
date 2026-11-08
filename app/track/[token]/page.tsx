@@ -25,7 +25,11 @@ import {
   MessageCircle,
   Warehouse,
   CheckCircle2,
-  Plus
+  Plus,
+  CheckSquare,
+  Square,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { toJpeg } from 'html-to-image';
 
@@ -122,15 +126,37 @@ export default function PublicReceiptTrackingPage() {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  // Customer Query State
+  // Multi-Receipt Selection State
+  const [selectedReceiptNos, setSelectedReceiptNos] = useState<Set<string>>(new Set());
+
+  // Delivery Visibility (Hidden by default) & Status Tabs
+  const [showDelivered, setShowDelivered] = useState(false);
+  const [activeStatusTab, setActiveStatusTab] = useState<'active' | 'transit' | 'warehouse' | 'delivered' | 'all'>('active');
+
+  // Customer Query State (Supports multiple selected receipts)
   const [isQueryModalOpen, setIsQueryModalOpen] = useState(false);
-  const [queryReceiptNo, setQueryReceiptNo] = useState('');
+  const [queryReceipts, setQueryReceipts] = useState<string[]>([]);
   const [querySenderName, setQuerySenderName] = useState('');
   const [querySenderPhone, setQuerySenderPhone] = useState('');
   const [queryMessage, setQueryMessage] = useState('');
   const [submittingQuery, setSubmittingQuery] = useState(false);
   const [queriesList, setQueriesList] = useState<ITrackingQuery[]>([]);
   const [loadingQueries, setLoadingQueries] = useState(false);
+
+  const toggleSelectReceipt = (rNo: string) => {
+    const next = new Set(selectedReceiptNos);
+    if (next.has(rNo)) next.delete(rNo);
+    else next.add(rNo);
+    setSelectedReceiptNos(next);
+  };
+
+  const toggleSelectAllReceipts = () => {
+    if (selectedReceiptNos.size === filteredReceipts.length && filteredReceipts.length > 0) {
+      setSelectedReceiptNos(new Set());
+    } else {
+      setSelectedReceiptNos(new Set(filteredReceipts.map(r => r.receiptNo)));
+    }
+  };
 
   const fetchQueries = async () => {
     if (!token) return;
@@ -148,16 +174,25 @@ export default function PublicReceiptTrackingPage() {
     }
   };
 
-  const openQueryModal = (receiptNo?: string) => {
-    setQueryReceiptNo(receiptNo || (receipts[0]?.receiptNo || ''));
+  const openQueryModal = (specificReceiptNo?: string) => {
+    if (specificReceiptNo) {
+      setQueryReceipts([specificReceiptNo]);
+    } else if (selectedReceiptNos.size > 0) {
+      setQueryReceipts(Array.from(selectedReceiptNos));
+    } else if (receipts.length > 0) {
+      setQueryReceipts([receipts[0].receiptNo]);
+    } else {
+      setQueryReceipts([]);
+    }
+    setQueryMessage('');
     setIsQueryModalOpen(true);
     fetchQueries();
   };
 
   const handleSendQuery = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!queryMessage.trim() || !queryReceiptNo) {
-      showToast('Please enter both Receipt No. and your question.');
+    if (!queryMessage.trim() || queryReceipts.length === 0) {
+      showToast('Please select at least one Receipt No. and type your question.');
       return;
     }
     setSubmittingQuery(true);
@@ -166,7 +201,8 @@ export default function PublicReceiptTrackingPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          receiptNo: queryReceiptNo,
+          receiptNos: queryReceipts,
+          receiptNo: queryReceipts.join(', '),
           message: queryMessage,
           senderName: querySenderName,
           senderPhone: querySenderPhone,
@@ -175,7 +211,7 @@ export default function PublicReceiptTrackingPage() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        showToast('✉️ Query sent to dispatch! We will respond shortly.');
+        showToast(`✉️ Query sent for ${queryReceipts.length} receipt(s)! We will respond shortly.`);
         setQueryMessage('');
         fetchQueries();
       } else {
@@ -275,20 +311,76 @@ export default function PublicReceiptTrackingPage() {
     return () => clearInterval(interval);
   }, [token]);
 
-  // Client-side filter
+  // Helper to categorize receipt into Transit, Warehouse, or Delivered
+  const getReceiptCategory = (r: IPublicReceipt): 'transit' | 'warehouse' | 'delivered' => {
+    const s = (r.status || '').toLowerCase();
+    const isDelivered = s.includes('deliver') || s.includes('arrived');
+    if (isDelivered) return 'delivered';
+
+    const hasContainer = r.containerNo && r.containerNo !== '-' && !r.containerNo.toLowerCase().includes('pending');
+    if (hasContainer || s.includes('transit') || s.includes('loaded') || s.includes('sailing')) {
+      return 'transit';
+    }
+
+    return 'warehouse';
+  };
+
+  // Helper to sort by ETA in Ascending order (earliest arrival date first)
+  const compareEtaAsc = (a: IPublicReceipt, b: IPublicReceipt): number => {
+    if (!a.eta && !b.eta) return 0;
+    if (!a.eta) return 1; // Pending ETAs go to the bottom of group
+    if (!b.eta) return -1;
+    const timeA = new Date(a.eta).getTime();
+    const timeB = new Date(b.eta).getTime();
+    if (isNaN(timeA) && isNaN(timeB)) return 0;
+    if (isNaN(timeA)) return 1;
+    if (isNaN(timeB)) return -1;
+    return timeA - timeB;
+  };
+
+  // Filtered and Sorted Receipts:
+  // 1. In Transit (ETA Ascending)
+  // 2. In Warehouse (Not loaded to container)
+  // 3. Delivered (Hidden by default, shown when toggled)
   const filteredReceipts = useMemo(() => {
-    if (!filterQuery.trim()) return receipts;
-    const q = filterQuery.toLowerCase();
-    return receipts.filter((r) => {
-      return (
-        r.marka?.toLowerCase().includes(q) ||
-        r.receiptNo?.toLowerCase().includes(q) ||
-        r.itemName?.toLowerCase().includes(q) ||
-        r.containerNo?.toLowerCase().includes(q) ||
-        r.status?.toLowerCase().includes(q)
-      );
-    });
-  }, [receipts, filterQuery]);
+    let list = receipts;
+    if (filterQuery.trim()) {
+      const q = filterQuery.toLowerCase();
+      list = list.filter((r) => {
+        return (
+          r.marka?.toLowerCase().includes(q) ||
+          r.receiptNo?.toLowerCase().includes(q) ||
+          r.itemName?.toLowerCase().includes(q) ||
+          r.containerNo?.toLowerCase().includes(q) ||
+          r.status?.toLowerCase().includes(q)
+        );
+      });
+    }
+
+    const transitItems = list.filter(r => getReceiptCategory(r) === 'transit').sort(compareEtaAsc);
+    const warehouseItems = list.filter(r => getReceiptCategory(r) === 'warehouse').sort(compareEtaAsc);
+    const deliveredItems = list.filter(r => getReceiptCategory(r) === 'delivered').sort(compareEtaAsc);
+
+    // Tab-based filtering
+    if (activeStatusTab === 'transit') {
+      return transitItems;
+    }
+    if (activeStatusTab === 'warehouse') {
+      return warehouseItems;
+    }
+    if (activeStatusTab === 'delivered') {
+      return deliveredItems;
+    }
+    if (activeStatusTab === 'all') {
+      return [...transitItems, ...warehouseItems, ...deliveredItems];
+    }
+
+    // Default view ('active'): Show In Transit FIRST, then In Warehouse, and Delivered HIDDEN by default!
+    if (showDelivered) {
+      return [...transitItems, ...warehouseItems, ...deliveredItems];
+    }
+    return [...transitItems, ...warehouseItems];
+  }, [receipts, filterQuery, activeStatusTab, showDelivered]);
 
   // Aggregate Totals
   const totals = useMemo(() => {
@@ -616,43 +708,150 @@ export default function PublicReceiptTrackingPage() {
               </div>
             </div>
 
-            {/* Table Control Header (excluded from JPG via style if needed, or shown nicely) */}
-            <div className="p-3 sm:p-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-50/70">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
-                  Cargo Receipts Table
-                </span>
-                <span className="bg-blue-100 text-blue-800 text-[11px] font-bold px-2 py-0.5 rounded-full">
-                  {filteredReceipts.length} {filteredReceipts.length === 1 ? 'record' : 'records'}
-                </span>
+            {/* Status Filter Tabs & Search Bar */}
+            <div className="p-3 sm:p-4 border-b border-slate-200 space-y-3 bg-slate-50/70">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-black uppercase tracking-wider text-slate-700 mr-1">
+                    Shipment Status:
+                  </span>
+                  
+                  {/* Status Tabs */}
+                  <button
+                    type="button"
+                    onClick={() => { setActiveStatusTab('active'); setShowDelivered(false); }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                      activeStatusTab === 'active' && !showDelivered
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    Active Cargo (Transit & Warehouse)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveStatusTab('transit')}
+                    className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                      activeStatusTab === 'transit'
+                        ? 'bg-blue-700 text-white shadow-xs'
+                        : 'bg-white text-blue-700 border border-blue-200 hover:bg-blue-50'
+                    }`}
+                  >
+                    <Truck className="w-3.5 h-3.5" />
+                    <span>In Transit ({stats.inTransit})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveStatusTab('warehouse')}
+                    className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                      activeStatusTab === 'warehouse'
+                        ? 'bg-amber-600 text-white shadow-xs'
+                        : 'bg-white text-amber-800 border border-amber-200 hover:bg-amber-50'
+                    }`}
+                  >
+                    <Warehouse className="w-3.5 h-3.5" />
+                    <span>In Warehouse ({stats.inWarehouse})</span>
+                  </button>
+
+                  {stats.delivered > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (activeStatusTab === 'delivered') {
+                          setActiveStatusTab('active');
+                          setShowDelivered(false);
+                        } else {
+                          setActiveStatusTab('delivered');
+                          setShowDelivered(true);
+                        }
+                      }}
+                      className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        activeStatusTab === 'delivered' || showDelivered
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'bg-white text-emerald-800 border border-emerald-200 hover:bg-emerald-50'
+                      }`}
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Delivered ({stats.delivered})</span>
+                      <span className="text-[10px] opacity-80 font-normal">
+                        ({activeStatusTab === 'delivered' || showDelivered ? 'Shown' : 'Hidden by Default'})
+                      </span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => { setActiveStatusTab('all'); setShowDelivered(true); }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                      activeStatusTab === 'all'
+                        ? 'bg-slate-900 text-white shadow-xs'
+                        : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    All ({receipts.length})
+                  </button>
+                </div>
+
+                {/* Search & Add Receipt Button */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  {receipts.length > 1 && (
+                    <div className="relative w-full sm:w-60">
+                      <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Search receipt, item, marka..."
+                        value={filterQuery}
+                        onChange={(e) => setFilterQuery(e.target.value)}
+                        className="w-full pl-9 pr-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg outline-none focus:border-blue-500 transition"
+                      />
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddError(null);
+                      setIsAddReceiptOpen(true);
+                    }}
+                    className="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition shadow-xs whitespace-nowrap cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Receipt</span>
+                  </button>
+                </div>
               </div>
 
-              {/* Search / Filter Bar & Add Receipt Button */}
-              <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
-                {receipts.length > 1 && (
-                  <div className="relative w-full sm:w-64">
-                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      placeholder="Filter by Marka, Receipt, Item..."
-                      value={filterQuery}
-                      onChange={(e) => setFilterQuery(e.target.value)}
-                      className="w-full pl-9 pr-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg outline-none focus:border-blue-500 transition"
-                    />
+              {/* Multi-Select Floating / Sticky Action Bar for Customer */}
+              {selectedReceiptNos.size > 0 && (
+                <div className="p-2.5 bg-blue-50 border border-blue-300 rounded-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-black text-blue-900">
+                      ✓ {selectedReceiptNos.size} Receipt(s) Selected:
+                    </span>
+                    <span className="font-mono font-bold text-blue-800 bg-white border border-blue-200 px-2 py-0.5 rounded text-[11px]">
+                      {Array.from(selectedReceiptNos).join(', ')}
+                    </span>
                   </div>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAddError(null);
-                    setIsAddReceiptOpen(true);
-                  }}
-                  className="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition shadow-xs whitespace-nowrap cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add Receipt</span>
-                </button>
-              </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openQueryModal()}
+                      className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3.5 py-1.5 rounded-lg text-xs transition shadow-xs cursor-pointer"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>Ask Question about Selected ({selectedReceiptNos.size})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedReceiptNos(new Set())}
+                      className="text-slate-500 hover:text-slate-800 text-[11px] font-semibold underline cursor-pointer ml-1"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Responsive Table */}
@@ -660,6 +859,20 @@ export default function PublicReceiptTrackingPage() {
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-slate-900 text-white font-bold uppercase tracking-wider text-[11px]">
+                    <th className="py-3 px-3 text-center w-10">
+                      <button
+                        type="button"
+                        onClick={toggleSelectAllReceipts}
+                        className="cursor-pointer text-slate-400 hover:text-white transition"
+                        title="Select / Deselect all visible receipts"
+                      >
+                        {selectedReceiptNos.size > 0 && selectedReceiptNos.size === filteredReceipts.length ? (
+                          <CheckSquare className="w-4 h-4 text-emerald-400" />
+                        ) : (
+                          <Square className="w-4 h-4" />
+                        )}
+                      </button>
+                    </th>
                     <th className="py-3.5 px-4 whitespace-nowrap">Marka</th>
                     <th className="py-3.5 px-4 whitespace-nowrap">Receipt No.</th>
                     <th className="py-3.5 px-4 min-w-[180px]">Item Name</th>
@@ -670,7 +883,10 @@ export default function PublicReceiptTrackingPage() {
                     <th className="py-3.5 px-4 text-center whitespace-nowrap">CBM</th>
                     <th className="py-3.5 px-4 text-center whitespace-nowrap">Weight</th>
                     <th className="py-3.5 px-4 text-center whitespace-nowrap">CTN</th>
-                    <th className="py-3.5 px-4 whitespace-nowrap min-w-[200px]">ETA & Remain Days</th>
+                    <th className="py-3.5 px-4 whitespace-nowrap min-w-[200px]">
+                      ETA & Remain Days
+                      <span className="block text-[10px] text-slate-400 font-normal lowercase">(Ascending order)</span>
+                    </th>
                     <th className="py-3.5 px-4 text-center whitespace-nowrap">Status</th>
                   </tr>
                 </thead>
@@ -679,8 +895,26 @@ export default function PublicReceiptTrackingPage() {
                   {filteredReceipts.map((r, idx) => (
                     <tr
                       key={idx}
-                      className="hover:bg-blue-50/40 transition-colors odd:bg-white even:bg-slate-50/30"
+                      className={`hover:bg-blue-50/40 transition-colors odd:bg-white even:bg-slate-50/30 ${
+                        selectedReceiptNos.has(r.receiptNo) ? 'bg-blue-50/70 ring-1 ring-inset ring-blue-300' : ''
+                      }`}
                     >
+                      {/* Checkbox Column */}
+                      <td className="py-3.5 px-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => toggleSelectReceipt(r.receiptNo)}
+                          className="cursor-pointer text-slate-400 hover:text-blue-600 transition"
+                          title={`Select ${r.receiptNo} to ask a question`}
+                        >
+                          {selectedReceiptNos.has(r.receiptNo) ? (
+                            <CheckSquare className="w-4 h-4 text-blue-600" />
+                          ) : (
+                            <Square className="w-4 h-4" />
+                          )}
+                        </button>
+                      </td>
+
                       {/* 1. Marka */}
                       <td className="py-3.5 px-4 whitespace-nowrap">
                         <span className="inline-flex items-center gap-1 font-bold text-slate-900 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-md text-xs">
@@ -699,7 +933,7 @@ export default function PublicReceiptTrackingPage() {
                           <Package className="w-3.5 h-3.5 text-blue-500 group-hover:scale-110 transition-transform" />
                           <span>{r.receiptNo}</span>
                           <span className="text-[10px] text-blue-500 font-sans font-normal opacity-80 group-hover:opacity-100 flex items-center gap-0.5 ml-1">
-                            <MessageCircle className="w-3 h-3" /> Query
+                            <MessageCircle className="w-3 h-3" /> Ask
                           </span>
                         </button>
                       </td>
@@ -735,7 +969,7 @@ export default function PublicReceiptTrackingPage() {
                         {r.ctn && r.ctn !== '-' ? `${r.ctn} ctn` : '-'}
                       </td>
 
-                      {/* 8. ETA & Remain Days */}
+                      {/* 8. ETA & Remain Days (Ascending order) */}
                       <td className="py-3.5 px-4 whitespace-nowrap">
                         <div className="flex flex-col gap-1">
                           <div className="font-extrabold text-slate-900 flex items-center gap-1.5 text-xs">
@@ -760,7 +994,7 @@ export default function PublicReceiptTrackingPage() {
                 {filteredReceipts.length > 0 && (
                   <tfoot>
                     <tr className="bg-slate-100/90 text-slate-800 font-bold border-t-2 border-slate-300 text-xs">
-                      <td className="py-3 px-4 font-black uppercase text-slate-700" colSpan={4}>
+                      <td className="py-3 px-4 font-black uppercase text-slate-700" colSpan={5}>
                         Summary ({filteredReceipts.length} {filteredReceipts.length === 1 ? 'Receipt' : 'Receipts'})
                       </td>
                       <td className="py-3 px-4 text-center font-black text-slate-900 whitespace-nowrap">
@@ -778,6 +1012,26 @@ export default function PublicReceiptTrackingPage() {
                 )}
               </table>
             </div>
+
+            {/* Delivered Shipments Hidden Notice (Delivered data hidden by default) */}
+            {!showDelivered && stats.delivered > 0 && (activeStatusTab === 'active' || activeStatusTab === 'transit') && (
+              <div className="p-3 bg-emerald-50/70 border-t border-emerald-200 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-emerald-900">
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>
+                    📦 <strong>{stats.delivered} Delivered shipment(s)</strong> are hidden by default to keep your active shipments focused.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowDelivered(true)}
+                  className="px-3 py-1 bg-white hover:bg-emerald-100 border border-emerald-300 text-emerald-800 font-bold rounded-lg transition text-[11px] flex items-center gap-1.5 cursor-pointer whitespace-nowrap shadow-xs"
+                >
+                  <Eye className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Show Delivered Shipments ({stats.delivered})</span>
+                </button>
+              </div>
+            )}
 
             {/* JPG Report Footer Notice (renders in JPG) */}
             <div className="p-3.5 bg-slate-50 border-t border-slate-200 rounded-b-xl flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-slate-500">
@@ -839,21 +1093,65 @@ export default function PublicReceiptTrackingPage() {
             {/* Modal Body */}
             <div className="p-4 sm:p-6 overflow-y-auto space-y-5 text-xs">
               <form onSubmit={handleSendQuery} className="space-y-4">
-                {/* Receipt Selector */}
+                {/* Multi-Receipt Selector Chips / Badges */}
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Receipt No. *</label>
-                  <select
-                    value={queryReceiptNo}
-                    onChange={(e) => setQueryReceiptNo(e.target.value)}
-                    required
-                    className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none focus:border-blue-600 focus:bg-white transition"
-                  >
-                    {receipts.map((r, i) => (
-                      <option key={i} value={r.receiptNo}>
-                        {r.receiptNo} — {r.itemName || 'Cargo'} ({r.cbm || '0'} m³)
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block font-bold text-slate-700">
+                      Receipt(s) in this query * ({queryReceipts.length} selected)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (queryReceipts.length === receipts.length) {
+                          setQueryReceipts([]);
+                        } else {
+                          setQueryReceipts(receipts.map(r => r.receiptNo));
+                        }
+                      }}
+                      className="text-[11px] text-blue-600 hover:text-blue-800 font-bold cursor-pointer"
+                    >
+                      {queryReceipts.length === receipts.length ? 'Deselect All' : 'Select All'}
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 flex-wrap p-2.5 bg-slate-50 border border-slate-200 rounded-xl max-h-36 overflow-y-auto">
+                    {receipts.map((r, i) => {
+                      const isSelected = queryReceipts.includes(r.receiptNo);
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => {
+                            if (isSelected) {
+                              setQueryReceipts(queryReceipts.filter(x => x !== r.receiptNo));
+                            } else {
+                              setQueryReceipts([...queryReceipts, r.receiptNo]);
+                            }
+                          }}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg font-mono text-xs font-bold transition cursor-pointer ${
+                            isSelected
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'
+                          }`}
+                        >
+                          {isSelected ? (
+                            <CheckSquare className="w-3.5 h-3.5" />
+                          ) : (
+                            <Square className="w-3.5 h-3.5 text-slate-400" />
+                          )}
+                          <span>{r.receiptNo}</span>
+                          <span className="text-[10px] opacity-80 font-sans font-normal">
+                            ({r.ctn ? `${r.ctn} ctn` : `${r.cbm || '0'} m³`})
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {queryReceipts.length === 0 && (
+                    <span className="text-[10px] text-red-600 font-semibold mt-1 block">
+                      ⚠️ Please select at least one receipt number to ask a question about.
+                    </span>
+                  )}
                 </div>
 
                 {/* Sender Details */}
