@@ -1,21 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import ReceiptTracking from '@/models/ReceiptTracking';
+import { calculateRemainDays } from '@/lib/liveTrackingResolver';
 
 export const dynamic = 'force-dynamic';
-
-function calculateRemainDays(etaString?: string): number | null {
-  if (!etaString) return null;
-  const etaDate = new Date(etaString);
-  if (isNaN(etaDate.getTime())) return null;
-
-  const now = new Date();
-  const etaStart = new Date(etaDate.getFullYear(), etaDate.getMonth(), etaDate.getDate());
-  const nowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-  const diffTime = etaStart.getTime() - nowStart.getTime();
-  return Math.round(diffTime / (1000 * 60 * 60 * 24));
-}
 
 // PUT: Update receipt details & ETA
 export async function PUT(
@@ -42,12 +30,23 @@ export async function PUT(
       trackingName
     } = body;
 
-    const doc = await ReceiptTracking.findOne({ 'receipts.id': id });
+    const baseId = id.split('_ship_')[0].split('_wh_')[0];
+    const doc = await ReceiptTracking.findOne({
+      $or: [
+        { 'receipts.id': id },
+        { 'receipts.id': baseId },
+        { 'receipts.receiptNo': id },
+        { 'receipts.receiptNo': baseId }
+      ]
+    });
+
     if (!doc) {
       return NextResponse.json({ success: false, message: 'Receipt not found' }, { status: 404 });
     }
 
-    const receiptIndex = doc.receipts.findIndex((r: any) => r.id === id);
+    const receiptIndex = doc.receipts.findIndex(
+      (r: any) => r.id === id || r.id === baseId || r.receiptNo === id || r.receiptNo === baseId
+    );
     if (receiptIndex === -1) {
       return NextResponse.json({ success: false, message: 'Receipt not found' }, { status: 404 });
     }
@@ -102,7 +101,7 @@ export async function PUT(
   }
 }
 
-// DELETE: Delete a receipt from tracking link
+// DELETE: De-link a receipt from tracking link (Never deletes underlying DB records)
 export async function DELETE(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -111,25 +110,36 @@ export async function DELETE(
     await connectToDatabase();
     const id = params.id;
 
-    const doc = await ReceiptTracking.findOne({ 'receipts.id': id });
+    const baseId = id.split('_ship_')[0].split('_wh_')[0];
+    const doc = await ReceiptTracking.findOne({
+      $or: [
+        { 'receipts.id': id },
+        { 'receipts.id': baseId },
+        { 'receipts.receiptNo': id },
+        { 'receipts.receiptNo': baseId }
+      ]
+    });
+
     if (!doc) {
-      return NextResponse.json({ success: false, message: 'Receipt not found' }, { status: 404 });
+      return NextResponse.json({ success: false, message: 'Receipt not found in tracking links' }, { status: 404 });
     }
 
-    doc.receipts = doc.receipts.filter((r: any) => r.id !== id);
+    doc.receipts = doc.receipts.filter(
+      (r: any) => r.id !== id && r.id !== baseId && r.receiptNo !== id && r.receiptNo !== baseId
+    );
 
-    if (doc.receipts.length === 0) {
-      await ReceiptTracking.findByIdAndDelete(doc._id);
-    } else {
-      doc.updatedAt = new Date();
-      await doc.save();
-    }
+    // Keep the tracking document alive so the customer's link URL stays valid
+    doc.updatedAt = new Date();
+    await doc.save();
 
-    return NextResponse.json({ success: true, message: 'Receipt deleted successfully.' });
+    return NextResponse.json({
+      success: true,
+      message: `Receipt de-linked successfully from tracking link. (Database records remain intact)`
+    });
   } catch (error: any) {
-    console.error('Error deleting receipt:', error);
+    console.error('Error de-linking receipt:', error);
     return NextResponse.json(
-      { success: false, message: error?.message || 'Failed to delete receipt' },
+      { success: false, message: error?.message || 'Failed to de-link receipt' },
       { status: 500 }
     );
   }

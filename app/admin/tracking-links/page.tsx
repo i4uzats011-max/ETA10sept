@@ -422,7 +422,7 @@ export default function AdminTrackingLinksPage() {
 
   const handleBulkDeleteReceipts = async () => {
     if (selectedReceiptIds.size === 0) return;
-    const confirmMsg = `Are you sure you want to delete ${selectedReceiptIds.size} selected receipt(s)? This cannot be undone.`;
+    const confirmMsg = `Are you sure you want to de-link ${selectedReceiptIds.size} selected receipt(s) from this tracking link? (Underlying database cargo records will remain 100% safe)`;
     if (!window.confirm(confirmMsg)) return;
 
     setDeletingBulk(true);
@@ -434,14 +434,14 @@ export default function AdminTrackingLinksPage() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        showToast(`🗑️ ${data.message || 'Deleted successfully'}`);
+        showToast(`✓ ${data.message || 'Receipt(s) de-linked successfully'}`);
         setSelectedReceiptIds(new Set());
         loadData();
       } else {
-        alert(data.message || 'Failed to delete selected receipts');
+        alert(data.message || 'Failed to de-link selected receipts');
       }
     } catch (err) {
-      alert('Network error while deleting selected receipts');
+      alert('Network error while de-linking selected receipts');
     } finally {
       setDeletingBulk(false);
     }
@@ -734,20 +734,20 @@ export default function AdminTrackingLinksPage() {
   };
 
   const handleDelete = async (id: string, receiptNo: string) => {
-    if (!confirm(`Are you sure you want to delete Receipt "${receiptNo}" from tracking?`)) return;
+    if (!confirm(`Are you sure you want to de-link Receipt "${receiptNo}" from this tracking link? (Underlying database cargo records will remain 100% safe)`)) return;
 
     try {
       const res = await fetch(`/api/admin/tracking-links/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (res.ok && data.success) {
-        showToast(`Receipt ${receiptNo} deleted.`);
+        showToast(`Receipt ${receiptNo} de-linked.`);
         loadData();
       } else {
-        alert(data.message || 'Failed to delete.');
+        alert(data.message || 'Failed to de-link.');
       }
     } catch (err) {
       console.error(err);
-      alert('Network error while deleting.');
+      alert('Network error while de-linking.');
     }
   };
 

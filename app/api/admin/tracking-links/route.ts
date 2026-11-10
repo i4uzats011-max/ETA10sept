@@ -2,38 +2,30 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { connectToDatabase } from '@/lib/mongodb';
 import ReceiptTracking, { IReceiptEntry } from '@/models/ReceiptTracking';
+import { resolveLiveReceiptsForTrackingDoc, calculateRemainDays } from '@/lib/liveTrackingResolver';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
-function calculateRemainDays(etaString?: string): number | null {
-  if (!etaString) return null;
-  const etaDate = new Date(etaString);
-  if (isNaN(etaDate.getTime())) return null;
-
-  const now = new Date();
-  const etaStart = new Date(etaDate.getFullYear(), etaDate.getMonth(), etaDate.getDate());
-  const nowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-  const diffTime = etaStart.getTime() - nowStart.getTime();
-  return Math.round(diffTime / (1000 * 60 * 60 * 24));
-}
-
-// GET all tracking records for admin
+// GET all tracking records for admin (resolved 100% LIVE against DB)
 export async function GET(req: NextRequest) {
   try {
     await connectToDatabase();
 
     const trackingDocs = await ReceiptTracking.find({}).sort({ updatedAt: -1 }).lean();
 
-    const flattened = trackingDocs.flatMap((doc: any) => {
-      return (doc.receipts || []).map((r: any) => ({
-        ...r,
-        trackingToken: doc.token,
-        trackingName: doc.name,
-        docId: doc._id.toString(),
-        remainDays: calculateRemainDays(r.eta)
-      }));
-    });
+    const flattened = [];
+    for (const doc of trackingDocs) {
+      const liveList = await resolveLiveReceiptsForTrackingDoc(doc, { includeAdminFields: true });
+      for (const r of liveList) {
+        flattened.push({
+          ...r,
+          trackingToken: doc.token,
+          trackingName: doc.name,
+          docId: doc._id.toString()
+        });
+      }
+    }
 
     // Also collect list of unique tracking tokens for linking dropdown
     const tokenList = trackingDocs.map((doc: any) => ({
@@ -42,11 +34,21 @@ export async function GET(req: NextRequest) {
       receipts: (doc.receipts || []).map((r: any) => r.receiptNo)
     }));
 
-    return NextResponse.json({
-      success: true,
-      receipts: flattened,
-      tokens: tokenList
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        receipts: flattened,
+        tokens: tokenList
+      },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+          'Surrogate-Control': 'no-store'
+        }
+      }
+    );
   } catch (error: any) {
     console.error('Error fetching admin tracking links:', error);
     return NextResponse.json(
@@ -218,35 +220,43 @@ export async function PATCH(req: NextRequest) {
   }
 }
 
-// DELETE: Bulk delete receipts or bulk delete tracking links
+// DELETE: Bulk de-link receipts or delete tracking links (Never deletes underlying DB records)
 export async function DELETE(req: NextRequest) {
   try {
     await connectToDatabase();
     const body = await req.json();
 
-    // Case 1: Bulk delete receipts by IDs: { receiptIds: string[] }
+    // Case 1: Bulk de-link receipts by IDs: { receiptIds: string[] }
     if (Array.isArray(body.receiptIds) && body.receiptIds.length > 0) {
-      const idsToDelete = new Set(body.receiptIds.map(String));
-      const docs = await ReceiptTracking.find({ 'receipts.id': { $in: Array.from(idsToDelete) } });
-      let deletedCount = 0;
+      const rawIds = body.receiptIds.map(String);
+      const baseIds = rawIds.map((id: string) => id.split('_ship_')[0].split('_wh_')[0]);
+      const allTargetIds = new Set([...rawIds, ...baseIds]);
+
+      const docs = await ReceiptTracking.find({
+        $or: [
+          { 'receipts.id': { $in: Array.from(allTargetIds) } },
+          { 'receipts.receiptNo': { $in: Array.from(allTargetIds) } }
+        ]
+      });
+
+      let unlinkedCount = 0;
 
       for (const doc of docs) {
         const initialLen = doc.receipts.length;
-        doc.receipts = doc.receipts.filter((r: any) => !idsToDelete.has(String(r.id)));
-        deletedCount += (initialLen - doc.receipts.length);
+        doc.receipts = doc.receipts.filter(
+          (r: any) => !allTargetIds.has(String(r.id)) && !allTargetIds.has(String(r.receiptNo))
+        );
+        unlinkedCount += (initialLen - doc.receipts.length);
 
-        if (doc.receipts.length === 0) {
-          await ReceiptTracking.findByIdAndDelete(doc._id);
-        } else {
-          doc.updatedAt = new Date();
-          await doc.save();
-        }
+        // Keep the allocated link alive even if empty so customer's URL remains valid
+        doc.updatedAt = new Date();
+        await doc.save();
       }
 
       return NextResponse.json({
         success: true,
-        message: `Successfully deleted ${deletedCount} receipt(s).`,
-        deletedCount
+        message: `Successfully de-linked ${unlinkedCount} receipt(s) from tracking links. (Database records remain intact)`,
+        deletedCount: unlinkedCount
       });
     }
 
@@ -256,7 +266,7 @@ export async function DELETE(req: NextRequest) {
       const result = await ReceiptTracking.deleteMany({ token: { $in: tokensToDelete } });
       return NextResponse.json({
         success: true,
-        message: `Successfully deleted ${result.deletedCount} Allocated Link(s).`,
+        message: `Successfully removed ${result.deletedCount} Allocated Link(s). (Underlying cargo & receipts safe)`,
         deletedCount: result.deletedCount
       });
     }
@@ -266,14 +276,14 @@ export async function DELETE(req: NextRequest) {
       const result = await ReceiptTracking.deleteOne({ token: String(body.token).trim() });
       return NextResponse.json({
         success: true,
-        message: 'Allocated Link deleted successfully.',
+        message: 'Allocated Link removed successfully. (Underlying cargo & receipts safe)',
         deletedCount: result.deletedCount
       });
     }
 
     return NextResponse.json({ success: false, message: 'Invalid delete parameters' }, { status: 400 });
   } catch (error: any) {
-    console.error('Error during bulk deletion:', error);
+    console.error('Error during deletion:', error);
     return NextResponse.json(
       { success: false, message: error?.message || 'Failed to delete' },
       { status: 500 }

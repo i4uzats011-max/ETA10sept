@@ -51,6 +51,7 @@ interface ITrackingQuery {
 }
 
 interface IPublicReceipt {
+  id?: string;
   marka: string;
   receiptNo: string;
   itemName: string;
@@ -64,6 +65,8 @@ interface IPublicReceipt {
   status?: string;
   remainDays: number | null;
   updatedAt?: string;
+  isSplit?: boolean;
+  splitInfo?: string;
 }
 
 function isReceiptDelivered(r: IPublicReceipt): boolean {
@@ -1798,7 +1801,7 @@ export default function PublicReceiptTrackingPage() {
             {/* ── MOBILE CARDS VIEW (Clean, touch-friendly, no horizontal scrolling needed) ── */}
             {mobileViewMode === 'cards' && (
               <div className="md:hidden p-2.5 space-y-3 bg-slate-50/60 no-jpg">
-                {filteredReceipts.map((r) => {
+                {filteredReceipts.map((r, idx) => {
                   const isDelivered = isReceiptDelivered(r);
                   const effDate = isDelivered ? getEffectiveDeliveryDate(r) : r.eta;
                   const dateText = effDate ? formatDisplayDate(effDate) : 'Pending Schedule';
@@ -1807,7 +1810,7 @@ export default function PublicReceiptTrackingPage() {
 
                   return (
                     <div
-                      key={`card-${r.receiptNo}`}
+                      key={`card-${r.id || r.receiptNo}-${idx}`}
                       className={`p-3.5 bg-white border rounded-xl shadow-xs transition ${
                         isSelected ? 'border-blue-400 bg-blue-50/40 ring-1 ring-blue-300' : 'border-slate-200'
                       }`}
@@ -1833,6 +1836,11 @@ export default function PublicReceiptTrackingPage() {
                           >
                             #{r.receiptNo}
                           </button>
+                          {r.splitInfo && (
+                            <span className="font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded text-[10px]">
+                              {r.splitInfo}
+                            </span>
+                          )}
                           <span className="font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-[11px]">
                             {r.marka || linkName || '-'}
                           </span>
@@ -2223,7 +2231,7 @@ export default function PublicReceiptTrackingPage() {
                 <tbody className="divide-y divide-slate-100">
                   {filteredReceipts.map((r, idx) => (
                     <tr
-                      key={r.receiptNo || idx}
+                      key={`row-${r.id || r.receiptNo}-${idx}`}
                       className={`hover:bg-blue-50/40 transition-colors odd:bg-white even:bg-slate-50/30 ${
                         selectedReceiptNos.has(r.receiptNo) ? 'bg-blue-50/70 ring-1 ring-inset ring-blue-300' : ''
                       }`}
@@ -2254,6 +2262,11 @@ export default function PublicReceiptTrackingPage() {
                         >
                           <Package className="w-3.5 h-3.5 text-blue-500 group-hover:scale-110 transition-transform" />
                           <span>{r.receiptNo}</span>
+                          {r.splitInfo && (
+                            <span className="text-[10px] text-indigo-700 font-extrabold bg-indigo-50 border border-indigo-200 px-1.5 py-0.2 rounded ml-1">
+                              {r.splitInfo}
+                            </span>
+                          )}
                           <span className="no-jpg text-[10px] text-blue-500 font-sans font-normal opacity-80 group-hover:opacity-100 flex items-center gap-0.5 ml-1">
                             <MessageCircle className="w-3 h-3" /> Ask
                           </span>
