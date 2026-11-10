@@ -97,6 +97,93 @@ function cleanDisplayStatus(status?: string): string {
   return status.replace(/\s*\([^)]*\)/g, '').trim() || 'In Transit';
 }
 
+interface IReceiptColorTheme {
+  borderHex: string;
+  pillBg: string;
+  pillBorder: string;
+  pillText: string;
+  badgeHex: string;
+  dotBg: string;
+}
+
+const RECEIPT_PALETTES: IReceiptColorTheme[] = [
+  {
+    borderHex: '#2563eb', // Blue
+    pillBg: '#eff6ff',
+    pillBorder: '#bfdbfe',
+    pillText: '#1e40af',
+    badgeHex: 'FFEBF8FF',
+    dotBg: 'bg-blue-600'
+  },
+  {
+    borderHex: '#16a34a', // Emerald Green
+    pillBg: '#f0fdf4',
+    pillBorder: '#bbf7d0',
+    pillText: '#166534',
+    badgeHex: 'FFF0FDF4',
+    dotBg: 'bg-emerald-600'
+  },
+  {
+    borderHex: '#9333ea', // Purple
+    pillBg: '#f5f3ff',
+    pillBorder: '#ddd6fe',
+    pillText: '#6b21a8',
+    badgeHex: 'FFF5F3FF',
+    dotBg: 'bg-purple-600'
+  },
+  {
+    borderHex: '#ea580c', // Orange / Amber
+    pillBg: '#fff7ed',
+    pillBorder: '#fed7aa',
+    pillText: '#9a3412',
+    badgeHex: 'FFFFF7ED',
+    dotBg: 'bg-orange-600'
+  },
+  {
+    borderHex: '#e11d48', // Rose / Red
+    pillBg: '#fff1f2',
+    pillBorder: '#fecdd3',
+    pillText: '#9f1239',
+    badgeHex: 'FFFFF1F2',
+    dotBg: 'bg-rose-600'
+  },
+  {
+    borderHex: '#0891b2', // Cyan / Teal
+    pillBg: '#ecfeff',
+    pillBorder: '#a5f3fc',
+    pillText: '#155e75',
+    badgeHex: 'FFECFEFF',
+    dotBg: 'bg-cyan-600'
+  },
+  {
+    borderHex: '#4f46e5', // Indigo
+    pillBg: '#eef2ff',
+    pillBorder: '#c7d2fe',
+    pillText: '#3730a3',
+    badgeHex: 'FFEEF2FF',
+    dotBg: 'bg-indigo-600'
+  },
+  {
+    borderHex: '#0d9488', // Teal
+    pillBg: '#f0fdfa',
+    pillBorder: '#99f6e4',
+    pillText: '#115e59',
+    badgeHex: 'FFF0FDFA',
+    dotBg: 'bg-teal-600'
+  }
+];
+
+// Returns consistent color theme for rows sharing the same Receipt No.
+function getReceiptColorTheme(receiptNo: string, allList: IPublicReceipt[]): IReceiptColorTheme {
+  const clean = (receiptNo || '').trim().toUpperCase();
+  const distinct = Array.from(new Set(allList.map(r => (r.receiptNo || '').trim().toUpperCase()))).filter(Boolean);
+  const idx = distinct.indexOf(clean);
+  const colorIdx = idx >= 0
+    ? idx % RECEIPT_PALETTES.length
+    : Math.abs(clean.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)) % RECEIPT_PALETTES.length;
+  return RECEIPT_PALETTES[colorIdx];
+}
+
 // Robust ETA Date Parser supporting chronological sorting (e.g. 12 sep, 10 oct, 4 nov, 8 nov)
 function parseEtaTimestamp(val?: string | null): number | null {
   if (!val) return null;
@@ -1807,10 +1894,12 @@ export default function PublicReceiptTrackingPage() {
                   const dateText = effDate ? formatDisplayDate(effDate) : 'Pending Schedule';
                   const cleanStat = cleanDisplayStatus(r.status);
                   const isSelected = selectedReceiptNos.has(r.receiptNo);
+                  const colorTheme = getReceiptColorTheme(r.receiptNo, receipts);
 
                   return (
                     <div
                       key={`card-${r.id || r.receiptNo}-${idx}`}
+                      style={{ borderLeft: `5px solid ${colorTheme.borderHex}` }}
                       className={`p-3.5 bg-white border rounded-xl shadow-xs transition ${
                         isSelected ? 'border-blue-400 bg-blue-50/40 ring-1 ring-blue-300' : 'border-slate-200'
                       }`}
@@ -1832,9 +1921,15 @@ export default function PublicReceiptTrackingPage() {
                           <button
                             type="button"
                             onClick={() => openQueryModal(r.receiptNo)}
-                            className="font-mono font-black text-blue-800 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md text-xs cursor-pointer hover:bg-blue-100"
+                            style={{
+                              backgroundColor: colorTheme.pillBg,
+                              borderColor: colorTheme.pillBorder,
+                              color: colorTheme.pillText
+                            }}
+                            className="inline-flex items-center gap-1 font-mono font-black border px-2 py-0.5 rounded-md text-xs cursor-pointer hover:opacity-80 transition"
                           >
-                            #{r.receiptNo}
+                            <span className={`w-1.5 h-1.5 rounded-full ${colorTheme.dotBg} inline-block shrink-0`} />
+                            <span>#{r.receiptNo}</span>
                           </button>
                           {r.splitInfo && (
                             <span className="font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded text-[10px]">
@@ -2229,9 +2324,12 @@ export default function PublicReceiptTrackingPage() {
                 </thead>
 
                 <tbody className="divide-y divide-slate-100">
-                  {filteredReceipts.map((r, idx) => (
+                  {filteredReceipts.map((r, idx) => {
+                    const colorTheme = getReceiptColorTheme(r.receiptNo, receipts);
+                    return (
                     <tr
                       key={`row-${r.id || r.receiptNo}-${idx}`}
+                      style={{ borderLeft: `5px solid ${colorTheme.borderHex}` }}
                       className={`hover:bg-blue-50/40 transition-colors odd:bg-white even:bg-slate-50/30 ${
                         selectedReceiptNos.has(r.receiptNo) ? 'bg-blue-50/70 ring-1 ring-inset ring-blue-300' : ''
                       }`}
@@ -2258,16 +2356,22 @@ export default function PublicReceiptTrackingPage() {
                           type="button"
                           onClick={() => openQueryModal(r.receiptNo)}
                           title="Click to ask a query about this receipt"
-                          className="inline-flex items-center gap-1.5 font-mono font-bold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 hover:border-blue-400 px-2.5 py-1 rounded-md text-xs cursor-pointer transition shadow-xs group"
+                          style={{
+                            backgroundColor: colorTheme.pillBg,
+                            borderColor: colorTheme.pillBorder,
+                            color: colorTheme.pillText
+                          }}
+                          className="inline-flex items-center gap-1.5 font-mono font-bold border px-2.5 py-1 rounded-md text-xs cursor-pointer hover:opacity-85 transition shadow-xs group"
                         >
-                          <Package className="w-3.5 h-3.5 text-blue-500 group-hover:scale-110 transition-transform" />
+                          <span className={`w-2 h-2 rounded-full ${colorTheme.dotBg} inline-block shrink-0`} />
+                          <Package className="w-3.5 h-3.5 opacity-80 group-hover:scale-110 transition-transform" />
                           <span>{r.receiptNo}</span>
                           {r.splitInfo && (
-                            <span className="text-[10px] text-indigo-700 font-extrabold bg-indigo-50 border border-indigo-200 px-1.5 py-0.2 rounded ml-1">
+                            <span className="text-[10px] font-extrabold bg-white/80 border border-current px-1.5 py-0.2 rounded ml-1">
                               {r.splitInfo}
                             </span>
                           )}
-                          <span className="no-jpg text-[10px] text-blue-500 font-sans font-normal opacity-80 group-hover:opacity-100 flex items-center gap-0.5 ml-1">
+                          <span className="no-jpg text-[10px] font-sans font-normal opacity-80 group-hover:opacity-100 flex items-center gap-0.5 ml-1">
                             <MessageCircle className="w-3 h-3" /> Ask
                           </span>
                         </button>
@@ -2360,7 +2464,8 @@ export default function PublicReceiptTrackingPage() {
                         {r.ctn && r.ctn !== '-' ? `${r.ctn} ctn` : '-'}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
 
                 {/* Table Footer Summary Row */}
@@ -2725,7 +2830,7 @@ export default function PublicReceiptTrackingPage() {
 
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">
-                    2. Carton Count (CTN) *
+                    2. Total Received CTN (Cartons Received in Warehouse) *
                   </label>
                   <input
                     type="text"
@@ -2735,8 +2840,8 @@ export default function PublicReceiptTrackingPage() {
                     onChange={(e) => setAddCtn(e.target.value)}
                     className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:border-emerald-600 font-bold text-slate-900"
                   />
-                  <span className="text-[10px] text-slate-400 mt-0.5 block">
-                    Exact number of packages / cartons
+                  <span className="text-[10px] text-slate-500 mt-0.5 block font-medium">
+                    Enter the total carton count received in warehouse as per warehouse receipt slip.
                   </span>
                 </div>
 

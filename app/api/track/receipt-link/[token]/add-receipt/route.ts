@@ -3,21 +3,10 @@ import { connectToDatabase } from '@/lib/mongodb';
 import ReceiptTracking, { IReceiptEntry } from '@/models/ReceiptTracking';
 import Shipment from '@/models/Shipment';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
+import { calculateRemainDays } from '@/lib/liveTrackingResolver';
 
 export const dynamic = 'force-dynamic';
-
-function calculateRemainDays(etaString?: string): number | null {
-  if (!etaString) return null;
-  const etaDate = new Date(etaString);
-  if (isNaN(etaDate.getTime())) return null;
-
-  const now = new Date();
-  const etaStart = new Date(etaDate.getFullYear(), etaDate.getMonth(), etaDate.getDate());
-  const nowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-  const diffTime = etaStart.getTime() - nowStart.getTime();
-  return Math.round(diffTime / (1000 * 60 * 60 * 24));
-}
+export const revalidate = 0;
 
 function normalizeCarton(val: any): number | null {
   if (val === null || val === undefined) return null;
@@ -27,7 +16,7 @@ function normalizeCarton(val: any): number | null {
   return isNaN(num) ? null : num;
 }
 
-// POST: Public user self-adds a receipt with verification of Receipt No. and Carton Count (CTN)
+// POST: Public user self-adds a receipt with verification of Receipt No. and Total CTN Received in Warehouse
 export async function POST(
   req: NextRequest,
   { params }: { params: { token: string } }
@@ -46,12 +35,18 @@ export async function POST(
       return NextResponse.json({ success: false, message: 'Receipt No. is required' }, { status: 400 });
     }
     if (inputCtn === undefined || inputCtn === null || String(inputCtn).trim() === '') {
-      return NextResponse.json({ success: false, message: 'Carton Count (CTN) is required for verification' }, { status: 400 });
+      return NextResponse.json({
+        success: false,
+        message: 'Total Received Carton Count (CTN received in warehouse) is required for verification'
+      }, { status: 400 });
     }
 
     const inputCtnNum = normalizeCarton(inputCtn);
     if (inputCtnNum === null) {
-      return NextResponse.json({ success: false, message: 'Please enter a valid numeric Carton Count (CTN)' }, { status: 400 });
+      return NextResponse.json({
+        success: false,
+        message: 'Please enter a valid numeric Carton Count (CTN)'
+      }, { status: 400 });
     }
 
     await connectToDatabase();
@@ -73,23 +68,34 @@ export async function POST(
       }, { status: 400 });
     }
 
-    // 3. Search database for this receipt (Shipment or WarehouseReceipt or other tracking links)
+    // 3. Search database for this receipt (WarehouseReceipt has total received CTN in warehouse)
     const receiptRegex = new RegExp(`^${inputReceiptNo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
 
+    const whItem: any = await WarehouseReceipt.findOne({ receipt: receiptRegex }).lean();
+    const shipments: any[] = await Shipment.find({ receipt: receiptRegex }).lean();
+
     let matchedRecord: any = null;
+    let totalWarehouseCtnNum: number | null = null;
     let recordSource = '';
 
-    // Check Shipment
-    const shipment: any = await Shipment.findOne({ receipt: receiptRegex }).lean();
-    if (shipment) {
-      matchedRecord = shipment;
-      recordSource = 'shipment';
-    } else {
-      // Check WarehouseReceipt
-      const whItem: any = await WarehouseReceipt.findOne({ receipt: receiptRegex }).lean();
-      if (whItem) {
-        matchedRecord = whItem;
-        recordSource = 'warehouse';
+    if (whItem) {
+      matchedRecord = whItem;
+      recordSource = 'warehouse';
+      totalWarehouseCtnNum = normalizeCarton(whItem.quantity);
+    }
+
+    if (shipments.length > 0) {
+      if (!matchedRecord) {
+        matchedRecord = shipments[0];
+        recordSource = 'shipment';
+      }
+      // Check original total quantity or sum across split shipments
+      const origQty = normalizeCarton(shipments[0]?.originalTotalQuantity);
+      if (origQty !== null && origQty > 0) {
+        if (totalWarehouseCtnNum === null) totalWarehouseCtnNum = origQty;
+      } else if (totalWarehouseCtnNum === null) {
+        const sumQty = shipments.reduce((acc, s) => acc + (normalizeCarton(s.quantity) || 0), 0);
+        if (sumQty > 0) totalWarehouseCtnNum = sumQty;
       }
     }
 
@@ -103,42 +109,40 @@ export async function POST(
         if (found) {
           matchedRecord = found;
           recordSource = 'receipt_tracking';
+          totalWarehouseCtnNum = normalizeCarton(found.ctn);
         }
       }
     }
 
-    if (!matchedRecord) {
+    if (!matchedRecord || totalWarehouseCtnNum === null) {
       return NextResponse.json({
         success: false,
         message: `Receipt #${inputReceiptNo} was not found in shipment records. Please verify the receipt number on your warehouse slip.`
       }, { status: 404 });
     }
 
-    // 4. Verify CTN (Cartons) match
-    const dbCtnVal = matchedRecord.quantity !== undefined ? matchedRecord.quantity : matchedRecord.ctn;
-    const dbCtnNum = normalizeCarton(dbCtnVal);
-
-    if (dbCtnNum === null || dbCtnNum !== inputCtnNum) {
+    // 4. Verify CTN matches TOTAL CTN RECEIVED IN WAREHOUSE
+    if (totalWarehouseCtnNum !== inputCtnNum) {
       return NextResponse.json({
         success: false,
-        message: `Verification failed: Carton count (CTN) does not match our warehouse records for Receipt #${inputReceiptNo}. Please check your warehouse slip.`
+        message: `Verification failed: Carton count (${inputCtn} CTN) does not match total packages received in warehouse for Receipt #${inputReceiptNo}. Please enter the total CTN received as per your warehouse slip.`
       }, { status: 400 });
     }
 
-    // 5. Verification passed: both receipt and ctn are ok!
+    // 5. Verification passed: both receipt and total CTN are verified
     const newEntry: IReceiptEntry = {
       id: 'rec_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
       receiptNo: matchedRecord.receipt || matchedRecord.receiptNo || inputReceiptNo,
       marka: String(matchedRecord.mainMarka || matchedRecord.subMarka || matchedRecord.marka || trackingDoc.name || '').trim(),
       itemName: String(matchedRecord.english || matchedRecord.commodity || matchedRecord.chinese || matchedRecord.itemName || (matchedRecord.items && matchedRecord.items[0]?.itemName) || '').trim(),
       cbm: String(matchedRecord.volume || matchedRecord.cbm || '').trim(),
-      ctn: String(dbCtnNum),
+      ctn: String(totalWarehouseCtnNum),
       weight: String(matchedRecord.weight || '').trim(),
-      containerNo: String(matchedRecord.container || matchedRecord.containerNo || '').trim(), // Public display container alias (never actual)
+      containerNo: String(matchedRecord.container || matchedRecord.containerNo || 'In Warehouse (Not Loaded)').trim(),
       actualContainerNo: '',
       eta: String(matchedRecord.destinationDate || matchedRecord.eta || '').trim(),
       status: String(matchedRecord.status || (recordSource === 'warehouse' ? 'Received in Warehouse' : 'In Transit')).trim(),
-      adminNotes: 'Self-added by customer via tracking link with verified CTN count',
+      adminNotes: 'Self-added by customer via tracking link with verified warehouse total CTN',
       createdAt: new Date(),
       updatedAt: new Date()
     };
@@ -149,7 +153,7 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-      message: `✓ Receipt #${newEntry.receiptNo} (${newEntry.ctn} CTN) verified and added to your tracking link!`,
+      message: `✓ Receipt #${newEntry.receiptNo} (Total ${newEntry.ctn} CTN in Warehouse) verified & linked successfully!`,
       receipt: {
         marka: newEntry.marka || trackingDoc.name || '-',
         receiptNo: newEntry.receiptNo,
@@ -161,6 +165,10 @@ export async function POST(
         eta: newEntry.eta || null,
         status: newEntry.status,
         remainDays: calculateRemainDays(newEntry.eta)
+      }
+    }, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'
       }
     });
 
