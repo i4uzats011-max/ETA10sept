@@ -1725,7 +1725,7 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
       'Loading Status': r.status || 'Received in Warehouse',
       'Stock Status': r.stockstatus || 'In Stock',
       'Party': r.party || '',
-      'Phone': r.phone || '',
+      'Phone': (r as any).phone || '',
       'Remarks': r.remarks || r.notes || '',
     }));
 
