@@ -36,9 +36,10 @@ export interface ShippingLineItem {
 
 interface Props {
   onLinesUpdated?: () => void;
+  readOnly?: boolean;
 }
 
-export default function ShippingLineManager({ onLinesUpdated }: Props) {
+export default function ShippingLineManager({ onLinesUpdated, readOnly = false }: Props) {
   const [lines, setLines] = useState<ShippingLineItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -305,14 +306,16 @@ export default function ShippingLineManager({ onLinesUpdated }: Props) {
               <span>Refresh</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => setIsAddOpen(true)}
-              className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black transition shadow-sm flex items-center space-x-1.5"
-            >
-              <Plus className="w-4 h-4" />
-              <span>+ Add Shipping Line</span>
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => setIsAddOpen(true)}
+                className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black transition shadow-sm flex items-center space-x-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                <span>+ Add Shipping Line</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -503,46 +506,50 @@ export default function ShippingLineManager({ onLinesUpdated }: Props) {
 
                       {/* Actions */}
                       <td className="py-3.5 px-4 text-right">
-                        <div className="inline-flex items-center space-x-1.5">
-                          {/* Edit Button */}
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEdit(line)}
-                            className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition flex items-center space-x-1"
-                            title="Edit Shipping Line details"
-                          >
-                            <Edit className="w-3 h-3" />
-                            <span>Edit</span>
-                          </button>
+                        {readOnly ? (
+                          <span className="text-slate-400 text-xs italic">View Only</span>
+                        ) : (
+                          <div className="inline-flex items-center space-x-1.5">
+                            {/* Edit Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEdit(line)}
+                              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition flex items-center space-x-1"
+                              title="Edit Shipping Line details"
+                            >
+                              <Edit className="w-3 h-3" />
+                              <span>Edit</span>
+                            </button>
 
-                          {/* Delete Button */}
-                          <button
-                            type="button"
-                            onClick={() => handleRequestDelete(line)}
-                            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1 ${
-                              line.isMapped
-                                ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
-                                : 'bg-red-50 hover:bg-red-100 text-red-700 border border-red-200'
-                            }`}
-                            title={
-                              line.isMapped
-                                ? `Cannot delete: Mapped in ${line.containerCount} containers & ${line.shipmentCount} shipments`
-                                : 'Delete this unmapped shipping line'
-                            }
-                          >
-                            {line.isMapped ? (
-                              <>
-                                <Lock className="w-3 h-3" />
-                                <span>Locked</span>
-                              </>
-                            ) : (
-                              <>
-                                <Trash2 className="w-3 h-3" />
-                                <span>Delete</span>
-                              </>
-                            )}
-                          </button>
-                        </div>
+                            {/* Delete Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleRequestDelete(line)}
+                              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1 ${
+                                line.isMapped
+                                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+                                  : 'bg-red-50 hover:bg-red-100 text-red-700 border border-red-200'
+                              }`}
+                              title={
+                                line.isMapped
+                                  ? `Cannot delete: Mapped in ${line.containerCount} containers & ${line.shipmentCount} shipments`
+                                  : 'Delete this unmapped shipping line'
+                              }
+                            >
+                              {line.isMapped ? (
+                                <>
+                                  <Lock className="w-3 h-3" />
+                                  <span>Locked</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Trash2 className="w-3 h-3" />
+                                  <span>Delete</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );

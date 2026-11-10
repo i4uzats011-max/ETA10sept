@@ -12,7 +12,8 @@ import {
   AlertTriangle, FileSpreadsheet, Image as ImageIcon, FileText,
   X, SlidersHorizontal, FileType, Star, Bookmark, ChevronDown,
   LayoutGrid, Filter, Check, CheckCircle2, Clock, TrendingUp, ArrowUpDown,
-  CheckSquare, Square, Eye, EyeOff, Lock, Key, Languages, ExternalLink, Copy
+  CheckSquare, Square, Eye, EyeOff, Lock, Key, Languages, ExternalLink, Copy,
+  Link2, Plus, Anchor, MessageSquare, Warehouse, Tag
 } from 'lucide-react';
 import { getCarrierTrackingUrl, getLdbRailwayTrackingUrl } from '@/lib/trackingUrls';
 import {
@@ -25,6 +26,9 @@ import {
 } from '@/lib/dateUtils';
 import { translateToEnglish } from '@/lib/translate';
 import CargoMasterTable from '@/components/CargoMasterTable';
+import LoaderHub from '@/components/LoaderHub';
+import ShippingLineManager from '@/components/ShippingLineManager';
+import PartyArrivalNotifications from '@/components/PartyArrivalNotifications';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
 import LiveTranslatorModal from '@/components/LiveTranslatorModal';
 import { ReduxProvider } from '@/store/ReduxProvider';
@@ -293,6 +297,7 @@ export default function InternalEmployeeViewPage() {
   const [showStatus, setShowStatus] = useState(false);
   const [showDestination, setShowDestination] = useState(false);
   const [showSource, setShowSource] = useState(false);
+  const [showTrackingLink, setShowTrackingLink] = useState(true);
 
   // Row Marking: 'bold' = primary mark (gold star), 'sub' = sub-mark (blue bookmark)
   const [rowMarks, setRowMarks] = useState<Record<string, MarkType>>({});
@@ -319,6 +324,7 @@ export default function InternalEmployeeViewPage() {
   const [selectedSubMarks, setSelectedSubMarks] = useState<Set<string>>(new Set());
   const [selectedStatuses, setSelectedStatuses] = useState<Set<string>>(new Set());
   const [selectedWarehouseEntries, setSelectedWarehouseEntries] = useState<Set<string>>(new Set());
+  const [selectedTrackingFilters, setSelectedTrackingFilters] = useState<Set<string>>(new Set());
   const [selectedRowMarks, setSelectedRowMarks] = useState<Set<string>>(new Set());
   const [selectedTurnaroundStatuses, setSelectedTurnaroundStatuses] = useState<Set<string>>(new Set());
 
@@ -343,49 +349,107 @@ export default function InternalEmployeeViewPage() {
   const [trackingToast, setTrackingToast] = useState<string | null>(null);
   const [isGeneratingLink, setIsGeneratingLink] = useState(false);
 
+  // Tracking Links & Mappings State (Live resolved from DB)
+  const [trackingTokensList, setTrackingTokensList] = useState<Array<{ token: string; name?: string; receipts: string[] }>>([]);
+  const [linkedReceiptsMap, setLinkedReceiptsMap] = useState<Map<string, Array<{ token: string; name: string }>>>(new Map());
+  const [isLoadingTrackingLinks, setIsLoadingTrackingLinks] = useState(false);
+
+  // Dedicated Generate / Add-to Link Modal State
+  const [linkModalData, setLinkModalData] = useState<{
+    open: boolean;
+    items: any[];
+    mode: 'new' | 'existing';
+    newName: string;
+    selectedToken: string;
+  } | null>(null);
+
   const showTrackingToast = (msg: string) => {
     setTrackingToast(msg);
     setTimeout(() => setTrackingToast(null), 3000);
   };
 
-  // Generate tracking link for multiple receipts (Filtered or Selected) - 100% auto-filled
-  const handleGenerateTrackingLink = async (targetItems?: any[]) => {
-    const itemsToLink = targetItems || (selectedReceiptIds.size > 0 
+  const fetchTrackingLinks = async () => {
+    setIsLoadingTrackingLinks(true);
+    try {
+      const res = await fetch('/api/admin/tracking-links');
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTrackingTokensList(data.tokens || []);
+        const map = new Map<string, Array<{ token: string; name: string }>>();
+        (data.receipts || []).forEach((r: any) => {
+          const rKey = (r.receiptNo || '').toLowerCase().trim();
+          if (!rKey) return;
+          if (!map.has(rKey)) map.set(rKey, []);
+          map.get(rKey)!.push({
+            token: r.trackingToken,
+            name: r.trackingName || r.name || r.trackingToken
+          });
+        });
+        setLinkedReceiptsMap(map);
+      }
+    } catch (err) {
+      console.error('Failed to load tracking links in employee view:', err);
+    } finally {
+      setIsLoadingTrackingLinks(false);
+    }
+  };
+
+  const openGenerateLinkModal = (targetItems?: any[]) => {
+    const items = targetItems || (selectedReceiptIds.size > 0 
       ? filteredShipments.filter(s => selectedReceiptIds.has(s._id))
       : filteredShipments);
 
-    if (!itemsToLink || itemsToLink.length === 0) {
-      alert('No cargo records available to generate link.');
+    if (!items || items.length === 0) {
+      alert('No cargo records available to link.');
       return;
     }
 
-    const defaultName = itemsToLink[0]?.mainMarka || itemsToLink[0]?.subMarka || itemsToLink[0]?.party || `Shipment (${itemsToLink.length} receipts)`;
-    const allocatedName = window.prompt(
-      `Enter an Allocated Name / Marka for this link (so you can map new receipts to it next time):`,
-      defaultName
-    );
+    const defaultName = items[0]?.mainMarka || items[0]?.subMarka || items[0]?.party || `Shipment (${items.length} receipts)`;
+    const defaultToken = trackingTokensList.length > 0 ? trackingTokensList[0].token : '';
 
-    if (allocatedName === null) {
+    setLinkModalData({
+      open: true,
+      items,
+      mode: 'new',
+      newName: defaultName,
+      selectedToken: defaultToken
+    });
+  };
+
+  const handleConfirmLink = async () => {
+    if (!linkModalData) return;
+    const { items, mode, newName, selectedToken } = linkModalData;
+
+    if (mode === 'new' && !newName.trim()) {
+      alert('Please enter a name for the new tracking link.');
       return;
     }
+    if (mode === 'existing' && !selectedToken) {
+      alert('Please select an existing tracking link.');
+      return;
+    }
+
+    const existingObj = trackingTokensList.find(t => t.token === selectedToken);
+    const targetName = mode === 'new' ? newName.trim() : (existingObj?.name || newName.trim() || 'Tracking Link');
 
     setIsGeneratingLink(true);
     try {
       const payload = {
-        trackingTokenOption: 'new',
-        trackingName: allocatedName.trim() || defaultName,
-        items: itemsToLink.map(item => ({
+        trackingTokenOption: mode,
+        existingToken: mode === 'existing' ? selectedToken : undefined,
+        trackingName: targetName,
+        items: items.map(item => ({
           receiptNo: item.receipt,
-          marka: item.mainMarka || item.subMarka || item.party || allocatedName.trim() || defaultName,
+          marka: item.mainMarka || item.subMarka || item.party || targetName,
           itemName: translateToEnglish(item.english || item.commodity || item.chinese),
           cbm: item.volume,
           ctn: item.quantity,
           weight: item.weight,
-          containerNo: item.container, // Container alias (not actual)
-          actualContainerNo: item.containerNumber, // Admin record (hidden from public)
+          containerNo: item.container,
+          actualContainerNo: item.containerNumber,
           eta: item.destinationDate || item.eta,
           status: item.status || 'In Transit',
-          adminNotes: `Allocated to ${allocatedName.trim() || defaultName} from Cargo Master Table on ${new Date().toLocaleDateString()}`
+          adminNotes: `Mapped in Employee View on ${new Date().toLocaleDateString()}`
         }))
       };
 
@@ -397,83 +461,44 @@ export default function InternalEmployeeViewPage() {
       const data = await res.json();
 
       if (res.ok && data.success) {
-        const fullUrl = `${window.location.origin}/track/${data.trackingToken}`;
-        const customerMessage = `US INTERNATIONAL LOGISTICS 📦\nShipment Tracking Update\nMarka / Party: ${allocatedName.trim() || defaultName}\nReceipt No.: ${itemsToLink.map(i => i.receipt).join(', ')}\n\nLive Tracking Link:\n${fullUrl}\n\nyou can track this via link 24 hrs`;
+        const finalToken = data.trackingToken || (mode === 'existing' ? selectedToken : '');
+        const fullUrl = `${window.location.origin}/track/${finalToken}`;
+        const customerMessage = `US INTERNATIONAL LOGISTICS 📦\nShipment Tracking Update\nMarka / Party: ${targetName}\nReceipt No.: ${items.map(i => i.receipt).join(', ')}\n\nLive Tracking Link:\n${fullUrl}\n\nyou can track this via link 24 hrs`;
 
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(customerMessage);
         }
+
+        setLinkModalData(null);
+        setSelectedReceiptIds(new Set());
+        fetchTrackingLinks();
+
         setTrackingModalData({
           open: true,
-          token: data.trackingToken,
-          count: data.count,
-          receipts: itemsToLink.map(i => i.receipt).slice(0, 10),
+          token: finalToken,
+          count: data.count || items.length,
+          receipts: items.map(i => i.receipt).slice(0, 10),
           customerMessage
         });
-        showTrackingToast(`✅ Public link allocated & message copied! "you can track this via link 24 hrs"`);
+
+        showTrackingToast(
+          mode === 'new'
+            ? `✅ New link "${targetName}" generated & copied!`
+            : `✅ Added ${items.length} receipt(s) to existing link "${targetName}"!`
+        );
       } else {
-        alert(data.message || 'Failed to generate link.');
+        alert(data.message || 'Failed to save tracking link.');
       }
     } catch (err) {
       console.error(err);
-      alert('Error generating link.');
+      alert('Error processing tracking link request.');
     } finally {
       setIsGeneratingLink(false);
     }
   };
-
-  // Generate tracking link from a single row to remind party/customer - 100% auto-filled
-  const handleGenerateRowLink = async (item: any) => {
-    setIsGeneratingLink(true);
-    try {
-      const allocatedName = item.mainMarka || item.party || `Receipt #${item.receipt}`;
-      const payload = {
-        trackingTokenOption: 'new',
-        trackingName: allocatedName,
-        items: [{
-          receiptNo: item.receipt,
-          marka: item.mainMarka || item.subMarka || item.party || allocatedName,
-          itemName: translateToEnglish(item.english || item.commodity || item.chinese),
-          cbm: item.volume,
-          ctn: item.quantity,
-          weight: item.weight,
-          containerNo: item.container, // Container alias (not actual)
-          actualContainerNo: item.containerNumber,
-          eta: item.destinationDate || item.eta,
-          status: item.status || 'In Transit',
-          adminNotes: `Reminder link for ${allocatedName}`
-        }]
-      };
-
-      const res = await fetch('/api/admin/tracking-links', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json();
-
-      if (res.ok && data.success) {
-        const fullUrl = `${window.location.origin}/track/${data.trackingToken}`;
-        const customerMessage = `US INTERNATIONAL LOGISTICS 📦\nShipment Tracking Reminder\nMarka: ${allocatedName}\nReceipt No.: ${item.receipt}\nItem: ${item.english || item.commodity || item.chinese || '-'}\nETA: ${item.destinationDate || item.eta || 'Pending Schedule'}\n\nLive Tracking Link:\n${fullUrl}\n\nyou can track this via link 24 hrs`;
-
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(customerMessage);
-        }
-        showTrackingToast(`📋 Reminder message copied! "you can track this via link 24 hrs"`);
-      } else {
-        alert(data.message || 'Failed to generate link.');
-      }
-    } catch (err) {
-      console.error(err);
-      alert('Error creating link for row.');
-    } finally {
-      setIsGeneratingLink(false);
-    }
-  };
-
 
   // ── MODULAR EMPLOYEE MENU TABS (Read-Only) ──
-  type EmployeeTab = 'shipments' | 'containers';
+  type EmployeeTab = 'shipments' | 'loader-hub' | 'containers' | 'shipping-lines' | 'notifications';
   const [activeEmployeeTab, setActiveEmployeeTab] = useState<EmployeeTab>('shipments');
 
   // ── CONTAINER FLEET TABLE STATE ──
@@ -652,6 +677,7 @@ export default function InternalEmployeeViewPage() {
           setUserRole(data.role || 'staff');
           fetchAllShipments();
           fetchContainerFleet();
+          fetchTrackingLinks();
         }
       })
       .catch(() => router.push('/admin/login'));
@@ -682,6 +708,16 @@ export default function InternalEmployeeViewPage() {
   const uniqueSubMarks = useMemo(() => [...new Set(shipments.map((s) => s.subMarka).filter(Boolean))].sort(), [shipments]);
   const uniqueStatuses = useMemo(() => [...new Set(shipments.map((s) => s.status).filter(Boolean))].sort(), [shipments]);
   const uniqueWarehouseEntries = useMemo(() => [...new Set(shipments.map((s) => s.warehouseEntry).filter(Boolean))].sort(), [shipments]);
+  const uniqueTrackingFilterOptions = useMemo(() => {
+    const set = new Set<string>();
+    set.add('Already Linked');
+    set.add('Not Linked');
+    trackingTokensList.forEach((t) => {
+      if (t.name && t.name.trim()) set.add(t.name.trim());
+      else if (t.token) set.add(t.token);
+    });
+    return Array.from(set);
+  }, [trackingTokensList]);
 
   // Container lookup map for synchronizing delivery & ETA status across shipments
   const containerFleetMap = useMemo(() => {

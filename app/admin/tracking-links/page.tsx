@@ -79,6 +79,7 @@ interface ITokenOption {
 }
 
 export default function AdminTrackingLinksPage() {
+  const [currentUserRole, setCurrentUserRole] = useState<'admin' | 'staff' | 'developer'>('staff');
   const [receipts, setReceipts] = useState<IAdminReceipt[]>([]);
   const [tokens, setTokens] = useState<ITokenOption[]>([]);
   const [loading, setLoading] = useState(true);
@@ -398,6 +399,12 @@ export default function AdminTrackingLinksPage() {
   };
 
   useEffect(() => {
+    fetch('/api/auth/me')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d && d.role) setCurrentUserRole(d.role);
+      })
+      .catch(() => {});
     loadData();
     loadQueries();
     loadAvailableReceipts();
@@ -924,13 +931,15 @@ export default function AdminTrackingLinksPage() {
               )}
             </button>
 
-            <button
-              onClick={() => setIsLinksManagerOpen(true)}
-              className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold px-3.5 py-2.5 rounded-xl shadow-md transition cursor-pointer"
-            >
-              <Tag className="w-4 h-4 text-emerald-400" />
-              <span>Manage Links ({tokens.length})</span>
-            </button>
+            {currentUserRole !== 'staff' && (
+              <button
+                onClick={() => setIsLinksManagerOpen(true)}
+                className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold px-3.5 py-2.5 rounded-xl shadow-md transition cursor-pointer"
+              >
+                <Tag className="w-4 h-4 text-emerald-400" />
+                <span>Manage Links ({tokens.length})</span>
+              </button>
+            )}
 
             <button
               onClick={() => {
@@ -1400,14 +1409,16 @@ export default function AdminTrackingLinksPage() {
                               <span>Add</span>
                             </button>
 
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteLink(t.token, t.name)}
-                              className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 border border-transparent hover:border-red-200 transition cursor-pointer"
-                              title="Delete Allocated Link"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            {currentUserRole !== 'staff' && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteLink(t.token, t.name)}
+                                className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 border border-transparent hover:border-red-200 transition cursor-pointer"
+                                title="Delete Allocated Link"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1445,7 +1456,7 @@ export default function AdminTrackingLinksPage() {
               </div>
 
               {/* Bulk Actions for Selected Receipts */}
-              {selectedReceiptIds.size > 0 && (
+              {currentUserRole !== 'staff' && selectedReceiptIds.size > 0 && (
                 <div className="flex items-center gap-2 bg-amber-50 border border-amber-300 px-3 py-1.5 rounded-xl text-xs">
                   <span className="font-extrabold text-amber-900">
                     ✓ {selectedReceiptIds.size} Selected
@@ -1642,13 +1653,15 @@ export default function AdminTrackingLinksPage() {
                           >
                             <Edit className="w-4 h-4 text-blue-600" />
                           </button>
-                          <button
-                            onClick={() => handleDelete(r.id, r.receiptNo)}
-                            title="Delete Receipt"
-                            className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 transition cursor-pointer"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {currentUserRole !== 'staff' && (
+                            <button
+                              onClick={() => handleDelete(r.id, r.receiptNo)}
+                              title="Delete Receipt"
+                              className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 transition cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

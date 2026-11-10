@@ -3160,8 +3160,11 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
             </span>
           );
         },
-      },
-      {
+      }
+    );
+
+    if (!readOnly) {
+      cols.push({
         id: 'actions',
         header: () => <div className="text-right">Loader Action</div>,
         cell: ({ row }) => {
@@ -4290,121 +4293,137 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleOpenAllotModal(plan);
-                      }}
-                      className="px-2 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-[11px] font-bold transition flex items-center space-x-1"
-                    >
-                      <Anchor className="w-3 h-3 text-red-400" />
-                      <span>{plan.containerNumber ? 'Edit Actual No' : 'Allot Actual No'}</span>
-                    </button>
-
-                    {!plan.isDelivered && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleOpenContainerWiseLoad(plan);
-                        }}
-                        className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold transition flex items-center space-x-1 shadow-sm"
-                        title={`Load received goods directly into ${plan.container} (Container-wise planning)`}
-                      >
-                        <Plus className="w-3 h-3 text-emerald-200" />
-                        <span>Load Goods</span>
-                      </button>
-                    )}
-
-                    {!plan.isDelivered && ((plan.shipmentCount && plan.shipmentCount > 0) || (plan.totalQuantity && plan.totalQuantity > 0)) && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setContainerToUnloadGoods(plan);
-                        }}
-                        className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-[11px] font-bold transition flex items-center space-x-1 shadow-sm"
-                        title={`Unload cargo goods from ${plan.container} (restore back to warehouse stock)`}
-                      >
-                        <ArrowDownLeft className="w-3 h-3 text-amber-600" />
-                        <span>Unload Goods</span>
-                      </button>
-                    )}
-
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleOpenAlterModal(plan);
+                        handleDownloadLoadingPlanExcel(plan.container);
                       }}
                       className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-[11px] font-bold transition flex items-center space-x-1"
-                      title="Alter container alias, actual container number, carrier, or warehouse database-wide"
+                      title={`Download Excel loading plan for ${plan.container}`}
                     >
-                      <Pencil className="w-3 h-3 text-blue-600" />
-                      <span>Alter</span>
+                      <Download className="w-3 h-3 text-blue-600" />
+                      <span>Excel</span>
                     </button>
 
-                    {plan.containerNumber && !plan.isDelivered && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDemapActual(plan);
-                        }}
-                        className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg text-[11px] font-bold transition flex items-center space-x-1"
-                        title="De-map actual carrier container so plan returns to Planning"
-                      >
-                        <X className="w-3 h-3 text-amber-600" />
-                        <span>De-map</span>
-                      </button>
-                    )}
+                    {!readOnly && (
+                      <>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenAllotModal(plan);
+                          }}
+                          className="px-2 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-[11px] font-bold transition flex items-center space-x-1"
+                        >
+                          <Anchor className="w-3 h-3 text-red-400" />
+                          <span>{plan.containerNumber ? 'Edit Actual No' : 'Allot Actual No'}</span>
+                        </button>
 
-                    {plan.containerNumber && !plan.isDelivered && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleSyncContainerEta(plan);
-                        }}
-                        disabled={isSyncingPlanContainer === plan.container}
-                        className="px-2 py-1 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-300 rounded-lg text-[11px] font-bold transition flex items-center space-x-1"
-                        title="Sync live status and arrival ETA from carrier API"
-                      >
-                        <RefreshCw className={`w-3 h-3 text-sky-600 ${isSyncingPlanContainer === plan.container ? 'animate-spin' : ''}`} />
-                        <span>{isSyncingPlanContainer === plan.container ? 'Syncing...' : 'Update Status'}</span>
-                      </button>
-                    )}
+                        {!plan.isDelivered && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenContainerWiseLoad(plan);
+                            }}
+                            className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold transition flex items-center space-x-1 shadow-sm"
+                            title={`Load received goods directly into ${plan.container} (Container-wise planning)`}
+                          >
+                            <Plus className="w-3 h-3 text-emerald-200" />
+                            <span>Load Goods</span>
+                          </button>
+                        )}
 
-                    {plan.containerNumber && !plan.isDelivered && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleOpenDeliverModal(plan);
-                        }}
-                        className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold transition flex items-center space-x-1"
-                      >
-                        <CheckCircle2 className="w-3 h-3 text-emerald-200" />
-                        <span>Deliver</span>
-                      </button>
-                    )}
+                        {!plan.isDelivered && ((plan.shipmentCount && plan.shipmentCount > 0) || (plan.totalQuantity && plan.totalQuantity > 0)) && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setContainerToUnloadGoods(plan);
+                            }}
+                            className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-[11px] font-bold transition flex items-center space-x-1 shadow-sm"
+                            title={`Unload cargo goods from ${plan.container} (restore back to warehouse stock)`}
+                          >
+                            <ArrowDownLeft className="w-3 h-3 text-amber-600" />
+                            <span>Unload Goods</span>
+                          </button>
+                        )}
 
-                    {plan.isDelivered && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleUnmarkDeliver(plan);
-                        }}
-                        className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-[11px] font-bold transition flex items-center space-x-1"
-                        title="Revert container delivery status back to Active / In Transit (correct mistake)"
-                      >
-                        <RotateCcw className="w-3 h-3 text-amber-600" />
-                        <span>Make Undelivered</span>
-                      </button>
-                    )}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenAlterModal(plan);
+                          }}
+                          className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-[11px] font-bold transition flex items-center space-x-1"
+                          title="Alter container alias, actual container number, carrier, or warehouse database-wide"
+                        >
+                          <Pencil className="w-3 h-3 text-blue-600" />
+                          <span>Alter</span>
+                        </button>
 
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeletePlan(plan);
-                      }}
-                      className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-[11px] font-bold transition flex items-center space-x-1"
-                      title="Delete plan (Strict rules: blocked if actual container allotted, API called, or goods loaded)"
-                    >
-                      <Trash2 className="w-3 h-3 text-red-600" />
-                      <span>Delete</span>
-                    </button>
+                        {plan.containerNumber && !plan.isDelivered && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDemapActual(plan);
+                            }}
+                            className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg text-[11px] font-bold transition flex items-center space-x-1"
+                            title="De-map actual carrier container so plan returns to Planning"
+                          >
+                            <X className="w-3 h-3 text-amber-600" />
+                            <span>De-map</span>
+                          </button>
+                        )}
+
+                        {plan.containerNumber && !plan.isDelivered && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSyncContainerEta(plan);
+                            }}
+                            disabled={isSyncingPlanContainer === plan.container}
+                            className="px-2 py-1 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-300 rounded-lg text-[11px] font-bold transition flex items-center space-x-1"
+                            title="Sync live status and arrival ETA from carrier API"
+                          >
+                            <RefreshCw className={`w-3 h-3 text-sky-600 ${isSyncingPlanContainer === plan.container ? 'animate-spin' : ''}`} />
+                            <span>{isSyncingPlanContainer === plan.container ? 'Syncing...' : 'Update Status'}</span>
+                          </button>
+                        )}
+
+                        {plan.containerNumber && !plan.isDelivered && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenDeliverModal(plan);
+                            }}
+                            className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold transition flex items-center space-x-1"
+                          >
+                            <CheckCircle2 className="w-3 h-3 text-emerald-200" />
+                            <span>Deliver</span>
+                          </button>
+                        )}
+
+                        {plan.isDelivered && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleUnmarkDeliver(plan);
+                            }}
+                            className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-[11px] font-bold transition flex items-center space-x-1"
+                            title="Revert container delivery status back to Active / In Transit (correct mistake)"
+                          >
+                            <RotateCcw className="w-3 h-3 text-amber-600" />
+                            <span>Make Undelivered</span>
+                          </button>
+                        )}
+
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeletePlan(plan);
+                          }}
+                          className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-[11px] font-bold transition flex items-center space-x-1"
+                          title="Delete plan (Strict rules: blocked if actual container allotted, API called, or goods loaded)"
+                        >
+                          <Trash2 className="w-3 h-3 text-red-600" />
+                          <span>Delete</span>
+                        </button>
+                      </>
+                    )}
 
                     <button
                       onClick={() => dispatch(setActivePlan(plan))}
@@ -4460,6 +4479,18 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
                 </div>
 
                 <div className="flex items-center space-x-2 flex-wrap gap-y-2">
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadLoadingPlanExcel(activePlan.container)}
+                    className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md transition flex items-center space-x-1.5"
+                    title={`Download complete loading plan manifest for ${activePlan.container} as Excel (.xlsx)`}
+                  >
+                    <FileSpreadsheet className="w-4 h-4 text-blue-100" />
+                    <span>Download Manifest Excel</span>
+                  </button>
+
+                  {!readOnly && (
+                    <>
                   {!activePlan.isDelivered && (
                     <button
                       onClick={() => handleOpenContainerWiseLoad(activePlan)}
@@ -4551,6 +4582,8 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
                     <Trash2 className="w-3.5 h-3.5 text-red-600" />
                     <span>Delete Plan</span>
                   </button>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -4837,7 +4870,7 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
                                 <span className="text-[10px] text-slate-400">
                                   {u.deletedAt ? `Deleted ${new Date(u.deletedAt).toLocaleDateString()}` : 'Deleted'}
                                 </span>
-                              ) : (
+                              ) : !readOnly ? (
                                 <button
                                   type="button"
                                   onClick={async () => {
@@ -4865,7 +4898,7 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
                                   <Trash2 className="w-3 h-3" />
                                   <span>Delete Upload</span>
                                 </button>
-                              )}
+                              ) : null}
                             </td>
                           </tr>
                         );

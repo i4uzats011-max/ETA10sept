@@ -63,9 +63,10 @@ interface Stats {
 interface Props {
   initialDate?: string;
   onClose?: () => void;
+  readOnly?: boolean;
 }
 
-export default function PartyArrivalNotifications({ initialDate, onClose }: Props) {
+export default function PartyArrivalNotifications({ initialDate, onClose, readOnly = false }: Props) {
   const [selectedDate, setSelectedDate] = useState<string>(initialDate || '');
   const [distinctDates, setDistinctDates] = useState<string[]>([]);
   const [receipts, setReceipts] = useState<NotificationReceipt[]>([]);
