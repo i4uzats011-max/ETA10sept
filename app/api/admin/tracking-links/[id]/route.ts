@@ -79,7 +79,21 @@ export async function PUT(
     };
 
     if (trackingName !== undefined && trackingName.trim()) {
-      doc.name = trackingName.trim();
+      const cleanName = trackingName.trim();
+      if (cleanName.toLowerCase() !== (doc.name || '').toLowerCase()) {
+        const duplicateDoc = await ReceiptTracking.findOne({
+          token: { $ne: doc.token },
+          name: { $regex: new RegExp(`^${cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+        }).lean();
+        if (duplicateDoc) {
+          return NextResponse.json({
+            success: false,
+            duplicate: true,
+            message: `An Allocated Link named "${cleanName}" already exists (token: ${duplicateDoc.token}). Allocated Link Name cannot be duplicate.`
+          }, { status: 400 });
+        }
+      }
+      doc.name = cleanName;
     }
 
     doc.updatedAt = new Date();

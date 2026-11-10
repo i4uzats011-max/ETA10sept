@@ -21,6 +21,7 @@ import {
   Clock,
   ShieldCheck,
   AlertCircle,
+  AlertTriangle,
   Tag,
   CheckSquare,
   Square,
@@ -168,6 +169,7 @@ export default function AdminTrackingLinksPage() {
     actualContainerNo: '',
     eta: '',
     status: 'In Transit',
+    trackingToken: '',
     trackingName: '',
     adminNotes: ''
   });
@@ -462,6 +464,15 @@ export default function AdminTrackingLinksPage() {
       alert('Please enter an Allocated Link Name or Marka');
       return;
     }
+    const duplicate = tokens.find(
+      (t) => (t.name || '').trim().toLowerCase() === linkName.toLowerCase()
+    );
+    if (duplicate) {
+      alert(
+        `An Allocated Link named "${linkName}" already exists. Allocated Link Name cannot be duplicate. Please enter a unique name or use the existing link.`
+      );
+      return;
+    }
     setGeneratingLink(true);
     try {
       const res = await fetch('/api/admin/tracking-links', {
@@ -620,6 +631,21 @@ export default function AdminTrackingLinksPage() {
       return;
     }
 
+    if (formData.trackingTokenOption === 'new') {
+      const candidateName = formData.trackingName.trim() || (addMode === 'marka' ? markaInput.trim() : '');
+      if (candidateName) {
+        const duplicate = tokens.find(
+          (t) => (t.name || '').trim().toLowerCase() === candidateName.toLowerCase()
+        );
+        if (duplicate) {
+          alert(
+            `An Allocated Link named "${candidateName}" already exists. Allocated Link Name cannot be duplicate. Please select "Map to Existing Link" or enter a unique name.`
+          );
+          return;
+        }
+      }
+    }
+
     let payload: any = {};
 
     if (addMode === 'marka') {
@@ -717,6 +743,18 @@ export default function AdminTrackingLinksPage() {
 
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (editFormData.trackingName && editFormData.trackingName.trim()) {
+      const cleanName = editFormData.trackingName.trim();
+      const duplicate = tokens.find(
+        (t) => t.token !== editFormData.trackingToken && (t.name || '').trim().toLowerCase() === cleanName.toLowerCase()
+      );
+      if (duplicate) {
+        alert(
+          `An Allocated Link named "${cleanName}" already exists. Allocated Link Name cannot be duplicate.`
+        );
+        return;
+      }
+    }
     setSubmitting(true);
     try {
       const res = await fetch(`/api/admin/tracking-links/${editFormData.id}`, {
@@ -771,6 +809,7 @@ export default function AdminTrackingLinksPage() {
       actualContainerNo: r.actualContainerNo || '',
       eta: r.eta || '',
       status: r.status || 'In Transit',
+      trackingToken: r.trackingToken || '',
       trackingName: r.trackingName || '',
       adminNotes: r.adminNotes || ''
     });
@@ -2082,7 +2121,7 @@ export default function AdminTrackingLinksPage() {
                   </label>
 
                   {formData.trackingTokenOption === 'new' && (
-                    <div className="pl-6 pt-1">
+                    <div className="pl-6 pt-1 space-y-1.5">
                       <label className="block font-bold text-slate-700 mb-1">
                         Allocate Link Name / Marka (to map new receipts next time):
                       </label>
@@ -2091,11 +2130,26 @@ export default function AdminTrackingLinksPage() {
                         placeholder="e.g. Rahul Electronics / Marka SHANTI"
                         value={formData.trackingName}
                         onChange={(e) => setFormData({ ...formData, trackingName: e.target.value })}
-                        className="w-full p-2 border border-slate-300 rounded-lg outline-none bg-white font-semibold text-slate-900"
+                        className={`w-full p-2 border rounded-lg outline-none font-semibold text-slate-900 transition ${
+                          formData.trackingName.trim() &&
+                          tokens.some((t) => (t.name || '').trim().toLowerCase() === formData.trackingName.trim().toLowerCase())
+                            ? 'border-red-400 bg-red-50/40'
+                            : 'border-slate-300 bg-white'
+                        }`}
                       />
-                      <span className="text-[10px] text-slate-500">
-                        Give this link an allocated name so next time you can easily find and map new receipts to the same link.
-                      </span>
+                      {Boolean(
+                        formData.trackingName.trim() &&
+                        tokens.some((t) => (t.name || '').trim().toLowerCase() === formData.trackingName.trim().toLowerCase())
+                      ) ? (
+                        <div className="p-2 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs flex items-center gap-1.5 font-bold">
+                          <AlertTriangle className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                          <span>Allocated Link Name cannot be duplicate. This name already exists.</span>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-slate-500 block">
+                          Give this link an allocated name so next time you can easily find and map new receipts to the same link.
+                        </span>
+                      )}
                     </div>
                   )}
 
@@ -2684,17 +2738,38 @@ export default function AdminTrackingLinksPage() {
                 <label className="block text-slate-700 font-bold mb-1.5">
                   Allocated Link Name / Marka / Party Name <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. ECG, USSI, ABC TRADERS"
-                  value={newLinkNameInput}
-                  onChange={(e) => setNewLinkNameInput(e.target.value)}
-                  className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl outline-none focus:border-blue-600 focus:bg-white text-xs font-semibold"
-                />
-                <p className="text-[11px] text-slate-500 mt-1">
-                  This generates a dedicated tracking URL token. You can share it immediately or map receipts to it later.
-                </p>
+                {(() => {
+                  const isDuplicate = Boolean(
+                    newLinkNameInput.trim() &&
+                    tokens.some((t) => (t.name || '').trim().toLowerCase() === newLinkNameInput.trim().toLowerCase())
+                  );
+                  return (
+                    <>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. ECG, USSI, ABC TRADERS"
+                        value={newLinkNameInput}
+                        onChange={(e) => setNewLinkNameInput(e.target.value)}
+                        className={`w-full p-2.5 border rounded-xl outline-none text-xs font-semibold transition ${
+                          isDuplicate
+                            ? 'border-red-400 focus:border-red-500 bg-red-50/40 text-slate-900'
+                            : 'border-slate-300 bg-slate-50 focus:border-blue-600 focus:bg-white text-slate-900'
+                        }`}
+                      />
+                      {isDuplicate ? (
+                        <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs flex items-center gap-1.5 font-bold">
+                          <AlertTriangle className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                          <span>Allocated Link Name cannot be duplicate. This name already exists.</span>
+                        </div>
+                      ) : (
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          This generates a dedicated tracking URL token. You can share it immediately or map receipts to it later.
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
 
               <div className="pt-2 flex items-center justify-end gap-2">
@@ -2707,7 +2782,11 @@ export default function AdminTrackingLinksPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={generatingLink || !newLinkNameInput.trim()}
+                  disabled={
+                    generatingLink ||
+                    !newLinkNameInput.trim() ||
+                    tokens.some((t) => (t.name || '').trim().toLowerCase() === newLinkNameInput.trim().toLowerCase())
+                  }
                   className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition shadow-sm disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />

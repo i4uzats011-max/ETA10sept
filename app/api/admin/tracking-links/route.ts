@@ -58,6 +58,10 @@ export async function GET(req: NextRequest) {
   }
 }
 
+function escapeRegex(str: string) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 // POST create receipt(s) or attach to existing link (supports single or multiple items)
 export async function POST(req: NextRequest) {
   try {
@@ -80,7 +84,24 @@ export async function POST(req: NextRequest) {
 
     // Support generating a new link in advance (empty/unlinked)
     if (body.action === 'generate_link') {
-      const linkName = String(body.trackingName || body.marka || body.name || 'New Link').trim();
+      const linkName = String(body.trackingName || body.marka || body.name || '').trim();
+      if (!linkName) {
+        return NextResponse.json({ success: false, message: 'Allocated Link Name is required.' }, { status: 400 });
+      }
+
+      // Check duplicate Allocated Link Name (case-insensitive exact match)
+      const existingDoc = await ReceiptTracking.findOne({
+        name: { $regex: new RegExp(`^${escapeRegex(linkName)}$`, 'i') }
+      }).lean();
+
+      if (existingDoc) {
+        return NextResponse.json({
+          success: false,
+          duplicate: true,
+          message: `An Allocated Link named "${linkName}" already exists (token: ${existingDoc.token}). Allocated Link Name cannot be duplicate.`
+        }, { status: 400 });
+      }
+
       const generatedToken = 'trk_' + crypto.randomBytes(6).toString('hex');
       const newDoc = await ReceiptTracking.create({
         token: generatedToken,
@@ -200,15 +221,44 @@ export async function POST(req: NextRequest) {
       // Append to existing link (Same link given to customer)
       trackingDoc.receipts.push(...entriesToAdd);
       if (trackingName && trackingName.trim()) {
-        trackingDoc.name = trackingName.trim();
+        const cleanName = trackingName.trim();
+        if (cleanName.toLowerCase() !== (trackingDoc.name || '').toLowerCase()) {
+          // Check if ANOTHER link already has this name
+          const duplicateDoc = await ReceiptTracking.findOne({
+            token: { $ne: token },
+            name: { $regex: new RegExp(`^${escapeRegex(cleanName)}$`, 'i') }
+          }).lean();
+          if (duplicateDoc) {
+            return NextResponse.json({
+              success: false,
+              duplicate: true,
+              message: `An Allocated Link named "${cleanName}" already exists (token: ${duplicateDoc.token}). Allocated Link Name cannot be duplicate.`
+            }, { status: 400 });
+          }
+        }
+        trackingDoc.name = cleanName;
       }
       trackingDoc.updatedAt = new Date();
       await trackingDoc.save();
     } else {
       // Create new tracking doc
+      const cleanName = (trackingName || '').trim();
+      if (cleanName) {
+        const duplicateDoc = await ReceiptTracking.findOne({
+          name: { $regex: new RegExp(`^${escapeRegex(cleanName)}$`, 'i') }
+        }).lean();
+        if (duplicateDoc) {
+          return NextResponse.json({
+            success: false,
+            duplicate: true,
+            message: `An Allocated Link named "${cleanName}" already exists (token: ${duplicateDoc.token}). Allocated Link Name cannot be duplicate. Please use "Map to Existing Link" or enter a unique name.`
+          }, { status: 400 });
+        }
+      }
+
       trackingDoc = await ReceiptTracking.create({
         token,
-        name: (trackingName || '').trim(),
+        name: cleanName,
         receipts: entriesToAdd
       });
     }
@@ -249,7 +299,26 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ success: false, message: 'Tracking link not found' }, { status: 404 });
     }
 
-    doc.name = (name || '').trim();
+    const cleanName = (name || '').trim();
+    if (!cleanName) {
+      return NextResponse.json({ success: false, message: 'Allocated Link Name cannot be empty.' }, { status: 400 });
+    }
+
+    // Check if ANOTHER link doc already uses this allocated name
+    const duplicateDoc = await ReceiptTracking.findOne({
+      token: { $ne: token },
+      name: { $regex: new RegExp(`^${escapeRegex(cleanName)}$`, 'i') }
+    }).lean();
+
+    if (duplicateDoc) {
+      return NextResponse.json({
+        success: false,
+        duplicate: true,
+        message: `An Allocated Link named "${cleanName}" already exists (token: ${duplicateDoc.token}). Allocated Link Name cannot be duplicate.`
+      }, { status: 400 });
+    }
+
+    doc.name = cleanName;
     doc.updatedAt = new Date();
     await doc.save();
 

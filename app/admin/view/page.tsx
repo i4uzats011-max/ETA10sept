@@ -31,6 +31,7 @@ import ShippingLineManager from '@/components/ShippingLineManager';
 import PartyArrivalNotifications from '@/components/PartyArrivalNotifications';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
 import LiveTranslatorModal from '@/components/LiveTranslatorModal';
+import SearchableTrackingLinkSelect from '@/components/SearchableTrackingLinkSelect';
 import { ReduxProvider } from '@/store/ReduxProvider';
 
 // Mark types for row marking
@@ -420,9 +421,21 @@ export default function InternalEmployeeViewPage() {
     if (!linkModalData) return;
     const { items, mode, newName, selectedToken } = linkModalData;
 
-    if (mode === 'new' && !newName.trim()) {
-      alert('Please enter a name for the new tracking link.');
-      return;
+    if (mode === 'new') {
+      const cleanName = newName.trim();
+      if (!cleanName) {
+        alert('Please enter a name for the new tracking link.');
+        return;
+      }
+      const duplicate = trackingTokensList.find(
+        (t) => (t.name || '').trim().toLowerCase() === cleanName.toLowerCase()
+      );
+      if (duplicate) {
+        alert(
+          `An Allocated Link with the name "${cleanName}" already exists. Allocated Link Name cannot be duplicate. Please switch to "Add to Existing Link" to append receipts to it, or choose a unique name.`
+        );
+        return;
+      }
     }
     if (mode === 'existing' && !selectedToken) {
       alert('Please select an existing tracking link.');
@@ -2908,17 +2921,45 @@ export default function InternalEmployeeViewPage() {
                 <label className="block text-xs font-bold text-slate-700">
                   New Tracking Link Name / Customer / Marka:
                 </label>
-                <input
-                  type="text"
-                  value={linkModalData.newName}
-                  onChange={(e) => setLinkModalData({ ...linkModalData, newName: e.target.value })}
-                  placeholder="e.g. VIP TRADERS / MARKA-786"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                  autoFocus
-                />
-                <p className="text-[10px] text-slate-400">
-                  A unique public token will be generated automatically for 24-hr tracking.
-                </p>
+                {(() => {
+                  const isDuplicate = Boolean(
+                    linkModalData.newName.trim() &&
+                    trackingTokensList.some(
+                      (t) => (t.name || '').trim().toLowerCase() === linkModalData.newName.trim().toLowerCase()
+                    )
+                  );
+                  return (
+                    <>
+                      <input
+                        type="text"
+                        value={linkModalData.newName}
+                        onChange={(e) => setLinkModalData({ ...linkModalData, newName: e.target.value })}
+                        placeholder="e.g. VIP TRADERS / MARKA-786"
+                        className={`w-full px-3 py-2 border rounded-xl text-xs font-semibold focus:outline-none transition ${
+                          isDuplicate
+                            ? 'border-red-400 focus:border-red-500 focus:ring-1 focus:ring-red-500 bg-red-50/40 text-slate-900'
+                            : 'border-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white'
+                        }`}
+                        autoFocus
+                      />
+                      {isDuplicate ? (
+                        <div className="p-2.5 bg-red-50 border border-red-200 rounded-xl text-[11px] text-red-700 flex items-start gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5 text-red-600 shrink-0 mt-0.5" />
+                          <div>
+                            <span className="font-bold">Allocated Link Name cannot be duplicate.</span>
+                            <p className="text-[10px] text-red-600 mt-0.5">
+                              A tracking link named &quot;{linkModalData.newName.trim()}&quot; already exists. Please choose a different name, or select <strong>&quot;Add to Existing Link&quot;</strong> above to append to it.
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-slate-400">
+                          A unique public token will be generated automatically for 24-hr tracking.
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             ) : (
               <div className="space-y-1.5">
@@ -2930,17 +2971,12 @@ export default function InternalEmployeeViewPage() {
                     No existing tracking links found. Please select &quot;Create New Link&quot; above.
                   </div>
                 ) : (
-                  <select
-                    value={linkModalData.selectedToken}
-                    onChange={(e) => setLinkModalData({ ...linkModalData, selectedToken: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:border-blue-500 bg-white"
-                  >
-                    {trackingTokensList.map((t) => (
-                      <option key={t.token} value={t.token}>
-                        {t.name || 'Unnamed Link'} ({t.token.slice(0, 8)}...) — {t.receipts?.length || 0} receipt(s)
-                      </option>
-                    ))}
-                  </select>
+                  <SearchableTrackingLinkSelect
+                    tokens={trackingTokensList}
+                    selectedToken={linkModalData.selectedToken}
+                    onSelect={(token) => setLinkModalData({ ...linkModalData, selectedToken: token })}
+                    placeholder="Type name, marka, receipt #, or token to search..."
+                  />
                 )}
                 <p className="text-[10px] text-slate-400">
                   Receipts will be appended to this existing link without resetting existing data.
@@ -2997,7 +3033,16 @@ export default function InternalEmployeeViewPage() {
               <button
                 type="button"
                 onClick={handleConfirmLink}
-                disabled={isGeneratingLink || (linkModalData.mode === 'existing' && !linkModalData.selectedToken)}
+                disabled={
+                  isGeneratingLink ||
+                  (linkModalData.mode === 'existing' && !linkModalData.selectedToken) ||
+                  (linkModalData.mode === 'new' && (
+                    !linkModalData.newName.trim() ||
+                    trackingTokensList.some(
+                      (t) => (t.name || '').trim().toLowerCase() === linkModalData.newName.trim().toLowerCase()
+                    )
+                  ))
+                }
                 className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-sm disabled:opacity-50"
               >
                 {isGeneratingLink ? (
