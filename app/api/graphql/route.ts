@@ -8,6 +8,7 @@ import { isAdminAuthenticated } from '@/lib/auth';
 import { fetchApiKeyStats, addFilingBufferDays } from '@/lib/jsoncargo';
 import { translateToEnglish } from '@/lib/translate';
 import { formatGlobalDate } from '@/lib/dateUtils';
+import { calculateCommittedEta, getContainerForReceiptDate } from '@/lib/committedEtaHelper';
 import { getCache, setCache, deleteCache, evaluateContainerEtaTTL } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
@@ -281,6 +282,60 @@ function createRootResolver(req: NextRequest) {
 
       // If goods are received in China warehouse but not yet allocated into any container
       if (!rawShipments || rawShipments.length === 0) {
+        if (whItem && formattedWhReceipt) {
+          const whDate = whItem.date || whItem.createdAt;
+          const fallbackContainer = await getContainerForReceiptDate(whDate);
+          const fallbackEta = calculateCommittedEta(whDate);
+          const fallbackFormattedEta = formatGlobalDate(fallbackEta) || fallbackEta;
+
+          const dummyShipment = {
+            id: String(whItem._id),
+            receipt: cleanQuery,
+            party: whItem.party || 'General Party',
+            container: fallbackContainer,
+            containerNumber: '',
+            shippingLine: 'Default',
+            status: formattedWhReceipt.isDelivered ? 'Delivered' : 'In Transit',
+            portDate: null,
+            dateOfDelivery: formattedWhReceipt.isDelivered ? (formattedWhReceipt.deliveryDate || fallbackFormattedEta) : fallbackFormattedEta,
+            expectedDeliveryDate: fallbackFormattedEta,
+            eta: fallbackFormattedEta,
+            deliveryDate: formattedWhReceipt.deliveryDate || '',
+            isDelivered: formattedWhReceipt.isDelivered,
+            daysToDeliver: null,
+            etaUpdatedAt: null,
+            english: translateToEnglish(whItem.english || whItem.commodity || whItem.chinese),
+            commodity: translateToEnglish(whItem.commodity || whItem.english || whItem.chinese),
+            chinese: whItem.chinese || '',
+            quantity: String(whItem.quantity || '0'),
+            cartons: String(whItem.quantity || '0'),
+            packets: String(whItem.quantity || '0'),
+            originalTotalQuantity: whItem.quantity,
+            isSplit: false,
+            splitIndex: 1,
+            weight: whItem.weight || 'N/A',
+            volume: whItem.volume || 'N/A',
+            date: undefined,
+            warehouse: whItem.warehouse || 'China Warehouse',
+            warehouseEntry: undefined,
+            packaging: whItem.packaging || 'N/A',
+            mainMarka: whItem.mainMarka || '',
+            subMarka: whItem.subMarka || '',
+            items: whItem.items || [],
+          };
+
+          return {
+            success: true,
+            count: 1,
+            receipt: cleanQuery,
+            isSplit: false,
+            requiresCartonVerification: false,
+            message: '',
+            warehouseReceipt: formattedWhReceipt,
+            shipments: [dummyShipment],
+          };
+        }
+
         return {
           success: true,
           count: 0,
@@ -325,7 +380,7 @@ function createRootResolver(req: NextRequest) {
 
         // Async backfill if shipment was missing ETA
         if ((!s.eta || s.eta === 'N/A' || s.eta === 'Pending') && resolvedEta && resolvedEta !== 'Pending') {
-          Shipment.updateOne({ _id: s._id }, { $set: { eta: resolvedEta } }).exec().catch(() => {});
+          // No DB update - committed ETA only
         }
 
         // Format CBM preserving decimals

@@ -5,6 +5,7 @@ import Container from '@/models/Container';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
 import { translateToEnglish } from '@/lib/translate';
 import { formatGlobalDate } from '@/lib/dateUtils';
+import { calculateCommittedEta, getContainerForReceiptDate } from '@/lib/committedEtaHelper';
 
 export const dynamic = 'force-dynamic';
 
@@ -121,14 +122,57 @@ export async function GET(req: NextRequest) {
     }
 
     if (!rawShipments || rawShipments.length === 0) {
+      const whDate = whItem.date || whItem.createdAt;
+      const fallbackContainer = await getContainerForReceiptDate(whDate);
+      const fallbackEta = calculateCommittedEta(whDate);
+      const fallbackFormattedEta = formatGlobalDate(fallbackEta) || fallbackEta;
+
+      const dummyShipment = {
+        id: String(whItem._id),
+        receipt: receiptQuery,
+        party: whItem.party || 'General Party',
+        container: fallbackContainer,
+        status: whItem.isDelivered ? 'Delivered' : 'In Transit',
+        portDate: null,
+        dateOfDelivery: whItem.isDelivered ? (whItem.deliveryDate || fallbackFormattedEta) : fallbackFormattedEta,
+        expectedDeliveryDate: fallbackFormattedEta,
+        eta: fallbackFormattedEta,
+        deliveryDate: whItem.deliveryDate || '',
+        isDelivered: Boolean(whItem.isDelivered),
+        daysToDeliver: null,
+        etaUpdatedAt: null,
+        english: translateToEnglish(whItem.english || whItem.commodity || whItem.chinese),
+        commodity: translateToEnglish(whItem.commodity || whItem.english || whItem.chinese),
+        quantity: String(whItem.quantity || '0'),
+        cartons: String(whItem.quantity || '0'),
+        packets: String(whItem.quantity || '0'),
+        originalTotalQuantity: whItem.quantity,
+        isSplit: false,
+        splitIndex: 1,
+        weight: whItem.weight || 'N/A',
+        volume: formatVolumeWithDecimals(whItem.volume),
+        date: undefined,
+        warehouse: whItem.warehouse || 'China Warehouse',
+        warehouseEntry: undefined,
+        packaging: whItem.packaging || 'N/A',
+        mainMarka: whItem.mainMarka || '',
+        subMarka: whItem.subMarka || '',
+        items: whItem.items || [],
+      };
+
+      const sanitizedWhItem = { ...whItem };
+      delete sanitizedWhItem.date;
+      delete sanitizedWhItem.receiptDate;
+      delete sanitizedWhItem.warehouseEntry;
+
       return NextResponse.json({
         success: true,
-        count: 0,
+        count: 1,
         receipt: receiptQuery,
-        warehouseReceipt: whItem,
-        shipments: [],
-        status: 'Receipt in Warehouse',
-        message: `Goods safely received at ${whItem.warehouse || 'China Warehouse'}. Stored in warehouse.`,
+        data: dummyShipment,
+        shipments: [dummyShipment],
+        warehouseReceipt: sanitizedWhItem,
+        status: 'In Transit',
       });
     }
 
@@ -149,7 +193,7 @@ export async function GET(req: NextRequest) {
     });
 
     // STRICT DATA MASKING & ENGLISH ONLY TRANSLATION: Omit containerNumber; Translate commodities to English ONLY
-    const publicCargoDetails = rawShipments.map((shipment) => {
+    const publicCargoDetails = await Promise.all(rawShipments.map(async (shipment) => {
       const cClean = (shipment.container || '').toLowerCase().trim();
       const directEta = containerEtaMap.get(cClean);
       const fallbackDoc = containerDocs.find((cd: any) =>
@@ -158,17 +202,14 @@ export async function GET(req: NextRequest) {
       const containerEta = directEta || fallbackDoc?.destinationDate || fallbackDoc?.eta || '';
       const rawCarrierEta = shipment.rawEta || fallbackDoc?.rawEta;
 
+      const receiptDate = shipment.date || whItem?.date || shipment.createdAt || whItem?.createdAt;
+      const committedFallbackEta = calculateCommittedEta(receiptDate);
+      const fallbackContainer = await getContainerForReceiptDate(receiptDate);
+
       const resolvedEta = (shipment.eta && shipment.eta !== 'N/A' && shipment.eta !== 'Pending')
         ? shipment.eta
-        : (containerEta || shipment.eta || 'Pending');
+        : (containerEta || shipment.eta || committedFallbackEta);
 
-      // Async backfill if shipment was missing ETA
-      if ((!shipment.eta || shipment.eta === 'N/A' || shipment.eta === 'Pending') && resolvedEta && resolvedEta !== 'Pending') {
-        Shipment.updateOne({ _id: shipment._id }, { $set: { eta: resolvedEta } }).exec().catch(() => {});
-      }
-
-      // Two arrival dates: Port Date (vessel arrival at port) and ETA Date (destination ETA).
-      // DO NOT add three days or any buffer: show the actual ETA date directly.
       const rawPortDate = rawCarrierEta || shipment.rawEta || fallbackDoc?.rawEta || '';
       const formattedPortDate =
         rawPortDate && rawPortDate !== 'N/A' && rawPortDate !== 'Pending' && rawPortDate !== '—'
@@ -184,9 +225,9 @@ export async function GET(req: NextRequest) {
           ? shipment.destinationDate
           : (rawPortDate && rawPortDate !== 'N/A' && rawPortDate !== 'Pending')
           ? rawPortDate
-          : 'Pending';
+          : committedFallbackEta;
 
-      const publicDeliveryDate = rawActualEta !== 'Pending' ? (formatGlobalDate(rawActualEta) || rawActualEta) : 'Pending';
+      const publicDeliveryDate = rawActualEta !== 'Pending' ? (formatGlobalDate(rawActualEta) || rawActualEta) : (formatGlobalDate(committedFallbackEta) || committedFallbackEta);
 
       const rawEtaUpdated =
         fallbackDoc?.etaUpdatedAt ||
@@ -210,12 +251,16 @@ export async function GET(req: NextRequest) {
       const rawDeliveryDate = shipment.deliveryDate || fallbackDoc?.deliveryDate || whItem?.deliveryDate || '';
       const formattedDeliveryDate = rawDeliveryDate ? (formatGlobalDate(rawDeliveryDate) || rawDeliveryDate) : '';
 
+      const finalContainer = (shipment.container && shipment.container !== 'Unassigned' && shipment.container !== 'Pending Allocation')
+        ? shipment.container
+        : fallbackContainer;
+
       return {
         id: shipment._id,
         receipt: shipment.receipt,
         party: shipment.party || whItem?.party || 'General Party',
-        container: shipment.container, // Internal Container Alias only (e.g. 'USI-01')
-        status: isItemDelivered ? 'Delivered' : (shipment.status && shipment.status !== 'Planning' ? shipment.status : 'Loaded'),
+        container: finalContainer,
+        status: isItemDelivered ? 'Delivered' : (shipment.status && shipment.status !== 'Planning' ? shipment.status : 'In Transit'),
         portDate: formattedPortDate || null,
         dateOfDelivery: isItemDelivered ? formattedDeliveryDate : publicDeliveryDate,
         expectedDeliveryDate: publicDeliveryDate,
@@ -242,7 +287,7 @@ export async function GET(req: NextRequest) {
         subMarka: shipment.subMarka || '',
         items: whItem?.items || [],
       };
-    });
+    }));
 
     const sanitizedWhItem = whItem ? { ...whItem } : null;
     if (sanitizedWhItem) {

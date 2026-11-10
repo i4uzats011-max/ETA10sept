@@ -1,6 +1,7 @@
 import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
+import { calculateCommittedEta, getContainerForReceiptDate } from '@/lib/committedEtaHelper';
 
 export interface ILivePublicReceipt {
   id?: string;
@@ -224,14 +225,20 @@ export async function resolveLiveReceiptsForTrackingDoc(
         const s = rShipments[sIdx];
         const cDoc = containerMap.get((s.container || '').toLowerCase().trim());
 
-        // Live ETA resolution: Container ETA -> Shipment ETA -> Entry ETA
-        const liveEta =
+        const receiptDate = s.date || whDoc?.date || s.createdAt || whDoc?.createdAt;
+
+        // Live ETA resolution: Container ETA -> Shipment ETA -> Entry ETA -> Committed ETA (Receipt Date + 45 days)
+        let liveEta =
           cDoc?.destinationDate ||
           cDoc?.eta ||
           s.destinationDate ||
           s.eta ||
           entry.eta ||
           null;
+
+        if (!liveEta || liveEta === '-' || liveEta.toLowerCase() === 'pending' || liveEta.toLowerCase() === 'n/a') {
+          liveEta = calculateCommittedEta(receiptDate);
+        }
 
         // Live Delivery & Status Resolution
         const isDelivered = Boolean(
@@ -257,7 +264,10 @@ export async function resolveLiveReceiptsForTrackingDoc(
         const effectiveDeliveryDate = isDelivered ? (markedDate || liveEta || null) : null;
 
         // Public Container No. (Never exposes carrier shipping line / actual container)
-        const displayContainer = cleanDisplayContainer(s.container || entry.containerNo || 'In Transit');
+        let displayContainer = cleanDisplayContainer(s.container || entry.containerNo || 'In Transit');
+        if (!displayContainer || displayContainer === 'In Transit' || displayContainer === 'Pending Allocation') {
+          displayContainer = await getContainerForReceiptDate(receiptDate);
+        }
 
         // Marka resolution (Live from Shipment or WarehouseReceipt)
         const rowMarka = s.mainMarka || s.subMarka || s.party || baseMarka;
@@ -350,24 +360,30 @@ export async function resolveLiveReceiptsForTrackingDoc(
             entry.itemName ||
             '-';
 
+          const whDate = whDoc.date || whDoc.createdAt;
+          const fallbackContainer = await getContainerForReceiptDate(whDate);
+          const fallbackEta = calculateCommittedEta(whDate);
+
           resolvedList.push({
             id: `${entry.id || rNo}_wh_remainder`,
             marka: baseMarka,
             receiptNo: rNo,
             itemName: whItemName,
-            containerNo: 'In Warehouse (Not Loaded)',
+            containerNo: options.includeAdminFields ? 'In Warehouse (Not Loaded)' : fallbackContainer,
             actualContainerNo: options.includeAdminFields ? '' : undefined,
             cbm: String(whDoc.remainingVolume || whDoc.volume || '0'),
             weight: String(whDoc.remainingWeight || whDoc.weight || '-'),
             ctn: String(remainingQty),
-            eta: null,
+            eta: fallbackEta,
             deliveryDate: null,
             markedDate: null,
-            status: whDoc.status || 'Received in Warehouse',
-            remainDays: null,
+            status: options.includeAdminFields ? (whDoc.status || 'Received in Warehouse') : 'In Transit',
+            remainDays: calculateRemainDays(fallbackEta),
             updatedAt: whDoc.updatedAt || entry.updatedAt || trackingDoc.updatedAt,
             isSplit: true,
-            splitInfo: `Remaining ${remainingQty} CTN to load in warehouse`,
+            splitInfo: options.includeAdminFields
+              ? `Remaining ${remainingQty} CTN to load in warehouse`
+              : `Split Cargo (${remainingQty} CTN)`,
             adminNotes: options.includeAdminFields ? (whDoc.remarks || 'Remaining in warehouse') : undefined
           });
         }
@@ -380,6 +396,9 @@ export async function resolveLiveReceiptsForTrackingDoc(
       const whStatus = whDoc.status || 'Received in Warehouse';
       const isDelivered = /deliver/i.test(whStatus);
       const markedDate = whDoc.deliveryDate || entry.deliveryDate || null;
+      const whDate = whDoc.date || whDoc.createdAt;
+      const fallbackContainer = await getContainerForReceiptDate(whDate);
+      const fallbackEta = calculateCommittedEta(whDate);
 
       // Multi-item check in warehouse receipt
       if (Array.isArray(whDoc.items) && whDoc.items.length > 1) {
@@ -390,16 +409,16 @@ export async function resolveLiveReceiptsForTrackingDoc(
             marka: it.mainMarka || it.subMarka || baseMarka,
             receiptNo: rNo,
             itemName: it.itemName || it.english || it.chinese || '-',
-            containerNo: 'In Warehouse (Not Loaded)',
+            containerNo: options.includeAdminFields ? 'In Warehouse (Not Loaded)' : fallbackContainer,
             actualContainerNo: options.includeAdminFields ? '' : undefined,
             cbm: String(it.volume || whDoc.volume || '0'),
             weight: String(it.weight || whDoc.weight || '-'),
             ctn: String(it.quantity || whDoc.quantity || '0'),
-            eta: null,
+            eta: fallbackEta,
             deliveryDate: isDelivered ? markedDate : null,
             markedDate: markedDate,
-            status: whStatus,
-            remainDays: null,
+            status: options.includeAdminFields ? whStatus : (isDelivered ? 'Delivered' : 'In Transit'),
+            remainDays: isDelivered ? null : calculateRemainDays(fallbackEta),
             updatedAt: whDoc.updatedAt || entry.updatedAt || trackingDoc.updatedAt,
             adminNotes: options.includeAdminFields ? (it.remarks || whDoc.remarks || '') : undefined
           });
@@ -418,16 +437,16 @@ export async function resolveLiveReceiptsForTrackingDoc(
           marka: baseMarka,
           receiptNo: rNo,
           itemName: whItemName,
-          containerNo: 'In Warehouse (Not Loaded)',
+          containerNo: options.includeAdminFields ? 'In Warehouse (Not Loaded)' : fallbackContainer,
           actualContainerNo: options.includeAdminFields ? '' : undefined,
           cbm: String(whDoc.volume || entry.cbm || '0'),
           weight: String(whDoc.weight || entry.weight || '-'),
           ctn: String(whDoc.quantity || entry.ctn || '0'),
-          eta: null,
+          eta: fallbackEta,
           deliveryDate: isDelivered ? markedDate : null,
           markedDate: markedDate,
-          status: whStatus,
-          remainDays: null,
+          status: options.includeAdminFields ? whStatus : (isDelivered ? 'Delivered' : 'In Transit'),
+          remainDays: isDelivered ? null : calculateRemainDays(fallbackEta),
           updatedAt: whDoc.updatedAt || entry.updatedAt || trackingDoc.updatedAt,
           adminNotes: options.includeAdminFields ? (whDoc.remarks || entry.adminNotes || '') : undefined
         });
@@ -439,7 +458,13 @@ export async function resolveLiveReceiptsForTrackingDoc(
     else {
       const isDelivered = /deliver|arrived/i.test(entry.status || '');
       const markedDate = entry.deliveryDate || entry.markedDate || null;
-      const displayContainer = cleanDisplayContainer(entry.containerNo);
+      const refDate = entry.date || entry.createdAt || trackingDoc.createdAt;
+      const fallbackContainer = await getContainerForReceiptDate(refDate);
+      const fallbackEta = calculateCommittedEta(refDate);
+
+      const hasContainer = entry.containerNo && entry.containerNo !== '-' && entry.containerNo !== 'Pending Allocation';
+      const displayContainer = hasContainer ? cleanDisplayContainer(entry.containerNo) : (options.includeAdminFields ? 'In Warehouse (Not Loaded)' : fallbackContainer);
+      const finalEta = entry.eta || fallbackEta;
 
       resolvedList.push({
         id: entry.id || rNo,
@@ -451,11 +476,11 @@ export async function resolveLiveReceiptsForTrackingDoc(
         cbm: entry.cbm || '0',
         weight: entry.weight || '-',
         ctn: entry.ctn || '0',
-        eta: entry.eta || null,
-        deliveryDate: isDelivered ? (markedDate || entry.eta || null) : null,
+        eta: finalEta,
+        deliveryDate: isDelivered ? (markedDate || finalEta || null) : null,
         markedDate: markedDate,
-        status: isDelivered ? 'Delivered' : (entry.status || 'In Transit'),
-        remainDays: isDelivered ? null : calculateRemainDays(entry.eta),
+        status: isDelivered ? 'Delivered' : (options.includeAdminFields ? (entry.status || 'In Transit') : 'In Transit'),
+        remainDays: isDelivered ? null : calculateRemainDays(finalEta),
         updatedAt: entry.updatedAt || trackingDoc.updatedAt,
         adminNotes: options.includeAdminFields ? (entry.adminNotes || '') : undefined
       });
