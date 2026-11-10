@@ -958,6 +958,18 @@ export default function InternalEmployeeViewPage() {
       // 10. Warehouse Entry Filter
       if (selectedWarehouseEntries.size > 0 && !selectedWarehouseEntries.has(item.warehouseEntry)) return false;
 
+      // 10b. Public Tracking Link Filter (Already Linked / Not Linked / Specific Link Name)
+      if (selectedTrackingFilters.size > 0) {
+        const links = linkedReceiptsMap.get((item.receipt || '').toLowerCase().trim()) || [];
+        const isLinked = links.length > 0;
+        const linkNames = links.map(l => l.name || l.token);
+        const matchesAny =
+          (selectedTrackingFilters.has('Already Linked') && isLinked) ||
+          (selectedTrackingFilters.has('Not Linked') && !isLinked) ||
+          linkNames.some(name => selectedTrackingFilters.has(name));
+        if (!matchesAny) return false;
+      }
+
       // 11. Row Mark Filter
       const curRowMark = rowMarks[item._id] || 'none';
       if (selectedRowMarks.size > 0) {
@@ -1030,6 +1042,8 @@ export default function InternalEmployeeViewPage() {
     selectedSubMarks,
     selectedStatuses,
     selectedWarehouseEntries,
+    selectedTrackingFilters,
+    linkedReceiptsMap,
     selectedRowMarks,
     selectedTurnaroundStatuses,
     receiptDateFrom,
@@ -1062,6 +1076,7 @@ export default function InternalEmployeeViewPage() {
     if (selectedSubMarks.size > 0) c++;
     if (selectedStatuses.size > 0) c++;
     if (selectedWarehouseEntries.size > 0) c++;
+    if (selectedTrackingFilters.size > 0) c++;
     if (selectedRowMarks.size > 0) c++;
     if (selectedTurnaroundStatuses.size > 0) c++;
     if (receiptDateFrom || receiptDateTo) c++;
@@ -1079,6 +1094,7 @@ export default function InternalEmployeeViewPage() {
     selectedSubMarks,
     selectedStatuses,
     selectedWarehouseEntries,
+    selectedTrackingFilters,
     selectedRowMarks,
     selectedTurnaroundStatuses,
     receiptDateFrom,
@@ -1099,6 +1115,7 @@ export default function InternalEmployeeViewPage() {
     setSelectedSubMarks(new Set());
     setSelectedStatuses(new Set());
     setSelectedWarehouseEntries(new Set());
+    setSelectedTrackingFilters(new Set());
     setSelectedRowMarks(new Set());
     setSelectedTurnaroundStatuses(new Set());
     setReceiptDateFrom('');
@@ -1121,6 +1138,10 @@ export default function InternalEmployeeViewPage() {
       if (showMainMark) row['Main Mark'] = s.mainMarka || '';
       if (showSubMark) row['Sub Mark'] = s.subMarka || '';
       if (showReceiptNo) row['Receipt No'] = s.receipt || '';
+      if (showTrackingLink) {
+        const links = linkedReceiptsMap.get((s.receipt || '').toLowerCase().trim()) || [];
+        row['Public Tracking Link'] = links.length > 0 ? `Already Linked: ${links.map(l => l.name || l.token).join(', ')}` : 'Not Linked';
+      }
       if (showContainer) row['Container Alias'] = s.container || '';
       if (showActualContainer) row['Actual Container No'] = s.containerNumber || '';
       if (showShippingLine) row['Shipping Line'] = s.shippingLine || '';
@@ -1214,6 +1235,7 @@ export default function InternalEmployeeViewPage() {
       if (showMainMark) headers.push('Main Mark');
       if (showSubMark) headers.push('Sub Mark');
       if (showReceiptNo) headers.push('Receipt No');
+      if (showTrackingLink) headers.push('Public Link');
       if (showContainer) headers.push('Container');
       if (showActualContainer) headers.push('Actual Container');
       if (showShippingLine) headers.push('Line');
@@ -1234,6 +1256,10 @@ export default function InternalEmployeeViewPage() {
         if (showMainMark) row.push(s.mainMarka || '-');
         if (showSubMark) row.push(s.subMarka || '-');
         if (showReceiptNo) row.push(s.receipt || '');
+        if (showTrackingLink) {
+          const links = linkedReceiptsMap.get((s.receipt || '').toLowerCase().trim()) || [];
+          row.push(links.length > 0 ? `Linked: ${links[0].name}` : 'Not Linked');
+        }
         if (showContainer) row.push(s.container || '');
         if (showActualContainer) row.push(s.containerNumber || '-');
         if (showShippingLine) row.push(s.shippingLine || '-');
@@ -1403,24 +1429,40 @@ export default function InternalEmployeeViewPage() {
       </header>
 
       <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
-        {/* ── EMPLOYEE NAVIGATION MENU BAR (Zero Scrollbars - Responsive Grid) ── */}
-        <div className="bg-white p-2.5 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="grid grid-cols-2 gap-2 w-full sm:w-auto">
+        {/* ── EMPLOYEE NAVIGATION MENU BAR (Responsive Grid) ── */}
+        <div className="bg-white p-2.5 rounded-2xl border border-slate-200 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             <button
               type="button"
               onClick={() => setActiveEmployeeTab('shipments')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-2 ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 ${
                 activeEmployeeTab === 'shipments'
                   ? 'bg-blue-600 text-white shadow-sm'
                   : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
               }`}
             >
-              <FileSpreadsheet className="w-4 h-4 shrink-0 text-white" />
-              <span className="truncate">Cargo Shipments</span>
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+              <FileSpreadsheet className="w-4 h-4 shrink-0" />
+              <span>Cargo Shipments</span>
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
                 activeEmployeeTab === 'shipments' ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-700'
               }`}>
                 {filteredShipments.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveEmployeeTab('loader-hub')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 ${
+                activeEmployeeTab === 'loader-hub'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
+              }`}
+            >
+              <Warehouse className="w-4 h-4 shrink-0 text-amber-500" />
+              <span>China WH &amp; Plans</span>
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300">
+                Excel Downloads
               </span>
             </button>
 
@@ -1430,27 +1472,67 @@ export default function InternalEmployeeViewPage() {
                 setActiveEmployeeTab('containers');
                 fetchContainerFleet();
               }}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-2 ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 ${
                 activeEmployeeTab === 'containers'
                   ? 'bg-blue-600 text-white shadow-sm'
                   : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
               }`}
             >
               <Box className="w-4 h-4 shrink-0 text-blue-500" />
-              <span className="truncate">Container List</span>
+              <span>Container Fleet</span>
               {containerFleet.length > 0 && (
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
                   activeEmployeeTab === 'containers' ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-700'
                 }`}>
                   {containerFleet.length}
                 </span>
               )}
             </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveEmployeeTab('shipping-lines')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 ${
+                activeEmployeeTab === 'shipping-lines'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
+              }`}
+            >
+              <Anchor className="w-4 h-4 shrink-0 text-indigo-500" />
+              <span>Shipping Lines</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveEmployeeTab('notifications')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 ${
+                activeEmployeeTab === 'notifications'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
+              }`}
+            >
+              <MessageSquare className="w-4 h-4 shrink-0 text-emerald-500" />
+              <span>Party Messages</span>
+            </button>
+
+            <Link
+              href="/admin/tracking-links"
+              className="px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-200"
+              title="View and Manage Public Tracking Links"
+            >
+              <Link2 className="w-4 h-4 shrink-0 text-purple-600" />
+              <span>Tracking Links Hub</span>
+              {trackingTokensList.length > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-purple-200 text-purple-800">
+                  {trackingTokensList.length}
+                </span>
+              )}
+            </Link>
           </div>
 
-          <div className="flex items-center space-x-2 text-xs text-slate-500 font-medium px-2">
+          <div className="flex items-center space-x-2 text-xs text-slate-500 font-medium px-2 shrink-0">
             <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>Read-Only Staff Portal &bull; Date &amp; Cargo Edits Restricted to Super Admin</span>
+            <span>Staff Portal (Read-Only) &bull; Downloads Enabled</span>
           </div>
         </div>
 
@@ -1884,6 +1966,7 @@ export default function InternalEmployeeViewPage() {
                           setShowMainMark(true);
                           setShowSubMark(true);
                           setShowReceiptNo(true);
+                          setShowTrackingLink(true);
                           setShowContainer(true);
                           setShowActualContainer(true);
                           setShowShippingLine(true);
@@ -1907,6 +1990,7 @@ export default function InternalEmployeeViewPage() {
                           setShowMainMark(true);
                           setShowSubMark(true);
                           setShowReceiptNo(true);
+                          setShowTrackingLink(true);
                           setShowContainer(true);
                           setShowActualContainer(false);
                           setShowShippingLine(false);
@@ -1978,6 +2062,10 @@ export default function InternalEmployeeViewPage() {
                     <label className={`inline-flex items-center space-x-1.5 cursor-pointer px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition select-none ${showReceiptNo ? 'bg-blue-50 text-blue-900 border-blue-200' : 'bg-slate-50 text-slate-400 border-slate-200 line-through opacity-60'}`}>
                       <input type="checkbox" checked={showReceiptNo} onChange={(e) => setShowReceiptNo(e.target.checked)} className="w-3.5 h-3.5 rounded text-blue-600" />
                       <span>Receipt No</span>
+                    </label>
+                    <label className={`inline-flex items-center space-x-1.5 cursor-pointer px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition select-none ${showTrackingLink ? 'bg-blue-50 text-blue-900 border-blue-200' : 'bg-slate-50 text-slate-400 border-slate-200 line-through opacity-60'}`}>
+                      <input type="checkbox" checked={showTrackingLink} onChange={(e) => setShowTrackingLink(e.target.checked)} className="w-3.5 h-3.5 rounded text-blue-600" />
+                      <span>Public Link</span>
                     </label>
                     <label className={`inline-flex items-center space-x-1.5 cursor-pointer px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition select-none ${showContainer ? 'bg-blue-50 text-blue-900 border-blue-200' : 'bg-slate-50 text-slate-400 border-slate-200 line-through opacity-60'}`}>
                       <input type="checkbox" checked={showContainer} onChange={(e) => setShowContainer(e.target.checked)} className="w-3.5 h-3.5 rounded text-blue-600" />
@@ -2066,16 +2154,16 @@ export default function InternalEmployeeViewPage() {
             <div className="flex items-center space-x-2">
               <button
                 type="button"
-                onClick={() => handleGenerateTrackingLink()}
+                onClick={() => openGenerateLinkModal()}
                 disabled={isGeneratingLink || filteredShipments.length === 0}
                 className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition disabled:opacity-50 cursor-pointer"
-                title="Generate public restricted link for these filtered cargo records"
+                title="Generate new tracking link or add filtered cargo records to an existing link"
               >
-                <ExternalLink className="w-3.5 h-3.5" />
+                <Link2 className="w-3.5 h-3.5" />
                 <span>
                   {selectedReceiptIds.size > 0
-                    ? `Generate Link (${selectedReceiptIds.size} Selected)`
-                    : `Generate Link for Filtered (${filteredShipments.length})`}
+                    ? `Generate / Add Link (${selectedReceiptIds.size} Selected)`
+                    : `Generate / Add Link (${filteredShipments.length})`}
                 </span>
               </button>
               <span className="text-[11px] text-slate-400 font-mono hidden sm:inline">{new Date().toLocaleDateString()}</span>
@@ -2183,6 +2271,22 @@ export default function InternalEmployeeViewPage() {
                             options={uniqueReceipts}
                             selected={selectedReceipts}
                             onChange={setSelectedReceipts}
+                            compact
+                          />
+                        </div>
+                      </th>
+                    )}
+
+                    {/* 4b. Public Tracking Link */}
+                    {showTrackingLink && (
+                      <th className="py-3 px-4 text-left">
+                        <div className="flex items-center">
+                          <span>Public Tracking Link</span>
+                          <MultiSelectDropdown
+                            label="Tracking Link"
+                            options={uniqueTrackingFilterOptions}
+                            selected={selectedTrackingFilters}
+                            onChange={setSelectedTrackingFilters}
                             compact
                           />
                         </div>
@@ -2342,6 +2446,8 @@ export default function InternalEmployeeViewPage() {
                       (item.status || '').toLowerCase().includes('arrived') ||
                       (item.status || '').toLowerCase().includes('custom') ||
                       deliveryInfo.isDelivered;
+                    const linkedList = linkedReceiptsMap.get((item.receipt || '').toLowerCase().trim()) || [];
+                    const isLinked = linkedList.length > 0;
 
                     return (
                       <tr
@@ -2437,13 +2543,13 @@ export default function InternalEmployeeViewPage() {
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleGenerateRowLink(item);
+                                  openGenerateLinkModal([item]);
                                 }}
-                                title={`Copy ETA Reminder link for Receipt #${item.receipt}`}
+                                title={`Create new tracking link or add receipt #${item.receipt} to existing link`}
                                 className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 inline-flex items-center gap-1 transition cursor-pointer"
                               >
-                                <ExternalLink className="w-2.5 h-2.5" />
-                                <span>Remind</span>
+                                <Link2 className="w-2.5 h-2.5" />
+                                <span>Link</span>
                               </button>
                             </div>
                             {item.party && (
@@ -2466,6 +2572,72 @@ export default function InternalEmployeeViewPage() {
                                 Multi ({receiptCounts[item.receipt]})
                               </span>
                             ) : null}
+                          </td>
+                        )}
+
+                        {/* 4b. Public Tracking Link Cell */}
+                        {showTrackingLink && (
+                          <td className="py-2.5 px-4 whitespace-nowrap">
+                            {isLinked ? (
+                              <div className="flex flex-col gap-1">
+                                {linkedList.map((l, lIdx) => (
+                                  <div key={`${l.token}-${lIdx}`} className="flex items-center space-x-1.5">
+                                    <span
+                                      className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-100 text-emerald-900 border border-emerald-300 max-w-[150px] truncate"
+                                      title={`Already Linked to: "${l.name}" (Token: ${l.token})`}
+                                    >
+                                      <Link2 className="w-2.5 h-2.5 mr-1 text-emerald-700 shrink-0" />
+                                      <span className="truncate">{l.name}</span>
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const url = `${window.location.origin}/track/${l.token}`;
+                                        const msg = `US INTERNATIONAL LOGISTICS 📦\nShipment Tracking Update\nMarka / Link: ${l.name}\nReceipt No: ${item.receipt}\n\nLive Tracking Link:\n${url}\n\nyou can track this via link 24 hrs`;
+                                        if (navigator.clipboard) navigator.clipboard.writeText(msg);
+                                        showTrackingToast(`📋 Copied link message for "${l.name}"!`);
+                                      }}
+                                      title="Copy customer WhatsApp tracking message"
+                                      className="p-1 rounded bg-slate-100 hover:bg-emerald-100 text-slate-600 hover:text-emerald-800 border border-slate-200 transition cursor-pointer"
+                                    >
+                                      <Copy className="w-3 h-3" />
+                                    </button>
+                                    <a
+                                      href={`/track/${l.token}`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      title="Open public tracking page"
+                                      className="p-1 rounded bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-800 border border-slate-200 transition"
+                                    >
+                                      <ExternalLink className="w-3 h-3" />
+                                    </a>
+                                  </div>
+                                ))}
+                                <button
+                                  type="button"
+                                  onClick={() => openGenerateLinkModal([item])}
+                                  className="text-[10px] font-bold text-blue-600 hover:underline flex items-center space-x-0.5 mt-0.5"
+                                >
+                                  <Plus className="w-2.5 h-2.5" />
+                                  <span>Add to Another Link</span>
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center space-x-1.5">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-500 border border-slate-200">
+                                  Not Linked
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => openGenerateLinkModal([item])}
+                                  className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 inline-flex items-center gap-1 transition cursor-pointer"
+                                  title={`Create new link or add receipt #${item.receipt} to existing link`}
+                                >
+                                  <Plus className="w-2.5 h-2.5" />
+                                  <span>Link</span>
+                                </button>
+                              </div>
+                            )}
                           </td>
                         )}
 
@@ -2619,12 +2791,35 @@ export default function InternalEmployeeViewPage() {
           </div>
         )}
 
-        {/* ── TAB 2: CARGO MASTER TABLE (REDUX + TANSTACK TABLE + JS CHARTS) ── */}
+        {/* ── TAB 2: CHINA WAREHOUSE STOCK & CONTAINER LOADING PLANS (STRICTLY READ-ONLY + EXCEL DOWNLOAD ONLY) ── */}
+        {activeEmployeeTab === 'loader-hub' && (
+          <div className="animate-fadeIn">
+            <ReduxProvider>
+              <LoaderHub readOnly={true} />
+            </ReduxProvider>
+          </div>
+        )}
+
+        {/* ── TAB 3: CONTAINER FLEET (CARGO MASTER TABLE) ── */}
         {activeEmployeeTab === 'containers' && (
           <div className="animate-fadeIn">
             <ReduxProvider>
-              <CargoMasterTable isStaffOnly={userRole !== 'admin'} />
+              <CargoMasterTable isStaffOnly={true} />
             </ReduxProvider>
+          </div>
+        )}
+
+        {/* ── TAB 4: SHIPPING LINES (STRICTLY READ-ONLY) ── */}
+        {activeEmployeeTab === 'shipping-lines' && (
+          <div className="animate-fadeIn">
+            <ShippingLineManager readOnly={true} />
+          </div>
+        )}
+
+        {/* ── TAB 5: PARTY ARRIVAL NOTIFICATIONS (STRICTLY READ-ONLY) ── */}
+        {activeEmployeeTab === 'notifications' && (
+          <div className="animate-fadeIn">
+            <PartyArrivalNotifications readOnly={true} />
           </div>
         )}
 
@@ -2652,6 +2847,172 @@ export default function InternalEmployeeViewPage() {
         isOpen={showTranslatorModal}
         onClose={() => setShowTranslatorModal(false)}
       />
+
+      {/* ── DEDICATED GENERATE OR ADD TO PUBLIC TRACKING LINK MODAL ── */}
+      {linkModalData && linkModalData.open && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+              <div className="flex items-center space-x-2">
+                <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center">
+                  <Link2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-900">
+                    {linkModalData.mode === 'new' ? 'Generate New Tracking Link' : 'Add Receipts to Existing Link'}
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    {linkModalData.items.length} cargo record(s) selected
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setLinkModalData(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Mode Selector Tabs */}
+            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => setLinkModalData({ ...linkModalData, mode: 'new' })}
+                className={`py-2 rounded-lg transition flex items-center justify-center space-x-1.5 ${
+                  linkModalData.mode === 'new'
+                    ? 'bg-white text-blue-700 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Create New Link</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setLinkModalData({ ...linkModalData, mode: 'existing' })}
+                className={`py-2 rounded-lg transition flex items-center justify-center space-x-1.5 ${
+                  linkModalData.mode === 'existing'
+                    ? 'bg-white text-blue-700 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Link2 className="w-3.5 h-3.5" />
+                <span>Add to Existing Link</span>
+              </button>
+            </div>
+
+            {/* Form Fields */}
+            {linkModalData.mode === 'new' ? (
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-700">
+                  New Tracking Link Name / Customer / Marka:
+                </label>
+                <input
+                  type="text"
+                  value={linkModalData.newName}
+                  onChange={(e) => setLinkModalData({ ...linkModalData, newName: e.target.value })}
+                  placeholder="e.g. VIP TRADERS / MARKA-786"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                  autoFocus
+                />
+                <p className="text-[10px] text-slate-400">
+                  A unique public token will be generated automatically for 24-hr tracking.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-700">
+                  Choose Existing Tracking Link:
+                </label>
+                {trackingTokensList.length === 0 ? (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
+                    No existing tracking links found. Please select &quot;Create New Link&quot; above.
+                  </div>
+                ) : (
+                  <select
+                    value={linkModalData.selectedToken}
+                    onChange={(e) => setLinkModalData({ ...linkModalData, selectedToken: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:border-blue-500 bg-white"
+                  >
+                    {trackingTokensList.map((t) => (
+                      <option key={t.token} value={t.token}>
+                        {t.name || 'Unnamed Link'} ({t.token.slice(0, 8)}...) — {t.receipts?.length || 0} receipt(s)
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <p className="text-[10px] text-slate-400">
+                  Receipts will be appended to this existing link without resetting existing data.
+                </p>
+              </div>
+            )}
+
+            {/* Receipts Summary & Already Linked Check */}
+            <div className="border border-slate-200 rounded-xl p-3 bg-slate-50 space-y-2 overflow-y-auto max-h-48">
+              <span className="text-[10px] font-black uppercase text-slate-500">
+                Receipts to be Linked ({linkModalData.items.length}):
+              </span>
+              <div className="space-y-1">
+                {linkModalData.items.map((item, idx) => {
+                  const already = linkedReceiptsMap.get((item.receipt || '').toLowerCase().trim()) || [];
+                  return (
+                    <div
+                      key={`${item._id || item.receipt}-${idx}`}
+                      className="flex items-center justify-between text-xs py-1 px-2 rounded-lg bg-white border border-slate-100"
+                    >
+                      <div className="flex items-center space-x-2 font-mono">
+                        <span className="font-bold text-slate-900">#{item.receipt}</span>
+                        <span className="text-[10px] font-sans text-slate-500">
+                          {item.mainMarka || item.commodity || 'Goods'}
+                        </span>
+                      </div>
+                      {already.length > 0 ? (
+                        <span
+                          className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200"
+                          title={`Already in link(s): ${already.map(a => a.name).join(', ')}`}
+                        >
+                          Already Linked: {already[0].name}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-semibold text-slate-400">
+                          Not Linked Yet
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => setLinkModalData(null)}
+                className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmLink}
+                disabled={isGeneratingLink || (linkModalData.mode === 'existing' && !linkModalData.selectedToken)}
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-sm disabled:opacity-50"
+              >
+                {isGeneratingLink ? (
+                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Check className="w-3.5 h-3.5" />
+                )}
+                <span>
+                  {linkModalData.mode === 'new' ? 'Generate & Copy Link' : 'Add to Existing Link'}
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Public Tracking Link Result Modal */}
       {trackingModalData && trackingModalData.open && (

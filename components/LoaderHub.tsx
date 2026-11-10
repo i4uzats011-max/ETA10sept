@@ -3419,7 +3419,10 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
           );
         },
       },
-      {
+    ];
+
+    if (!readOnly) {
+      cols.push({
         id: 'action',
         header: () => <div className="text-right">Action</div>,
         cell: ({ row }) => {
