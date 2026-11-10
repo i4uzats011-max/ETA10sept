@@ -1112,180 +1112,253 @@ export default function PublicReceiptTrackingPage() {
   const handleDownloadExcel = async () => {
     setDownloadingExcel(true);
     try {
-      const ExcelJS = await import('exceljs');
-      const workbook = new ExcelJS.Workbook();
-      workbook.creator = 'US International Logistics';
-      workbook.created = new Date();
+      const cleanMarka = (linkName || 'Cargo Tracking').trim();
+      // Excel worksheet names cannot contain: * ? : \ / [ ] and cannot exceed 31 characters
+      const safeSheetName = cleanMarka.replace(/[^a-zA-Z0-9_\-\s]/g, '_').trim().slice(0, 31) || 'Cargo Status';
 
-      const cleanMarka = linkName || 'Cargo Tracking';
-      const worksheet = workbook.addWorksheet(cleanMarka.slice(0, 31) || 'Cargo Status');
+      // Primary: Colorful formatted export with ExcelJS
+      try {
+        const ExcelJSModule = await import('exceljs');
+        const WorkbookClass = (ExcelJSModule as any).Workbook || (ExcelJSModule as any).default?.Workbook || (ExcelJSModule as any).default;
+        if (!WorkbookClass) {
+          throw new Error('ExcelJS Workbook class not available');
+        }
+        const workbook = new WorkbookClass();
+        workbook.creator = 'US International Logistics';
+        workbook.created = new Date();
 
-      // Title Banner Row (Spans 9 columns A to I)
-      worksheet.mergeCells('A1:I1');
-      const titleCell = worksheet.getCell('A1');
-      titleCell.value = 'US INTERNATIONAL LOGISTICS - CARGO MASTER STATUS';
-      titleCell.font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FFFFFFFF' } };
-      titleCell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FF0F172A' }
-      };
-      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
-      worksheet.getRow(1).height = 30;
+        const worksheet = workbook.addWorksheet(safeSheetName);
 
-      // Subheader Row: Marka, Export Date, 24-hr link info (Spans 9 columns A to I)
-      worksheet.mergeCells('A2:I2');
-      const subCell = worksheet.getCell('A2');
-      subCell.value = `Marka: ${cleanMarka}  |  Exported: ${new Date().toLocaleDateString()}  |  Track Live 24/7: ${typeof window !== 'undefined' ? window.location.href : ''}`;
-      subCell.font = { name: 'Arial', size: 9, italic: true, color: { argb: 'FF334155' } };
-      subCell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFF1F5F9' }
-      };
-      subCell.alignment = { horizontal: 'center', vertical: 'middle' };
-      worksheet.getRow(2).height = 20;
-
-      // Column Headers (Row 4) - 9 Separate Columns
-      worksheet.getRow(3).height = 8;
-      const headerRow = worksheet.getRow(4);
-      headerRow.values = [
-        'Receipt No.',
-        'Marka',
-        'Container No.',
-        'Item Name',
-        'Status',
-        'ETA & Days to Come',
-        'CBM',
-        'Weight',
-        'CTN'
-      ];
-      headerRow.height = 25;
-      headerRow.eachCell((cell) => {
-        cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
-        cell.fill = {
+        // Title Banner Row (Spans 9 columns A to I)
+        worksheet.mergeCells('A1:I1');
+        const titleCell = worksheet.getCell('A1');
+        titleCell.value = 'US INTERNATIONAL LOGISTICS - CARGO MASTER STATUS';
+        titleCell.font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FFFFFFFF' } };
+        titleCell.fill = {
           type: 'pattern',
           pattern: 'solid',
-          fgColor: { argb: 'FF1E40AF' } // Royal Blue
+          fgColor: { argb: 'FF0F172A' }
         };
-        cell.alignment = { horizontal: 'center', vertical: 'middle' };
-        cell.border = {
-          top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
-          bottom: { style: 'medium', color: { argb: 'FF0F172A' } },
-          left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
-          right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+        titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        worksheet.getRow(1).height = 30;
+
+        // Subheader Row: Marka, Export Date, 24-hr link info (Spans 9 columns A to I)
+        worksheet.mergeCells('A2:I2');
+        const subCell = worksheet.getCell('A2');
+        subCell.value = `Marka: ${cleanMarka}  |  Exported: ${new Date().toLocaleDateString()}  |  Track Live 24/7: ${typeof window !== 'undefined' ? window.location.href : ''}`;
+        subCell.font = { name: 'Arial', size: 9, italic: true, color: { argb: 'FF334155' } };
+        subCell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFF1F5F9' }
         };
-      });
+        subCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        worksheet.getRow(2).height = 20;
 
-      // Data Rows
-      filteredReceipts.forEach((r, idx) => {
-        const isDelivered = isReceiptDelivered(r);
-        const effDate = isDelivered ? getEffectiveDeliveryDate(r) : r.eta;
-        const dateText = effDate ? formatDisplayDate(effDate) : 'Pending Schedule';
-        const cleanStat = cleanDisplayStatus(r.status);
-        const remDays = getEffectiveRemainDays(r);
-        const etaWithDays = isDelivered
-          ? `Delivered: ${dateText}`
-          : remDays !== null
-          ? `${dateText} (${remDays} days to come)`
-          : `${dateText} (Pending Schedule)`;
-
-        const row = worksheet.addRow([
-          (r.receiptNo ? (r.warehouse ? `${r.receiptNo} (${r.warehouse} WH)` : r.receiptNo) : '-'),
-          r.marka || linkName || '-',
-          (r.containerNo && r.containerNo.trim() && r.containerNo !== '-' && !r.containerNo.toLowerCase().includes('pending') && !r.containerNo.toLowerCase().includes('warehouse') && !r.containerNo.toLowerCase().includes('not loaded') ? r.containerNo : '-'),
-          r.itemName || '-',
-          isDelivered ? 'Delivered' : cleanStat,
-          etaWithDays,
-          r.cbm && r.cbm !== '-' ? parseFloat(r.cbm) || r.cbm : '-',
-          r.weight || '-',
-          r.ctn && r.ctn !== '-' ? parseInt(r.ctn, 10) || r.ctn : '-'
-        ]);
-
-        row.height = 22;
-        const isEven = idx % 2 === 0;
-
-        // Color coding for status column (Col 5)
-        let statusBg = isDelivered ? 'FFD1FAE5' : cleanStat.toLowerCase().includes('warehouse') ? 'FFFEF3C7' : 'FFDBEAFE';
-        let statusFg = isDelivered ? 'FF065F46' : cleanStat.toLowerCase().includes('warehouse') ? 'FF92400E' : 'FF1E40AF';
-
-        row.eachCell((cell, colNumber) => {
-          cell.font = { name: 'Arial', size: 9 };
-          cell.alignment = { vertical: 'middle', horizontal: colNumber === 4 ? 'left' : 'center' };
-          cell.border = {
-            bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-            left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
-            right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+        // Column Headers (Row 4) - 9 Separate Columns
+        worksheet.getRow(3).height = 8;
+        const headerRow = worksheet.getRow(4);
+        headerRow.values = [
+          'Receipt No.',
+          'Marka',
+          'Container No.',
+          'Item Name',
+          'Status',
+          'ETA & Days to Come',
+          'CBM',
+          'Weight',
+          'CTN'
+        ];
+        headerRow.height = 25;
+        headerRow.eachCell((cell: any) => {
+          cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FF1E40AF' } // Royal Blue
           };
-
-          if (colNumber === 1) {
-            cell.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FF1D4ED8' } };
-          } else if (colNumber === 5) {
-            cell.fill = {
-              type: 'pattern',
-              pattern: 'solid',
-              fgColor: { argb: statusBg }
-            };
-            cell.font = { name: 'Arial', size: 9, bold: true, color: { argb: statusFg } };
-          } else if (!isEven) {
-            cell.fill = {
-              type: 'pattern',
-              pattern: 'solid',
-              fgColor: { argb: 'FFF8FAFC' }
-            };
-          }
+          cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          cell.border = {
+            top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+            bottom: { style: 'medium', color: { argb: 'FF0F172A' } },
+            left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+            right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+          };
         });
-      });
 
-      // Summary Row (Cols 1-6 merged for label, Cols 7-9 for totals)
-      const summaryRow = worksheet.addRow([
-        `Summary (${filteredReceipts.length} Receipts)`,
-        '',
-        '',
-        '',
-        '',
-        '',
-        totals.cbm !== '-' ? `${totals.cbm} m³` : '-',
-        totals.weight !== '-' ? totals.weight : '-',
-        totals.ctn !== '-' ? `${totals.ctn} ctn` : '-'
-      ]);
-      summaryRow.height = 24;
-      summaryRow.eachCell((cell) => {
-        cell.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FF0F172A' } };
-        cell.fill = {
-          type: 'pattern',
-          pattern: 'solid',
-          fgColor: { argb: 'FFE2E8F0' }
-        };
-        cell.alignment = { vertical: 'middle', horizontal: 'center' };
-        cell.border = {
-          top: { style: 'medium', color: { argb: 'FF94A3B8' } },
-          bottom: { style: 'medium', color: { argb: 'FF94A3B8' } }
-        };
-      });
+        // Data Rows
+        filteredReceipts.forEach((r, idx) => {
+          const isDelivered = isReceiptDelivered(r);
+          const effDate = isDelivered ? getEffectiveDeliveryDate(r) : r.eta;
+          const dateText = effDate ? formatDisplayDate(effDate) : 'Pending Schedule';
+          const cleanStat = cleanDisplayStatus(r.status);
+          const remDays = getEffectiveRemainDays(r);
+          const etaWithDays = isDelivered
+            ? `Delivered: ${dateText}`
+            : remDays !== null
+            ? `${dateText} (${remDays} days to come)`
+            : `${dateText} (Pending Schedule)`;
 
-      worksheet.columns = [
-        { width: 16 }, // Receipt No
-        { width: 14 }, // Marka
-        { width: 18 }, // Container
-        { width: 26 }, // Item Name
-        { width: 18 }, // Status
-        { width: 28 }, // ETA & Days to Come
-        { width: 14 }, // CBM
-        { width: 14 }, // Weight
-        { width: 14 }  // CTN
+          const row = worksheet.addRow([
+            (r.receiptNo ? (r.warehouse ? `${r.receiptNo} (${r.warehouse} WH)` : r.receiptNo) : '-'),
+            r.marka || linkName || '-',
+            (r.containerNo && r.containerNo.trim() && r.containerNo !== '-' && !r.containerNo.toLowerCase().includes('pending') && !r.containerNo.toLowerCase().includes('warehouse') && !r.containerNo.toLowerCase().includes('not loaded') ? r.containerNo : '-'),
+            r.itemName || '-',
+            isDelivered ? 'Delivered' : cleanStat,
+            etaWithDays,
+            r.cbm && r.cbm !== '-' ? parseFloat(r.cbm) || r.cbm : '-',
+            r.weight || '-',
+            r.ctn && r.ctn !== '-' ? parseInt(r.ctn, 10) || r.ctn : '-'
+          ]);
+
+          row.height = 22;
+          const isEven = idx % 2 === 0;
+
+          // Color coding for status column (Col 5)
+          let statusBg = isDelivered ? 'FFD1FAE5' : cleanStat.toLowerCase().includes('warehouse') ? 'FFFEF3C7' : 'FFDBEAFE';
+          let statusFg = isDelivered ? 'FF065F46' : cleanStat.toLowerCase().includes('warehouse') ? 'FF92400E' : 'FF1E40AF';
+
+          row.eachCell((cell: any, colNumber: number) => {
+            cell.font = { name: 'Arial', size: 9 };
+            cell.alignment = { vertical: 'middle', horizontal: colNumber === 4 ? 'left' : 'center' };
+            cell.border = {
+              bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+              left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+              right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+            };
+
+            if (colNumber === 1) {
+              cell.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FF1D4ED8' } };
+            } else if (colNumber === 5) {
+              cell.fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: statusBg }
+              };
+              cell.font = { name: 'Arial', size: 9, bold: true, color: { argb: statusFg } };
+            } else if (!isEven) {
+              cell.fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: 'FFF8FAFC' }
+              };
+            }
+          });
+        });
+
+        // Summary Row (Cols 1-6 merged for label, Cols 7-9 for totals)
+        const summaryRow = worksheet.addRow([
+          `Summary (${filteredReceipts.length} Receipts)`,
+          '',
+          '',
+          '',
+          '',
+          '',
+          totals.cbm !== '-' ? `${totals.cbm} m³` : '-',
+          totals.weight !== '-' ? totals.weight : '-',
+          totals.ctn !== '-' ? `${totals.ctn} ctn` : '-'
+        ]);
+        summaryRow.height = 24;
+        summaryRow.eachCell((cell: any) => {
+          cell.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FF0F172A' } };
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFE2E8F0' }
+          };
+          cell.alignment = { vertical: 'middle', horizontal: 'center' };
+          cell.border = {
+            top: { style: 'medium', color: { argb: 'FF94A3B8' } },
+            bottom: { style: 'medium', color: { argb: 'FF94A3B8' } }
+          };
+        });
+
+        worksheet.columns = [
+          { width: 16 }, // Receipt No
+          { width: 14 }, // Marka
+          { width: 18 }, // Container
+          { width: 26 }, // Item Name
+          { width: 18 }, // Status
+          { width: 28 }, // ETA & Days to Come
+          { width: 14 }, // CBM
+          { width: 14 }, // Weight
+          { width: 14 }  // CTN
+        ];
+
+        const buffer = await workbook.xlsx.writeBuffer();
+        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${cleanMarka.replace(/[^a-zA-Z0-9_-]/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showToast('📊 Colorful Excel (.xlsx) file downloaded!');
+        return;
+      } catch (excelJsErr) {
+        console.warn('ExcelJS styling generation failed, falling back to XLSX:', excelJsErr);
+      }
+
+      // Robust Fallback: SheetJS (XLSX) if ExcelJS has any issue in browser/bundler
+      const XLSXModule = await import('xlsx');
+      const XLSX = (XLSXModule as any).default || XLSXModule;
+      const exportRows = [
+        ['US INTERNATIONAL LOGISTICS - CARGO MASTER STATUS'],
+        [`Marka: ${cleanMarka}  |  Exported: ${new Date().toLocaleDateString()}  |  Track Live 24/7: ${typeof window !== 'undefined' ? window.location.href : ''}`],
+        [],
+        ['Receipt No.', 'Marka', 'Container No.', 'Item Name', 'Status', 'ETA & Days to Come', 'CBM', 'Weight', 'CTN'],
+        ...filteredReceipts.map((r) => {
+          const isDelivered = isReceiptDelivered(r);
+          const effDate = isDelivered ? getEffectiveDeliveryDate(r) : r.eta;
+          const dateText = effDate ? formatDisplayDate(effDate) : 'Pending Schedule';
+          const cleanStat = cleanDisplayStatus(r.status);
+          const remDays = getEffectiveRemainDays(r);
+          const etaWithDays = isDelivered
+            ? `Delivered: ${dateText}`
+            : remDays !== null
+            ? `${dateText} (${remDays} days to come)`
+            : `${dateText} (Pending Schedule)`;
+
+          return [
+            r.receiptNo ? (r.warehouse ? `${r.receiptNo} (${r.warehouse} WH)` : r.receiptNo) : '-',
+            r.marka || linkName || '-',
+            (r.containerNo && r.containerNo.trim() && r.containerNo !== '-' && !r.containerNo.toLowerCase().includes('pending') && !r.containerNo.toLowerCase().includes('warehouse') && !r.containerNo.toLowerCase().includes('not loaded') ? r.containerNo : '-'),
+            r.itemName || '-',
+            isDelivered ? 'Delivered' : cleanStat,
+            etaWithDays,
+            r.cbm && r.cbm !== '-' ? r.cbm : '-',
+            r.weight || '-',
+            r.ctn && r.ctn !== '-' ? r.ctn : '-'
+          ];
+        }),
+        [
+          `Summary (${filteredReceipts.length} Receipts)`,
+          '', '', '', '', '',
+          totals.cbm !== '-' ? `${totals.cbm} m³` : '-',
+          totals.weight !== '-' ? totals.weight : '-',
+          totals.ctn !== '-' ? `${totals.ctn} ctn` : '-'
+        ]
       ];
 
-      const buffer = await workbook.xlsx.writeBuffer();
-      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${cleanMarka.replace(/[^a-zA-Z0-9_-]/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`;
-      a.click();
-      URL.revokeObjectURL(url);
-
-      showToast('📊 Colorful Excel (.xlsx) file downloaded!');
+      const ws = XLSX.utils.aoa_to_sheet(exportRows);
+      ws['!cols'] = [
+        { wch: 16 },
+        { wch: 14 },
+        { wch: 18 },
+        { wch: 26 },
+        { wch: 18 },
+        { wch: 28 },
+        { wch: 14 },
+        { wch: 14 },
+        { wch: 14 }
+      ];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, safeSheetName);
+      XLSX.writeFile(wb, `${cleanMarka.replace(/[^a-zA-Z0-9_-]/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      showToast('📊 Excel (.xlsx) file downloaded!');
     } catch (err) {
       console.error('Error generating Excel:', err);
       alert('Failed to generate Excel file. Please try again.');

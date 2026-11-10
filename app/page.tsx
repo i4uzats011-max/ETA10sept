@@ -70,142 +70,9 @@ function formatCBM(volume: any): string {
   return `${volume} CBM`;
 }
 
-// Authentic MSC China-to-India Vessel Sailing Schedules Dataset
-interface ISailingSchedule {
-  id: string;
-  carrier: string;
-  service: string;
-  vessel: string;
-  voyage: string;
-  pol: string;
-  polCode: string;
-  pod: string;
-  podCode: string;
-  frequency: string;
-  transitDays: number;
-  routing: string;
-  status: string;
-  mscLink: string;
-}
-
-const SAILING_SCHEDULES: ISailingSchedule[] = [
-  {
-    id: 'SCH-01',
-    carrier: 'MSC',
-    service: 'MSC Falcon Express',
-    vessel: 'MSC ANNA',
-    voyage: '2403W',
-    pol: 'Ningbo (CNNGB)',
-    polCode: 'Ningbo',
-    pod: 'Nhava Sheva / JNPT (INNSA)',
-    podCode: 'Nhava Sheva',
-    frequency: 'Every Tuesday',
-    transitDays: 14,
-    routing: 'Direct Ocean Express',
-    status: 'Booking Open',
-    mscLink: 'https://www.msc.com/en/search-a-schedule',
-  },
-  {
-    id: 'SCH-02',
-    carrier: 'MSC',
-    service: 'MSC Tiger Direct',
-    vessel: 'MSC CLARA',
-    voyage: '1908W',
-    pol: 'Shanghai (CNSHA)',
-    polCode: 'Shanghai',
-    pod: 'Mundra (INMUN)',
-    podCode: 'Mundra',
-    frequency: 'Every Thursday',
-    transitDays: 16,
-    routing: 'Direct Ocean Express',
-    status: 'Booking Open',
-    mscLink: 'https://www.msc.com/en/search-a-schedule',
-  },
-  {
-    id: 'SCH-03',
-    carrier: 'MSC',
-    service: 'MSC Dragon Shuttle',
-    vessel: 'MSC MAYA',
-    voyage: '3312W',
-    pol: 'Guangzhou / Nansha (CNCAN)',
-    polCode: 'Guangzhou',
-    pod: 'Nhava Sheva / JNPT (INNSA)',
-    podCode: 'Nhava Sheva',
-    frequency: 'Every Saturday',
-    transitDays: 13,
-    routing: 'Direct South China Call',
-    status: 'Fast Transit',
-    mscLink: 'https://www.msc.com/en/search-a-schedule',
-  },
-  {
-    id: 'SCH-04',
-    carrier: 'MSC',
-    service: 'MSC Himalaya Intermodal',
-    vessel: 'MSC DILETTA',
-    voyage: '4102W',
-    pol: 'Shenzhen / Yantian (CNSZX)',
-    polCode: 'Shenzhen',
-    pod: 'Delhi ICD Tughlakabad (INDEL)',
-    podCode: 'Delhi ICD',
-    frequency: 'Every Monday',
-    transitDays: 20,
-    routing: 'Ocean + Indian Railway CONCOR',
-    status: 'Multimodal Active',
-    mscLink: 'https://www.msc.com/en/search-a-schedule',
-  },
-  {
-    id: 'SCH-05',
-    carrier: 'MSC',
-    service: 'MSC Orient Express',
-    vessel: 'MSC IRIS',
-    voyage: '1205W',
-    pol: 'Qingdao (CNTAO)',
-    polCode: 'Qingdao',
-    pod: 'Mundra (INMUN)',
-    podCode: 'Mundra',
-    frequency: 'Every Friday',
-    transitDays: 18,
-    routing: 'Direct North China Call',
-    status: 'Booking Open',
-    mscLink: 'https://www.msc.com/en/search-a-schedule',
-  },
-  {
-    id: 'SCH-06',
-    carrier: 'MSC',
-    service: 'China-India Central Express',
-    vessel: 'MSC PALOMA',
-    voyage: '2804W',
-    pol: 'Yiwu (via Ningbo)',
-    polCode: 'Yiwu',
-    pod: 'Delhi ICD Tughlakabad (INDEL)',
-    podCode: 'Delhi ICD',
-    frequency: 'Every Wednesday',
-    transitDays: 22,
-    routing: 'Yiwu CFS → Ningbo Port → Rail ICD',
-    status: 'Consolidation Ready',
-    mscLink: 'https://www.msc.com/en/search-a-schedule',
-  },
-  {
-    id: 'SCH-07',
-    carrier: 'MSC',
-    service: 'MSC Coromandel Shuttle',
-    vessel: 'MSC REBECCA',
-    voyage: '0711W',
-    pol: 'Shanghai (CNSHA)',
-    polCode: 'Shanghai',
-    pod: 'Chennai (INMAA)',
-    podCode: 'Chennai',
-    frequency: 'Every Sunday',
-    transitDays: 15,
-    routing: 'Direct South-East Coast',
-    status: 'Booking Open',
-    mscLink: 'https://www.msc.com/en/search-a-schedule',
-  },
-];
-
 export default function PublicTrackerPage() {
-  // Top-Level Hero eBusiness Tab (Modeled after MSC.com: Track a shipment | Search schedules | Instant quote | Book a shipment)
-  const [heroWidgetTab, setHeroWidgetTab] = useState<'track' | 'schedules' | 'quote' | 'book'>('track');
+  // Top-Level Hero eBusiness Tab (Modeled after MSC.com: Track a shipment | Instant quote | Book a shipment)
+  const [heroWidgetTab, setHeroWidgetTab] = useState<'track' | 'quote' | 'book'>('track');
 
   // Tracking sub-tab: 'receipt' (Bill No) vs 'container' (Container No)
   const [activeTab, setActiveTab] = useState<'receipt' | 'container'>('receipt');
@@ -217,10 +84,6 @@ export default function PublicTrackerPage() {
   const [pendingCartonReceipt, setPendingCartonReceipt] = useState<string | null>(null);
   const [cartonInput, setCartonInput] = useState('');
   const [cartonVerificationError, setCartonVerificationError] = useState<string | null>(null);
-
-  // Schedules Search Filters
-  const [schedulePol, setSchedulePol] = useState('ALL');
-  const [schedulePod, setSchedulePod] = useState('ALL');
 
   // Instant Freight Quote States
   const [quoteContainerType, setQuoteContainerType] = useState<'20GP' | '40HQ' | 'LCL'>('40HQ');
@@ -802,12 +665,6 @@ export default function PublicTrackerPage() {
     primaryGoods.subMarka && primaryGoods.subMarka !== '??' ? `Sub: ${primaryGoods.subMarka}` : ''
   ].filter(Boolean).join(' | ') || 'N/A';
 
-  // Filtered Sailing Schedules
-  const filteredSchedules = SAILING_SCHEDULES.filter((s) => {
-    const polMatch = schedulePol === 'ALL' || s.polCode.toLowerCase().includes(schedulePol.toLowerCase());
-    const podMatch = schedulePod === 'ALL' || s.podCode.toLowerCase().includes(schedulePod.toLowerCase());
-    return polMatch && podMatch;
-  });
 
   // Instant Quote Calculation
   const calculateQuote = () => {
@@ -961,18 +818,6 @@ export default function PublicTrackerPage() {
             </button>
             <button
               onClick={() => {
-                setHeroWidgetTab('schedules');
-                document.getElementById('ebusiness-widget')?.scrollIntoView({ behavior: 'smooth' });
-              }}
-              className={`hover:text-amber-600 transition flex items-center space-x-1.5 ${
-                heroWidgetTab === 'schedules' ? 'text-amber-600 font-black' : ''
-              }`}
-            >
-              <Calendar className="w-4 h-4" />
-              <span>Schedules</span>
-            </button>
-            <button
-              onClick={() => {
                 setHeroWidgetTab('quote');
                 document.getElementById('ebusiness-widget')?.scrollIntoView({ behavior: 'smooth' });
               }}
@@ -989,17 +834,19 @@ export default function PublicTrackerPage() {
           </nav>
 
           <div className="flex items-center space-x-2 sm:space-x-3">
-            <a
-              href="https://www.msc.com/en/track-a-shipment"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hidden sm:inline-flex items-center space-x-1 px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 border border-amber-300 font-bold text-xs transition"
-              title="Open Official MSC Tracking on msc.com"
+            <button
+              type="button"
+              onClick={() => {
+                setHeroWidgetTab('track');
+                const el = document.getElementById('ebusiness-widget');
+                if (el) el.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className="hidden sm:inline-flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 border border-amber-300 font-bold text-xs transition cursor-pointer"
+              title="Track on US International Logistics"
             >
               <Ship className="w-3.5 h-3.5 text-amber-600" />
-              <span>Track on MSC.com</span>
-              <ExternalLink className="w-3 h-3" />
-            </a>
+              <span>Track US International Logistics</span>
+            </button>
 
             <Link
               href="/admin/login"
@@ -1030,14 +877,14 @@ export default function PublicTrackerPage() {
                 Global Ocean &amp; Air Freight Solutions
               </h1>
               <p className="text-slate-300 text-xs sm:text-base leading-relaxed">
-                Experience enterprise-grade digital logistics inspired by global carrier standards. Track shipments, search direct China-India sailing schedules, get instant freight quotes, or book cargo directly.
+                Experience enterprise-grade digital logistics inspired by global carrier standards. Track shipments, get instant freight quotes, or book cargo directly.
               </p>
             </div>
 
             {/* THE MSC-STYLE E-BUSINESS FLOATING WIDGET */}
             <div id="ebusiness-widget" className="max-w-4xl mx-auto bg-white text-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 overflow-hidden">
-              {/* 4 Core E-Business Tabs (Modeled after msc.com) */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 bg-slate-900 text-slate-300 border-b border-slate-800">
+              {/* Core E-Business Tabs */}
+              <div className="grid grid-cols-3 bg-slate-900 text-slate-300 border-b border-slate-800">
                 <button
                   type="button"
                   onClick={() => setHeroWidgetTab('track')}
@@ -1049,19 +896,6 @@ export default function PublicTrackerPage() {
                 >
                   <Search className={`w-4 h-4 ${heroWidgetTab === 'track' ? 'text-amber-500' : 'text-slate-400'}`} />
                   <span>Track a shipment</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setHeroWidgetTab('schedules')}
-                  className={`py-3.5 sm:py-4 px-3 text-xs sm:text-sm font-bold flex items-center justify-center space-x-2 transition border-b-4 ${
-                    heroWidgetTab === 'schedules'
-                      ? 'border-amber-500 bg-white text-slate-950 shadow-inner'
-                      : 'border-transparent text-slate-300 hover:text-white hover:bg-slate-800'
-                  }`}
-                >
-                  <Calendar className={`w-4 h-4 ${heroWidgetTab === 'schedules' ? 'text-amber-500' : 'text-slate-400'}`} />
-                  <span>Search schedules</span>
                 </button>
 
                 <button
@@ -1241,151 +1075,10 @@ export default function PublicTrackerPage() {
                       </div>
                     )}
                   </form>
-
-                  {/* Direct Ocean Carrier & LDB Quick Links */}
-                  <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-                    <span className="font-semibold text-slate-600">Quick Track Tools:</span>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <a
-                        href="https://www.msc.com/en/track-a-shipment"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 font-bold transition text-[11px]"
-                      >
-                        <Ship className="w-3 h-3 text-amber-600" />
-                        <span>MSC Official Tracker (msc.com)</span>
-                        <ExternalLink className="w-2.5 h-2.5" />
-                      </a>
-                      <a
-                        href="https://ldb.co.in/ldb/containersearch"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 font-bold transition text-[11px]"
-                      >
-                        <span>🚆 Indian Railway LDB</span>
-                        <ExternalLink className="w-2.5 h-2.5" />
-                      </a>
-                    </div>
-                  </div>
                 </div>
               )}
 
-              {/* TAB 2: SEARCH SCHEDULES (Interactive Port-to-Port Sailing Schedules like MSC.com) */}
-              {heroWidgetTab === 'schedules' && (
-                <div className="p-4 sm:p-8 space-y-6 animate-fadeIn">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                    <div>
-                      <h3 className="font-extrabold text-base text-slate-900 flex items-center space-x-2">
-                        <Calendar className="w-4 h-4 text-amber-500" />
-                        <span>Point-to-Point Ocean Sailing Schedules</span>
-                      </h3>
-                      <p className="text-xs text-slate-500">Live liner rotations connecting major Chinese factories to Indian ports.</p>
-                    </div>
-                    <a
-                      href="https://www.msc.com/en/search-a-schedule"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs font-bold text-amber-600 hover:text-amber-700 flex items-center space-x-1"
-                    >
-                      <span>MSC Full Database</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </div>
 
-                  {/* Filter Selectors */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                        Port of Loading (China)
-                      </label>
-                      <select
-                        value={schedulePol}
-                        onChange={(e) => setSchedulePol(e.target.value)}
-                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                      >
-                        <option value="ALL">All Chinese Ports (Ningbo, Shanghai, Guangzhou, Shenzhen, Yiwu, Qingdao)</option>
-                        <option value="Ningbo">Ningbo (CNNGB)</option>
-                        <option value="Shanghai">Shanghai (CNSHA)</option>
-                        <option value="Guangzhou">Guangzhou / Nansha (CNCAN)</option>
-                        <option value="Shenzhen">Shenzhen / Yantian (CNSZX)</option>
-                        <option value="Yiwu">Yiwu Consolidation Hub</option>
-                        <option value="Qingdao">Qingdao (CNTAO)</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                        Port of Discharge (India)
-                      </label>
-                      <select
-                        value={schedulePod}
-                        onChange={(e) => setSchedulePod(e.target.value)}
-                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                      >
-                        <option value="ALL">All Indian Gateway Ports &amp; ICDs</option>
-                        <option value="Nhava Sheva">Nhava Sheva / JNPT (INNSA) - Mumbai</option>
-                        <option value="Mundra">Mundra Port (INMUN) - Gujarat</option>
-                        <option value="Delhi ICD">Delhi ICD Tughlakabad (INDEL) - Rail Inward</option>
-                        <option value="Chennai">Chennai Port (INMAA) - Tamil Nadu</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Schedules Table */}
-                  <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs">
-                        <thead className="bg-slate-900 text-white font-bold text-[11px] uppercase tracking-wider">
-                          <tr>
-                            <th className="py-3 px-3.5">Service &amp; Carrier</th>
-                            <th className="py-3 px-3.5">Vessel / Voyage</th>
-                            <th className="py-3 px-3.5">Route (POL → POD)</th>
-                            <th className="py-3 px-3.5">Transit</th>
-                            <th className="py-3 px-3.5">Departure</th>
-                            <th className="py-3 px-3.5 text-right">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {filteredSchedules.map((s) => (
-                            <tr key={s.id} className="hover:bg-amber-50/50 transition">
-                              <td className="py-3 px-3.5 font-bold text-slate-900">
-                                <div className="flex items-center space-x-1.5">
-                                  <span className="px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 font-black text-[10px]">
-                                    {s.carrier}
-                                  </span>
-                                  <span>{s.service}</span>
-                                </div>
-                              </td>
-                              <td className="py-3 px-3.5 font-mono text-slate-800">
-                                <strong>{s.vessel}</strong> <span className="text-slate-400">v.{s.voyage}</span>
-                              </td>
-                              <td className="py-3 px-3.5 font-medium text-slate-700">
-                                <div>{s.pol} → <span className="font-bold text-slate-900">{s.pod}</span></div>
-                                <div className="text-[10px] text-slate-400">{s.routing}</div>
-                              </td>
-                              <td className="py-3 px-3.5 font-black text-amber-600 font-mono">
-                                {s.transitDays} Days
-                              </td>
-                              <td className="py-3 px-3.5 text-slate-600 font-medium">
-                                {s.frequency}
-                              </td>
-                              <td className="py-3 px-3.5 text-right">
-                                <span className="inline-block px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                  {s.status}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  <p className="text-[11px] text-slate-500 italic">
-                    ℹ️ Vessel schedules are synchronized with MSC Mediterranean Shipping Company and major ocean liner rotations. Customs clearance and rail transfer timelines apply for inland destinations like Delhi ICD.
-                  </p>
-                </div>
-              )}
 
               {/* TAB 3: INSTANT QUOTE (Interactive Freight Estimator) */}
               {heroWidgetTab === 'quote' && (
@@ -2433,18 +2126,19 @@ export default function PublicTrackerPage() {
                       </p>
 
                       <div className="pt-3 border-t border-slate-800 flex flex-wrap items-center justify-center gap-2">
-                        {/* Direct MSC Carrier Button */}
-                        <a
-                          href="https://www.msc.com/en/track-a-shipment"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition group shadow-sm"
-                          title="Track on Official MSC (Mediterranean Shipping Company) website"
+                        {/* Direct US International Logistics Tracker Button */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const el = document.getElementById('ebusiness-widget');
+                            if (el) el.scrollIntoView({ behavior: 'smooth' });
+                          }}
+                          className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition group shadow-sm cursor-pointer"
+                          title="Track on US International Logistics"
                         >
                           <Ship className="w-3.5 h-3.5" />
-                          <span>Track on MSC.com</span>
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </a>
+                          <span>Track US International Logistics</span>
+                        </button>
 
                         {containerResult.shippingLine && (
                           <a
@@ -2484,113 +2178,182 @@ export default function PublicTrackerPage() {
           })()}
         </div>
 
-        {/* 7. Image-Rich Core Services Section (MSC Standard Logistics Offerings) */}
-        <section id="services" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-12">
+        {/* 7. Image-Rich Core Services Section (MSC Standard Logistics Offerings with Real Photography) */}
+        <section id="services" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 space-y-12">
           <div className="text-center space-y-3">
-            <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-bold uppercase tracking-wider">
-              <span>Enterprise Freight Solutions</span>
+            <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-amber-500/10 text-amber-700 border border-amber-300 text-xs font-bold uppercase tracking-wider">
+              <Anchor className="w-3.5 h-3.5 text-amber-600" />
+              <span>Enterprise Maritime &amp; Freight Solutions</span>
             </div>
-            <h2 className="text-2xl sm:text-4xl font-black text-slate-900 tracking-tight">
+            <h2 className="text-3xl sm:text-4xl font-black text-slate-950 tracking-tight">
               Our Specialized Maritime &amp; Freight Services
             </h2>
-            <p className="text-slate-600 max-w-2xl mx-auto text-sm">
-              End-to-end international logistics solutions tailored for seamless transportation from Chinese factories to Indian ports and warehouses.
+            <p className="text-slate-600 max-w-2xl mx-auto text-sm leading-relaxed">
+              End-to-end international logistics solutions engineered for dependable transit from premier Chinese manufacturing hubs to Indian seaports, ICDs, and final doorsteps.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-            {/* Service Card 1 */}
-            <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-xl transition duration-300 flex flex-col group">
-              <div className="h-48 overflow-hidden bg-slate-900 relative">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-7">
+            {/* Service Card 1: Sea Freight */}
+            <div className="bg-white rounded-3xl border border-slate-200/90 overflow-hidden shadow-sm hover:shadow-2xl transition-all duration-300 flex flex-col group hover:-translate-y-1">
+              <div className="h-52 overflow-hidden bg-slate-950 relative">
                 <img
-                  src="/images/hero-ship.svg"
-                  alt="Freight Forwarding Sea"
-                  className="w-full h-full object-cover group-hover:scale-110 transition duration-500"
+                  src="/images/ocean-freight.jpg"
+                  alt="Ocean Freight Container Vessel"
+                  className="w-full h-full object-cover group-hover:scale-110 transition duration-700 brightness-95 group-hover:brightness-100"
                 />
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/25 to-transparent" />
+                <div className="absolute top-3 left-3 flex items-center gap-1.5">
+                  <span className="text-[10px] font-black uppercase text-white bg-slate-950/75 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/20 shadow-sm">
+                    海运专线
+                  </span>
+                  <span className="text-[10px] font-bold text-amber-300 bg-amber-950/80 backdrop-blur-md px-2 py-1 rounded-full border border-amber-500/30">
+                    FCL / LCL
+                  </span>
+                </div>
+                <div className="absolute bottom-3 left-3 right-3 text-white">
+                  <p className="text-[11px] font-medium text-slate-300 flex items-center gap-1">
+                    <Ship className="w-3 h-3 text-amber-400" /> Major Carriers: MSC • Maersk • COSCO
+                  </p>
+                </div>
               </div>
               <div className="p-6 flex-1 flex flex-col justify-between space-y-4">
                 <div className="space-y-2">
-                  <span className="text-[10px] font-black uppercase text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">海运物流</span>
-                  <h3 className="font-extrabold text-lg text-slate-900">Freight Forwarding (Sea)</h3>
+                  <h3 className="font-extrabold text-lg text-slate-900 group-hover:text-amber-600 transition">
+                    Ocean Freight Forwarding
+                  </h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    Expert FCL, LCL, and Break Bulk bookings with MSC, Maersk, and COSCO. Port-to-port and door-to-door delivery.
+                    Dependable FCL, LCL groupage, and special equipment bookings with tier-1 ocean alliances. Scheduled departures from Ningbo, Shanghai, Shenzhen, and Qingdao to Nhava Sheva &amp; Mundra.
                   </p>
                 </div>
-                <div className="text-xs font-bold text-amber-600 flex items-center space-x-1">
-                  <span>Ocean Logistics</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-amber-600 group-hover:text-amber-700">
+                  <span className="flex items-center gap-1">
+                    <Compass className="w-3.5 h-3.5" /> Ocean Route
+                  </span>
+                  <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
                 </div>
               </div>
             </div>
 
-            {/* Service Card 2 */}
-            <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-xl transition duration-300 flex flex-col group">
-              <div className="h-48 overflow-hidden bg-slate-900 relative">
+            {/* Service Card 2: Air Freight */}
+            <div className="bg-white rounded-3xl border border-slate-200/90 overflow-hidden shadow-sm hover:shadow-2xl transition-all duration-300 flex flex-col group hover:-translate-y-1">
+              <div className="h-52 overflow-hidden bg-slate-950 relative">
                 <img
-                  src="/images/air-freight.svg"
-                  alt="Freight Forwarding Air"
-                  className="w-full h-full object-cover group-hover:scale-110 transition duration-500"
+                  src="/images/air-freight.jpg"
+                  alt="Air Cargo Freight Aircraft"
+                  className="w-full h-full object-cover group-hover:scale-110 transition duration-700 brightness-95 group-hover:brightness-100"
                 />
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/25 to-transparent" />
+                <div className="absolute top-3 left-3 flex items-center gap-1.5">
+                  <span className="text-[10px] font-black uppercase text-white bg-slate-950/75 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/20 shadow-sm">
+                    空运专线
+                  </span>
+                  <span className="text-[10px] font-bold text-blue-300 bg-blue-950/80 backdrop-blur-md px-2 py-1 rounded-full border border-blue-500/30">
+                    3-5 Days
+                  </span>
+                </div>
+                <div className="absolute bottom-3 left-3 right-3 text-white">
+                  <p className="text-[11px] font-medium text-slate-300 flex items-center gap-1">
+                    <Plane className="w-3 h-3 text-sky-400" /> Daily Flights to DEL &amp; BOM
+                  </p>
+                </div>
               </div>
               <div className="p-6 flex-1 flex flex-col justify-between space-y-4">
                 <div className="space-y-2">
-                  <span className="text-[10px] font-black uppercase text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">空运专线</span>
-                  <h3 className="font-extrabold text-lg text-slate-900">Freight Forwarding (Air)</h3>
+                  <h3 className="font-extrabold text-lg text-slate-900 group-hover:text-amber-600 transition">
+                    Air Freight Express
+                  </h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    Fast express air cargo shipments connecting Guangzhou, Shenzhen, and Shanghai to Delhi (DEL) and Mumbai (BOM).
+                    Time-critical express air freight from Guangzhou (CAN), Shenzhen (SZX), Shanghai (PVG), and Hong Kong (HKG) directly to Delhi and Mumbai with priority customs clearance.
                   </p>
                 </div>
-                <div className="text-xs font-bold text-amber-600 flex items-center space-x-1">
-                  <span>Air Express</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-amber-600 group-hover:text-amber-700">
+                  <span className="flex items-center gap-1">
+                    <Plane className="w-3.5 h-3.5" /> Express Cargo
+                  </span>
+                  <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
                 </div>
               </div>
             </div>
 
-            {/* Service Card 3 */}
-            <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-xl transition duration-300 flex flex-col group">
-              <div className="h-48 overflow-hidden bg-slate-900 relative">
+            {/* Service Card 3: China Sourcing */}
+            <div className="bg-white rounded-3xl border border-slate-200/90 overflow-hidden shadow-sm hover:shadow-2xl transition-all duration-300 flex flex-col group hover:-translate-y-1">
+              <div className="h-52 overflow-hidden bg-slate-950 relative">
                 <img
-                  src="/images/china-sourcing.svg"
-                  alt="China Sourcing & Direct Purchasing"
-                  className="w-full h-full object-cover group-hover:scale-110 transition duration-500"
+                  src="/images/china-sourcing.jpg"
+                  alt="China Factory Sourcing and Quality Inspection"
+                  className="w-full h-full object-cover group-hover:scale-110 transition duration-700 brightness-95 group-hover:brightness-100"
                 />
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/25 to-transparent" />
+                <div className="absolute top-3 left-3 flex items-center gap-1.5">
+                  <span className="text-[10px] font-black uppercase text-white bg-slate-950/75 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/20 shadow-sm">
+                    中国直采
+                  </span>
+                  <span className="text-[10px] font-bold text-indigo-300 bg-indigo-950/80 backdrop-blur-md px-2 py-1 rounded-full border border-indigo-500/30">
+                    Verified
+                  </span>
+                </div>
+                <div className="absolute bottom-3 left-3 right-3 text-white">
+                  <p className="text-[11px] font-medium text-slate-300 flex items-center gap-1">
+                    <ShieldCheck className="w-3 h-3 text-emerald-400" /> On-Site Factory Audits
+                  </p>
+                </div>
               </div>
               <div className="p-6 flex-1 flex flex-col justify-between space-y-4">
                 <div className="space-y-2">
-                  <span className="text-[10px] font-black uppercase text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">中国直采</span>
-                  <h3 className="font-extrabold text-lg text-slate-900">Direct From China</h3>
+                  <h3 className="font-extrabold text-lg text-slate-900 group-hover:text-amber-600 transition">
+                    Direct China Sourcing
+                  </h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    Trusted sourcing platform offering factory verification, white labeling, quality inspection, and sample testing.
+                    Bilingual on-the-ground agents in Yiwu, Ningbo, and Guangzhou. Factory authenticity checks, sample testing, price negotiations, supplier contracts, and pre-shipment quality control.
                   </p>
                 </div>
-                <div className="text-xs font-bold text-amber-600 flex items-center space-x-1">
-                  <span>Factory Verification</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-amber-600 group-hover:text-amber-700">
+                  <span className="flex items-center gap-1">
+                    <ShieldCheck className="w-3.5 h-3.5" /> Sourcing Hub
+                  </span>
+                  <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
                 </div>
               </div>
             </div>
 
-            {/* Service Card 4 */}
-            <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-xl transition duration-300 flex flex-col group">
-              <div className="h-48 overflow-hidden bg-slate-900 relative">
+            {/* Service Card 4: Customs & Warehousing */}
+            <div className="bg-white rounded-3xl border border-slate-200/90 overflow-hidden shadow-sm hover:shadow-2xl transition-all duration-300 flex flex-col group hover:-translate-y-1">
+              <div className="h-52 overflow-hidden bg-slate-950 relative">
                 <img
-                  src="/images/warehouse.svg"
-                  alt="Customs Clearance & Warehousing"
-                  className="w-full h-full object-cover group-hover:scale-110 transition duration-500"
+                  src="/images/customs-warehouse.jpg"
+                  alt="Modern Logistics Warehouse and Customs Clearing"
+                  className="w-full h-full object-cover group-hover:scale-110 transition duration-700 brightness-95 group-hover:brightness-100"
                 />
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/25 to-transparent" />
+                <div className="absolute top-3 left-3 flex items-center gap-1.5">
+                  <span className="text-[10px] font-black uppercase text-white bg-slate-950/75 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/20 shadow-sm">
+                    双清包税
+                  </span>
+                  <span className="text-[10px] font-bold text-emerald-300 bg-emerald-950/80 backdrop-blur-md px-2 py-1 rounded-full border border-emerald-500/30">
+                    DDP / DDU
+                  </span>
+                </div>
+                <div className="absolute bottom-3 left-3 right-3 text-white">
+                  <p className="text-[11px] font-medium text-slate-300 flex items-center gap-1">
+                    <Boxes className="w-3 h-3 text-amber-400" /> China &amp; India Warehouses
+                  </p>
+                </div>
               </div>
               <div className="p-6 flex-1 flex flex-col justify-between space-y-4">
                 <div className="space-y-2">
-                  <span className="text-[10px] font-black uppercase text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">双清包税</span>
-                  <h3 className="font-extrabold text-lg text-slate-900">Customs Clearance</h3>
+                  <h3 className="font-extrabold text-lg text-slate-900 group-hover:text-amber-600 transition">
+                    Customs &amp; Warehousing
+                  </h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    Smooth handling of import/export documentation, customs duty filing, and safe warehousing in India and China.
+                    Hassle-free customs clearance, ICEGATE filing, duty assessment, and secure palletized warehousing in Yiwu/Ningbo as well as North &amp; Western India distribution centers.
                   </p>
                 </div>
-                <div className="text-xs font-bold text-amber-600 flex items-center space-x-1">
-                  <span>Duty &amp; Compliance</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-amber-600 group-hover:text-amber-700">
+                  <span className="flex items-center gap-1">
+                    <Warehouse className="w-3.5 h-3.5" /> Warehousing
+                  </span>
+                  <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
                 </div>
               </div>
             </div>
@@ -2799,11 +2562,6 @@ export default function PublicTrackerPage() {
               <li>
                 <button onClick={() => { setHeroWidgetTab('track'); document.getElementById('ebusiness-widget')?.scrollIntoView({ behavior: 'smooth' }); }} className="hover:text-amber-400 transition text-left">
                   Track a Shipment
-                </button>
-              </li>
-              <li>
-                <button onClick={() => { setHeroWidgetTab('schedules'); document.getElementById('ebusiness-widget')?.scrollIntoView({ behavior: 'smooth' }); }} className="hover:text-amber-400 transition text-left">
-                  Point-to-Point Sailing Schedules
                 </button>
               </li>
               <li>
