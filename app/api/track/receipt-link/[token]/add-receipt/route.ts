@@ -16,6 +16,23 @@ function normalizeCarton(val: any): number | null {
   return isNaN(num) ? null : num;
 }
 
+interface ICandidateSlip {
+  source: 'warehouse' | 'shipment' | 'receipt_tracking';
+  receiptNo: string;
+  warehouse: string; // e.g. "GZ", "YW"
+  warehouseReceiptId: string;
+  totalCtn: number;
+  matchedWh: any | null;
+  matchedShipments: any[];
+  marka: string;
+  itemName: string;
+  cbm: string;
+  weight: string;
+  containerNo: string;
+  eta: string;
+  status: string;
+}
+
 // POST: Public user self-adds a receipt with verification of Receipt No. and Total CTN Received in Warehouse
 export async function POST(
   req: NextRequest,
@@ -30,6 +47,7 @@ export async function POST(
     const body = await req.json();
     const inputReceiptNo = String(body.receiptNo || body.receipt || '').trim();
     const inputCtn = body.ctn !== undefined ? body.ctn : body.quantity;
+    const requestedWarehouse = String(body.warehouse || body.selectedWarehouse || '').trim();
 
     if (!inputReceiptNo) {
       return NextResponse.json({ success: false, message: 'Receipt No. is required' }, { status: 400 });
@@ -57,47 +75,53 @@ export async function POST(
       return NextResponse.json({ success: false, message: 'Tracking link not found or expired' }, { status: 404 });
     }
 
-    // 2. Verified receipt uniqueness checked globally after warehouse & CTN verification
-
-    // 3. Search database for this receipt across China warehouses
+    // 2. Search database for this receipt across China warehouses
     const receiptRegex = new RegExp(`^${inputReceiptNo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
 
     const matchingWhItems: any[] = await WarehouseReceipt.find({ receipt: receiptRegex }).lean();
     const allShipments: any[] = await Shipment.find({ receipt: receiptRegex }).lean();
 
-    let matchedWh: any = null;
-    let matchedShipment: any = null;
-    let targetWarehouse = "";
-    let targetWhId = "";
-    let totalWarehouseCtnNum: number | null = null;
-    let recordSource = "";
+    const candidates: ICandidateSlip[] = [];
 
-    // If receipt exists in warehouse receipts, find the specific warehouse matching this carton count
-    if (matchingWhItems.length > 0) {
-      matchedWh = matchingWhItems.find((w: any) => normalizeCarton(w.quantity) === inputCtnNum);
-      if (!matchedWh && matchingWhItems.length === 1) {
-        matchedWh = matchingWhItems[0];
-      }
+    // 2a. Candidates from WarehouseReceipt
+    for (const w of matchingWhItems) {
+      const whCode = (w.warehouse || 'CHINA').toUpperCase().trim();
+      const whCtn = normalizeCarton(w.quantity) ?? 0;
+      const wIdStr = String(w._id);
 
-      if (matchedWh) {
-        totalWarehouseCtnNum = normalizeCarton(matchedWh.quantity);
-        targetWarehouse = matchedWh.warehouse || "";
-        targetWhId = String(matchedWh._id);
-        recordSource = "warehouse";
+      const relatedShipments = allShipments.filter((s: any) =>
+        (s.receiptId && String(s.receiptId) === wIdStr) ||
+        ((s.warehouse || '').toUpperCase().trim() === whCode)
+      );
 
-        // Find corresponding shipment for this specific warehouse if loaded
-        matchedShipment = allShipments.find((s: any) =>
-          (s.receiptId && String(s.receiptId) === targetWhId) ||
-          (s.warehouse && targetWarehouse && s.warehouse.toUpperCase().trim() === targetWarehouse.toUpperCase().trim())
-        );
-      }
+      const primaryShipment = relatedShipments[0] || null;
+
+      candidates.push({
+        source: 'warehouse',
+        receiptNo: w.receipt || inputReceiptNo,
+        warehouse: whCode,
+        warehouseReceiptId: wIdStr,
+        totalCtn: whCtn,
+        matchedWh: w,
+        matchedShipments: relatedShipments,
+        marka: String(w.mainMarka || w.subMarka || primaryShipment?.mainMarka || primaryShipment?.subMarka || trackingDoc.name || '').trim(),
+        itemName: String(w.english || w.commodity || w.chinese || (w.items && w.items[0]?.itemName) || primaryShipment?.english || primaryShipment?.commodity || '').trim(),
+        cbm: String(w.volume || primaryShipment?.volume || '0').trim(),
+        weight: String(w.weight || primaryShipment?.weight || '-').trim(),
+        containerNo: String(primaryShipment?.container || 'In Warehouse (Not Loaded)').trim(),
+        eta: String(primaryShipment?.destinationDate || primaryShipment?.eta || '').trim(),
+        status: String(primaryShipment?.status || 'Received in Warehouse').trim()
+      });
     }
 
-    // If not found in warehouse receipts, check shipments grouped by warehouse
-    if (!matchedWh && allShipments.length > 0) {
+    // 2b. Candidates from Shipment not covered by WarehouseReceipt
+    const coveredWhIds = new Set(matchingWhItems.map(w => String(w._id)));
+    const remainingShipments = allShipments.filter(s => !s.receiptId || !coveredWhIds.has(String(s.receiptId)));
+
+    if (remainingShipments.length > 0) {
       const shipmentsByWh = new Map<string, any[]>();
-      allShipments.forEach((s: any) => {
-        const whKey = (s.warehouse || "DEFAULT").toUpperCase().trim();
+      remainingShipments.forEach((s: any) => {
+        const whKey = (s.warehouse || 'CHINA').toUpperCase().trim();
         if (!shipmentsByWh.has(whKey)) shipmentsByWh.set(whKey, []);
         shipmentsByWh.get(whKey)!.push(s);
       });
@@ -105,60 +129,121 @@ export async function POST(
       for (const [whKey, sList] of shipmentsByWh.entries()) {
         const sumQty = sList.reduce((acc: number, s: any) => acc + (normalizeCarton(s.quantity) || 0), 0);
         const origQty = normalizeCarton(sList[0]?.originalTotalQuantity);
-        if (origQty === inputCtnNum || sumQty === inputCtnNum) {
-          matchedShipment = sList[0];
-          targetWarehouse = matchedShipment.warehouse || "";
-          totalWarehouseCtnNum = origQty !== null && origQty > 0 ? origQty : sumQty;
-          recordSource = "shipment";
-          break;
-        }
-      }
+        const totalCtn = origQty !== null && origQty > 0 ? origQty : sumQty;
+        const first = sList[0];
 
-      if (!matchedShipment) {
-        matchedShipment = allShipments[0];
-        targetWarehouse = matchedShipment.warehouse || "";
-        const origQty = normalizeCarton(matchedShipment.originalTotalQuantity);
-        totalWarehouseCtnNum = origQty !== null && origQty > 0 ? origQty : normalizeCarton(matchedShipment.quantity);
-        recordSource = "shipment";
+        candidates.push({
+          source: 'shipment',
+          receiptNo: first.receipt || inputReceiptNo,
+          warehouse: whKey,
+          warehouseReceiptId: first.receiptId ? String(first.receiptId) : '',
+          totalCtn: totalCtn,
+          matchedWh: null,
+          matchedShipments: sList,
+          marka: String(first.mainMarka || first.subMarka || trackingDoc.name || '').trim(),
+          itemName: String(first.english || first.commodity || first.chinese || '').trim(),
+          cbm: String(first.volume || '0').trim(),
+          weight: String(first.weight || '-').trim(),
+          containerNo: String(first.container || 'In Warehouse (Not Loaded)').trim(),
+          eta: String(first.destinationDate || first.eta || '').trim(),
+          status: String(first.status || 'In Transit').trim()
+        });
       }
     }
 
-    // Fallback: check existing tracking documents in ReceiptTracking
-    if (!matchedWh && !matchedShipment) {
-      const existingDoc: any = await ReceiptTracking.findOne({ "receipts.receiptNo": receiptRegex }).lean();
+    // 2c. Fallback: check existing tracking documents in ReceiptTracking
+    if (candidates.length === 0) {
+      const existingDoc: any = await ReceiptTracking.findOne({ 'receipts.receiptNo': receiptRegex }).lean();
       if (existingDoc && Array.isArray(existingDoc.receipts)) {
         const found = existingDoc.receipts.find(
           (r: any) => r.receiptNo && r.receiptNo.toLowerCase() === inputReceiptNo.toLowerCase()
         );
         if (found) {
-          targetWarehouse = found.warehouse || "";
-          targetWhId = found.warehouseReceiptId || "";
-          totalWarehouseCtnNum = normalizeCarton(found.ctn);
-          recordSource = "receipt_tracking";
+          candidates.push({
+            source: 'receipt_tracking',
+            receiptNo: found.receiptNo,
+            warehouse: (found.warehouse || 'CHINA').toUpperCase().trim(),
+            warehouseReceiptId: found.warehouseReceiptId || '',
+            totalCtn: normalizeCarton(found.ctn) ?? 0,
+            matchedWh: null,
+            matchedShipments: [],
+            marka: found.marka || trackingDoc.name || '',
+            itemName: found.itemName || '',
+            cbm: found.cbm || '0',
+            weight: found.weight || '-',
+            containerNo: found.containerNo || 'In Warehouse (Not Loaded)',
+            eta: found.eta || '',
+            status: found.status || 'In Transit'
+          });
         }
       }
     }
 
-    if ((!matchedWh && !matchedShipment && recordSource !== "receipt_tracking") || totalWarehouseCtnNum === null) {
+    if (candidates.length === 0) {
       return NextResponse.json({
         success: false,
         message: `Receipt #${inputReceiptNo} was not found in warehouse records. Please check the receipt number on your warehouse slip.`
       }, { status: 404 });
     }
 
-    // 4. Verify CTN matches TOTAL CTN RECEIVED IN WAREHOUSE
-    if (totalWarehouseCtnNum !== inputCtnNum) {
-      const warehouseHints = matchingWhItems.map((w: any) => `${w.warehouse || "Warehouse"} (${w.quantity} CTN)`).join(", ");
+    // 3. Verify CTN against candidate warehouse slips
+    const ctnMatchedCandidates = candidates.filter(c => c.totalCtn === inputCtnNum);
+
+    // 3a. No warehouse slip matches the input CTN
+    if (ctnMatchedCandidates.length === 0) {
+      const hints = candidates.map(c => `${c.warehouse} (${c.totalCtn} CTN)`).join(', ');
       return NextResponse.json({
         success: false,
-        message: matchingWhItems.length > 1
-          ? `Receipt #${inputReceiptNo} exists in multiple warehouses: ${warehouseHints}. Carton count (${inputCtn} CTN) does not match. Please enter the exact total cartons received as per your slip.`
-          : `Verification failed: Carton count (${inputCtn} CTN) does not match total packages received in warehouse for Receipt #${inputReceiptNo} (${totalWarehouseCtnNum} CTN). Please enter total cartons received as per your slip.`
+        message: candidates.length > 1
+          ? `Receipt #${inputReceiptNo} exists in warehouse records with different carton counts: ${hints}. Your entered carton count (${inputCtn} CTN) does not match. Please enter the exact total cartons received as per your warehouse slip.`
+          : `Verification failed: Carton count (${inputCtn} CTN) does not match total packages received in warehouse for Receipt #${inputReceiptNo} (${candidates[0].totalCtn} CTN). Please enter total cartons received as per your warehouse slip.`
       }, { status: 400 });
     }
 
-    // 4.5. GLOBAL LINK RESTRICTION: A receipt cannot be added again to ANY public tracking link
-    // NOTE: Receipts with the same receipt number in DIFFERENT warehouses (e.g. GZ vs YW) are different slips
+    // 3b. Determine the chosen candidate slip
+    let chosenCandidate: ICandidateSlip;
+
+    if (ctnMatchedCandidates.length === 1) {
+      // Exactly one warehouse matches this Receipt No. + CTN (e.g. GZ: 4 CTN vs YW: 5 CTN -> input 4 CTN picks GZ automatically)
+      chosenCandidate = ctnMatchedCandidates[0];
+    } else {
+      // Multiple warehouses have the SAME receipt number AND the SAME carton count (e.g. GZ: 4 CTN and YW: 4 CTN)
+      // Check if user already submitted a warehouse selection
+      if (requestedWarehouse) {
+        const matchedByWh = ctnMatchedCandidates.find(
+          c => c.warehouse.toUpperCase().trim() === requestedWarehouse.toUpperCase().trim()
+        );
+        if (!matchedByWh) {
+          const availableList = ctnMatchedCandidates.map(c => c.warehouse).join(', ');
+          return NextResponse.json({
+            success: false,
+            message: `Selected warehouse "${requestedWarehouse}" is not valid. Available warehouses for Receipt #${inputReceiptNo} (${inputCtnNum} CTN) are: ${availableList}.`
+          }, { status: 400 });
+        }
+        chosenCandidate = matchedByWh;
+      } else {
+        // Return requireWarehouseSelect to prompt user to select the warehouse
+        return NextResponse.json({
+          success: false,
+          requireWarehouseSelect: true,
+          availableWarehouses: ctnMatchedCandidates.map(c => ({
+            code: c.warehouse,
+            name: c.warehouse === 'GZ' ? 'Guangzhou (GZ)' : c.warehouse === 'YW' ? 'Yiwu (YW)' : `${c.warehouse} Warehouse`,
+            ctn: c.totalCtn,
+            marka: c.marka || '-'
+          })),
+          message: `Receipt #${inputReceiptNo} with ${inputCtnNum} CTN exists in multiple warehouses (${ctnMatchedCandidates.map(c => c.warehouse).join(' & ')}). Please select your warehouse slip to link.`
+        }, { status: 400 });
+      }
+    }
+
+    const targetWarehouse = chosenCandidate.warehouse;
+    const targetWhId = chosenCandidate.warehouseReceiptId;
+    const totalWarehouseCtnNum = chosenCandidate.totalCtn;
+
+    // 4. GLOBAL LINK RESTRICTION:
+    // Rule: If any receipt no. is linked to any public link, it CANNOT be linked again if found in the SAME warehouse.
+    // BUT the same receipt no. in a DIFFERENT warehouse CAN be linked because they are different slips!
     const allLinkedDocs: any[] = await ReceiptTracking.find({
       'receipts.receiptNo': receiptRegex
     }).lean();
@@ -172,7 +257,7 @@ export async function POST(
           return String(r.warehouseReceiptId) === String(targetWhId);
         }
 
-        const newWh = (targetWarehouse || '').toUpperCase().trim();
+        const newWh = targetWarehouse.toUpperCase().trim();
         let existWh = (r.warehouse || '').toUpperCase().trim();
 
         // 2. If existing entry doesn't have warehouse set, resolve from matching slips
@@ -192,14 +277,14 @@ export async function POST(
           }
         }
 
-        // 3. If both warehouses are known:
-        // Different warehouses (e.g. GZ vs YW) -> DIFFERENT RECEIPTS (NOT a duplicate)!
+        // 3. Compare warehouses:
+        // Different warehouses (e.g. GZ vs YW) -> DIFFERENT RECEIPTS (ALLOWED, NOT a duplicate)!
         if (newWh && existWh) {
           return newWh === existWh;
         }
 
         // 4. If warehouse could not be determined, but carton count differs across slips
-        if (matchingWhItems && matchingWhItems.length > 1) {
+        if (candidates.length > 1) {
           const entryCtnNum = normalizeCarton(r.ctn);
           if (totalWarehouseCtnNum !== null && entryCtnNum !== null && totalWarehouseCtnNum !== entryCtnNum) {
             // Different carton counts corresponding to different warehouse slips -> not duplicate
@@ -228,7 +313,7 @@ export async function POST(
         } else {
           return NextResponse.json({
             success: false,
-            message: `This receipt${targetWarehouse ? ` (${targetWarehouse} Warehouse)` : ''} cannot be added to any public link because it is already added to tracking link "${linkDoc.name || linkDoc.token}". Find details here: ${detailsUrl}`,
+            message: `Receipt #${inputReceiptNo}${whLabel} cannot be linked again because it is already linked to public tracking link "${linkDoc.name || linkDoc.token}". Find details here: ${detailsUrl}`,
             alreadyLinked: true,
             linkName: linkDoc.name || linkDoc.token,
             linkToken: linkDoc.token,
@@ -239,21 +324,20 @@ export async function POST(
     }
 
     // 5. Verification passed: save with explicit warehouse code and receipt identifier
-    const chosen = matchedWh || matchedShipment || {};
     const newEntry: IReceiptEntry = {
       id: "rec_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
-      receiptNo: chosen.receipt || chosen.receiptNo || inputReceiptNo,
+      receiptNo: chosenCandidate.receiptNo || inputReceiptNo,
       warehouse: targetWarehouse,
       warehouseReceiptId: targetWhId,
-      marka: String(matchedWh?.mainMarka || matchedWh?.subMarka || matchedShipment?.mainMarka || matchedShipment?.subMarka || trackingDoc.name || "").trim(),
-      itemName: String(matchedWh?.english || matchedWh?.commodity || matchedWh?.chinese || (matchedWh?.items && matchedWh.items[0]?.itemName) || matchedShipment?.english || matchedShipment?.commodity || chosen.itemName || "").trim(),
-      cbm: String(matchedWh?.volume || matchedShipment?.volume || chosen.cbm || "").trim(),
+      marka: chosenCandidate.marka || trackingDoc.name || "",
+      itemName: chosenCandidate.itemName || "",
+      cbm: chosenCandidate.cbm || "0",
       ctn: String(totalWarehouseCtnNum),
-      weight: String(matchedWh?.weight || matchedShipment?.weight || chosen.weight || "").trim(),
-      containerNo: String(matchedShipment?.container || chosen.containerNo || "In Warehouse (Not Loaded)").trim(),
+      weight: chosenCandidate.weight || "-",
+      containerNo: chosenCandidate.containerNo || "In Warehouse (Not Loaded)",
       actualContainerNo: "",
-      eta: String(matchedShipment?.destinationDate || matchedShipment?.eta || chosen.eta || "").trim(),
-      status: String(matchedShipment?.status || (matchedWh ? "Received in Warehouse" : chosen.status || "In Transit")).trim(),
+      eta: chosenCandidate.eta || "",
+      status: chosenCandidate.status || "In Transit",
       adminNotes: `Self-added by customer for ${targetWarehouse || "China"} Warehouse (${totalWarehouseCtnNum} CTN)`,
       createdAt: new Date(),
       updatedAt: new Date()

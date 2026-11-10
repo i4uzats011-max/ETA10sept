@@ -289,6 +289,7 @@ export async function resolveLiveReceiptsForTrackingDoc(
   });
 
   const resolvedList: ILivePublicReceipt[] = [];
+  const seenShipmentKeys = new Set<string>();
 
   for (const entry of receiptEntries) {
     const rNo = (entry.receiptNo || '').trim();
@@ -414,6 +415,10 @@ export async function resolveLiveReceiptsForTrackingDoc(
         // Check if shipment itself has multi-items breakdown (goodsItems)
         if (Array.isArray(s.goodsItems) && s.goodsItems.length > 1) {
           for (let gIdx = 0; gIdx < s.goodsItems.length; gIdx++) {
+            const shipItemKey = `${rKey}_${(targetWarehouse || '').toUpperCase()}_${String(s._id || s.container)}_${s.quantity}_item_${gIdx}`;
+            if (seenShipmentKeys.has(shipItemKey)) continue;
+            seenShipmentKeys.add(shipItemKey);
+
             const gi = s.goodsItems[gIdx];
             resolvedList.push({
               id: `${entry.id || rNo}_ship_${sIdx}_item_${gIdx}`,
@@ -438,27 +443,31 @@ export async function resolveLiveReceiptsForTrackingDoc(
             });
           }
         } else {
-          resolvedList.push({
-            id: `${entry.id || rNo}_ship_${sIdx}`,
-            marka: rowMarka,
-            receiptNo: rNo,
+          const shipKey = `${rKey}_${(targetWarehouse || '').toUpperCase()}_${String(s._id || s.container)}_${s.quantity}`;
+          if (!seenShipmentKeys.has(shipKey)) {
+            seenShipmentKeys.add(shipKey);
+            resolvedList.push({
+              id: `${entry.id || rNo}_ship_${sIdx}`,
+              marka: rowMarka,
+              receiptNo: rNo,
               warehouse: whDoc?.warehouse || targetWarehouse || undefined,
               itemName: fallbackItemName,
-            containerNo: displayContainer,
-            actualContainerNo: options.includeAdminFields ? (s.containerNumber || entry.actualContainerNo || '') : undefined,
-            cbm: rowCbm,
-            weight: rowWeight,
-            ctn: rowCtn,
-            eta: liveEta,
-            deliveryDate: effectiveDeliveryDate,
-            markedDate: markedDate,
-            status: rawStatus,
-            remainDays: isDelivered ? null : calculateRemainDays(liveEta),
-            updatedAt: rowUpdatedAt,
-            isSplit: isSplitAcrossContainers,
-            splitInfo: isSplitAcrossContainers ? `Container ${sIdx + 1} of ${rShipments.length}` : undefined,
-            adminNotes: options.includeAdminFields ? (s.remarks || entry.adminNotes || '') : undefined
-          });
+              containerNo: displayContainer,
+              actualContainerNo: options.includeAdminFields ? (s.containerNumber || entry.actualContainerNo || '') : undefined,
+              cbm: rowCbm,
+              weight: rowWeight,
+              ctn: rowCtn,
+              eta: liveEta,
+              deliveryDate: effectiveDeliveryDate,
+              markedDate: markedDate,
+              status: rawStatus,
+              remainDays: isDelivered ? null : calculateRemainDays(liveEta),
+              updatedAt: rowUpdatedAt,
+              isSplit: isSplitAcrossContainers,
+              splitInfo: isSplitAcrossContainers ? `Container ${sIdx + 1} of ${rShipments.length}` : undefined,
+              adminNotes: options.includeAdminFields ? (s.remarks || entry.adminNotes || '') : undefined
+            });
+          }
         }
       }
 
@@ -489,29 +498,33 @@ export async function resolveLiveReceiptsForTrackingDoc(
           const whDate = whDoc.date || whDoc.createdAt;
           const fallbackEta = calculateCommittedEta(whDate);
 
-          resolvedList.push({
-            id: `${entry.id || rNo}_wh_remainder`,
-            marka: baseMarka,
-            receiptNo: rNo,
-            warehouse: whDoc?.warehouse || targetWarehouse || undefined,
-            itemName: whItemName,
-            containerNo: options.includeAdminFields ? 'In Warehouse (Not Loaded)' : '',
-            actualContainerNo: options.includeAdminFields ? '' : undefined,
-            cbm: String(whDoc.remainingVolume || whDoc.volume || '0'),
-            weight: String(whDoc.remainingWeight || whDoc.weight || '-'),
-            ctn: String(remainingQty),
-            eta: fallbackEta,
-            deliveryDate: null,
-            markedDate: null,
-            status: options.includeAdminFields ? (whDoc.status || 'Received in Warehouse') : 'In Transit',
-            remainDays: calculateRemainDays(fallbackEta),
-            updatedAt: whDoc.updatedAt || entry.updatedAt || trackingDoc.updatedAt,
-            isSplit: true,
-            splitInfo: options.includeAdminFields
-              ? `Remaining ${remainingQty} CTN to load in warehouse`
-              : `Split Cargo (${remainingQty} CTN)`,
-            adminNotes: options.includeAdminFields ? (whDoc.remarks || 'Remaining in warehouse') : undefined
-          });
+          const remainderKey = `${rKey}_${(targetWarehouse || '').toUpperCase()}_wh_remainder`;
+          if (!seenShipmentKeys.has(remainderKey)) {
+            seenShipmentKeys.add(remainderKey);
+            resolvedList.push({
+              id: `${entry.id || rNo}_wh_remainder`,
+              marka: baseMarka,
+              receiptNo: rNo,
+              warehouse: whDoc?.warehouse || targetWarehouse || undefined,
+              itemName: whItemName,
+              containerNo: options.includeAdminFields ? 'In Warehouse (Not Loaded)' : '',
+              actualContainerNo: options.includeAdminFields ? '' : undefined,
+              cbm: String(whDoc.remainingVolume || whDoc.volume || '0'),
+              weight: String(whDoc.remainingWeight || whDoc.weight || '-'),
+              ctn: String(remainingQty),
+              eta: fallbackEta,
+              deliveryDate: null,
+              markedDate: null,
+              status: options.includeAdminFields ? (whDoc.status || 'Received in Warehouse') : 'In Transit',
+              remainDays: calculateRemainDays(fallbackEta),
+              updatedAt: whDoc.updatedAt || entry.updatedAt || trackingDoc.updatedAt,
+              isSplit: true,
+              splitInfo: options.includeAdminFields
+                ? `Remaining ${remainingQty} CTN to load in warehouse`
+                : `Split Cargo (${remainingQty} CTN)`,
+              adminNotes: options.includeAdminFields ? (whDoc.remarks || 'Remaining in warehouse') : undefined
+            });
+          }
         }
       }
     }
@@ -528,6 +541,10 @@ export async function resolveLiveReceiptsForTrackingDoc(
       // Multi-item check in warehouse receipt
       if (Array.isArray(whDoc.items) && whDoc.items.length > 1) {
         for (let wIdx = 0; wIdx < whDoc.items.length; wIdx++) {
+          const whKey = `${rKey}_${(targetWarehouse || '').toUpperCase()}_wh_item_${wIdx}`;
+          if (seenShipmentKeys.has(whKey)) continue;
+          seenShipmentKeys.add(whKey);
+
           const it = whDoc.items[wIdx];
           resolvedList.push({
             id: `${entry.id || rNo}_wh_item_${wIdx}`,
@@ -550,33 +567,37 @@ export async function resolveLiveReceiptsForTrackingDoc(
           });
         }
       } else {
-        const whItemName =
-          (whDoc.items && whDoc.items[0]?.itemName) ||
-          whDoc.english ||
-          whDoc.commodity ||
-          whDoc.chinese ||
-          entry.itemName ||
-          '-';
+        const whKey = `${rKey}_${(targetWarehouse || '').toUpperCase()}_wh_0`;
+        if (!seenShipmentKeys.has(whKey)) {
+          seenShipmentKeys.add(whKey);
+          const whItemName =
+            (whDoc.items && whDoc.items[0]?.itemName) ||
+            whDoc.english ||
+            whDoc.commodity ||
+            whDoc.chinese ||
+            entry.itemName ||
+            '-';
 
-        resolvedList.push({
-          id: `${entry.id || rNo}_wh_0`,
-          marka: baseMarka,
-          receiptNo: rNo,
-          warehouse: whDoc?.warehouse || targetWarehouse || undefined,
-          itemName: whItemName,
-          containerNo: options.includeAdminFields ? 'In Warehouse (Not Loaded)' : '',
-          actualContainerNo: options.includeAdminFields ? '' : undefined,
-          cbm: String(whDoc.volume || entry.cbm || '0'),
-          weight: String(whDoc.weight || entry.weight || '-'),
-          ctn: String(whDoc.quantity || entry.ctn || '0'),
-          eta: fallbackEta,
-          deliveryDate: isDelivered ? markedDate : null,
-          markedDate: markedDate,
-          status: options.includeAdminFields ? whStatus : (isDelivered ? 'Delivered' : 'In Transit'),
-          remainDays: isDelivered ? null : calculateRemainDays(fallbackEta),
-          updatedAt: whDoc.updatedAt || entry.updatedAt || trackingDoc.updatedAt,
-          adminNotes: options.includeAdminFields ? (whDoc.remarks || entry.adminNotes || '') : undefined
-        });
+          resolvedList.push({
+            id: `${entry.id || rNo}_wh_0`,
+            marka: baseMarka,
+            receiptNo: rNo,
+            warehouse: whDoc?.warehouse || targetWarehouse || undefined,
+            itemName: whItemName,
+            containerNo: options.includeAdminFields ? 'In Warehouse (Not Loaded)' : '',
+            actualContainerNo: options.includeAdminFields ? '' : undefined,
+            cbm: String(whDoc.volume || entry.cbm || '0'),
+            weight: String(whDoc.weight || entry.weight || '-'),
+            ctn: String(whDoc.quantity || entry.ctn || '0'),
+            eta: fallbackEta,
+            deliveryDate: isDelivered ? markedDate : null,
+            markedDate: markedDate,
+            status: options.includeAdminFields ? whStatus : (isDelivered ? 'Delivered' : 'In Transit'),
+            remainDays: isDelivered ? null : calculateRemainDays(fallbackEta),
+            updatedAt: whDoc.updatedAt || entry.updatedAt || trackingDoc.updatedAt,
+            adminNotes: options.includeAdminFields ? (whDoc.remarks || entry.adminNotes || '') : undefined
+          });
+        }
       }
     }
     // =========================================================================
@@ -602,24 +623,28 @@ export async function resolveLiveReceiptsForTrackingDoc(
         : (options.includeAdminFields ? 'In Warehouse (Not Loaded)' : '');
       const finalEta = entry.eta || fallbackEta;
 
-      resolvedList.push({
-        id: entry.id || rNo,
-        marka: entry.marka || defaultMarka || '-',
-        receiptNo: rNo || 'N/A',
-        itemName: entry.itemName || '-',
-        containerNo: displayContainer,
-        actualContainerNo: options.includeAdminFields ? (entry.actualContainerNo || '') : undefined,
-        cbm: entry.cbm || '0',
-        weight: entry.weight || '-',
-        ctn: entry.ctn || '0',
-        eta: finalEta,
-        deliveryDate: isDelivered ? (markedDate || finalEta || null) : null,
-        markedDate: markedDate,
-        status: isDelivered ? 'Delivered' : (options.includeAdminFields ? (entry.status || 'In Transit') : 'In Transit'),
-        remainDays: isDelivered ? null : calculateRemainDays(finalEta),
-        updatedAt: entry.updatedAt || trackingDoc.updatedAt,
-        adminNotes: options.includeAdminFields ? (entry.adminNotes || '') : undefined
-      });
+      const entryKey = `${rKey}_${(entry.warehouse || '').toUpperCase()}_standalone_${entry.id || (entry.containerNo + '_' + entry.ctn)}`;
+      if (!seenShipmentKeys.has(entryKey)) {
+        seenShipmentKeys.add(entryKey);
+        resolvedList.push({
+          id: entry.id || rNo,
+          marka: entry.marka || defaultMarka || '-',
+          receiptNo: rNo || 'N/A',
+          itemName: entry.itemName || '-',
+          containerNo: displayContainer,
+          actualContainerNo: options.includeAdminFields ? (entry.actualContainerNo || '') : undefined,
+          cbm: entry.cbm || '0',
+          weight: entry.weight || '-',
+          ctn: entry.ctn || '0',
+          eta: finalEta,
+          deliveryDate: isDelivered ? (markedDate || finalEta || null) : null,
+          markedDate: markedDate,
+          status: isDelivered ? 'Delivered' : (options.includeAdminFields ? (entry.status || 'In Transit') : 'In Transit'),
+          remainDays: isDelivered ? null : calculateRemainDays(finalEta),
+          updatedAt: entry.updatedAt || trackingDoc.updatedAt,
+          adminNotes: options.includeAdminFields ? (entry.adminNotes || '') : undefined
+        });
+      }
     }
   }
 

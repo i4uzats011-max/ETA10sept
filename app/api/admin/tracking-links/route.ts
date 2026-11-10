@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { connectToDatabase } from '@/lib/mongodb';
 import ReceiptTracking, { IReceiptEntry } from '@/models/ReceiptTracking';
+import Shipment from '@/models/Shipment';
+import WarehouseReceipt from '@/models/WarehouseReceipt';
 import { resolveLiveReceiptsForTrackingDoc, calculateRemainDays } from '@/lib/liveTrackingResolver';
 
 export const dynamic = 'force-dynamic';
@@ -170,45 +172,102 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: 'At least one valid receipt is required.' }, { status: 400 });
     }
 
-    // Check if any receipt is already linked to a different tracking link
+    // Resolve warehouse codes and warehouseReceiptIds for entries if missing
+    for (const entry of entriesToAdd) {
+      if (!entry.warehouse || !entry.warehouseReceiptId) {
+        const entryRegex = new RegExp(`^${escapeRegex(entry.receiptNo)}$`, 'i');
+        const whItems: any[] = await WarehouseReceipt.find({ receipt: entryRegex }).lean();
+        if (whItems.length > 0) {
+          const entryCtnNum = parseFloat(String(entry.ctn || '0'));
+          let matchedWh = whItems.find((w: any) => (parseFloat(String(w.quantity || '0')) || 0) === entryCtnNum);
+          if (!matchedWh && whItems.length === 1) matchedWh = whItems[0];
+          if (matchedWh) {
+            if (!entry.warehouse) entry.warehouse = (matchedWh.warehouse || 'CHINA').toUpperCase().trim();
+            if (!entry.warehouseReceiptId) entry.warehouseReceiptId = String(matchedWh._id);
+            if (!entry.ctn && matchedWh.quantity) entry.ctn = String(matchedWh.quantity);
+          }
+        } else {
+          const shipments: any[] = await Shipment.find({ receipt: entryRegex }).lean();
+          if (shipments.length > 0) {
+            if (!entry.warehouse) entry.warehouse = (shipments[0].warehouse || 'CHINA').toUpperCase().trim();
+            if (shipments[0].receiptId && !entry.warehouseReceiptId) {
+              entry.warehouseReceiptId = String(shipments[0].receiptId);
+            }
+          }
+        }
+      }
+    }
+
+    // Deduplicate entriesToAdd: if multiple rows represent the same receipt in the same warehouse, keep one
+    const uniqueEntriesMap = new Map<string, IReceiptEntry>();
+    for (const entry of entriesToAdd) {
+      const uKey = `${entry.receiptNo.toLowerCase()}_${(entry.warehouse || '').toUpperCase()}`;
+      if (!uniqueEntriesMap.has(uKey)) {
+        uniqueEntriesMap.set(uKey, entry);
+      }
+    }
+    entriesToAdd = Array.from(uniqueEntriesMap.values());
+
+    // Check if any receipt is already linked to ANY public tracking link in the same warehouse
     if (!body.force) {
       const receiptNos = entriesToAdd.map(e => e.receiptNo);
-      const existingDocs: any[] = await ReceiptTracking.find({
-        token: { $ne: token },
+      const allLinkedDocs: any[] = await ReceiptTracking.find({
         'receipts.receiptNo': { $in: receiptNos }
       }).lean();
 
       for (const entry of entriesToAdd) {
-        for (const linkDoc of existingDocs) {
+        const eWh = (entry.warehouse || '').toUpperCase().trim();
+
+        for (const linkDoc of allLinkedDocs) {
           const match = (linkDoc.receipts || []).find((r: any) => {
             if (!r.receiptNo || r.receiptNo.trim().toLowerCase() !== entry.receiptNo.trim().toLowerCase()) return false;
+            
+            // 1. Exact warehouse receipt ID match
             if (entry.warehouseReceiptId && r.warehouseReceiptId) {
               return String(entry.warehouseReceiptId) === String(r.warehouseReceiptId);
             }
-            const eWh = (entry.warehouse || '').toUpperCase().trim();
+
             const rWh = (r.warehouse || '').toUpperCase().trim();
+
+            // 2. Both warehouses known:
+            // Different China warehouses (e.g. GZ vs YW) -> different receipts, NOT a duplicate!
             if (eWh && rWh) {
-              // Different China warehouses -> different receipts, not a duplicate!
               return eWh === rWh;
             }
+
+            // 3. Fallback comparison by carton count if warehouse was undefined
             if (entry.ctn && r.ctn) {
               return String(entry.ctn).trim() === String(r.ctn).trim();
             }
-            if (!entry.warehouse && !r.warehouse) return true;
+
+            if (!eWh && !rWh) return true;
             return false;
           });
 
           if (match) {
             const originUrl = req.nextUrl?.origin || process.env.NEXT_PUBLIC_APP_URL || 'https://eta-usi.vercel.app';
             const detailsUrl = `${originUrl}/track/${linkDoc.token}`;
-            return NextResponse.json({
-              success: false,
-              message: `Receipt #${entry.receiptNo} cannot be added to this link because it is already linked to "${linkDoc.name || linkDoc.token}". Find details here: ${detailsUrl}`,
-              alreadyLinked: true,
-              linkName: linkDoc.name || linkDoc.token,
-              linkToken: linkDoc.token,
-              linkUrl: detailsUrl
-            }, { status: 400 });
+            const whLabel = entry.warehouse ? ` (${entry.warehouse} Warehouse)` : '';
+
+            if (linkDoc.token === token) {
+              return NextResponse.json({
+                success: false,
+                message: `Receipt #${entry.receiptNo}${whLabel} is already present in this tracking link. Find details here: ${detailsUrl}`,
+                alreadyLinked: true,
+                linkName: linkDoc.name || 'Current Tracking Link',
+                linkToken: linkDoc.token,
+                linkUrl: detailsUrl
+              }, { status: 400 });
+            } else {
+              return NextResponse.json({
+                success: false,
+                message: `Receipt #${entry.receiptNo}${whLabel} cannot be linked again because it is already linked to public tracking link "${linkDoc.name || linkDoc.token}". Find details here: ${detailsUrl}`,
+                alreadyLinked: true,
+                linkName: linkDoc.name || linkDoc.token,
+                linkToken: linkDoc.token,
+                linkUrl: detailsUrl
+              }, { status: 400 });
+            }
           }
         }
       }

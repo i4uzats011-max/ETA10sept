@@ -186,9 +186,10 @@ export async function GET(req: NextRequest) {
     const regex = new RegExp(`^${receiptQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
 
     const shipments: any[] = await Shipment.find({ receipt: regex }).lean();
-    const whItem: any = await WarehouseReceipt.findOne({ receipt: regex }).lean();
+    const whItems: any[] = await WarehouseReceipt.find({ receipt: regex }).lean();
+    const whItem: any = whItems[0] || null;
 
-    if (shipments.length > 0 || whItem) {
+    if (shipments.length > 0 || whItems.length > 0) {
       // Look up container live ETA
       const containerAliases = Array.from(
         new Set(shipments.map((s) => (s.container || '').trim()).filter(Boolean))
@@ -208,10 +209,18 @@ export async function GET(req: NextRequest) {
         const liveEta = cDoc?.destinationDate || cDoc?.eta || s.destinationDate || s.eta || '';
         const liveStatus = cDoc?.isDelivered ? 'Delivered' : (s.isDelivered ? 'Delivered' : (cDoc?.status || s.status || 'In Transit'));
 
+        // Match corresponding warehouse receipt
+        const matchedWh = whItems.find((w: any) =>
+          (s.receiptId && String(s.receiptId) === String(w._id)) ||
+          ((s.warehouse || '').toUpperCase().trim() === (w.warehouse || '').toUpperCase().trim())
+        );
+
         allSplitItems.push({
           receiptNo: s.receipt || receiptQuery,
-          marka: s.mainMarka || s.subMarka || s.party || whItem?.mainMarka || '',
-          itemName: s.english || s.commodity || s.chinese || whItem?.english || '',
+          warehouse: s.warehouse || matchedWh?.warehouse || '',
+          warehouseReceiptId: s.receiptId ? String(s.receiptId) : (matchedWh ? String(matchedWh._id) : ''),
+          marka: s.mainMarka || s.subMarka || s.party || matchedWh?.mainMarka || whItem?.mainMarka || '',
+          itemName: s.english || s.commodity || s.chinese || matchedWh?.english || whItem?.english || '',
           cbm: s.volume || '',
           ctn: String(s.quantity || ''),
           weight: s.weight || '',
@@ -222,36 +231,45 @@ export async function GET(req: NextRequest) {
         });
       }
 
-      if (whItem) {
-        const totalQty = typeof whItem.quantity === 'number' ? whItem.quantity : (parseFloat(String(whItem.quantity || '0')) || 0);
-        const loadedQty = typeof whItem.loadedQuantity === 'number' ? whItem.loadedQuantity : (parseFloat(String(whItem.loadedQuantity || '0')) || 0);
-        const remainingQty = typeof whItem.remainingQuantity === 'number' ? whItem.remainingQuantity : (totalQty - loadedQty);
+      for (const w of whItems) {
+        const totalQty = typeof w.quantity === 'number' ? w.quantity : (parseFloat(String(w.quantity || '0')) || 0);
+        const loadedQty = typeof w.loadedQuantity === 'number' ? w.loadedQuantity : (parseFloat(String(w.loadedQuantity || '0')) || 0);
+        const remainingQty = typeof w.remainingQuantity === 'number' ? w.remainingQuantity : (totalQty - loadedQty);
 
-        if (shipments.length === 0) {
+        const wShipments = shipments.filter((s: any) =>
+          (s.receiptId && String(s.receiptId) === String(w._id)) ||
+          ((s.warehouse || '').toUpperCase().trim() === (w.warehouse || '').toUpperCase().trim())
+        );
+
+        if (wShipments.length === 0) {
           allSplitItems.push({
-            receiptNo: whItem.receipt || receiptQuery,
-            marka: whItem.mainMarka || whItem.subMarka || whItem.party || '',
-            itemName: whItem.english || whItem.commodity || whItem.chinese || (whItem.items && whItem.items[0]?.itemName) || '',
-            cbm: whItem.volume || '',
-            ctn: String(whItem.quantity || ''),
-            weight: whItem.weight || '',
+            receiptNo: w.receipt || receiptQuery,
+            warehouse: w.warehouse || '',
+            warehouseReceiptId: String(w._id),
+            marka: w.mainMarka || w.subMarka || w.party || '',
+            itemName: w.english || w.commodity || w.chinese || (w.items && w.items[0]?.itemName) || '',
+            cbm: w.volume || '',
+            ctn: String(w.quantity || ''),
+            weight: w.weight || '',
             containerNo: 'In Warehouse (Not Loaded)',
             actualContainerNo: '',
             eta: '',
-            status: whItem.status || 'Received in Warehouse'
+            status: w.status || 'Received in Warehouse'
           });
         } else if (remainingQty > 0) {
           allSplitItems.push({
-            receiptNo: whItem.receipt || receiptQuery,
-            marka: whItem.mainMarka || whItem.subMarka || whItem.party || '',
-            itemName: whItem.english || whItem.commodity || whItem.chinese || (whItem.items && whItem.items[0]?.itemName) || '',
-            cbm: String(whItem.remainingVolume || whItem.volume || ''),
+            receiptNo: w.receipt || receiptQuery,
+            warehouse: w.warehouse || '',
+            warehouseReceiptId: String(w._id),
+            marka: w.mainMarka || w.subMarka || w.party || '',
+            itemName: w.english || w.commodity || w.chinese || (w.items && w.items[0]?.itemName) || '',
+            cbm: String(w.remainingVolume || w.volume || ''),
             ctn: String(remainingQty),
-            weight: String(whItem.remainingWeight || whItem.weight || ''),
+            weight: String(w.remainingWeight || w.weight || ''),
             containerNo: 'In Warehouse (Not Loaded)',
             actualContainerNo: '',
             eta: '',
-            status: whItem.status || 'Received in Warehouse'
+            status: w.status || 'Received in Warehouse'
           });
         }
       }

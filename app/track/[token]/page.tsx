@@ -473,10 +473,17 @@ export default function PublicReceiptTrackingPage() {
     }
   };
 
-  // Self-Add Receipt State (Two parameters: Receipt No. and CTN)
+  // Self-Add Receipt State (Two parameters: Receipt No. and CTN, with Warehouse disambiguation)
   const [isAddReceiptOpen, setIsAddReceiptOpen] = useState(false);
   const [addReceiptNo, setAddReceiptNo] = useState('');
   const [addCtn, setAddCtn] = useState('');
+  const [availableWarehouses, setAvailableWarehouses] = useState<Array<{
+    code: string;
+    name: string;
+    ctn: number;
+    marka: string;
+  }> | null>(null);
+  const [selectedWarehouse, setSelectedWarehouse] = useState<string>('');
   const [submittingAdd, setSubmittingAdd] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [existingLinkDetails, setExistingLinkDetails] = useState<{
@@ -493,6 +500,11 @@ export default function PublicReceiptTrackingPage() {
       return;
     }
 
+    if (availableWarehouses && availableWarehouses.length > 0 && !selectedWarehouse) {
+      setAddError('Please select your warehouse from the options below to proceed.');
+      return;
+    }
+
     setSubmittingAdd(true);
     setAddError(null);
     setExistingLinkDetails(null);
@@ -503,7 +515,8 @@ export default function PublicReceiptTrackingPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           receiptNo: addReceiptNo.trim(),
-          ctn: addCtn.trim()
+          ctn: addCtn.trim(),
+          warehouse: selectedWarehouse || undefined
         })
       });
 
@@ -513,21 +526,32 @@ export default function PublicReceiptTrackingPage() {
         showToast(data.message || 'Receipt verified & added!');
         setAddReceiptNo('');
         setAddCtn('');
+        setAvailableWarehouses(null);
+        setSelectedWarehouse('');
         setAddError(null);
         setExistingLinkDetails(null);
         setIsAddReceiptOpen(false);
         // Refresh tracking details to show the newly added receipt
         fetchTrackingDetails(true);
       } else {
-        setAddError(data.message || 'Verification failed. Please check Receipt No. and CTN.');
-        if (data.alreadyLinked && data.linkUrl) {
-          setExistingLinkDetails({
-            linkName: data.linkName,
-            linkToken: data.linkToken,
-            linkUrl: data.linkUrl
-          });
-        } else {
+        if (data.requireWarehouseSelect && Array.isArray(data.availableWarehouses)) {
+          setAvailableWarehouses(data.availableWarehouses);
+          if (data.availableWarehouses.length > 0 && !selectedWarehouse) {
+            setSelectedWarehouse(data.availableWarehouses[0].code);
+          }
+          setAddError(data.message || 'Please select which warehouse slip you want to link.');
           setExistingLinkDetails(null);
+        } else {
+          setAddError(data.message || 'Verification failed. Please check Receipt No. and CTN.');
+          if (data.alreadyLinked && data.linkUrl) {
+            setExistingLinkDetails({
+              linkName: data.linkName,
+              linkToken: data.linkToken,
+              linkUrl: data.linkUrl
+            });
+          } else {
+            setExistingLinkDetails(null);
+          }
         }
       }
     } catch (err) {
@@ -2893,7 +2917,11 @@ export default function PublicReceiptTrackingPage() {
               </div>
               <button
                 type="button"
-                onClick={() => setIsAddReceiptOpen(false)}
+                onClick={() => {
+                  setIsAddReceiptOpen(false);
+                  setAvailableWarehouses(null);
+                  setSelectedWarehouse('');
+                }}
                 className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition cursor-pointer"
               >
                 <X className="w-4 h-4" />
@@ -2947,7 +2975,13 @@ export default function PublicReceiptTrackingPage() {
                     required
                     placeholder="e.g. REC-9083 or 9083"
                     value={addReceiptNo}
-                    onChange={(e) => setAddReceiptNo(e.target.value)}
+                    onChange={(e) => {
+                      setAddReceiptNo(e.target.value);
+                      if (availableWarehouses) {
+                        setAvailableWarehouses(null);
+                        setSelectedWarehouse('');
+                      }
+                    }}
                     className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:border-emerald-600 font-mono font-bold text-slate-900 uppercase"
                   />
                   <span className="text-[10px] text-slate-400 mt-0.5 block">
@@ -2964,7 +2998,13 @@ export default function PublicReceiptTrackingPage() {
                     required
                     placeholder="e.g. 15 or 15 ctn"
                     value={addCtn}
-                    onChange={(e) => setAddCtn(e.target.value)}
+                    onChange={(e) => {
+                      setAddCtn(e.target.value);
+                      if (availableWarehouses) {
+                        setAvailableWarehouses(null);
+                        setSelectedWarehouse('');
+                      }
+                    }}
                     className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:border-emerald-600 font-bold text-slate-900"
                   />
                   <span className="text-[10px] text-slate-500 mt-0.5 block font-medium">
@@ -2972,10 +3012,52 @@ export default function PublicReceiptTrackingPage() {
                   </span>
                 </div>
 
+                {availableWarehouses && availableWarehouses.length > 0 && (
+                  <div className="bg-amber-50/90 border border-amber-300 p-3.5 rounded-xl space-y-2 animate-fadeIn">
+                    <label className="block font-bold text-amber-950 text-xs">
+                      3. Select Warehouse *
+                    </label>
+                    <p className="text-[11px] text-amber-800 leading-normal">
+                      Receipt <strong>#{addReceiptNo}</strong> with <strong>{addCtn} CTN</strong> was found in multiple China warehouses. Please select your warehouse to link:
+                    </p>
+                    <div className="space-y-1.5 pt-1">
+                      {availableWarehouses.map((wh) => (
+                        <label
+                          key={wh.code}
+                          className={`flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition ${
+                            selectedWarehouse === wh.code
+                              ? 'border-emerald-600 bg-emerald-50 text-emerald-950 font-bold shadow-xs ring-1 ring-emerald-500'
+                              : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-800'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="warehouseSelection"
+                              value={wh.code}
+                              checked={selectedWarehouse === wh.code}
+                              onChange={() => setSelectedWarehouse(wh.code)}
+                              className="text-emerald-600 focus:ring-emerald-500"
+                            />
+                            <span className="font-bold text-xs">{wh.name}</span>
+                          </div>
+                          <span className="text-[11px] font-mono text-slate-600">
+                            {wh.ctn} CTN {wh.marka && wh.marka !== '-' ? `(${wh.marka})` : ''}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex items-center gap-2 pt-2">
                   <button
                     type="button"
-                    onClick={() => setIsAddReceiptOpen(false)}
+                    onClick={() => {
+                      setIsAddReceiptOpen(false);
+                      setAvailableWarehouses(null);
+                      setSelectedWarehouse('');
+                    }}
                     className="w-1/2 py-2.5 border border-slate-300 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition cursor-pointer"
                   >
                     Cancel
@@ -2986,7 +3068,13 @@ export default function PublicReceiptTrackingPage() {
                     className="w-1/2 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition shadow-md flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
                   >
                     <Plus className="w-4 h-4" />
-                    <span>{submittingAdd ? 'Verifying...' : 'Verify & Add'}</span>
+                    <span>
+                      {submittingAdd
+                        ? 'Verifying...'
+                        : availableWarehouses && availableWarehouses.length > 0
+                        ? `Verify & Link (${selectedWarehouse || 'Select Warehouse'})`
+                        : 'Verify & Add'}
+                    </span>
                   </button>
                 </div>
               </form>
