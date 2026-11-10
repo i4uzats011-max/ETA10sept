@@ -158,6 +158,7 @@ export async function POST(
     }
 
     // 4.5. GLOBAL LINK RESTRICTION: A receipt cannot be added again to ANY public tracking link
+    // NOTE: Receipts with the same receipt number in DIFFERENT warehouses (e.g. GZ vs YW) are different slips
     const allLinkedDocs: any[] = await ReceiptTracking.find({
       'receipts.receiptNo': receiptRegex
     }).lean();
@@ -166,26 +167,48 @@ export async function POST(
       const matchingEntry = (linkDoc.receipts || []).find((r: any) => {
         if (!r.receiptNo || r.receiptNo.trim().toLowerCase() !== inputReceiptNo.toLowerCase()) return false;
 
-        // If warehouseReceiptId exists on both, exact match
+        // 1. If MongoDB warehouse receipt IDs exist on both, exact check
         if (targetWhId && r.warehouseReceiptId) {
           return String(r.warehouseReceiptId) === String(targetWhId);
         }
 
-        // If warehouse code exists on both, match by warehouse
-        if (targetWarehouse && r.warehouse) {
-          return r.warehouse.toUpperCase().trim() === targetWarehouse.toUpperCase().trim();
+        const newWh = (targetWarehouse || '').toUpperCase().trim();
+        let existWh = (r.warehouse || '').toUpperCase().trim();
+
+        // 2. If existing entry doesn't have warehouse set, resolve from matching slips
+        if (!existWh && matchingWhItems && matchingWhItems.length > 0) {
+          const existCtnNum = normalizeCarton(r.ctn);
+          const existMarka = (r.marka || '').toUpperCase().trim();
+          const resolvedDoc = matchingWhItems.find((w: any) => {
+            const wQty = normalizeCarton(w.quantity);
+            if (existCtnNum !== null && wQty !== null && wQty === existCtnNum) return true;
+            const wMainMarka = (w.mainMarka || '').toUpperCase().trim();
+            const wParty = (w.party || '').toUpperCase().trim();
+            if (existMarka && (wMainMarka === existMarka || wParty === existMarka)) return true;
+            return false;
+          });
+          if (resolvedDoc?.warehouse) {
+            existWh = resolvedDoc.warehouse.toUpperCase().trim();
+          }
         }
 
-        // If CTN is recorded on existing entry, match if same carton count
-        if (totalWarehouseCtnNum !== null && r.ctn) {
+        // 3. If both warehouses are known:
+        // Different warehouses (e.g. GZ vs YW) -> DIFFERENT RECEIPTS (NOT a duplicate)!
+        if (newWh && existWh) {
+          return newWh === existWh;
+        }
+
+        // 4. If warehouse could not be determined, but carton count differs across slips
+        if (matchingWhItems && matchingWhItems.length > 1) {
           const entryCtnNum = normalizeCarton(r.ctn);
-          if (entryCtnNum !== null && entryCtnNum === totalWarehouseCtnNum) return true;
+          if (totalWarehouseCtnNum !== null && entryCtnNum !== null && totalWarehouseCtnNum !== entryCtnNum) {
+            // Different carton counts corresponding to different warehouse slips -> not duplicate
+            return false;
+          }
         }
 
-        // If no warehouse disambiguation exists on either, treat as same receipt
-        if (!targetWarehouse && !r.warehouse) return true;
-
-        return false;
+        // 5. Default fallback (single warehouse receipt exists)
+        return true;
       });
 
       if (matchingEntry) {
@@ -205,7 +228,7 @@ export async function POST(
         } else {
           return NextResponse.json({
             success: false,
-            message: `This receipt cannot be added to any public link because it is already added to tracking link "${linkDoc.name || linkDoc.token}". Find details here: ${detailsUrl}`,
+            message: `This receipt${targetWarehouse ? ` (${targetWarehouse} Warehouse)` : ''} cannot be added to any public link because it is already added to tracking link "${linkDoc.name || linkDoc.token}". Find details here: ${detailsUrl}`,
             alreadyLinked: true,
             linkName: linkDoc.name || linkDoc.token,
             linkToken: linkDoc.token,

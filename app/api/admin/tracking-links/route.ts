@@ -164,8 +164,11 @@ export async function POST(req: NextRequest) {
             if (entry.warehouseReceiptId && r.warehouseReceiptId) {
               return String(entry.warehouseReceiptId) === String(r.warehouseReceiptId);
             }
-            if (entry.warehouse && r.warehouse) {
-              return entry.warehouse.toUpperCase().trim() === r.warehouse.toUpperCase().trim();
+            const eWh = (entry.warehouse || '').toUpperCase().trim();
+            const rWh = (r.warehouse || '').toUpperCase().trim();
+            if (eWh && rWh) {
+              // Different China warehouses -> different receipts, not a duplicate!
+              return eWh === rWh;
             }
             if (entry.ctn && r.ctn) {
               return String(entry.ctn).trim() === String(r.ctn).trim();
