@@ -108,7 +108,11 @@ const SHIPPING_CARRIERS = [
 // No hardcoded warehouses; user creates and manages China warehouses dynamically
 const DEFAULT_CHINA_WAREHOUSES: string[] = ['ALL'];
 
-export default function LoaderHub() {
+interface LoaderHubProps {
+  readOnly?: boolean;
+}
+
+export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
   const dispatch = useAppDispatch();
   const {
     warehouseReceipts,
@@ -1692,6 +1696,162 @@ export default function LoaderHub() {
     return list;
   }, [loadingPlans, planFilterStatus, planSearchQuery]);
 
+  // ─── DOWNLOAD EXCEL FUNCTIONS (WAREHOUSE STOCK & LOADING PLANS) ───
+  const handleDownloadWarehouseExcel = (customItems?: WarehouseReceiptItem[]) => {
+    const targetItems = customItems || filteredReceipts;
+    if (!targetItems || targetItems.length === 0) {
+      alert('No warehouse receipts available to export.');
+      return;
+    }
+
+    const rows = targetItems.map((r, idx) => ({
+      'S.No': idx + 1,
+      'Date': r.date || '',
+      'Receipt No': r.receipt || '',
+      'Warehouse': r.warehouse || '',
+      'Warehouse Entry': r.warehouseEntry || '',
+      'Main Mark': r.mainMarka || '',
+      'Sub Mark': r.subMarka || '',
+      'Commodity (English)': r.english || r.commodity || '',
+      'Commodity (Chinese)': r.chinese || '',
+      'Packaging': r.packaging || 'Carton',
+      'Total Received (CTN)': r.quantity ?? 0,
+      'Loaded (CTN)': r.loadedQuantity ?? 0,
+      'Remaining in Stock (CTN)': r.remainingQuantity !== undefined ? r.remainingQuantity : (r.quantity || 0) - (r.loadedQuantity || 0),
+      'Total Weight (KG)': r.weight || '',
+      'Remaining Weight (KG)': r.remainingWeight || '',
+      'Total Volume (CBM)': r.volume || '',
+      'Remaining Volume (CBM)': r.remainingVolume || '',
+      'Loading Status': r.status || 'Received in Warehouse',
+      'Stock Status': r.stockstatus || 'In Stock',
+      'Party': r.party || '',
+      'Phone': r.phone || '',
+      'Remarks': r.remarks || r.notes || '',
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Warehouse Stock');
+    const safeWh = (selectedWarehouse && selectedWarehouse !== 'ALL') ? selectedWarehouse.replace(/[^a-zA-Z0-9_-]/g, '_') : 'All_Warehouses';
+    XLSX.writeFile(wb, `China_Warehouse_Stock_${safeWh}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const handleDownloadLoadingPlanExcel = (targetPlanContainer?: string) => {
+    const planToExport = targetPlanContainer && targetPlanContainer !== 'ALL'
+      ? loadingPlans.find((p) => p.container === targetPlanContainer)
+      : activePlan || null;
+
+    if (planToExport) {
+      const items = planToExport.items || [];
+      const rows = items.map((it: any, idx: number) => ({
+        'S.No': idx + 1,
+        'Receipt No': it.receipt || '',
+        'Container Alias': planToExport.container,
+        'Carrier Container': planToExport.containerNumber || 'Pending Allotment',
+        'Shipping Line': planToExport.shippingLine || '',
+        'Origin Warehouse': planToExport.warehouse || it.warehouse || '',
+        'Main Mark': it.mainMarka || '',
+        'Sub Mark': it.subMarka || '',
+        'Commodity': it.english || it.commodity || it.chinese || '',
+        'Chinese Name': it.chinese || '',
+        'Packaging': it.packaging || 'Carton',
+        'Loaded Quantity (CTN)': it.quantity || 0,
+        'Weight (KG)': it.weight || '',
+        'Volume (CBM)': it.volume || '',
+        'Port / Destination': planToExport.shippedTo || 'India Port',
+        'ETA': planToExport.destinationDate || planToExport.eta || '',
+        'Status': it.status || planToExport.status || 'Planned',
+        'Remarks': it.remarks || '',
+      }));
+
+      if (rows.length === 0) {
+        rows.push({
+          'S.No': 1,
+          'Receipt No': '(No cargo items loaded)',
+          'Container Alias': planToExport.container,
+          'Carrier Container': planToExport.containerNumber || 'Pending Allotment',
+          'Shipping Line': planToExport.shippingLine || '',
+          'Origin Warehouse': planToExport.warehouse || '',
+          'Main Mark': '',
+          'Sub Mark': '',
+          'Commodity': '',
+          'Chinese Name': '',
+          'Packaging': '',
+          'Loaded Quantity (CTN)': 0,
+          'Weight (KG)': '',
+          'Volume (CBM)': '',
+          'Port / Destination': planToExport.shippedTo || '',
+          'ETA': planToExport.destinationDate || planToExport.eta || '',
+          'Status': planToExport.status || 'Planned',
+          'Remarks': '',
+        });
+      }
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      const safeSheet = planToExport.container.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 31);
+      XLSX.utils.book_append_sheet(wb, ws, safeSheet);
+      XLSX.writeFile(wb, `Loading_Plan_${safeSheet}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } else {
+      if (loadingPlans.length === 0) {
+        alert('No loading plans available to export.');
+        return;
+      }
+
+      const allRows: any[] = [];
+      let sNo = 1;
+      loadingPlans.forEach((plan) => {
+        const items = plan.items || [];
+        if (items.length > 0) {
+          items.forEach((it: any) => {
+            allRows.push({
+              'S.No': sNo++,
+              'Container Alias': plan.container,
+              'Carrier Container': plan.containerNumber || 'Pending Allotment',
+              'Shipping Line': plan.shippingLine || '',
+              'Warehouse': plan.warehouse || '',
+              'Plan Status': plan.planStatus || (plan.isDelivered ? 'Delivered' : plan.isFinalized ? 'Finalized' : 'Planning'),
+              'Destination': plan.shippedTo || '',
+              'ETA': plan.destinationDate || plan.eta || '',
+              'Receipt No': it.receipt || '',
+              'Main Mark': it.mainMarka || '',
+              'Sub Mark': it.subMarka || '',
+              'Commodity': it.english || it.commodity || it.chinese || '',
+              'Loaded CTN': it.quantity || 0,
+              'Weight (KG)': it.weight || '',
+              'Volume (CBM)': it.volume || '',
+              'Remarks': it.remarks || '',
+            });
+          });
+        } else {
+          allRows.push({
+            'S.No': sNo++,
+            'Container Alias': plan.container,
+            'Carrier Container': plan.containerNumber || 'Pending Allotment',
+            'Shipping Line': plan.shippingLine || '',
+            'Warehouse': plan.warehouse || '',
+            'Plan Status': plan.planStatus || 'Empty Plan',
+            'Destination': plan.shippedTo || '',
+            'ETA': plan.destinationDate || plan.eta || '',
+            'Receipt No': '(Empty Plan)',
+            'Main Mark': '',
+            'Sub Mark': '',
+            'Commodity': '',
+            'Loaded CTN': 0,
+            'Weight (KG)': '',
+            'Volume (CBM)': '',
+            'Remarks': '',
+          });
+        }
+      });
+
+      const ws = XLSX.utils.json_to_sheet(allRows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'All Loading Plans');
+      XLSX.writeFile(wb, `All_Loading_Plans_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    }
+  };
+
   // Handle open split modal
   const handleOpenSplit = (receipt: WarehouseReceiptItem) => {
     dispatch(openSplitModal({ receipt, targetContainer: targetContainerForSplit }));
@@ -2663,8 +2823,10 @@ export default function LoaderHub() {
 
   // TanStack Columns for China Warehouse Stock Receipts
   const receiptColumns = useMemo<ColumnDef<WarehouseReceiptItem>[]>(() => {
-    return [
-      {
+    const cols: ColumnDef<WarehouseReceiptItem>[] = [];
+
+    if (!readOnly) {
+      cols.push({
         id: 'select',
         header: () => (
           <div className="text-center w-8">
@@ -2691,7 +2853,10 @@ export default function LoaderHub() {
             </div>
           );
         },
-      },
+      });
+    }
+
+    cols.push(
       {
         accessorKey: 'receipt',
         header: 'Receipt #',
@@ -3076,13 +3241,15 @@ export default function LoaderHub() {
             </div>
           );
         },
-      },
-    ];
-  }, [filteredReceipts, selectedReceiptIds]);
+      });
+    }
+
+    return cols;
+  }, [filteredReceipts, selectedReceiptIds, readOnly]);
 
   // TanStack Columns for Active Plan Manifest Items (Loaded Cargo)
   const manifestColumns = useMemo<ColumnDef<any>[]>(() => {
-    return [
+    const cols: ColumnDef<any>[] = [
       {
         id: 'index',
         header: '#',
@@ -3291,9 +3458,11 @@ export default function LoaderHub() {
             </div>
           );
         },
-      },
-    ];
-  }, []);
+      });
+    }
+
+    return cols;
+  }, [readOnly]);
 
   // TanStack Table Instances
   const receiptsTable = useReactTable({
@@ -3448,7 +3617,7 @@ export default function LoaderHub() {
           </button>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 flex-wrap gap-y-1.5">
           <button
             onClick={() => {
               dispatch(fetchWarehouseReceipts());
@@ -3462,78 +3631,117 @@ export default function LoaderHub() {
             <span>Refresh</span>
           </button>
 
+          {/* Download buttons available for both Admin and Staff */}
           <button
-            onClick={() => {
-              const userWhs = availableWarehouses.filter((w) => w !== 'ALL');
-              if (userWhs.length === 0) {
-                alert('No China warehouse found! You cannot upload goods or plans until at least one China warehouse is created. Please create a warehouse first.');
-                setWarehouseModalContext('excel');
-                setIsAddWarehouseModalOpen(true);
-                return;
-              }
-              if (!excelUploadWarehouse || excelUploadWarehouse === 'ALL') {
-                setExcelUploadWarehouse(userWhs[0]);
-              }
-              setIsExcelUploadOpen(true);
-            }}
-            className="flex items-center space-x-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md transition"
+            type="button"
+            onClick={() => handleDownloadWarehouseExcel()}
+            className="flex items-center space-x-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition"
+            title="Download complete China warehouse stock excel sheet"
           >
-            <FileSpreadsheet className="w-4 h-4 text-indigo-200" />
-            <span>Import Chinese Excel</span>
+            <FileSpreadsheet className="w-4 h-4 text-emerald-100" />
+            <span>Download Warehouse Excel</span>
           </button>
 
           <button
-            onClick={() => {
-              const userWhs = availableWarehouses.filter((w) => w !== 'ALL');
-              if (userWhs.length === 0) {
-                alert('No China warehouse found! You cannot enter received goods until at least one China warehouse is created. Please create a warehouse first.');
-                setWarehouseModalContext('receive');
-                setIsAddWarehouseModalOpen(true);
-                return;
-              }
-              if (!receiveWarehouse || receiveWarehouse === 'ALL') {
-                setReceiveWarehouse(userWhs[0]);
-              }
-              setIsReceiveModalOpen(true);
-            }}
-            className="flex items-center space-x-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md transition"
+            type="button"
+            onClick={() => handleDownloadLoadingPlanExcel(activePlan?.container || 'ALL')}
+            className="flex items-center space-x-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition"
+            title="Download loading plans excel sheet"
           >
-            <Plus className="w-4 h-4 text-emerald-200" />
-            <span>Receive Goods (China WH)</span>
+            <FileSpreadsheet className="w-4 h-4 text-blue-100" />
+            <span>Download Loading Plan Excel</span>
           </button>
 
-          <button
-            onClick={() => {
-              const userWhs = availableWarehouses.filter((w) => w !== 'ALL');
-              if (userWhs.length === 0) {
-                alert('No China warehouse found! You cannot create a loading plan until at least one China warehouse is created. Please create a warehouse first.');
-                setWarehouseModalContext('plan');
-                setIsAddWarehouseModalOpen(true);
-                return;
-              }
-              if (!newPlanWarehouse || newPlanWarehouse === 'ALL') {
-                setNewPlanWarehouse(userWhs[0]);
-              }
-              setIsCreatePlanOpen(true);
-            }}
-            className="flex items-center space-x-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-md transition"
-          >
-            <Plus className="w-4 h-4 text-red-400" />
-            <span>New Loading Plan</span>
-          </button>
+          {!readOnly && (
+            <>
+              <button
+                onClick={() => {
+                  const userWhs = availableWarehouses.filter((w) => w !== 'ALL');
+                  if (userWhs.length === 0) {
+                    alert('No China warehouse found! You cannot upload goods or plans until at least one China warehouse is created. Please create a warehouse first.');
+                    setWarehouseModalContext('excel');
+                    setIsAddWarehouseModalOpen(true);
+                    return;
+                  }
+                  if (!excelUploadWarehouse || excelUploadWarehouse === 'ALL') {
+                    setExcelUploadWarehouse(userWhs[0]);
+                  }
+                  setIsExcelUploadOpen(true);
+                }}
+                className="flex items-center space-x-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md transition"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-indigo-200" />
+                <span>Import Chinese Excel</span>
+              </button>
 
-          {loadingPlans.length > 0 && (
-            <button
-              onClick={() => handleOpenAllotModal()}
-              className="flex items-center space-x-1.5 px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md transition"
-              title="Allot actual ISO carrier container number into an internal container plan"
-            >
-              <Anchor className="w-4 h-4 text-white" />
-              <span>Allot Actual Container</span>
-            </button>
+              <button
+                onClick={() => {
+                  const userWhs = availableWarehouses.filter((w) => w !== 'ALL');
+                  if (userWhs.length === 0) {
+                    alert('No China warehouse found! You cannot enter received goods until at least one China warehouse is created. Please create a warehouse first.');
+                    setWarehouseModalContext('receive');
+                    setIsAddWarehouseModalOpen(true);
+                    return;
+                  }
+                  if (!receiveWarehouse || receiveWarehouse === 'ALL') {
+                    setReceiveWarehouse(userWhs[0]);
+                  }
+                  setIsReceiveModalOpen(true);
+                }}
+                className="flex items-center space-x-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-md transition"
+              >
+                <Plus className="w-4 h-4 text-emerald-200" />
+                <span>Receive Goods (China WH)</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  const userWhs = availableWarehouses.filter((w) => w !== 'ALL');
+                  if (userWhs.length === 0) {
+                    alert('No China warehouse found! You cannot create a loading plan until at least one China warehouse is created. Please create a warehouse first.');
+                    setWarehouseModalContext('plan');
+                    setIsAddWarehouseModalOpen(true);
+                    return;
+                  }
+                  if (!newPlanWarehouse || newPlanWarehouse === 'ALL') {
+                    setNewPlanWarehouse(userWhs[0]);
+                  }
+                  setIsCreatePlanOpen(true);
+                }}
+                className="flex items-center space-x-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-md transition"
+              >
+                <Plus className="w-4 h-4 text-red-400" />
+                <span>New Loading Plan</span>
+              </button>
+
+              {loadingPlans.length > 0 && (
+                <button
+                  onClick={() => handleOpenAllotModal()}
+                  className="flex items-center space-x-1.5 px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md transition"
+                  title="Allot actual ISO carrier container number into an internal container plan"
+                >
+                  <Anchor className="w-4 h-4 text-white" />
+                  <span>Allot Actual Container</span>
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>
+
+      {readOnly && (
+        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-3.5 flex items-center justify-between text-xs text-blue-900 font-medium shadow-xs">
+          <div className="flex items-center space-x-2.5">
+            <ShieldCheck className="w-5 h-5 text-blue-600 shrink-0" />
+            <div>
+              <strong className="font-bold">Staff View (Read-Only):</strong> Full visibility into China Warehouse Stock &amp; Container Loading Plans. You can download Excel sheets. Modifying, creating, or deleting records is restricted to Super Admin.
+            </div>
+          </div>
+          <span className="font-mono text-[10px] bg-blue-200 text-blue-900 font-black px-2.5 py-1 rounded-md shrink-0">
+            DOWNLOAD ONLY
+          </span>
+        </div>
+      )}
 
       {/* SUB-TAB 1: CHINA WAREHOUSE INWARD STOCK */}
       {activeSubTab === 'stock' && (
@@ -3556,54 +3764,58 @@ export default function LoaderHub() {
                   ))}
                 </select>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setWarehouseModalContext('filter');
-                    setIsAddWarehouseModalOpen(true);
-                  }}
-                  className="px-2 py-1.5 text-xs font-bold rounded-xl border border-slate-200 bg-slate-50 hover:bg-red-50 hover:border-red-200 text-slate-700 hover:text-red-600 transition flex items-center space-x-1"
-                  title="Create new China warehouse if not found in list"
-                >
-                  <Plus className="w-3.5 h-3.5 text-red-500" />
-                  <span>+ Warehouse</span>
-                </button>
+                {!readOnly && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWarehouseModalContext('filter');
+                        setIsAddWarehouseModalOpen(true);
+                      }}
+                      className="px-2 py-1.5 text-xs font-bold rounded-xl border border-slate-200 bg-slate-50 hover:bg-red-50 hover:border-red-200 text-slate-700 hover:text-red-600 transition flex items-center space-x-1"
+                      title="Create new China warehouse if not found in list"
+                    >
+                      <Plus className="w-3.5 h-3.5 text-red-500" />
+                      <span>+ Warehouse</span>
+                    </button>
 
-                {selectedWarehouse !== 'ALL' && (
-                  <button
-                    type="button"
-                    onClick={handleOpenEditWarehouse}
-                    disabled={actionLoading}
-                    className="px-2 py-1.5 text-xs font-bold rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 transition flex items-center space-x-1"
-                    title={`Edit name of warehouse '${selectedWarehouse}'`}
-                  >
-                    <Pencil className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Edit WH</span>
-                  </button>
+                    {selectedWarehouse !== 'ALL' && (
+                      <button
+                        type="button"
+                        onClick={handleOpenEditWarehouse}
+                        disabled={actionLoading}
+                        className="px-2 py-1.5 text-xs font-bold rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 transition flex items-center space-x-1"
+                        title={`Edit name of warehouse '${selectedWarehouse}'`}
+                      >
+                        <Pencil className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Edit WH</span>
+                      </button>
+                    )}
+
+                    {selectedWarehouse !== 'ALL' && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteWarehouse()}
+                        disabled={actionLoading}
+                        className="px-2 py-1.5 text-xs font-bold rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 transition flex items-center space-x-1"
+                        title={`Delete warehouse '${selectedWarehouse}' (Only allowed if ZERO data is mapped)`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                        <span>Delete WH</span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => handleOpenTransferModalForAll(selectedWarehouse !== 'ALL' ? selectedWarehouse : undefined)}
+                      className="px-2.5 py-1.5 text-xs font-bold rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 transition flex items-center space-x-1"
+                      title="Transfer goods from one China warehouse to another"
+                    >
+                      <ArrowRightLeft className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>⇄ Transfer Goods</span>
+                    </button>
+                  </>
                 )}
-
-                {selectedWarehouse !== 'ALL' && (
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteWarehouse()}
-                    disabled={actionLoading}
-                    className="px-2 py-1.5 text-xs font-bold rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 transition flex items-center space-x-1"
-                    title={`Delete warehouse '${selectedWarehouse}' (Only allowed if ZERO data is mapped)`}
-                  >
-                    <Trash2 className="w-3.5 h-3.5 text-red-600" />
-                    <span>Delete WH</span>
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => handleOpenTransferModalForAll(selectedWarehouse !== 'ALL' ? selectedWarehouse : undefined)}
-                  className="px-2.5 py-1.5 text-xs font-bold rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 transition flex items-center space-x-1"
-                  title="Transfer goods from one China warehouse to another"
-                >
-                  <ArrowRightLeft className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>⇄ Transfer Goods</span>
-                </button>
               </div>
 
               {/* Status Filter */}
@@ -3632,21 +3844,33 @@ export default function LoaderHub() {
               </div>
             </div>
 
-            {/* Search Box */}
-            <div className="relative min-w-[260px]">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-              <input
-                type="text"
-                placeholder="Search Receipt #, Container #, Party, Marka..."
-                value={searchTerm}
-                onChange={(e) => dispatch(setSearchTerm(e.target.value))}
-                className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 bg-slate-50 focus:bg-white"
-              />
+            {/* Search Box & Download Excel Button */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleDownloadWarehouseExcel()}
+                className="px-3 py-1.5 text-xs font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white transition flex items-center space-x-1.5 shadow-sm shrink-0"
+                title="Download complete China warehouse stock excel sheet"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-100" />
+                <span>Download WH Excel</span>
+              </button>
+
+              <div className="relative min-w-[220px]">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="Search Receipt #, Container #, Party, Marka..."
+                  value={searchTerm}
+                  onChange={(e) => dispatch(setSearchTerm(e.target.value))}
+                  className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 bg-slate-50 focus:bg-white"
+                />
+              </div>
             </div>
           </div>
 
           {/* Bulk Selection Action Bar */}
-          {selectedReceiptIds.size > 0 && (
+          {!readOnly && selectedReceiptIds.size > 0 && (
             <div className="bg-slate-900 text-white p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-lg border border-slate-800 animate-fadeIn">
               <div className="flex items-center space-x-3">
                 <span className="bg-red-600 text-white font-mono font-black text-xs px-2.5 py-1 rounded-lg">
@@ -3889,6 +4113,16 @@ export default function LoaderHub() {
                   </span>
                 </div>
               )}
+
+              <button
+                type="button"
+                onClick={() => handleDownloadLoadingPlanExcel(activePlan?.container || 'ALL')}
+                className="px-3.5 py-1.5 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white transition flex items-center space-x-1.5 shadow-sm shrink-0"
+                title="Download all or selected loading plan excel sheet"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-blue-100" />
+                <span>Download Plan Excel</span>
+              </button>
 
               <div className="relative w-full sm:w-60">
                 <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
