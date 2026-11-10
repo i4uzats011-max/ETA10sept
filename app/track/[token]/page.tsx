@@ -54,6 +54,7 @@ interface IPublicReceipt {
   id?: string;
   marka: string;
   receiptNo: string;
+  warehouse?: string; // Origin warehouse e.g. "GZ", "YW"
   itemName: string;
   containerNo: string; // Container No. (not actual)
   cbm: string;
@@ -640,7 +641,7 @@ export default function PublicReceiptTrackingPage() {
     if (filterQuery.trim()) {
       const terms = filterQuery.toLowerCase().split(/\s+/).filter(Boolean);
       list = list.filter((r) => {
-        const fullText = `${r.marka || ''} ${r.receiptNo || ''} ${r.itemName || ''} ${r.containerNo || ''} ${cleanDisplayStatus(r.status)}`.toLowerCase();
+        const fullText = `${r.marka || ''} ${r.receiptNo || ''} ${r.warehouse || ''} ${r.itemName || ''} ${r.containerNo || ''} ${cleanDisplayStatus(r.status)}`.toLowerCase();
         return terms.every(term => fullText.includes(term));
       });
     }
@@ -1007,7 +1008,7 @@ export default function PublicReceiptTrackingPage() {
           : 'Pending Schedule';
 
         return [
-          r.receiptNo || '-',
+          (r.receiptNo ? (r.warehouse ? `${r.receiptNo} (${r.warehouse} WH)` : r.receiptNo) : '-'),
           r.marka || linkName || '-',
           r.containerNo && r.containerNo !== '-' ? r.containerNo : 'Pending Allocation',
           r.itemName || '-',
@@ -1172,7 +1173,7 @@ export default function PublicReceiptTrackingPage() {
           : `${dateText} (Pending Schedule)`;
 
         const row = worksheet.addRow([
-          r.receiptNo || '-',
+          (r.receiptNo ? (r.warehouse ? `${r.receiptNo} (${r.warehouse} WH)` : r.receiptNo) : '-'),
           r.marka || linkName || '-',
           r.containerNo && r.containerNo !== '-' ? r.containerNo : 'Pending Allocation',
           r.itemName || '-',
@@ -1931,6 +1932,11 @@ export default function PublicReceiptTrackingPage() {
                             <span className={`w-1.5 h-1.5 rounded-full ${colorTheme.dotBg} inline-block shrink-0`} />
                             <span>#{r.receiptNo}</span>
                           </button>
+                          {r.warehouse && (
+                            <span className="font-bold text-slate-700 bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded text-[10px] uppercase">
+                              {r.warehouse} WH
+                            </span>
+                          )}
                           {r.splitInfo && (
                             <span className="font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded text-[10px]">
                               {r.splitInfo}
@@ -2366,6 +2372,11 @@ export default function PublicReceiptTrackingPage() {
                           <span className={`w-2 h-2 rounded-full ${colorTheme.dotBg} inline-block shrink-0`} />
                           <Package className="w-3.5 h-3.5 opacity-80 group-hover:scale-110 transition-transform" />
                           <span>{r.receiptNo}</span>
+                          {r.warehouse && (
+                            <span className="text-[10px] font-bold bg-white/90 border border-current px-1.5 py-0.2 rounded ml-1 uppercase">
+                              {r.warehouse} WH
+                            </span>
+                          )}
                           {r.splitInfo && (
                             <span className="text-[10px] font-extrabold bg-white/80 border border-current px-1.5 py-0.2 rounded ml-1">
                               {r.splitInfo}
@@ -2800,7 +2811,7 @@ export default function PublicReceiptTrackingPage() {
                 <span className="font-bold flex items-center gap-1 text-emerald-900 mb-0.5">
                   <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Security Verification:
                 </span>
-                Enter your <strong>Receipt Number</strong> and the exact <strong>Carton Count (CTN)</strong> as written on your warehouse slip. If both parameters match our records, the shipment will be added to your tracking link immediately.
+                Enter your <strong>Receipt Number</strong> and the exact <strong>Carton Count (CTN)</strong> as written on your warehouse slip. Since receipts can be issued across different China warehouses (e.g. Guangzhou vs Yiwu), Carton Count ensures your exact warehouse receipt is verified and linked.
               </div>
 
               {addError && (

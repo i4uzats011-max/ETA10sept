@@ -106,6 +106,8 @@ export async function POST(req: NextRequest) {
         return {
           id: 'rec_' + Date.now() + '_' + i + '_' + Math.floor(Math.random() * 1000),
           receiptNo: rNo,
+          warehouse: String(it.warehouse || '').trim(),
+          warehouseReceiptId: String(it.warehouseReceiptId || it.receiptId || '').trim(),
           marka: markaVal,
           itemName: String(it.itemName || it.english || it.commodity || '').trim(),
           cbm: String(it.cbm || it.volume || '').trim(),
@@ -126,6 +128,8 @@ export async function POST(req: NextRequest) {
       entriesToAdd.push({
         id: 'rec_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
         receiptNo: body.receiptNo.trim(),
+        warehouse: String(body.warehouse || '').trim(),
+        warehouseReceiptId: String(body.warehouseReceiptId || body.receiptId || '').trim(),
         marka: String(body.marka || trackingName || '').trim(),
         itemName: (body.itemName || '').trim(),
         cbm: (body.cbm || '').trim(),

@@ -7,6 +7,7 @@ export interface ILivePublicReceipt {
   id?: string;
   marka: string;
   receiptNo: string;
+  warehouse?: string; // Origin warehouse e.g. "GZ", "YW"
   itemName: string;
   containerNo: string; // Public display: Container alias (never actual)
   actualContainerNo?: string; // Admin internal only
@@ -22,6 +23,94 @@ export interface ILivePublicReceipt {
   isSplit?: boolean;
   splitInfo?: string;
   adminNotes?: string;
+}
+
+/**
+ * Resolves which WarehouseReceipt belongs to this tracking entry when
+ * the same receipt number exists across multiple China warehouses (e.g. Guangzhou vs Yiwu).
+ * Matches by:
+ * 1. entry.warehouseReceiptId
+ * 2. entry.warehouse
+ * 3. entry.ctn matching w.quantity
+ * 4. entry.marka / trackingDoc.name matching w.mainMarka / w.subMarka / w.party
+ * 5. entry.containerNo matching s.container
+ */
+export function pickTargetWarehouseReceipt(
+  entry: any,
+  defaultMarka: string,
+  whList: any[],
+  shipmentsList: any[] = []
+): any {
+  if (!whList || whList.length === 0) return null;
+  if (whList.length === 1) return whList[0];
+
+  const entryWh = (entry.warehouse || '').toUpperCase().trim();
+  const entryWhId = String(entry.warehouseReceiptId || '').trim();
+  const entryMarka = (entry.marka || defaultMarka || '').toUpperCase().trim();
+  const entryCtn = parseFloat(String(entry.ctn || '0'));
+  const entryContainer = (entry.containerNo || '').toUpperCase().trim();
+
+  // 1. Direct match on warehouseReceiptId
+  if (entryWhId) {
+    const found = whList.find(w => String(w._id) === entryWhId);
+    if (found) return found;
+  }
+
+  // 2. Direct match on warehouse code
+  if (entryWh) {
+    const found = whList.find(w => (w.warehouse || '').toUpperCase().trim() === entryWh);
+    if (found) return found;
+  }
+
+  // 3. Multi-factor scoring across warehouses
+  let bestScore = -1;
+  let bestWh = whList[0];
+
+  for (const w of whList) {
+    let score = 0;
+    const wMainMarka = (w.mainMarka || '').toUpperCase().trim();
+    const wSubMarka = (w.subMarka || '').toUpperCase().trim();
+    const wParty = (w.party || '').toUpperCase().trim();
+    const wQty = typeof w.quantity === 'number' ? w.quantity : (parseFloat(String(w.quantity || '0')) || 0);
+
+    // Exact or partial marka match
+    if (entryMarka) {
+      if (wMainMarka === entryMarka || wSubMarka === entryMarka || wParty === entryMarka) {
+        score += 20;
+      } else if (
+        (wMainMarka && (wMainMarka.includes(entryMarka) || entryMarka.includes(wMainMarka))) ||
+        (wParty && (wParty.includes(entryMarka) || entryMarka.includes(wParty)))
+      ) {
+        score += 10;
+      }
+    }
+
+    // Exact carton count match
+    if (entryCtn > 0 && wQty === entryCtn) {
+      score += 15;
+    }
+
+    // Check if any shipment for this warehouse matches the container
+    if (entryContainer && shipmentsList.length > 0) {
+      const containerMatched = shipmentsList.some((s: any) => {
+        const sWhMatch = s.receiptId
+          ? String(s.receiptId) === String(w._id)
+          : (s.warehouse && s.warehouse.toUpperCase().trim() === (w.warehouse || '').toUpperCase().trim());
+        const sCont = (s.container || '').toUpperCase().trim();
+        return sWhMatch && sCont === entryContainer;
+      });
+      if (containerMatched) {
+        score += 25;
+      }
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestWh = w;
+    }
+  }
+
+  return bestWh;
 }
 
 // Strip shipping line names (e.g. COSCO, MSC, ONE, MAERSK, etc.) from public container display
@@ -185,17 +274,18 @@ export async function resolveLiveReceiptsForTrackingDoc(
     if (c.container) containerMap.set(c.container.toLowerCase().trim(), c);
   });
 
-  const shipmentMap = new Map<string, any[]>();
+  const shipmentsByReceipt = new Map<string, any[]>();
   liveShipments.forEach((s: any) => {
     const rKey = (s.receipt || '').toLowerCase().trim();
-    if (!shipmentMap.has(rKey)) shipmentMap.set(rKey, []);
-    shipmentMap.get(rKey)!.push(s);
+    if (!shipmentsByReceipt.has(rKey)) shipmentsByReceipt.set(rKey, []);
+    shipmentsByReceipt.get(rKey)!.push(s);
   });
 
-  const whMap = new Map<string, any>();
+  const whByReceipt = new Map<string, any[]>();
   liveWhReceipts.forEach((w: any) => {
     const rKey = (w.receipt || '').toLowerCase().trim();
-    whMap.set(rKey, w);
+    if (!whByReceipt.has(rKey)) whByReceipt.set(rKey, []);
+    whByReceipt.get(rKey)!.push(w);
   });
 
   const resolvedList: ILivePublicReceipt[] = [];
@@ -203,15 +293,36 @@ export async function resolveLiveReceiptsForTrackingDoc(
   for (const entry of receiptEntries) {
     const rNo = (entry.receiptNo || '').trim();
     const rKey = rNo.toLowerCase();
-    const rShipments = shipmentMap.get(rKey) || [];
-    const whDoc = whMap.get(rKey);
+    const whList = whByReceipt.get(rKey) || [];
+    const allShipmentsForReceipt = shipmentsByReceipt.get(rKey) || [];
 
-    // Common Fallback / Master Marka
+    // Target the specific warehouse receipt matching this tracking entry
+    const whDoc = pickTargetWarehouseReceipt(entry, defaultMarka, whList, allShipmentsForReceipt);
+    const targetWarehouse = whDoc?.warehouse || entry.warehouse || '';
+
+    // Filter shipments strictly for this warehouse receipt so different warehouses/parties never mix
+    let rShipments: any[] = [];
+    if (whDoc) {
+      rShipments = allShipmentsForReceipt.filter((s: any) => {
+        if (s.receiptId && String(s.receiptId) === String(whDoc._id)) return true;
+        if (s.warehouse && whDoc.warehouse && s.warehouse.toUpperCase().trim() === whDoc.warehouse.toUpperCase().trim()) return true;
+        if (!s.warehouse && s.mainMarka && whDoc.mainMarka && s.mainMarka.toUpperCase().trim() === whDoc.mainMarka.toUpperCase().trim()) return true;
+        return false;
+      });
+    } else if (targetWarehouse) {
+      rShipments = allShipmentsForReceipt.filter((s: any) =>
+        (s.warehouse || '').toUpperCase().trim() === targetWarehouse.toUpperCase().trim()
+      );
+    } else {
+      rShipments = allShipmentsForReceipt;
+    }
+
+    // Common Fallback / Master Marka (entry.marka takes precedence)
     const baseMarka =
+      entry.marka ||
       whDoc?.mainMarka ||
       whDoc?.subMarka ||
       whDoc?.party ||
-      entry.marka ||
       defaultMarka ||
       '-';
 
@@ -295,6 +406,7 @@ export async function resolveLiveReceiptsForTrackingDoc(
               id: `${entry.id || rNo}_ship_${sIdx}_item_${gIdx}`,
               marka: rowMarka,
               receiptNo: rNo,
+              warehouse: whDoc?.warehouse || targetWarehouse || undefined,
               itemName: gi.name || fallbackItemName,
               containerNo: displayContainer,
               actualContainerNo: options.includeAdminFields ? (s.containerNumber || entry.actualContainerNo || '') : undefined,
@@ -317,7 +429,8 @@ export async function resolveLiveReceiptsForTrackingDoc(
             id: `${entry.id || rNo}_ship_${sIdx}`,
             marka: rowMarka,
             receiptNo: rNo,
-            itemName: fallbackItemName,
+              warehouse: whDoc?.warehouse || targetWarehouse || undefined,
+              itemName: fallbackItemName,
             containerNo: displayContainer,
             actualContainerNo: options.includeAdminFields ? (s.containerNumber || entry.actualContainerNo || '') : undefined,
             cbm: rowCbm,
@@ -368,7 +481,8 @@ export async function resolveLiveReceiptsForTrackingDoc(
             id: `${entry.id || rNo}_wh_remainder`,
             marka: baseMarka,
             receiptNo: rNo,
-            itemName: whItemName,
+              warehouse: whDoc?.warehouse || targetWarehouse || undefined,
+              itemName: whItemName,
             containerNo: options.includeAdminFields ? 'In Warehouse (Not Loaded)' : fallbackContainer,
             actualContainerNo: options.includeAdminFields ? '' : undefined,
             cbm: String(whDoc.remainingVolume || whDoc.volume || '0'),
@@ -408,7 +522,8 @@ export async function resolveLiveReceiptsForTrackingDoc(
             id: `${entry.id || rNo}_wh_item_${wIdx}`,
             marka: it.mainMarka || it.subMarka || baseMarka,
             receiptNo: rNo,
-            itemName: it.itemName || it.english || it.chinese || '-',
+              warehouse: whDoc?.warehouse || targetWarehouse || undefined,
+              itemName: it.itemName || it.english || it.chinese || '-',
             containerNo: options.includeAdminFields ? 'In Warehouse (Not Loaded)' : fallbackContainer,
             actualContainerNo: options.includeAdminFields ? '' : undefined,
             cbm: String(it.volume || whDoc.volume || '0'),
@@ -436,7 +551,8 @@ export async function resolveLiveReceiptsForTrackingDoc(
           id: `${entry.id || rNo}_wh_0`,
           marka: baseMarka,
           receiptNo: rNo,
-          itemName: whItemName,
+              warehouse: whDoc?.warehouse || targetWarehouse || undefined,
+              itemName: whItemName,
           containerNo: options.includeAdminFields ? 'In Warehouse (Not Loaded)' : fallbackContainer,
           actualContainerNo: options.includeAdminFields ? '' : undefined,
           cbm: String(whDoc.volume || entry.cbm || '0'),

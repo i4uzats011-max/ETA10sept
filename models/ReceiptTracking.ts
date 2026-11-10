@@ -3,6 +3,8 @@ import mongoose, { Schema, Document, Model } from 'mongoose';
 export interface IReceiptEntry {
   id: string;
   receiptNo: string;
+  warehouse?: string;          // Origin warehouse e.g. "GZ", "YW", "Guangzhou", "Yiwu"
+  warehouseReceiptId?: string; // MongoDB _id of the exact WarehouseReceipt document
   marka?: string;              // Shipping Mark / Marka e.g. "VIP", "SHANTI"
   itemName?: string;
   cbm?: string;
@@ -31,6 +33,8 @@ const ReceiptEntrySchema = new Schema(
   {
     id: { type: String, required: true },
     receiptNo: { type: String, required: true, trim: true },
+    warehouse: { type: String, default: '', trim: true },
+    warehouseReceiptId: { type: String, default: '', trim: true },
     marka: { type: String, default: '', trim: true },
     itemName: { type: String, default: '', trim: true },
     cbm: { type: String, default: '', trim: true },

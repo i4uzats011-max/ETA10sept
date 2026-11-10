@@ -61,6 +61,8 @@ export async function PUT(
     doc.receipts[receiptIndex] = {
       ...current,
       receiptNo: receiptNo !== undefined ? receiptNo.trim() : current.receiptNo,
+      warehouse: body.warehouse !== undefined ? String(body.warehouse).trim() : current.warehouse,
+      warehouseReceiptId: body.warehouseReceiptId !== undefined ? String(body.warehouseReceiptId).trim() : current.warehouseReceiptId,
       marka: marka !== undefined ? marka.trim() : (current.marka || doc.name || ''),
       itemName: itemName !== undefined ? itemName.trim() : current.itemName,
       cbm: cbm !== undefined ? cbm.trim() : current.cbm,
