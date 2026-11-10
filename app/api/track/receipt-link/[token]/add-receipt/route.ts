@@ -57,16 +57,7 @@ export async function POST(
       return NextResponse.json({ success: false, message: 'Tracking link not found or expired' }, { status: 404 });
     }
 
-    // 2. Check if receipt already exists in this tracking link
-    const alreadyExists = (trackingDoc.receipts || []).some(
-      (r: any) => r.receiptNo && r.receiptNo.trim().toLowerCase() === inputReceiptNo.toLowerCase()
-    );
-    if (alreadyExists) {
-      return NextResponse.json({
-        success: false,
-        message: `Receipt #${inputReceiptNo} is already present in this tracking link.`
-      }, { status: 400 });
-    }
+    // 2. Verified receipt uniqueness checked globally after warehouse & CTN verification
 
     // 3. Search database for this receipt across China warehouses
     const receiptRegex = new RegExp(`^${inputReceiptNo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
@@ -164,6 +155,64 @@ export async function POST(
           ? `Receipt #${inputReceiptNo} exists in multiple warehouses: ${warehouseHints}. Carton count (${inputCtn} CTN) does not match. Please enter the exact total cartons received as per your slip.`
           : `Verification failed: Carton count (${inputCtn} CTN) does not match total packages received in warehouse for Receipt #${inputReceiptNo} (${totalWarehouseCtnNum} CTN). Please enter total cartons received as per your slip.`
       }, { status: 400 });
+    }
+
+    // 4.5. GLOBAL LINK RESTRICTION: A receipt cannot be added again to ANY public tracking link
+    const allLinkedDocs: any[] = await ReceiptTracking.find({
+      'receipts.receiptNo': receiptRegex
+    }).lean();
+
+    for (const linkDoc of allLinkedDocs) {
+      const matchingEntry = (linkDoc.receipts || []).find((r: any) => {
+        if (!r.receiptNo || r.receiptNo.trim().toLowerCase() !== inputReceiptNo.toLowerCase()) return false;
+
+        // If warehouseReceiptId exists on both, exact match
+        if (targetWhId && r.warehouseReceiptId) {
+          return String(r.warehouseReceiptId) === String(targetWhId);
+        }
+
+        // If warehouse code exists on both, match by warehouse
+        if (targetWarehouse && r.warehouse) {
+          return r.warehouse.toUpperCase().trim() === targetWarehouse.toUpperCase().trim();
+        }
+
+        // If CTN is recorded on existing entry, match if same carton count
+        if (totalWarehouseCtnNum !== null && r.ctn) {
+          const entryCtnNum = normalizeCarton(r.ctn);
+          if (entryCtnNum !== null && entryCtnNum === totalWarehouseCtnNum) return true;
+        }
+
+        // If no warehouse disambiguation exists on either, treat as same receipt
+        if (!targetWarehouse && !r.warehouse) return true;
+
+        return false;
+      });
+
+      if (matchingEntry) {
+        const originUrl = req.nextUrl?.origin || process.env.NEXT_PUBLIC_APP_URL || 'https://eta-usi.vercel.app';
+        const detailsUrl = `${originUrl}/track/${linkDoc.token}`;
+        const whLabel = targetWarehouse ? ` (${targetWarehouse} Warehouse)` : '';
+
+        if (linkDoc.token === token) {
+          return NextResponse.json({
+            success: false,
+            message: `Receipt #${inputReceiptNo}${whLabel} is already present in this tracking link. Find details here: ${detailsUrl}`,
+            alreadyLinked: true,
+            linkName: linkDoc.name || 'Current Tracking Link',
+            linkToken: linkDoc.token,
+            linkUrl: detailsUrl
+          }, { status: 400 });
+        } else {
+          return NextResponse.json({
+            success: false,
+            message: `This receipt cannot be added to any public link because it is already added to tracking link "${linkDoc.name || linkDoc.token}". Find details here: ${detailsUrl}`,
+            alreadyLinked: true,
+            linkName: linkDoc.name || linkDoc.token,
+            linkToken: linkDoc.token,
+            linkUrl: detailsUrl
+          }, { status: 400 });
+        }
+      }
     }
 
     // 5. Verification passed: save with explicit warehouse code and receipt identifier

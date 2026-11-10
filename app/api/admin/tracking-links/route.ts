@@ -149,6 +149,47 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: 'At least one valid receipt is required.' }, { status: 400 });
     }
 
+    // Check if any receipt is already linked to a different tracking link
+    if (!body.force) {
+      const receiptNos = entriesToAdd.map(e => e.receiptNo);
+      const existingDocs: any[] = await ReceiptTracking.find({
+        token: { $ne: token },
+        'receipts.receiptNo': { $in: receiptNos }
+      }).lean();
+
+      for (const entry of entriesToAdd) {
+        for (const linkDoc of existingDocs) {
+          const match = (linkDoc.receipts || []).find((r: any) => {
+            if (!r.receiptNo || r.receiptNo.trim().toLowerCase() !== entry.receiptNo.trim().toLowerCase()) return false;
+            if (entry.warehouseReceiptId && r.warehouseReceiptId) {
+              return String(entry.warehouseReceiptId) === String(r.warehouseReceiptId);
+            }
+            if (entry.warehouse && r.warehouse) {
+              return entry.warehouse.toUpperCase().trim() === r.warehouse.toUpperCase().trim();
+            }
+            if (entry.ctn && r.ctn) {
+              return String(entry.ctn).trim() === String(r.ctn).trim();
+            }
+            if (!entry.warehouse && !r.warehouse) return true;
+            return false;
+          });
+
+          if (match) {
+            const originUrl = req.nextUrl?.origin || process.env.NEXT_PUBLIC_APP_URL || 'https://eta-usi.vercel.app';
+            const detailsUrl = `${originUrl}/track/${linkDoc.token}`;
+            return NextResponse.json({
+              success: false,
+              message: `Receipt #${entry.receiptNo} cannot be added to this link because it is already linked to "${linkDoc.name || linkDoc.token}". Find details here: ${detailsUrl}`,
+              alreadyLinked: true,
+              linkName: linkDoc.name || linkDoc.token,
+              linkToken: linkDoc.token,
+              linkUrl: detailsUrl
+            }, { status: 400 });
+          }
+        }
+      }
+    }
+
     // Find if tracking doc exists for this token
     let trackingDoc = await ReceiptTracking.findOne({ token });
 

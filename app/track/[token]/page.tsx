@@ -479,16 +479,23 @@ export default function PublicReceiptTrackingPage() {
   const [addCtn, setAddCtn] = useState('');
   const [submittingAdd, setSubmittingAdd] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [existingLinkDetails, setExistingLinkDetails] = useState<{
+    linkName?: string;
+    linkToken?: string;
+    linkUrl?: string;
+  } | null>(null);
 
   const handleAddReceipt = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!addReceiptNo.trim() || !addCtn.trim()) {
       setAddError('Both Receipt No. and Carton Count (CTN) are required.');
+      setExistingLinkDetails(null);
       return;
     }
 
     setSubmittingAdd(true);
     setAddError(null);
+    setExistingLinkDetails(null);
 
     try {
       const res = await fetch(`/api/track/receipt-link/${encodeURIComponent(token)}/add-receipt`, {
@@ -507,14 +514,25 @@ export default function PublicReceiptTrackingPage() {
         setAddReceiptNo('');
         setAddCtn('');
         setAddError(null);
+        setExistingLinkDetails(null);
         setIsAddReceiptOpen(false);
         // Refresh tracking details to show the newly added receipt
         fetchTrackingDetails(true);
       } else {
         setAddError(data.message || 'Verification failed. Please check Receipt No. and CTN.');
+        if (data.alreadyLinked && data.linkUrl) {
+          setExistingLinkDetails({
+            linkName: data.linkName,
+            linkToken: data.linkToken,
+            linkUrl: data.linkUrl
+          });
+        } else {
+          setExistingLinkDetails(null);
+        }
       }
     } catch (err) {
       setAddError('Network error while verifying receipt. Please retry.');
+      setExistingLinkDetails(null);
     } finally {
       setSubmittingAdd(false);
     }
@@ -1379,6 +1397,7 @@ export default function PublicReceiptTrackingPage() {
               <button
                 onClick={() => {
                   setAddError(null);
+                  setExistingLinkDetails(null);
                   setIsAddReceiptOpen(true);
                 }}
                 title="Add receipt to this tracking link with Receipt No & Carton Count (CTN)"
@@ -1777,6 +1796,7 @@ export default function PublicReceiptTrackingPage() {
                     type="button"
                     onClick={() => {
                       setAddError(null);
+                      setExistingLinkDetails(null);
                       setIsAddReceiptOpen(true);
                     }}
                     className="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition shadow-xs whitespace-nowrap cursor-pointer"
@@ -2815,9 +2835,30 @@ export default function PublicReceiptTrackingPage() {
               </div>
 
               {addError && (
-                <div className="bg-red-50 border border-red-200 p-3 rounded-xl text-red-800 text-xs flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
-                  <span>{addError}</span>
+                <div className="bg-red-50 border border-red-200 p-3.5 rounded-xl text-red-900 text-xs flex flex-col gap-2.5">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                    <span className="leading-relaxed font-semibold">{addError}</span>
+                  </div>
+                  {existingLinkDetails?.linkUrl && (
+                    <div className="bg-white border border-red-200 p-2.5 rounded-lg flex items-center justify-between gap-3 shadow-xs">
+                      <div className="min-w-0">
+                        <span className="text-[10px] uppercase font-bold text-slate-500 block">Already Added To Link</span>
+                        <span className="font-extrabold text-slate-900 truncate block text-xs">
+                          {existingLinkDetails.linkName || existingLinkDetails.linkToken}
+                        </span>
+                      </div>
+                      <a
+                        href={existingLinkDetails.linkUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg text-xs shadow-xs shrink-0 transition"
+                      >
+                        <span>Find Details Here</span>
+                        <span aria-hidden="true">&rarr;</span>
+                      </a>
+                    </div>
+                  )}
                 </div>
               )}
 
