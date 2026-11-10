@@ -284,7 +284,6 @@ function createRootResolver(req: NextRequest) {
       if (!rawShipments || rawShipments.length === 0) {
         if (whItem && formattedWhReceipt) {
           const whDate = whItem.date || whItem.createdAt;
-          const fallbackContainer = await getContainerForReceiptDate(whDate);
           const fallbackEta = calculateCommittedEta(whDate);
           const fallbackFormattedEta = formatGlobalDate(fallbackEta) || fallbackEta;
 
@@ -292,7 +291,7 @@ function createRootResolver(req: NextRequest) {
             id: String(whItem._id),
             receipt: cleanQuery,
             party: whItem.party || 'General Party',
-            container: fallbackContainer,
+            container: '', // User rule: if container not in db, do not show container no
             containerNumber: '',
             shippingLine: 'Default',
             status: formattedWhReceipt.isDelivered ? 'Delivered' : 'In Transit',

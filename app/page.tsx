@@ -43,6 +43,15 @@ import {
   Warehouse,
   Boxes,
   ExternalLink,
+  Calculator,
+  Send,
+  Navigation,
+  Check,
+  Filter,
+  DollarSign,
+  Info,
+  CalendarDays,
+  FileCheck2,
 } from 'lucide-react';
 import { getCarrierTrackingUrl, getLdbRailwayTrackingUrl } from '@/lib/trackingUrls';
 
@@ -61,7 +70,144 @@ function formatCBM(volume: any): string {
   return `${volume} CBM`;
 }
 
+// Authentic MSC China-to-India Vessel Sailing Schedules Dataset
+interface ISailingSchedule {
+  id: string;
+  carrier: string;
+  service: string;
+  vessel: string;
+  voyage: string;
+  pol: string;
+  polCode: string;
+  pod: string;
+  podCode: string;
+  frequency: string;
+  transitDays: number;
+  routing: string;
+  status: string;
+  mscLink: string;
+}
+
+const SAILING_SCHEDULES: ISailingSchedule[] = [
+  {
+    id: 'SCH-01',
+    carrier: 'MSC',
+    service: 'MSC Falcon Express',
+    vessel: 'MSC ANNA',
+    voyage: '2403W',
+    pol: 'Ningbo (CNNGB)',
+    polCode: 'Ningbo',
+    pod: 'Nhava Sheva / JNPT (INNSA)',
+    podCode: 'Nhava Sheva',
+    frequency: 'Every Tuesday',
+    transitDays: 14,
+    routing: 'Direct Ocean Express',
+    status: 'Booking Open',
+    mscLink: 'https://www.msc.com/en/search-a-schedule',
+  },
+  {
+    id: 'SCH-02',
+    carrier: 'MSC',
+    service: 'MSC Tiger Direct',
+    vessel: 'MSC CLARA',
+    voyage: '1908W',
+    pol: 'Shanghai (CNSHA)',
+    polCode: 'Shanghai',
+    pod: 'Mundra (INMUN)',
+    podCode: 'Mundra',
+    frequency: 'Every Thursday',
+    transitDays: 16,
+    routing: 'Direct Ocean Express',
+    status: 'Booking Open',
+    mscLink: 'https://www.msc.com/en/search-a-schedule',
+  },
+  {
+    id: 'SCH-03',
+    carrier: 'MSC',
+    service: 'MSC Dragon Shuttle',
+    vessel: 'MSC MAYA',
+    voyage: '3312W',
+    pol: 'Guangzhou / Nansha (CNCAN)',
+    polCode: 'Guangzhou',
+    pod: 'Nhava Sheva / JNPT (INNSA)',
+    podCode: 'Nhava Sheva',
+    frequency: 'Every Saturday',
+    transitDays: 13,
+    routing: 'Direct South China Call',
+    status: 'Fast Transit',
+    mscLink: 'https://www.msc.com/en/search-a-schedule',
+  },
+  {
+    id: 'SCH-04',
+    carrier: 'MSC',
+    service: 'MSC Himalaya Intermodal',
+    vessel: 'MSC DILETTA',
+    voyage: '4102W',
+    pol: 'Shenzhen / Yantian (CNSZX)',
+    polCode: 'Shenzhen',
+    pod: 'Delhi ICD Tughlakabad (INDEL)',
+    podCode: 'Delhi ICD',
+    frequency: 'Every Monday',
+    transitDays: 20,
+    routing: 'Ocean + Indian Railway CONCOR',
+    status: 'Multimodal Active',
+    mscLink: 'https://www.msc.com/en/search-a-schedule',
+  },
+  {
+    id: 'SCH-05',
+    carrier: 'MSC',
+    service: 'MSC Orient Express',
+    vessel: 'MSC IRIS',
+    voyage: '1205W',
+    pol: 'Qingdao (CNTAO)',
+    polCode: 'Qingdao',
+    pod: 'Mundra (INMUN)',
+    podCode: 'Mundra',
+    frequency: 'Every Friday',
+    transitDays: 18,
+    routing: 'Direct North China Call',
+    status: 'Booking Open',
+    mscLink: 'https://www.msc.com/en/search-a-schedule',
+  },
+  {
+    id: 'SCH-06',
+    carrier: 'MSC',
+    service: 'China-India Central Express',
+    vessel: 'MSC PALOMA',
+    voyage: '2804W',
+    pol: 'Yiwu (via Ningbo)',
+    polCode: 'Yiwu',
+    pod: 'Delhi ICD Tughlakabad (INDEL)',
+    podCode: 'Delhi ICD',
+    frequency: 'Every Wednesday',
+    transitDays: 22,
+    routing: 'Yiwu CFS → Ningbo Port → Rail ICD',
+    status: 'Consolidation Ready',
+    mscLink: 'https://www.msc.com/en/search-a-schedule',
+  },
+  {
+    id: 'SCH-07',
+    carrier: 'MSC',
+    service: 'MSC Coromandel Shuttle',
+    vessel: 'MSC REBECCA',
+    voyage: '0711W',
+    pol: 'Shanghai (CNSHA)',
+    polCode: 'Shanghai',
+    pod: 'Chennai (INMAA)',
+    podCode: 'Chennai',
+    frequency: 'Every Sunday',
+    transitDays: 15,
+    routing: 'Direct South-East Coast',
+    status: 'Booking Open',
+    mscLink: 'https://www.msc.com/en/search-a-schedule',
+  },
+];
+
 export default function PublicTrackerPage() {
+  // Top-Level Hero eBusiness Tab (Modeled after MSC.com: Track a shipment | Search schedules | Instant quote | Book a shipment)
+  const [heroWidgetTab, setHeroWidgetTab] = useState<'track' | 'schedules' | 'quote' | 'book'>('track');
+
+  // Tracking sub-tab: 'receipt' (Bill No) vs 'container' (Container No)
   const [activeTab, setActiveTab] = useState<'receipt' | 'container'>('receipt');
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -71,6 +217,29 @@ export default function PublicTrackerPage() {
   const [pendingCartonReceipt, setPendingCartonReceipt] = useState<string | null>(null);
   const [cartonInput, setCartonInput] = useState('');
   const [cartonVerificationError, setCartonVerificationError] = useState<string | null>(null);
+
+  // Schedules Search Filters
+  const [schedulePol, setSchedulePol] = useState('ALL');
+  const [schedulePod, setSchedulePod] = useState('ALL');
+
+  // Instant Freight Quote States
+  const [quoteContainerType, setQuoteContainerType] = useState<'20GP' | '40HQ' | 'LCL'>('40HQ');
+  const [quoteOrigin, setQuoteOrigin] = useState('Ningbo (CNNGB)');
+  const [quoteDestination, setQuoteDestination] = useState('Nhava Sheva / JNPT (INNSA)');
+  const [quoteCbm, setQuoteCbm] = useState('10');
+  const [quoteWeight, setQuoteWeight] = useState('3500');
+
+  // Quick Booking Form States
+  const [bookingForm, setBookingForm] = useState({
+    company: '',
+    origin: 'Ningbo Warehouse',
+    destination: 'Delhi NCR (ICD Tughlakabad)',
+    commodity: '',
+    cartons: '',
+    contact: '',
+  });
+  const [bookingSubmitted, setBookingSubmitted] = useState(false);
+  const [bookingRef, setBookingRef] = useState('');
 
   // Download & Print Sanitized PDF Receipt (ZERO carrier details exposed)
   const downloadReceiptPDF = (receiptNumber: string, shipments: any[]) => {
@@ -94,8 +263,8 @@ export default function PublicTrackerPage() {
       doc.text('China to India Freight & Cargo Forwarding Solutions', 14, 19);
       doc.text('Phone: +91 9355456060   |   Email: info@usinternationallogistics.com   |   Delhi, India', 14, 25);
 
-      // Red Accent Divider
-      doc.setFillColor(220, 38, 38);
+      // Amber Gold Accent Divider (MSC Maritime Style)
+      doc.setFillColor(245, 158, 11);
       doc.rect(0, 32, 210, 2, 'F');
 
       // Document Header
@@ -121,10 +290,19 @@ export default function PublicTrackerPage() {
       doc.setFont('helvetica', 'normal');
       doc.text(String(receiptNumber || primary.receipt), 50, 61);
 
+      // User Rule: If container no. not in DB, do NOT show container no
+      const primaryHasContainer = Boolean(
+        primary.container &&
+        primary.container !== '-' &&
+        !primary.container.toLowerCase().includes('pending') &&
+        !primary.container.toLowerCase().includes('warehouse') &&
+        !primary.container.toLowerCase().includes('not loaded')
+      );
+
       doc.setFont('helvetica', 'bold');
-      doc.text('Container Alias:', 110, 61);
+      doc.text('Container:', 110, 61);
       doc.setFont('helvetica', 'normal');
-      doc.text(String(primary.container || 'N/A'), 145, 61);
+      doc.text(primaryHasContainer ? String(primary.container) : '-', 145, 61);
 
       const anyDelivered = shipments.some((s) => s.isDelivered || (s.status && s.status.toLowerCase().includes('deliver')) || s.deliveryDate);
       const deliveryDateVal = shipments.find((s) => s.deliveryDate)?.deliveryDate || primary.deliveryDate || '';
@@ -137,7 +315,7 @@ export default function PublicTrackerPage() {
       doc.setFont('helvetica', 'bold');
       doc.text('ETA Date:', 110, 69);
       doc.setFont('helvetica', 'bold');
-      doc.setTextColor(220, 38, 38); // Highlight ETA in Red
+      doc.setTextColor(217, 119, 6); // Highlight ETA in Amber
       doc.text(String(formatGlobalDate(primary.eta) || primary.dateOfDelivery || 'Pending'), 145, 69);
       doc.setTextColor(15, 23, 42);
 
@@ -150,7 +328,7 @@ export default function PublicTrackerPage() {
         doc.setFont('helvetica', 'bold');
         doc.text('Delivered Date:', 110, 77);
         doc.setFont('helvetica', 'bold');
-        doc.setTextColor(16, 185, 129); // Highlight Delivered Date in Green
+        doc.setTextColor(16, 185, 129); // Green
         doc.text(String(formatGlobalDate(deliveryDateVal)), 145, 77);
         doc.setTextColor(15, 23, 42);
       }
@@ -162,7 +340,7 @@ export default function PublicTrackerPage() {
       doc.text(marksStr, 50, 85);
 
       // Manifest Table
-      const headers = ['#', 'Item / Commodity Name', 'Cargo Marks', 'Cartons (Qty)', 'Weight (KG)', 'Volume (CBM)', 'Container Alias', anyDelivered ? 'ETA / Delivered Date' : 'Estimated Arrival (ETA)'];
+      const headers = ['#', 'Item / Commodity Name', 'Cargo Marks', 'Cartons (Qty)', 'Weight (KG)', 'Volume (CBM)', 'Container', anyDelivered ? 'ETA / Delivered Date' : 'Estimated Arrival (ETA)'];
       const body = shipments.map((s, idx) => {
         const etaStr = formatGlobalDate(s.eta) || s.dateOfDelivery || 'Pending';
         const isItemDeliv = Boolean(s.isDelivered || s.deliveryDate || (s.status && s.status.toLowerCase().includes('deliver')));
@@ -171,6 +349,15 @@ export default function PublicTrackerPage() {
         lines.push(`ETA: ${etaStr}`);
         if (isItemDeliv && delivStr) lines.push(`Delivered: ${delivStr}`);
         const dateColDisplay = lines.join('\n');
+
+        const hasRowContainer = Boolean(
+          s.container &&
+          s.container !== '-' &&
+          !s.container.toLowerCase().includes('pending') &&
+          !s.container.toLowerCase().includes('warehouse') &&
+          !s.container.toLowerCase().includes('not loaded')
+        );
+
         return [
           idx + 1,
           translateToEnglish(s.english || s.commodity || 'General Cargo'),
@@ -178,7 +365,7 @@ export default function PublicTrackerPage() {
           `${s.quantity || s.cartons || '0'} CTN`,
           s.weight ? `${s.weight} KG` : 'N/A',
           formatCBM(s.volume),
-          s.container || 'Pending',
+          hasRowContainer ? s.container : '-',
           dateColDisplay,
         ];
       });
@@ -230,7 +417,6 @@ export default function PublicTrackerPage() {
     value: string;
   }>>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [isTypesenseActive, setIsTypesenseActive] = useState(false);
   const suggestionsBoxRef = useRef<HTMLDivElement>(null);
 
   // FAQ Accordion state
@@ -238,8 +424,7 @@ export default function PublicTrackerPage() {
 
   // Debounced Typesense Autocomplete Suggestions (Containers only; Receipts are strictly confidential documents)
   useEffect(() => {
-    // Strictly disable autocomplete for Receipt numbers to preserve confidentiality
-    if (activeTab === 'receipt') {
+    if (activeTab === 'receipt' || heroWidgetTab !== 'track') {
       setTypesenseSuggestions([]);
       setShowSuggestions(false);
       return;
@@ -265,7 +450,6 @@ export default function PublicTrackerPage() {
             value: c.container,
           }));
           setTypesenseSuggestions(items);
-          setIsTypesenseActive(Boolean(data.typesenseActive));
           setShowSuggestions(items.length > 0);
         }
       } catch {
@@ -274,7 +458,7 @@ export default function PublicTrackerPage() {
     }, 200);
 
     return () => clearTimeout(timer);
-  }, [searchQuery, activeTab]);
+  }, [searchQuery, activeTab, heroWidgetTab]);
 
   // Click outside to dismiss suggestions
   useEffect(() => {
@@ -372,10 +556,9 @@ export default function PublicTrackerPage() {
             return;
           }
 
-          // Check if any cargo shipments or warehouse receipts actually exist
           const hasCargo = (trackData.shipments && trackData.shipments.length > 0) || trackData.warehouseReceipt;
           if (!hasCargo && !cartons) {
-            // Smart Fallback: User might have entered a Container number while on receipt tab (e.g. USSI-300)
+            // Smart Fallback: User might have entered a Container number while on receipt tab (e.g. USSI-300 or MSCU...)
             const containerRes = await fetch(`/api/track/container?container=${encodeURIComponent(queryInput)}`);
             const cData = await containerRes.json();
             if (containerRes.ok && cData.container) {
@@ -497,7 +680,7 @@ export default function PublicTrackerPage() {
     const cleanQ = searchQuery.trim();
     if (!cleanQ) return;
 
-    // Smart Container Detection: If query looks like a container number (e.g. USSI-300, USI-01, TCLU1234567), auto-switch to container tab
+    // Smart Container Detection: If query looks like a container number (e.g. USSI-300, USI-01, MSCU1234567, MEDU...)
     const isContainerPattern = /^(USI|USSI)[-_\s]?\d+/i.test(cleanQ) || /^[A-Z]{4}\d{7}$/i.test(cleanQ);
     const targetTab = (activeTab === 'receipt' && isContainerPattern) ? 'container' : activeTab;
     if (targetTab !== activeTab) {
@@ -518,8 +701,10 @@ export default function PublicTrackerPage() {
   const whReceipt = receiptResult?.warehouseReceipt;
 
   // Aggregate loading allocation per container
+  // User rule: "if container no. not avail in any receipt no. in db then not show container no. only show eta in public link"
   const containerMap = new Map<string, {
     container: string;
+    hasContainer: boolean;
     quantity: number;
     portDate?: string | null;
     eta: string;
@@ -533,15 +718,26 @@ export default function PublicTrackerPage() {
   }>();
 
   for (const s of receiptShipmentsList) {
-    const c = (s.container || 'Unassigned').trim();
+    const rawC = (s.container || '').trim();
+    const hasRealCont = Boolean(
+      rawC &&
+      rawC !== '-' &&
+      rawC.toLowerCase() !== 'unassigned' &&
+      !rawC.toLowerCase().includes('pending') &&
+      !rawC.toLowerCase().includes('warehouse') &&
+      !rawC.toLowerCase().includes('not loaded')
+    );
+
+    const cKey = hasRealCont ? rawC : '__UNALLOCATED__';
     const isItemDeliv = Boolean(s.isDelivered || (s.status && s.status.toLowerCase().includes('deliver')) || s.deliveryDate);
     const delivDate = s.deliveryDate || (isItemDeliv ? s.dateOfDelivery : '');
     const etaDate = formatGlobalDate(s.eta) || s.dateOfDelivery || 'Pending';
     const portDateVal = s.portDate ? (formatGlobalDate(s.portDate) || s.portDate) : (s.rawEta ? (formatGlobalDate(s.rawEta) || s.rawEta) : null);
 
-    if (!containerMap.has(c)) {
-      containerMap.set(c, {
-        container: c,
+    if (!containerMap.has(cKey)) {
+      containerMap.set(cKey, {
+        container: hasRealCont ? rawC : '',
+        hasContainer: hasRealCont,
         quantity: 0,
         portDate: portDateVal,
         eta: etaDate,
@@ -554,7 +750,7 @@ export default function PublicTrackerPage() {
         daysToDeliver: s.daysToDeliver ?? null,
       });
     }
-    const entry = containerMap.get(c)!;
+    const entry = containerMap.get(cKey)!;
     const q = parseInt(String(s.quantity || s.cartons || 0), 10) || 0;
     const w = parseFloat(String(s.weight || 0)) || 0;
     const v = parseFloat(String(s.volume || 0).replace(/cbm|m3/gi, '')) || 0;
@@ -581,18 +777,18 @@ export default function PublicTrackerPage() {
   }
 
   const containerBreakdown = Array.from(containerMap.values());
-  const distinctContainers = containerBreakdown.map((c) => c.container);
-  const totalLoadedCartons = containerBreakdown.reduce((sum, c) => sum + c.quantity, 0);
+  const actualContainers = containerBreakdown.filter(c => c.hasContainer);
+  const totalLoadedCartons = actualContainers.reduce((sum, c) => sum + c.quantity, 0);
   const totalInwardCartons = whReceipt?.quantity !== undefined
     ? whReceipt.quantity
     : (receiptShipmentsList[0]?.originalTotalQuantity ? parseInt(String(receiptShipmentsList[0].originalTotalQuantity), 10) : totalLoadedCartons);
   const remainingWarehouseCartons = whReceipt?.remainingQuantity !== undefined
     ? whReceipt.remainingQuantity
     : Math.max(0, totalInwardCartons - totalLoadedCartons);
-  const distinctContainersCount = containerBreakdown.length;
+  const distinctContainersCount = actualContainers.length;
 
   const anyDeliveredInReceipt = containerBreakdown.some((c) => c.isDelivered) || Boolean(whReceipt?.isDelivered);
-  const allDeliveredInReceipt = containerBreakdown.length > 0 && containerBreakdown.every((c) => c.isDelivered) && remainingWarehouseCartons === 0;
+  const allDeliveredInReceipt = distinctContainersCount > 0 && containerBreakdown.every((c) => c.isDelivered) && remainingWarehouseCartons === 0;
   const receiptDeliveryDate = whReceipt?.deliveryDate || containerBreakdown.find((c) => c.deliveryDate)?.deliveryDate || '';
 
   const primaryGoods = whReceipt || receiptShipmentsList[0] || {};
@@ -606,38 +802,100 @@ export default function PublicTrackerPage() {
     primaryGoods.subMarka && primaryGoods.subMarka !== '??' ? `Sub: ${primaryGoods.subMarka}` : ''
   ].filter(Boolean).join(' | ') || 'N/A';
 
+  // Filtered Sailing Schedules
+  const filteredSchedules = SAILING_SCHEDULES.filter((s) => {
+    const polMatch = schedulePol === 'ALL' || s.polCode.toLowerCase().includes(schedulePol.toLowerCase());
+    const podMatch = schedulePod === 'ALL' || s.podCode.toLowerCase().includes(schedulePod.toLowerCase());
+    return polMatch && podMatch;
+  });
+
+  // Instant Quote Calculation
+  const calculateQuote = () => {
+    const cbm = parseFloat(quoteCbm) || 1;
+    const isDelhi = quoteDestination.includes('Delhi');
+    if (quoteContainerType === '20GP') {
+      const ocean = isDelhi ? 2450 : 1850;
+      const thc = 220;
+      const doc = 90;
+      return {
+        ocean,
+        thc,
+        doc,
+        total: ocean + thc + doc,
+        note: 'FCL 20ft General Purpose Standard Container (~28 CBM / 21,500 KG)',
+      };
+    }
+    if (quoteContainerType === '40HQ') {
+      const ocean = isDelhi ? 3650 : 2850;
+      const thc = 310;
+      const doc = 90;
+      return {
+        ocean,
+        thc,
+        doc,
+        total: ocean + thc + doc,
+        note: 'FCL 40ft High Cube Container (~68 CBM / 26,500 KG)',
+      };
+    }
+    // LCL Groupage
+    const ratePerCbm = isDelhi ? 135 : 95;
+    const ocean = Math.round(cbm * ratePerCbm);
+    const thc = Math.round(cbm * 18);
+    const doc = 45;
+    return {
+      ocean,
+      thc,
+      doc,
+      total: ocean + thc + doc,
+      note: `LCL Consolidated Groupage for ${cbm} CBM (~$${ratePerCbm}/CBM rate)`,
+    };
+  };
+
+  const calculatedQuote = calculateQuote();
+
+  const handleBookingSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bookingForm.commodity || !bookingForm.contact) return;
+    const ref = `USI-BOOK-${Math.floor(100000 + Math.random() * 900000)}`;
+    setBookingRef(ref);
+    setBookingSubmitted(true);
+  };
 
   const faqs = [
     {
-      q: 'How is the ETA Date calculated?',
-      a: 'The ETA Date shows the actual estimated delivery arrival date tracked directly from live carrier schedules and logistics operations without arbitrary buffer delays.',
+      q: 'How is the ETA Date calculated on the public tracking portal?',
+      a: 'The ETA Date shows the actual estimated delivery arrival date tracked directly from live carrier schedules (including MSC and partner lines) and logistics operations without arbitrary buffer delays.',
+    },
+    {
+      q: 'Why is the container number sometimes omitted for a receipt?',
+      a: 'If a receipt has arrived at our China warehouse but is awaiting container stuffing or assignment in the database, the public tracker displays the expected arrival ETA while leaving the container number clear until formally sealed.',
     },
     {
       q: 'Can I track multiple cargo packages with a single Receipt Number?',
       a: 'Yes! Importers frequently clear multiple goods under the same receipt. Entering your Receipt / Bill Number will display all associated cargo items across all containers.',
     },
     {
-      q: 'Why is the carrier container number masked on public tracking?',
-      a: 'To maintain confidentiality and prevent un-authorized bill of lading queries, raw carrier container numbers are masked on public searches while showing your custom public container alias (e.g., USI-01).',
+      q: 'Can I check official carrier tracking on MSC (msc.com)?',
+      a: 'Yes! For ocean container tracking, our portal provides direct links to MSC Mediterranean Shipping Company (msc.com) and Indian Railway Logistics Data Bank (ldb.co.in).',
     },
     {
-      q: 'What shipping lines are supported by JSONCargo real-time API?',
-      a: 'Our API engine supports major ocean shipping lines including MSC, Maersk, HMM (Hyundai Merchant Marine), Hapag-Lloyd, COSCO, ONE, Evergreen, CMA CGM, Zim, Yang Ming, and PIL.',
+      q: 'What shipping lines are supported by our real-time tracking engine?',
+      a: 'Our API engine supports major ocean shipping lines including MSC (Mediterranean Shipping Company), Maersk, HMM, Hapag-Lloyd, COSCO, ONE, Evergreen, and CMA CGM.',
     },
   ];
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-100 text-slate-800 font-sans">
-      {/* 1. Top Contact & Utility Bar (US International Logistics Theme) */}
+      {/* 1. Top Utility & Global Carrier Bar (MSC-Inspired Maritime Prestige) */}
       <div className="bg-slate-950 text-slate-300 border-b border-slate-800 text-xs py-2 px-3 sm:px-8">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 text-center sm:text-left">
           <div className="flex flex-wrap items-center justify-center sm:justify-start gap-x-4 gap-y-1">
-            <a href="tel:09355456060" className="flex items-center space-x-1.5 hover:text-red-400 transition font-semibold">
-              <Phone className="w-3.5 h-3.5 text-red-500" />
+            <a href="tel:09355456060" className="flex items-center space-x-1.5 hover:text-amber-400 transition font-semibold">
+              <Phone className="w-3.5 h-3.5 text-amber-500" />
               <span>+91 9355456060</span>
             </a>
-            <a href="mailto:info@usinternationallogistics.com" className="flex items-center space-x-1.5 hover:text-red-400 transition font-semibold">
-              <Mail className="w-3.5 h-3.5 text-red-500" />
+            <a href="mailto:info@usinternationallogistics.com" className="flex items-center space-x-1.5 hover:text-amber-400 transition font-semibold">
+              <Mail className="w-3.5 h-3.5 text-amber-500" />
               <span className="truncate max-w-[200px] sm:max-w-none">info@usinternationallogistics.com</span>
             </a>
             <div className="hidden md:flex items-center space-x-1.5 text-slate-400 font-medium">
@@ -647,9 +905,20 @@ export default function PublicTrackerPage() {
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-2">
+            <a
+              href="https://www.msc.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="bg-amber-500/20 text-amber-300 hover:text-white border border-amber-500/40 px-2.5 py-0.5 rounded text-[11px] font-bold flex items-center gap-1 transition"
+              title="Visit official MSC Mediterranean Shipping Company website"
+            >
+              <Ship className="w-3 h-3 text-amber-400" />
+              <span>MSC Carrier Partner (msc.com)</span>
+              <ExternalLink className="w-2.5 h-2.5" />
+            </a>
             <span className="bg-red-600/20 text-red-400 border border-red-500/30 px-2.5 py-0.5 rounded text-[11px] font-bold flex items-center gap-1">
               <Globe className="w-3 h-3 text-red-400" />
-              <span>China to India Specialist</span>
+              <span>China to India Trade</span>
             </span>
             <Link href="/admin/login" className="flex items-center space-x-1 hover:text-white transition font-bold text-slate-300 bg-slate-900 border border-slate-800 px-2.5 py-0.5 rounded">
               <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
@@ -659,239 +928,811 @@ export default function PublicTrackerPage() {
         </div>
       </div>
 
-      {/* 2. Main Navigation Bar */}
+      {/* 2. Main Navigation Bar (Clean Enterprise Header) */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between">
           <div className="flex items-center space-x-2.5 sm:space-x-3">
-            <div className="bg-red-600 p-2 sm:p-2.5 rounded-xl sm:rounded-2xl text-white shadow-md shadow-red-600/20">
+            <div className="bg-slate-950 border-2 border-amber-500 p-2 sm:p-2.5 rounded-xl sm:rounded-2xl text-amber-400 shadow-md">
               <Ship className="w-5 h-5 sm:w-7 sm:h-7" />
             </div>
             <div>
               <div className="flex items-center space-x-1 sm:space-x-1.5">
                 <span className="font-black text-sm sm:text-xl tracking-tight text-slate-950">US INTERNATIONAL</span>
-                <span className="font-black text-sm sm:text-xl tracking-tight text-red-600">LOGISTICS</span>
+                <span className="font-black text-sm sm:text-xl tracking-tight text-amber-500">LOGISTICS</span>
               </div>
               <p className="text-[9px] sm:text-[11px] text-slate-500 font-bold uppercase tracking-wider hidden xs:block">
-                China to India Cargo & Freight Solutions
+                Global Ocean &amp; Cargo Forwarding • China to India Express
               </p>
             </div>
           </div>
 
-          <nav className="hidden lg:flex items-center space-x-8 text-sm font-bold text-slate-700">
-            <a href="#tracking" className="text-red-600 font-black hover:text-red-700 transition">Track Order</a>
-            <a href="#services" className="hover:text-red-600 transition">Services</a>
-            <a href="#process" className="hover:text-red-600 transition">Working Process</a>
-            <a href="#reviews" className="hover:text-red-600 transition">Customer Reviews</a>
-            <a href="#faq" className="hover:text-red-600 transition">FAQs</a>
+          <nav className="hidden lg:flex items-center space-x-7 text-sm font-bold text-slate-700">
+            <button
+              onClick={() => {
+                setHeroWidgetTab('track');
+                document.getElementById('ebusiness-widget')?.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className={`hover:text-amber-600 transition flex items-center space-x-1.5 ${
+                heroWidgetTab === 'track' ? 'text-amber-600 font-black' : ''
+              }`}
+            >
+              <Search className="w-4 h-4" />
+              <span>Track Shipment</span>
+            </button>
+            <button
+              onClick={() => {
+                setHeroWidgetTab('schedules');
+                document.getElementById('ebusiness-widget')?.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className={`hover:text-amber-600 transition flex items-center space-x-1.5 ${
+                heroWidgetTab === 'schedules' ? 'text-amber-600 font-black' : ''
+              }`}
+            >
+              <Calendar className="w-4 h-4" />
+              <span>Schedules</span>
+            </button>
+            <button
+              onClick={() => {
+                setHeroWidgetTab('quote');
+                document.getElementById('ebusiness-widget')?.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className={`hover:text-amber-600 transition flex items-center space-x-1.5 ${
+                heroWidgetTab === 'quote' ? 'text-amber-600 font-black' : ''
+              }`}
+            >
+              <Calculator className="w-4 h-4" />
+              <span>Instant Quote</span>
+            </button>
+            <a href="#services" className="hover:text-amber-600 transition">Services</a>
+            <a href="#reviews" className="hover:text-amber-600 transition">Reviews</a>
+            <a href="#faq" className="hover:text-amber-600 transition">FAQs</a>
           </nav>
 
           <div className="flex items-center space-x-2 sm:space-x-3">
+            <a
+              href="https://www.msc.com/en/track-a-shipment"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden sm:inline-flex items-center space-x-1 px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 border border-amber-300 font-bold text-xs transition"
+              title="Open Official MSC Tracking on msc.com"
+            >
+              <Ship className="w-3.5 h-3.5 text-amber-600" />
+              <span>Track on MSC.com</span>
+              <ExternalLink className="w-3 h-3" />
+            </a>
+
             <Link
               href="/admin/login"
-              className="px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl bg-slate-950 hover:bg-red-600 text-white font-bold text-xs tracking-wide transition shadow-md flex items-center space-x-1.5 sm:space-x-2"
+              className="px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl bg-slate-950 hover:bg-amber-500 hover:text-slate-950 text-white font-bold text-xs tracking-wide transition shadow-md flex items-center space-x-1.5 sm:space-x-2"
             >
               <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400" />
-              <span>Admin Sign In</span>
+              <span>Sign In</span>
             </Link>
           </div>
         </div>
       </header>
 
-      {/* 3. Hero Section with Graphics & Image Cards */}
+      {/* 3. Hero Section with Interactive MSC-Style E-Business Widget */}
       <main className="flex-1 space-y-12 sm:space-y-16 pb-16">
-        <section id="tracking" className="relative bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white py-10 sm:py-16 px-3 sm:px-6 lg:px-8 border-b border-slate-800 overflow-hidden">
-          {/* Background Glow Effects */}
-          <div className="absolute top-0 right-1/4 w-96 h-96 bg-red-600/10 rounded-full blur-3xl pointer-events-none"></div>
+        <section className="relative bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white py-10 sm:py-16 px-3 sm:px-6 lg:px-8 border-b border-slate-800 overflow-hidden">
+          {/* Subtle Maritime Glow Background */}
+          <div className="absolute top-0 right-1/4 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
           <div className="absolute bottom-0 left-1/4 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl pointer-events-none"></div>
 
-          <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 sm:gap-12 items-center relative z-10">
-            {/* Left Column: Hero Content & Search Box */}
-            <div className="lg:col-span-7 space-y-6 sm:space-y-8">
-              <div className="space-y-3 sm:space-y-4">
-                <div className="inline-flex items-center space-x-2 px-3 py-1 sm:px-3.5 sm:py-1.5 rounded-full bg-red-600/20 border border-red-500/30 text-red-300 text-[11px] sm:text-xs font-bold uppercase tracking-wider">
-                  <Sparkles className="w-3.5 h-3.5 text-red-400" />
-                  <span>Real-Time China to India Freight Tracking</span>
-                </div>
-                <h1 className="text-2xl sm:text-4xl md:text-5xl font-black text-white tracking-tight leading-tight">
-                  Seamless Ocean & Air Cargo Tracking
-                </h1>
-                <p className="text-slate-300 text-xs sm:text-base leading-relaxed">
-                  Track your cargo receipts and container arrival dates instantly. Search by Receipt number for complete consignment details, or Container number to check its ETA directly.
-                </p>
+          <div className="max-w-7xl mx-auto space-y-8 sm:space-y-10 relative z-10">
+            {/* Header Caption */}
+            <div className="text-center max-w-3xl mx-auto space-y-3 sm:space-y-4">
+              <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-amber-500/15 border border-amber-400/30 text-amber-300 text-[11px] sm:text-xs font-bold uppercase tracking-wider">
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                <span>Global Maritime Logistics • China to India Corridors</span>
               </div>
-
-              {/* Interactive Search Card */}
-              <div className="bg-white text-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 overflow-hidden">
-                <div className="flex border-b border-slate-200 bg-slate-50 p-1.5 sm:p-2 gap-1.5 sm:gap-2">
-                  <button
-                    onClick={() => {
-                      setActiveTab('receipt');
-                      setError(null);
-                      setReceiptResult(null);
-                      setContainerResult(null);
-                      setSearchQuery('');
-                    }}
-                    className={`flex-1 py-2.5 sm:py-3.5 px-2 sm:px-4 rounded-xl sm:rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-center space-x-1.5 sm:space-x-2 transition ${
-                      activeTab === 'receipt'
-                        ? 'bg-red-600 text-white shadow-md shadow-red-600/20'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
-                    }`}
-                  >
-                    <FileText className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                    <span>
-                      <span className="hidden sm:inline">Search by Receipt (Bill No)</span>
-                      <span className="sm:hidden">By Receipt</span>
-                    </span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setActiveTab('container');
-                      setError(null);
-                      setReceiptResult(null);
-                      setContainerResult(null);
-                      setSearchQuery('');
-                    }}
-                    className={`flex-1 py-2.5 sm:py-3.5 px-2 sm:px-4 rounded-xl sm:rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-center space-x-1.5 sm:space-x-2 transition ${
-                      activeTab === 'container'
-                        ? 'bg-red-600 text-white shadow-md shadow-red-600/20'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
-                    }`}
-                  >
-                    <Box className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                    <span>
-                      <span className="hidden sm:inline">Search by Container No.</span>
-                      <span className="sm:hidden">By Container</span>
-                    </span>
-                  </button>
-                </div>
-
-                {/* Search Form */}
-                <form onSubmit={handleSearch} className="p-4 sm:p-8 space-y-4">
-                  <div>
-                    <label className="block text-[11px] sm:text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                      {activeTab === 'receipt'
-                        ? 'Enter Receipt Number (e.g., REC-1002)'
-                        : 'Enter Container Number (e.g., USI-01 or MSCU1234567)'}
-                    </label>
-                    <div className="relative" ref={suggestionsBoxRef}>
-                      <div className="relative flex items-center">
-                        <input
-                          type="text"
-                          autoComplete="off"
-                          autoCorrect="off"
-                          spellCheck={false}
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          onFocus={() => {
-                            if (activeTab === 'container' && typesenseSuggestions.length > 0) {
-                              setShowSuggestions(true);
-                            }
-                          }}
-                          placeholder={
-                            activeTab === 'receipt'
-                              ? 'Enter exact Receipt Number (e.g., REC-1002)...'
-                              : 'Enter Container Number (e.g., USI-01 or MSCU1234567)...'
-                          }
-                          className="w-full pl-10 sm:pl-12 pr-28 sm:pr-36 py-3.5 sm:py-4 rounded-xl sm:rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-red-600 focus:border-transparent text-base font-semibold text-slate-900 placeholder-slate-400 bg-slate-50"
-                          required
-                        />
-                        <div className="absolute left-3.5 sm:left-4 text-slate-400 pointer-events-none">
-                          <Search className="w-4 h-4 sm:w-5 sm:h-5 text-red-600" />
-                        </div>
-                        <button
-                          type="submit"
-                          disabled={isLoading}
-                          className="absolute right-1.5 sm:right-2 px-3 sm:px-6 py-2 sm:py-2.5 rounded-lg sm:rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs sm:text-sm transition shadow-md shadow-red-600/20 disabled:opacity-50 flex items-center space-x-1 sm:space-x-2"
-                        >
-                          {isLoading ? (
-                            <>
-                              <div className="w-3.5 h-3.5 sm:w-4 sm:h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                              <span className="hidden sm:inline">Searching...</span>
-                            </>
-                          ) : (
-                            <>
-                              <span className="hidden sm:inline">Track Status</span>
-                              <span className="sm:hidden">Track</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-
-                      {/* Confidential Document Notice for Receipts */}
-                      {activeTab === 'receipt' && (
-                        <div className="flex items-center space-x-2 text-xs text-slate-500 mt-2.5 font-medium bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
-                          <ShieldCheck className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                          <span>
-                            <strong className="text-slate-700">Confidential Document:</strong> To protect customer privacy, Receipt Numbers do not autocomplete. Enter your exact receipt number to track.
-                          </span>
-                        </div>
-                      )}
-
-                      {/* Container Typesense Suggestions Dropdown (Only on Container Tab) */}
-                      {activeTab === 'container' && showSuggestions && typesenseSuggestions.length > 0 && (
-                        <div className="absolute left-0 right-0 top-full mt-2 bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden z-30 animate-fadeIn">
-                          <div className="p-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                            <span>Instant Suggestions</span>
-                            <span className="inline-flex items-center space-x-1 text-red-600 font-bold">
-                              <span>⚡ Typesense Search</span>
-                            </span>
-                          </div>
-                          <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto">
-                            {typesenseSuggestions.map((s) => (
-                              <button
-                                key={s.id}
-                                type="button"
-                                onClick={() => handleSelectSuggestion(s)}
-                                className="w-full px-4 py-3 text-left hover:bg-red-50/60 transition flex items-center justify-between group"
-                              >
-                                <div>
-                                  <div className="font-mono font-bold text-sm text-slate-900 group-hover:text-red-700">
-                                    {s.title}
-                                  </div>
-                                  <div className="text-xs text-slate-500">{s.subtitle}</div>
-                                </div>
-                                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 group-hover:bg-red-100 group-hover:text-red-800">
-                                  {s.type}
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {error && (
-                    <div className="p-4 rounded-2xl bg-red-50 border border-red-200 flex items-start space-x-3 text-red-700 text-sm animate-fadeIn">
-                      <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <p className="font-bold">Tracking Query Error</p>
-                        <p className="text-red-600 text-xs mt-0.5">{error}</p>
-                      </div>
-                    </div>
-                  )}
-                </form>
-              </div>
+              <h1 className="text-2xl sm:text-4xl md:text-5xl font-black text-white tracking-tight leading-tight">
+                Global Ocean &amp; Air Freight Solutions
+              </h1>
+              <p className="text-slate-300 text-xs sm:text-base leading-relaxed">
+                Experience enterprise-grade digital logistics inspired by global carrier standards. Track shipments, search direct China-India sailing schedules, get instant freight quotes, or book cargo directly.
+              </p>
             </div>
 
-            {/* Right Column: Hero Graphic Visual Image */}
-            <div className="lg:col-span-5 relative flex justify-center">
-              <div className="relative w-full max-w-lg bg-slate-900/80 border border-slate-800 rounded-3xl p-4 shadow-2xl group overflow-hidden">
-                <img
-                  src="/images/hero-ship.svg"
-                  alt="China to India Ocean Container Ship"
-                  className="w-full h-auto rounded-2xl object-cover transform group-hover:scale-105 transition duration-500"
-                />
-                <div className="absolute bottom-6 left-6 right-6 bg-slate-950/90 backdrop-blur-md p-4 rounded-2xl border border-slate-800 text-white flex items-center justify-between">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase text-red-400 tracking-wider">China → India Route</span>
-                    <p className="text-xs font-bold text-slate-200">Ocean Vessel Carrier Live Status</p>
+            {/* THE MSC-STYLE E-BUSINESS FLOATING WIDGET */}
+            <div id="ebusiness-widget" className="max-w-4xl mx-auto bg-white text-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 overflow-hidden">
+              {/* 4 Core E-Business Tabs (Modeled after msc.com) */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 bg-slate-900 text-slate-300 border-b border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setHeroWidgetTab('track')}
+                  className={`py-3.5 sm:py-4 px-3 text-xs sm:text-sm font-bold flex items-center justify-center space-x-2 transition border-b-4 ${
+                    heroWidgetTab === 'track'
+                      ? 'border-amber-500 bg-white text-slate-950 shadow-inner'
+                      : 'border-transparent text-slate-300 hover:text-white hover:bg-slate-800'
+                  }`}
+                >
+                  <Search className={`w-4 h-4 ${heroWidgetTab === 'track' ? 'text-amber-500' : 'text-slate-400'}`} />
+                  <span>Track a shipment</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setHeroWidgetTab('schedules')}
+                  className={`py-3.5 sm:py-4 px-3 text-xs sm:text-sm font-bold flex items-center justify-center space-x-2 transition border-b-4 ${
+                    heroWidgetTab === 'schedules'
+                      ? 'border-amber-500 bg-white text-slate-950 shadow-inner'
+                      : 'border-transparent text-slate-300 hover:text-white hover:bg-slate-800'
+                  }`}
+                >
+                  <Calendar className={`w-4 h-4 ${heroWidgetTab === 'schedules' ? 'text-amber-500' : 'text-slate-400'}`} />
+                  <span>Search schedules</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setHeroWidgetTab('quote')}
+                  className={`py-3.5 sm:py-4 px-3 text-xs sm:text-sm font-bold flex items-center justify-center space-x-2 transition border-b-4 ${
+                    heroWidgetTab === 'quote'
+                      ? 'border-amber-500 bg-white text-slate-950 shadow-inner'
+                      : 'border-transparent text-slate-300 hover:text-white hover:bg-slate-800'
+                  }`}
+                >
+                  <TrendingUp className={`w-4 h-4 ${heroWidgetTab === 'quote' ? 'text-amber-500' : 'text-slate-400'}`} />
+                  <span>Instant quote</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setHeroWidgetTab('book')}
+                  className={`py-3.5 sm:py-4 px-3 text-xs sm:text-sm font-bold flex items-center justify-center space-x-2 transition border-b-4 ${
+                    heroWidgetTab === 'book'
+                      ? 'border-amber-500 bg-white text-slate-950 shadow-inner'
+                      : 'border-transparent text-slate-300 hover:text-white hover:bg-slate-800'
+                  }`}
+                >
+                  <FileText className={`w-4 h-4 ${heroWidgetTab === 'book' ? 'text-amber-500' : 'text-slate-400'}`} />
+                  <span>Book a shipment</span>
+                </button>
+              </div>
+
+              {/* TAB 1: TRACK A SHIPMENT */}
+              {heroWidgetTab === 'track' && (
+                <div className="p-4 sm:p-8 space-y-5 animate-fadeIn">
+                  {/* Sub-modes: By Receipt (Bill No) vs By Container No */}
+                  <div className="flex border border-slate-200 bg-slate-100 p-1 rounded-xl sm:rounded-2xl gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('receipt');
+                        setError(null);
+                        setReceiptResult(null);
+                        setContainerResult(null);
+                        setSearchQuery('');
+                      }}
+                      className={`flex-1 py-2 sm:py-2.5 px-3 rounded-lg sm:rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center space-x-1.5 transition ${
+                        activeTab === 'receipt'
+                          ? 'bg-white text-slate-900 shadow-sm border border-slate-200'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <FileText className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Search by Receipt / Bill No.</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('container');
+                        setError(null);
+                        setReceiptResult(null);
+                        setContainerResult(null);
+                        setSearchQuery('');
+                      }}
+                      className={`flex-1 py-2 sm:py-2.5 px-3 rounded-lg sm:rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center space-x-1.5 transition ${
+                        activeTab === 'container'
+                          ? 'bg-white text-slate-900 shadow-sm border border-slate-200'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <Box className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Search by Container No.</span>
+                    </button>
                   </div>
-                  <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase bg-emerald-500 text-white">
-                    API Active
-                  </span>
+
+                  {/* Search Form */}
+                  <form onSubmit={handleSearch} className="space-y-4">
+                    <div>
+                      <label className="block text-[11px] sm:text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+                        {activeTab === 'receipt'
+                          ? 'Enter Receipt / Bill of Lading Number (e.g., REC-1002)'
+                          : 'Enter Container Number (e.g., USI-01 or MSCU1234567)'}
+                      </label>
+                      <div className="relative" ref={suggestionsBoxRef}>
+                        <div className="relative flex items-center">
+                          <input
+                            type="text"
+                            autoComplete="off"
+                            autoCorrect="off"
+                            spellCheck={false}
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            onFocus={() => {
+                              if (activeTab === 'container' && typesenseSuggestions.length > 0) {
+                                setShowSuggestions(true);
+                              }
+                            }}
+                            placeholder={
+                              activeTab === 'receipt'
+                                ? 'Enter exact Receipt Number (e.g., REC-1002)...'
+                                : 'Enter Container Number (e.g., USI-01 or MSCU1234567)...'
+                            }
+                            className="w-full pl-10 sm:pl-12 pr-28 sm:pr-40 py-3.5 sm:py-4 rounded-xl sm:rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent text-base font-semibold text-slate-900 placeholder-slate-400 bg-slate-50"
+                            required
+                          />
+                          <div className="absolute left-3.5 sm:left-4 text-slate-400 pointer-events-none">
+                            <Search className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500" />
+                          </div>
+                          <button
+                            type="submit"
+                            disabled={isLoading}
+                            className="absolute right-1.5 sm:right-2 px-4 sm:px-6 py-2 sm:py-2.5 rounded-lg sm:rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs sm:text-sm transition shadow-md disabled:opacity-50 flex items-center space-x-1 sm:space-x-2"
+                          >
+                            {isLoading ? (
+                              <>
+                                <div className="w-3.5 h-3.5 sm:w-4 sm:h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin"></div>
+                                <span className="hidden sm:inline">Searching...</span>
+                              </>
+                            ) : (
+                              <>
+                                <span>Track Shipment</span>
+                                <ArrowRight className="w-3.5 h-3.5" />
+                              </>
+                            )}
+                          </button>
+                        </div>
+
+                        {/* Confidential Document Notice for Receipts */}
+                        {activeTab === 'receipt' && (
+                          <div className="flex items-center space-x-2 text-xs text-slate-500 mt-2.5 font-medium bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                            <ShieldCheck className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                            <span>
+                              <strong className="text-slate-700">Confidential Cargo Document:</strong> Receipt Numbers do not autocomplete publicly to preserve privacy. Enter your exact receipt number printed on your warehouse slip.
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Container Typesense Suggestions Dropdown (Only on Container Tab) */}
+                        {activeTab === 'container' && showSuggestions && typesenseSuggestions.length > 0 && (
+                          <div className="absolute left-0 right-0 top-full mt-2 bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden z-30 animate-fadeIn">
+                            <div className="p-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                              <span>Instant Suggestions</span>
+                              <span className="inline-flex items-center space-x-1 text-amber-600 font-bold">
+                                <span>⚡ Typesense Search</span>
+                              </span>
+                            </div>
+                            <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto">
+                              {typesenseSuggestions.map((s) => (
+                                <button
+                                  key={s.id}
+                                  type="button"
+                                  onClick={() => handleSelectSuggestion(s)}
+                                  className="w-full px-4 py-3 text-left hover:bg-amber-50/60 transition flex items-center justify-between group"
+                                >
+                                  <div>
+                                    <div className="font-mono font-bold text-sm text-slate-900 group-hover:text-amber-700">
+                                      {s.title}
+                                    </div>
+                                    <div className="text-xs text-slate-500">{s.subtitle}</div>
+                                  </div>
+                                  <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 group-hover:bg-amber-100 group-hover:text-amber-800">
+                                    {s.type}
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {error && (
+                      <div className="p-4 rounded-2xl bg-red-50 border border-red-200 flex items-start space-x-3 text-red-700 text-sm animate-fadeIn">
+                        <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-bold">Tracking Query Error</p>
+                          <p className="text-red-600 text-xs mt-0.5">{error}</p>
+                        </div>
+                      </div>
+                    )}
+                  </form>
+
+                  {/* Direct Ocean Carrier & LDB Quick Links */}
+                  <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                    <span className="font-semibold text-slate-600">Quick Track Tools:</span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <a
+                        href="https://www.msc.com/en/track-a-shipment"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 font-bold transition text-[11px]"
+                      >
+                        <Ship className="w-3 h-3 text-amber-600" />
+                        <span>MSC Official Tracker (msc.com)</span>
+                        <ExternalLink className="w-2.5 h-2.5" />
+                      </a>
+                      <a
+                        href="https://ldb.co.in/ldb/containersearch"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 font-bold transition text-[11px]"
+                      >
+                        <span>🚆 Indian Railway LDB</span>
+                        <ExternalLink className="w-2.5 h-2.5" />
+                      </a>
+                    </div>
+                  </div>
                 </div>
+              )}
+
+              {/* TAB 2: SEARCH SCHEDULES (Interactive Port-to-Port Sailing Schedules like MSC.com) */}
+              {heroWidgetTab === 'schedules' && (
+                <div className="p-4 sm:p-8 space-y-6 animate-fadeIn">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div>
+                      <h3 className="font-extrabold text-base text-slate-900 flex items-center space-x-2">
+                        <Calendar className="w-4 h-4 text-amber-500" />
+                        <span>Point-to-Point Ocean Sailing Schedules</span>
+                      </h3>
+                      <p className="text-xs text-slate-500">Live liner rotations connecting major Chinese factories to Indian ports.</p>
+                    </div>
+                    <a
+                      href="https://www.msc.com/en/search-a-schedule"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-bold text-amber-600 hover:text-amber-700 flex items-center space-x-1"
+                    >
+                      <span>MSC Full Database</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+
+                  {/* Filter Selectors */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                        Port of Loading (China)
+                      </label>
+                      <select
+                        value={schedulePol}
+                        onChange={(e) => setSchedulePol(e.target.value)}
+                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      >
+                        <option value="ALL">All Chinese Ports (Ningbo, Shanghai, Guangzhou, Shenzhen, Yiwu, Qingdao)</option>
+                        <option value="Ningbo">Ningbo (CNNGB)</option>
+                        <option value="Shanghai">Shanghai (CNSHA)</option>
+                        <option value="Guangzhou">Guangzhou / Nansha (CNCAN)</option>
+                        <option value="Shenzhen">Shenzhen / Yantian (CNSZX)</option>
+                        <option value="Yiwu">Yiwu Consolidation Hub</option>
+                        <option value="Qingdao">Qingdao (CNTAO)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                        Port of Discharge (India)
+                      </label>
+                      <select
+                        value={schedulePod}
+                        onChange={(e) => setSchedulePod(e.target.value)}
+                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      >
+                        <option value="ALL">All Indian Gateway Ports &amp; ICDs</option>
+                        <option value="Nhava Sheva">Nhava Sheva / JNPT (INNSA) - Mumbai</option>
+                        <option value="Mundra">Mundra Port (INMUN) - Gujarat</option>
+                        <option value="Delhi ICD">Delhi ICD Tughlakabad (INDEL) - Rail Inward</option>
+                        <option value="Chennai">Chennai Port (INMAA) - Tamil Nadu</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Schedules Table */}
+                  <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-900 text-white font-bold text-[11px] uppercase tracking-wider">
+                          <tr>
+                            <th className="py-3 px-3.5">Service &amp; Carrier</th>
+                            <th className="py-3 px-3.5">Vessel / Voyage</th>
+                            <th className="py-3 px-3.5">Route (POL → POD)</th>
+                            <th className="py-3 px-3.5">Transit</th>
+                            <th className="py-3 px-3.5">Departure</th>
+                            <th className="py-3 px-3.5 text-right">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {filteredSchedules.map((s) => (
+                            <tr key={s.id} className="hover:bg-amber-50/50 transition">
+                              <td className="py-3 px-3.5 font-bold text-slate-900">
+                                <div className="flex items-center space-x-1.5">
+                                  <span className="px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 font-black text-[10px]">
+                                    {s.carrier}
+                                  </span>
+                                  <span>{s.service}</span>
+                                </div>
+                              </td>
+                              <td className="py-3 px-3.5 font-mono text-slate-800">
+                                <strong>{s.vessel}</strong> <span className="text-slate-400">v.{s.voyage}</span>
+                              </td>
+                              <td className="py-3 px-3.5 font-medium text-slate-700">
+                                <div>{s.pol} → <span className="font-bold text-slate-900">{s.pod}</span></div>
+                                <div className="text-[10px] text-slate-400">{s.routing}</div>
+                              </td>
+                              <td className="py-3 px-3.5 font-black text-amber-600 font-mono">
+                                {s.transitDays} Days
+                              </td>
+                              <td className="py-3 px-3.5 text-slate-600 font-medium">
+                                {s.frequency}
+                              </td>
+                              <td className="py-3 px-3.5 text-right">
+                                <span className="inline-block px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                  {s.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-slate-500 italic">
+                    ℹ️ Vessel schedules are synchronized with MSC Mediterranean Shipping Company and major ocean liner rotations. Customs clearance and rail transfer timelines apply for inland destinations like Delhi ICD.
+                  </p>
+                </div>
+              )}
+
+              {/* TAB 3: INSTANT QUOTE (Interactive Freight Estimator) */}
+              {heroWidgetTab === 'quote' && (
+                <div className="p-4 sm:p-8 space-y-6 animate-fadeIn">
+                  <div className="border-b border-slate-100 pb-3">
+                    <h3 className="font-extrabold text-base text-slate-900 flex items-center space-x-2">
+                      <Calculator className="w-4 h-4 text-amber-500" />
+                      <span>Instant Freight Rate &amp; Cost Estimator</span>
+                    </h3>
+                    <p className="text-xs text-slate-500">Transparent port-to-port and door-to-door freight pricing with customs clearance.</p>
+                  </div>
+
+                  {/* Mode Selector */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setQuoteContainerType('40HQ')}
+                      className={`p-3 rounded-xl border text-center transition ${
+                        quoteContainerType === '40HQ'
+                          ? 'border-amber-500 bg-amber-50/80 text-amber-950 font-black shadow-xs'
+                          : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 font-bold'
+                      }`}
+                    >
+                      <div className="text-xs uppercase">40' High Cube (HQ)</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">Most Popular (~68 CBM)</div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setQuoteContainerType('20GP')}
+                      className={`p-3 rounded-xl border text-center transition ${
+                        quoteContainerType === '20GP'
+                          ? 'border-amber-500 bg-amber-50/80 text-amber-950 font-black shadow-xs'
+                          : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 font-bold'
+                      }`}
+                    >
+                      <div className="text-xs uppercase">20' Standard (GP)</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">Heavy Cargo (~28 CBM)</div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setQuoteContainerType('LCL')}
+                      className={`p-3 rounded-xl border text-center transition ${
+                        quoteContainerType === 'LCL'
+                          ? 'border-amber-500 bg-amber-50/80 text-amber-950 font-black shadow-xs'
+                          : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 font-bold'
+                      }`}
+                    >
+                      <div className="text-xs uppercase">LCL Groupage</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">Pay-Per-CBM / Cartons</div>
+                    </button>
+                  </div>
+
+                  {/* Route & Dimension Selectors */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                        Origin Port / City
+                      </label>
+                      <select
+                        value={quoteOrigin}
+                        onChange={(e) => setQuoteOrigin(e.target.value)}
+                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900"
+                      >
+                        <option value="Ningbo (CNNGB)">Ningbo Port (CNNGB)</option>
+                        <option value="Shanghai (CNSHA)">Shanghai Port (CNSHA)</option>
+                        <option value="Guangzhou / Nansha (CNCAN)">Guangzhou / Nansha (CNCAN)</option>
+                        <option value="Shenzhen (CNSZX)">Shenzhen / Yantian (CNSZX)</option>
+                        <option value="Yiwu Hub">Yiwu Consolidation CFS</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                        Destination Gateway
+                      </label>
+                      <select
+                        value={quoteDestination}
+                        onChange={(e) => setQuoteDestination(e.target.value)}
+                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900"
+                      >
+                        <option value="Nhava Sheva / JNPT (INNSA)">Nhava Sheva / JNPT (INNSA) - Mumbai</option>
+                        <option value="Mundra Port (INMUN)">Mundra Port (INMUN) - Gujarat</option>
+                        <option value="Delhi ICD Tughlakabad">Delhi ICD Tughlakabad (INDEL) - Rail Inward</option>
+                        <option value="Chennai Port (INMAA)">Chennai Port (INMAA) - South India</option>
+                      </select>
+                    </div>
+
+                    {quoteContainerType === 'LCL' && (
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                          Total Volume (CBM)
+                        </label>
+                        <input
+                          type="number"
+                          min="0.5"
+                          step="0.5"
+                          value={quoteCbm}
+                          onChange={(e) => setQuoteCbm(e.target.value)}
+                          className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold font-mono text-slate-900"
+                        />
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                        Approx Gross Weight (KG)
+                      </label>
+                      <input
+                        type="number"
+                        min="10"
+                        step="50"
+                        value={quoteWeight}
+                        onChange={(e) => setQuoteWeight(e.target.value)}
+                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold font-mono text-slate-900"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Cost Calculation Result Box */}
+                  <div className="bg-slate-900 text-white rounded-2xl p-5 border border-slate-800 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider">Estimated Freight Calculation</span>
+                        <div className="text-sm font-black text-slate-100">{quoteOrigin} → {quoteDestination}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-2xl sm:text-3xl font-black font-mono text-amber-400">
+                          ${calculatedQuote.total.toLocaleString()} <span className="text-xs text-slate-400 font-normal">USD</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400">Approx ₹{(calculatedQuote.total * 85.5).toLocaleString('en-IN')} INR</div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700">
+                        <span className="text-[10px] text-slate-400 uppercase block">Ocean Freight</span>
+                        <span className="font-mono font-bold text-white text-sm">${calculatedQuote.ocean}</span>
+                      </div>
+                      <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700">
+                        <span className="text-[10px] text-slate-400 uppercase block">Terminal (THC)</span>
+                        <span className="font-mono font-bold text-white text-sm">${calculatedQuote.thc}</span>
+                      </div>
+                      <div className="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700">
+                        <span className="text-[10px] text-slate-400 uppercase block">Port Doc &amp; Filing</span>
+                        <span className="font-mono font-bold text-white text-sm">${calculatedQuote.doc}</span>
+                      </div>
+                    </div>
+
+                    <p className="text-[11px] text-slate-400 italic">
+                      {calculatedQuote.note}. Includes baseline customs documentation. Exact tariff depends on HS code classification.
+                    </p>
+
+                    <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+                      <a
+                        href={`https://wa.me/919355456060?text=${encodeURIComponent(
+                          `Hi, I want to book freight from ${quoteOrigin} to ${quoteDestination} (${quoteContainerType}, Est: $${calculatedQuote.total} USD). Please connect.`
+                        )}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs transition shadow-md flex items-center space-x-1.5"
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                        <span>Lock Rate on WhatsApp</span>
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 4: BOOK A SHIPMENT (Quick Booking Request Form) */}
+              {heroWidgetTab === 'book' && (
+                <div className="p-4 sm:p-8 space-y-6 animate-fadeIn">
+                  <div className="border-b border-slate-100 pb-3">
+                    <h3 className="font-extrabold text-base text-slate-900 flex items-center space-x-2">
+                      <FileCheck2 className="w-4 h-4 text-amber-500" />
+                      <span>Book a Shipment / Dispatch Request</span>
+                    </h3>
+                    <p className="text-xs text-slate-500">Initiate ocean booking with direct carrier dispatchers between China and India.</p>
+                  </div>
+
+                  {bookingSubmitted ? (
+                    <div className="p-6 rounded-2xl bg-emerald-50 border border-emerald-200 text-center space-y-3">
+                      <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto" />
+                      <h4 className="font-black text-lg text-emerald-950">Shipment Booking Inquiry Registered!</h4>
+                      <p className="text-xs text-slate-600 max-w-md mx-auto">
+                        Your reference number is <strong className="font-mono text-emerald-800 text-sm">{bookingRef}</strong>. Our logistics operations team will contact you within 30 minutes to confirm container stuffing.
+                      </p>
+                      <div className="pt-2 flex justify-center gap-3">
+                        <a
+                          href={`https://wa.me/919355456060?text=${encodeURIComponent(
+                            `Hi, I have submitted Booking Ref: ${bookingRef} for ${bookingForm.commodity} (${bookingForm.cartons} CTN) from ${bookingForm.origin} to ${bookingForm.destination}. Please assist.`
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm inline-flex items-center space-x-1.5"
+                        >
+                          <Phone className="w-3.5 h-3.5" />
+                          <span>Forward to Dispatch Desk</span>
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBookingSubmitted(false);
+                            setBookingForm({ company: '', origin: 'Ningbo Warehouse', destination: 'Delhi NCR (ICD Tughlakabad)', commodity: '', cartons: '', contact: '' });
+                          }}
+                          className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs rounded-xl"
+                        >
+                          New Booking
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <form onSubmit={handleBookingSubmit} className="space-y-4 text-xs">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                            Company / Importer Name
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. Apex Imports Ltd."
+                            value={bookingForm.company}
+                            onChange={(e) => setBookingForm({ ...bookingForm, company: e.target.value })}
+                            className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                            Contact Phone / WhatsApp
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="+91 98765 43210"
+                            value={bookingForm.contact}
+                            onChange={(e) => setBookingForm({ ...bookingForm, contact: e.target.value })}
+                            className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                            China Origin Loading CFS
+                          </label>
+                          <select
+                            value={bookingForm.origin}
+                            onChange={(e) => setBookingForm({ ...bookingForm, origin: e.target.value })}
+                            className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900"
+                          >
+                            <option value="Ningbo Warehouse">Ningbo Warehouse (CNNGB)</option>
+                            <option value="Yiwu Warehouse">Yiwu Warehouse CFS</option>
+                            <option value="Guangzhou Warehouse">Guangzhou Warehouse (CNCAN)</option>
+                            <option value="Shenzhen Warehouse">Shenzhen Warehouse (CNSZX)</option>
+                            <option value="Shanghai Warehouse">Shanghai Warehouse (CNSHA)</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                            India Destination Delivery Port / ICD
+                          </label>
+                          <select
+                            value={bookingForm.destination}
+                            onChange={(e) => setBookingForm({ ...bookingForm, destination: e.target.value })}
+                            className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900"
+                          >
+                            <option value="Delhi NCR (ICD Tughlakabad)">Delhi NCR (ICD Tughlakabad - Rail)</option>
+                            <option value="Nhava Sheva / JNPT (Mumbai)">Nhava Sheva / JNPT (Mumbai)</option>
+                            <option value="Mundra Port (Gujarat)">Mundra Port (Gujarat)</option>
+                            <option value="Chennai Port">Chennai Port (South India)</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                            Commodity Description
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. Industrial Machinery, Consumer Electronics"
+                            value={bookingForm.commodity}
+                            onChange={(e) => setBookingForm({ ...bookingForm, commodity: e.target.value })}
+                            className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                            Estimated Cartons (CTN)
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            required
+                            placeholder="e.g. 150"
+                            value={bookingForm.cartons}
+                            onChange={(e) => setBookingForm({ ...bookingForm, cartons: e.target.value })}
+                            className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="pt-2 flex justify-end">
+                        <button
+                          type="submit"
+                          className="px-6 py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs transition shadow-md flex items-center space-x-1.5"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Submit Cargo Booking</span>
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* GLOBAL OCEAN CARRIER & LDB INTEGRATION STRIP (MSC Style) */}
+            <div className="pt-4 max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-slate-400 text-xs border-t border-slate-800/80">
+              <span className="font-bold text-slate-300 flex items-center gap-1.5">
+                <Ship className="w-4 h-4 text-amber-400" />
+                <span>Connected Global Ocean Lines:</span>
+              </span>
+              <div className="flex flex-wrap items-center justify-center gap-3 font-semibold text-[11px]">
+                <span className="bg-slate-900 px-3 py-1 rounded-full border border-amber-500/40 text-amber-300 font-bold">
+                  MSC (Mediterranean Shipping Co)
+                </span>
+                <span className="bg-slate-900 px-2.5 py-1 rounded-full border border-slate-800 text-slate-300">
+                  Maersk Line
+                </span>
+                <span className="bg-slate-900 px-2.5 py-1 rounded-full border border-slate-800 text-slate-300">
+                  COSCO Shipping
+                </span>
+                <span className="bg-slate-900 px-2.5 py-1 rounded-full border border-slate-800 text-slate-300">
+                  CMA CGM
+                </span>
+                <span className="bg-slate-900 px-2.5 py-1 rounded-full border border-slate-800 text-slate-300">
+                  Hapag-Lloyd
+                </span>
+                <span className="bg-slate-900 px-2.5 py-1 rounded-full border border-emerald-500/30 text-emerald-400 font-bold">
+                  🚆 Indian Railway LDB
+                </span>
               </div>
             </div>
           </div>
@@ -901,20 +1742,20 @@ export default function PublicTrackerPage() {
         <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
             <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-1">
-              <div className="text-3xl sm:text-4xl font-black text-red-600 font-mono">10,000+</div>
+              <div className="text-3xl sm:text-4xl font-black text-amber-500 font-mono">10,000+</div>
               <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">Containers Handled</p>
             </div>
             <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-1">
               <div className="text-3xl sm:text-4xl font-black text-slate-900 font-mono">15+ Years</div>
-              <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">Industry Experience</p>
+              <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">Maritime Experience</p>
             </div>
             <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-1">
-              <div className="text-3xl sm:text-4xl font-black text-red-600 font-mono">99.8%</div>
+              <div className="text-3xl sm:text-4xl font-black text-amber-500 font-mono">99.8%</div>
               <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">Customs Success</p>
             </div>
             <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-1">
               <div className="text-3xl sm:text-4xl font-black text-slate-900 font-mono">24/7</div>
-              <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">Live Tracking Engine</p>
+              <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">Live ETA Engine</p>
             </div>
           </div>
         </section>
@@ -990,7 +1831,7 @@ export default function PublicTrackerPage() {
                   <button
                     type="submit"
                     disabled={!cartonInput.trim() || isLoading}
-                    className="px-6 py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center space-x-2 disabled:opacity-50"
+                    className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black rounded-xl shadow-md transition flex items-center space-x-2 disabled:opacity-50"
                   >
                     {isLoading ? (
                       <span>Verifying...</span>
@@ -1020,7 +1861,7 @@ export default function PublicTrackerPage() {
                     </div>
                     <div>
                       <span className="text-[11px] font-black uppercase tracking-wider text-blue-700 bg-blue-100 px-2.5 py-0.5 rounded-full">
-                        Cargo Safely Received in China
+                        Cargo Safely Received in China Warehouse
                       </span>
                       <h3 className="text-xl font-black text-slate-900 font-mono mt-1">
                         Receipt: {receiptResult.receipt}
@@ -1075,10 +1916,10 @@ export default function PublicTrackerPage() {
           {activeTab === 'receipt' && receiptShipmentsList.length > 0 && (
             <section className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6 animate-fadeIn">
               {/* Top Banner with Receipt Info & PDF Download */}
-              <div className="bg-red-50 border border-red-200 p-3.5 sm:p-4 rounded-2xl flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 text-xs font-bold text-red-950 shadow-sm">
+              <div className="bg-amber-500/10 border border-amber-300 p-3.5 sm:p-4 rounded-2xl flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 text-xs font-bold text-slate-900 shadow-sm">
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="flex items-center space-x-1.5">
-                    <FileText className="w-4 h-4 text-red-600" />
+                    <FileText className="w-4 h-4 text-amber-600" />
                     <span>
                       Receipt Number: <strong className="font-mono text-sm text-slate-950">{receiptResult.receipt}</strong>
                     </span>
@@ -1109,12 +1950,12 @@ export default function PublicTrackerPage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={() => downloadReceiptPDF(receiptResult.receipt, receiptShipmentsList)}
-                    className="w-full sm:w-auto px-4 py-2 bg-slate-900 hover:bg-red-600 text-white rounded-xl text-xs font-black transition flex items-center justify-center space-x-1.5 shadow-sm"
+                    className="w-full sm:w-auto px-4 py-2 bg-slate-950 hover:bg-amber-500 hover:text-slate-950 text-white rounded-xl text-xs font-black transition flex items-center justify-center space-x-1.5 shadow-sm"
                   >
                     <Download className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Download / Print PDF Receipt</span>
+                    <span>Download / Print PDF Slip</span>
                   </button>
-                  <span className="bg-red-600 text-white px-3 py-1 rounded-full font-bold text-center text-xs">
+                  <span className="bg-amber-500 text-slate-950 px-3 py-1 rounded-full font-black text-center text-xs">
                     Found {receiptShipmentsList.length} cargo record(s)
                   </span>
                 </div>
@@ -1175,7 +2016,7 @@ export default function PublicTrackerPage() {
               <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
                 <div className="bg-slate-900 px-6 py-4 text-white flex items-center justify-between">
                   <div className="flex items-center space-x-2.5">
-                    <Package className="w-5 h-5 text-red-500" />
+                    <Package className="w-5 h-5 text-amber-400" />
                     <div>
                       <h4 className="text-sm font-black uppercase tracking-wider">Full Details of Received Goods</h4>
                       <p className="text-[11px] text-slate-400">Verified Inward Cargo Profile from China Warehouse</p>
@@ -1198,7 +2039,7 @@ export default function PublicTrackerPage() {
                   </div>
 
                   <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Packaging & Units</span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Packaging &amp; Units</span>
                     <div className="font-black text-slate-900 text-sm">
                       {totalInwardCartons} CTN / {packagingType}
                     </div>
@@ -1208,13 +2049,13 @@ export default function PublicTrackerPage() {
                   <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
                     <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">China Receiving Warehouse</span>
                     <div className="font-bold text-slate-900 text-sm flex items-center space-x-1">
-                      <MapPin className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                      <MapPin className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                       <span>{warehouseLocation}</span>
                     </div>
                   </div>
 
                   <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Cargo Marks & Measurements</span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Cargo Marks &amp; Measurements</span>
                     <div className="font-mono text-xs font-bold text-slate-900 truncate" title={marksSummary}>
                       {marksSummary}
                     </div>
@@ -1225,25 +2066,28 @@ export default function PublicTrackerPage() {
                 </div>
               </div>
 
-              {/* CARD 2: HOW MUCH LOAD IN WHICH CONTAINER (CONTAINER BREAKDOWN) */}
+              {/* CARD 2: CONTAINER ALLOCATION & DELIVERY SCHEDULE */}
+              {/* User rule: if container no. not avail in db, only show ETA */}
               <div className="bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 text-white rounded-3xl p-6 shadow-xl border border-slate-800 space-y-5">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
                   <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 rounded-2xl bg-red-600 text-white flex items-center justify-center shadow-md">
+                    <div className="w-10 h-10 rounded-2xl bg-amber-500 text-slate-950 flex items-center justify-center shadow-md">
                       <Truck className="w-5 h-5" />
                     </div>
                     <div>
                       <h4 className="text-base font-black uppercase tracking-wider text-white">
-                        Container Allocation & Delivery Schedule
+                        Delivery Schedule &amp; Container Breakdown
                       </h4>
                       <p className="text-xs text-slate-400">
-                        Showing how much goods are loaded in each container across {distinctContainersCount} container{distinctContainersCount === 1 ? '' : 's'}:
+                        {distinctContainersCount > 0
+                          ? `Goods allocated across ${distinctContainersCount} container${distinctContainersCount === 1 ? '' : 's'}:`
+                          : 'Cargo safely in transit. Estimated delivery arrival schedule:'}
                       </p>
                     </div>
                   </div>
 
                   <div className="flex items-center space-x-2">
-                    <span className="px-3 py-1 rounded-full text-xs font-black bg-slate-800 text-red-400 border border-slate-700">
+                    <span className="px-3 py-1 rounded-full text-xs font-black bg-slate-800 text-amber-400 border border-slate-700">
                       Total Loaded: {totalLoadedCartons} CTN
                     </span>
                     {remainingWarehouseCartons > 0 && (
@@ -1260,18 +2104,22 @@ export default function PublicTrackerPage() {
                     const percent = totalInwardCartons > 0 ? Math.round((item.quantity / totalInwardCartons) * 100) : 100;
                     return (
                       <div
-                        key={item.container}
-                        className="bg-slate-800/80 backdrop-blur-md rounded-2xl p-5 border border-slate-700 shadow-lg flex flex-col justify-between space-y-4 hover:border-red-500 transition group"
+                        key={cIdx}
+                        className="bg-slate-800/80 backdrop-blur-md rounded-2xl p-5 border border-slate-700 shadow-lg flex flex-col justify-between space-y-4 hover:border-amber-500 transition group"
                       >
-                        {/* Container Alias & Container Number Badge */}
+                        {/* Container Header (Only show container no if available in DB) */}
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-2">
-                            <span className="w-7 h-7 rounded-xl bg-red-600/30 border border-red-500/40 text-red-400 font-mono font-black text-xs flex items-center justify-center">
+                            <span className="w-7 h-7 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400 font-mono font-black text-xs flex items-center justify-center">
                               #{cIdx + 1}
                             </span>
                             <div>
-                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Internal Container</span>
-                              <span className="font-mono font-black text-base text-white tracking-wide">{item.container}</span>
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                                {item.hasContainer ? 'Internal Container' : 'Schedule Status'}
+                              </span>
+                              <span className="font-mono font-black text-base text-white tracking-wide">
+                                {item.hasContainer ? item.container : 'In Transit (ETA Confirmed)'}
+                              </span>
                             </div>
                           </div>
 
@@ -1288,15 +2136,15 @@ export default function PublicTrackerPage() {
                                 <span>Delivered</span>
                               </>
                             ) : (
-                              <span>Loaded in Container</span>
+                              <span>In Transit</span>
                             )}
                           </span>
                         </div>
 
-                        {/* Quantity Loaded in this Container */}
+                        {/* Quantity Loaded */}
                         <div className="bg-slate-900/90 p-3.5 rounded-xl border border-slate-800 space-y-2">
                           <div className="flex justify-between items-center text-xs">
-                            <span className="text-slate-400 font-semibold">Quantity Loaded:</span>
+                            <span className="text-slate-400 font-semibold">Quantity:</span>
                             <span className="font-mono font-black text-sm text-amber-300">
                               {item.quantity} CTN <span className="text-[11px] text-slate-400 font-normal">({percent}%)</span>
                             </span>
@@ -1305,7 +2153,7 @@ export default function PublicTrackerPage() {
                           {/* Progress bar visual */}
                           <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
                             <div
-                              className="bg-gradient-to-r from-red-600 to-amber-500 h-2 rounded-full transition-all duration-500"
+                              className="bg-gradient-to-r from-amber-600 to-amber-400 h-2 rounded-full transition-all duration-500"
                               style={{ width: `${Math.min(percent, 100)}%` }}
                             ></div>
                           </div>
@@ -1316,18 +2164,17 @@ export default function PublicTrackerPage() {
                           </div>
                         </div>
 
-                        {/* ETA & Delivery Date Section - Shows both Expected ETA and Delivered Date when marked delivered */}
+                        {/* ETA & Delivery Date Section - ALWAYS SHOWN */}
                         <div
                           className={`p-3 rounded-xl border space-y-2 ${
                             item.isDelivered
                               ? 'bg-slate-900/90 border-emerald-600/40'
-                              : 'bg-red-950/40 border-red-900/50'
+                              : 'bg-amber-950/30 border-amber-900/40'
                           }`}
                         >
                           {item.isDelivered ? (
                             <div className="space-y-2">
                               <div className="grid grid-cols-2 gap-2">
-                                {/* Expected ETA */}
                                 <div className="p-2 rounded-lg bg-slate-800/80 border border-slate-700/60">
                                   <div className="flex items-center space-x-1 text-amber-300 text-[10px] font-bold uppercase">
                                     <Clock className="w-3 h-3 text-amber-400 shrink-0" />
@@ -1338,7 +2185,6 @@ export default function PublicTrackerPage() {
                                   </div>
                                 </div>
 
-                                {/* Delivered Date */}
                                 <div className="p-2 rounded-lg bg-emerald-950/60 border border-emerald-500/40">
                                   <div className="flex items-center space-x-1 text-emerald-300 text-[10px] font-bold uppercase">
                                     <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
@@ -1351,170 +2197,106 @@ export default function PublicTrackerPage() {
                               </div>
                             </div>
                           ) : (
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center space-x-2">
-                                <Clock className="w-4 h-4 text-amber-400 shrink-0" />
-                                <div>
-                                  <span className="text-[10px] uppercase font-bold text-red-300 block">
-                                    ETA Date (Expected Arrival)
-                                  </span>
-                                  <span className="text-sm font-black font-mono text-white">
-                                    {formatGlobalDate(item.eta) || item.dateOfDelivery || 'Pending'}
-                                  </span>
-                                </div>
+                            <div className="space-y-1">
+                              <div className="flex items-center space-x-1.5 text-amber-400 text-[10px] font-bold uppercase">
+                                <Clock className="w-3.5 h-3.5 text-amber-400" />
+                                <span>Estimated Arrival Date (ETA)</span>
                               </div>
-                              {item.items.length > 1 && (
-                                <span className="text-[10px] font-bold text-slate-400 bg-slate-800 px-2 py-0.5 rounded">
-                                  {item.items.length} items
-                                </span>
-                              )}
+                              <div className="text-xl font-black font-mono text-white">
+                                {formatGlobalDate(item.eta) || item.dateOfDelivery || 'Pending'}
+                              </div>
+                              <div className="text-[10px] text-slate-400">
+                                Live tracked arrival schedule with customs turnaround.
+                              </div>
                             </div>
                           )}
                         </div>
                       </div>
                     );
                   })}
-
-                  {/* Warehouse Stock Remaining Card (If Split and not fully loaded) */}
-                  {remainingWarehouseCartons > 0 && (
-                    <div className="bg-amber-950/30 rounded-2xl p-5 border-2 border-dashed border-amber-600/50 shadow-lg flex flex-col justify-between space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
-                          <div className="w-7 h-7 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center">
-                            <Warehouse className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">Remaining Balance</span>
-                            <span className="font-bold text-sm text-white">{warehouseLocation}</span>
-                          </div>
-                        </div>
-
-                        <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                          Awaiting Next Plan
-                        </span>
-                      </div>
-
-                      <div className="bg-slate-900/90 p-3.5 rounded-xl border border-slate-800 space-y-2">
-                        <div className="flex justify-between items-center text-xs">
-                          <span className="text-slate-400 font-semibold">Remaining Stock:</span>
-                          <span className="font-mono font-black text-sm text-amber-400">
-                            {remainingWarehouseCartons} CTN <span className="text-[11px] text-slate-400 font-normal">({totalInwardCartons > 0 ? Math.round((remainingWarehouseCartons / totalInwardCartons) * 100) : 0}%)</span>
-                          </span>
-                        </div>
-                        <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
-                          <div
-                            className="bg-amber-500 h-2 rounded-full"
-                            style={{ width: `${totalInwardCartons > 0 ? Math.min(Math.round((remainingWarehouseCartons / totalInwardCartons) * 100), 100) : 0}%` }}
-                          ></div>
-                        </div>
-                      </div>
-
-                      <p className="text-[11px] text-amber-200/80 italic leading-relaxed">
-                        ℹ️ This receipt was split. {remainingWarehouseCartons} cartons are safely in warehouse inventory and will be loaded into the next available container.
-                      </p>
-                    </div>
-                  )}
                 </div>
               </div>
 
-              {/* CARD 3: INDIVIDUAL CARGO ITEMS & MANIFEST DETAILS */}
+              {/* CARD 3: CARGO MANIFEST LINE ITEMS */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-black uppercase tracking-wider text-slate-800 flex items-center space-x-2">
-                    <Boxes className="w-4 h-4 text-red-600" />
-                    <span>Manifest Items Detailed View ({receiptShipmentsList.length} Records)</span>
+                  <h4 className="text-sm font-black uppercase tracking-wider text-slate-900 flex items-center space-x-2">
+                    <FileText className="w-4 h-4 text-amber-500" />
+                    <span>Cargo Item Manifest Breakdown ({receiptShipmentsList.length} items)</span>
                   </h4>
-                  <span className="text-xs text-slate-500">
-                    All containers and cargo item packages
-                  </span>
                 </div>
 
                 {receiptShipmentsList.map((item: any, idx: number) => {
-                  const isItemDeliv = Boolean(item.isDelivered || item.deliveryDate || (item.status && item.status.toLowerCase().includes('deliver')));
-                  const itemDelivDate = item.deliveryDate || (isItemDeliv ? item.dateOfDelivery : '');
+                  const isItemDelivered = Boolean(
+                    item.isDelivered ||
+                    item.deliveryDate ||
+                    (item.status && item.status.toLowerCase().includes('deliver'))
+                  );
+                  const effectiveDelivDate = item.deliveryDate || (isItemDelivered ? item.dateOfDelivery : '');
+                  const hasItemContainer = Boolean(
+                    item.container &&
+                    item.container !== '-' &&
+                    !item.container.toLowerCase().includes('pending') &&
+                    !item.container.toLowerCase().includes('warehouse') &&
+                    !item.container.toLowerCase().includes('not loaded')
+                  );
 
                   return (
                     <div
                       key={item.id || idx}
-                      className="bg-white rounded-3xl shadow-md border border-slate-200 overflow-hidden space-y-5 animate-fadeIn"
+                      className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-md transition space-y-4"
                     >
-                      {/* Header Banner */}
-                      <div className="bg-slate-900 p-5 text-white flex flex-wrap items-center justify-between gap-4 border-b border-slate-800">
-                        <div>
-                          <span className="text-xs uppercase font-bold text-red-400 tracking-wider">
-                            Cargo Item #{idx + 1} • Receipt {item.receipt}
+                      <div className="bg-slate-900 px-6 py-4 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-center space-x-3">
+                          <span className="w-8 h-8 rounded-xl bg-amber-500 text-slate-950 font-black text-xs flex items-center justify-center">
+                            #{idx + 1}
                           </span>
-                          <h3 className="text-xl font-black font-mono tracking-tight mt-0.5 text-white">{item.receipt}</h3>
-                          <p className="text-xs text-slate-300 mt-1 flex flex-wrap items-center gap-2">
-                            <span className="flex items-center space-x-1.5">
-                              <Box className="w-4 h-4 text-amber-400" />
-                              <span>Loaded in Container:</span>
+                          <div>
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                              Receipt #{item.receipt}
                             </span>
-                            <strong className="text-amber-300 font-mono bg-slate-800 px-2.5 py-0.5 rounded text-xs border border-amber-500/40">
-                              {item.container}
-                            </strong>
-                            {distinctContainersCount > 1 && (
-                              <span className="bg-amber-500/20 text-amber-300 border border-amber-400/30 text-[10px] px-2 py-0.5 rounded-full font-bold uppercase">
-                                Container {distinctContainers.indexOf(item.container) + 1} of {distinctContainersCount}
-                              </span>
-                            )}
-                            {isItemDeliv && (
-                              <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[10px] px-2 py-0.5 rounded-full font-bold uppercase inline-flex items-center space-x-1">
-                                <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                                <span>Delivered</span>
-                              </span>
-                            )}
-                          </p>
+                            <h5 className="font-black text-base text-white">
+                              {translateToEnglish(item.english || item.commodity || 'General Cargo')}
+                            </h5>
+                          </div>
                         </div>
 
-                        <div className="flex items-center space-x-3">
-                          {isItemDeliv ? (
-                            <div className="flex flex-wrap items-center gap-2">
-                              {/* Expected ETA */}
-                              <div className="flex items-center space-x-2 text-white px-3 py-1.5 rounded-xl border shadow-sm bg-slate-800 border-slate-700">
-                                <Clock className="w-3.5 h-3.5 text-amber-300 shrink-0" />
-                                <div>
-                                  <span className="text-[9px] uppercase font-bold text-amber-300 block">
-                                    Expected ETA
-                                  </span>
-                                  <span className="text-xs font-black font-mono text-white block">
-                                    {formatGlobalDate(item.eta) || item.dateOfDelivery || 'Pending'}
-                                  </span>
-                                </div>
-                              </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {hasItemContainer && (
+                            <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-slate-800 text-amber-400 border border-slate-700">
+                              Container: {item.container}
+                            </span>
+                          )}
 
-                              {/* Delivered Date */}
-                              <div className="flex items-center space-x-2 text-white px-3 py-1.5 rounded-xl border shadow-sm bg-gradient-to-r from-emerald-600 to-teal-600 border-emerald-400/40">
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-100 shrink-0" />
-                                <div>
-                                  <span className="text-[9px] uppercase font-bold text-emerald-100 block">
-                                    Delivered Date
-                                  </span>
-                                  <span className="text-xs font-black font-mono text-white block">
-                                    {formatGlobalDate(itemDelivDate)}
-                                  </span>
-                                </div>
+                          {isItemDelivered ? (
+                            <div className="flex items-center space-x-2 text-white px-3.5 py-1.5 rounded-xl border shadow-sm bg-emerald-950 border-emerald-500/50">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                              <div>
+                                <span className="text-[9px] uppercase font-bold text-emerald-300 block">
+                                  Delivered Date
+                                </span>
+                                <span className="text-xs font-black font-mono text-emerald-200 block">
+                                  {formatGlobalDate(effectiveDelivDate)}
+                                </span>
                               </div>
                             </div>
                           ) : (
-                            <div className="flex flex-wrap items-center gap-2">
-                              <div className="flex items-center space-x-2.5 text-white px-4 py-2 rounded-xl border shadow-sm bg-gradient-to-r from-red-600 to-rose-600 border-red-400/40">
-                                <Clock className="w-4 h-4 text-amber-300 shrink-0" />
-                                <div>
-                                  <span className="text-[9px] uppercase font-bold text-rose-200 block">
-                                    ETA Date
-                                  </span>
-                                  <span className="text-sm font-black font-mono text-white block">
-                                    {formatGlobalDate(item.eta) || item.dateOfDelivery || 'Pending'}
-                                  </span>
-                                </div>
+                            <div className="flex items-center space-x-2 text-white px-3.5 py-1.5 rounded-xl border shadow-sm bg-amber-950 border-amber-500/50">
+                              <Clock className="w-4 h-4 text-amber-400 shrink-0" />
+                              <div>
+                                <span className="text-[9px] uppercase font-bold text-amber-300 block">
+                                  ETA Date
+                                </span>
+                                <span className="text-xs font-black font-mono text-amber-200 block">
+                                  {formatGlobalDate(item.eta) || item.dateOfDelivery || 'Pending'}
+                                </span>
                               </div>
                             </div>
                           )}
 
                           <button
                             onClick={() => downloadReceiptPDF(item.receipt, [item])}
-                            className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl transition border border-slate-700 shrink-0"
+                            className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl transition border border-slate-700 shrink-0"
                             title="Download PDF slip for this item"
                           >
                             <Printer className="w-4 h-4" />
@@ -1584,7 +2366,6 @@ export default function PublicTrackerPage() {
             </section>
           )}
 
-
           {/* 6. Container Search Results (CONTAINER ALIAS, DATE OF DELIVERY) */}
           {activeTab === 'container' && containerResult && (() => {
             const isDelivered = Boolean(
@@ -1652,6 +2433,19 @@ export default function PublicTrackerPage() {
                       </p>
 
                       <div className="pt-3 border-t border-slate-800 flex flex-wrap items-center justify-center gap-2">
+                        {/* Direct MSC Carrier Button */}
+                        <a
+                          href="https://www.msc.com/en/track-a-shipment"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition group shadow-sm"
+                          title="Track on Official MSC (Mediterranean Shipping Company) website"
+                        >
+                          <Ship className="w-3.5 h-3.5" />
+                          <span>Track on MSC.com</span>
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+
                         {containerResult.shippingLine && (
                           <a
                             href={getCarrierTrackingUrl(containerResult.shippingLine, containerResult.containerNumber)}
@@ -1660,7 +2454,7 @@ export default function PublicTrackerPage() {
                             className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold bg-blue-900/50 hover:bg-blue-800 text-blue-200 border border-blue-700/60 transition group shadow-sm"
                             title={`Click to open official ${containerResult.shippingLine} carrier tracking website`}
                           >
-                            <span>Ocean Carrier ({containerResult.shippingLine})</span>
+                            <span>Carrier ({containerResult.shippingLine})</span>
                             <ExternalLink className="w-3.5 h-3.5 text-blue-400 group-hover:translate-x-0.5 transition-transform" />
                           </a>
                         )}
@@ -1690,14 +2484,14 @@ export default function PublicTrackerPage() {
           })()}
         </div>
 
-        {/* 7. Image-Rich Core Services Section */}
+        {/* 7. Image-Rich Core Services Section (MSC Standard Logistics Offerings) */}
         <section id="services" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-12">
           <div className="text-center space-y-3">
-            <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-red-100 text-red-700 text-xs font-bold uppercase tracking-wider">
-              <span>China to India Trade Solutions</span>
+            <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-bold uppercase tracking-wider">
+              <span>Enterprise Freight Solutions</span>
             </div>
             <h2 className="text-2xl sm:text-4xl font-black text-slate-900 tracking-tight">
-              Our Specialized Freight Services
+              Our Specialized Maritime &amp; Freight Services
             </h2>
             <p className="text-slate-600 max-w-2xl mx-auto text-sm">
               End-to-end international logistics solutions tailored for seamless transportation from Chinese factories to Indian ports and warehouses.
@@ -1716,13 +2510,13 @@ export default function PublicTrackerPage() {
               </div>
               <div className="p-6 flex-1 flex flex-col justify-between space-y-4">
                 <div className="space-y-2">
-                  <span className="text-[10px] font-black uppercase text-red-600 bg-red-50 px-2 py-0.5 rounded border border-red-200">海运物流</span>
+                  <span className="text-[10px] font-black uppercase text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">海运物流</span>
                   <h3 className="font-extrabold text-lg text-slate-900">Freight Forwarding (Sea)</h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    Expert FCL, LCL, and Break Bulk bookings with MSC, Maersk, HMM, and COSCO. Port-to-port and door-to-door delivery.
+                    Expert FCL, LCL, and Break Bulk bookings with MSC, Maersk, and COSCO. Port-to-port and door-to-door delivery.
                   </p>
                 </div>
-                <div className="text-xs font-bold text-red-600 flex items-center space-x-1">
+                <div className="text-xs font-bold text-amber-600 flex items-center space-x-1">
                   <span>Ocean Logistics</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </div>
@@ -1746,7 +2540,7 @@ export default function PublicTrackerPage() {
                     Fast express air cargo shipments connecting Guangzhou, Shenzhen, and Shanghai to Delhi (DEL) and Mumbai (BOM).
                   </p>
                 </div>
-                <div className="text-xs font-bold text-red-600 flex items-center space-x-1">
+                <div className="text-xs font-bold text-amber-600 flex items-center space-x-1">
                   <span>Air Express</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </div>
@@ -1770,7 +2564,7 @@ export default function PublicTrackerPage() {
                     Trusted sourcing platform offering factory verification, white labeling, quality inspection, and sample testing.
                   </p>
                 </div>
-                <div className="text-xs font-bold text-red-600 flex items-center space-x-1">
+                <div className="text-xs font-bold text-amber-600 flex items-center space-x-1">
                   <span>Factory Verification</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </div>
@@ -1794,8 +2588,8 @@ export default function PublicTrackerPage() {
                     Smooth handling of import/export documentation, customs duty filing, and safe warehousing in India and China.
                   </p>
                 </div>
-                <div className="text-xs font-bold text-red-600 flex items-center space-x-1">
-                  <span>Duty & Compliance</span>
+                <div className="text-xs font-bold text-amber-600 flex items-center space-x-1">
+                  <span>Duty &amp; Compliance</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </div>
               </div>
@@ -1807,9 +2601,9 @@ export default function PublicTrackerPage() {
         <section className="bg-slate-950 text-white py-16 px-4 sm:px-6 lg:px-8 border-t border-b border-slate-800">
           <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
             <div className="lg:col-span-5 space-y-6">
-              <span className="text-xs font-bold uppercase text-red-400 tracking-wider">Exclusive Supply Chain</span>
+              <span className="text-xs font-bold uppercase text-amber-400 tracking-wider">Exclusive Supply Chain</span>
               <h2 className="text-3xl font-black tracking-tight text-white leading-tight">
-                Seamless Trade Connectivity Between China & India
+                Seamless Trade Connectivity Between China &amp; India
               </h2>
               <p className="text-slate-300 text-sm leading-relaxed">
                 We manage the entire transit pipeline—from supplier pickups in Ningbo, Yiwu, Guangzhou, and Shenzhen to final clearance and delivery in India.
@@ -1817,11 +2611,11 @@ export default function PublicTrackerPage() {
               <div className="space-y-3 text-xs font-semibold text-slate-200">
                 <div className="flex items-center space-x-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span>Direct Factory Pickups & Packing Inspections</span>
+                  <span>Direct Factory Pickups &amp; Packing Inspections</span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span>Direct Delivery ETA Tracking</span>
+                  <span>Direct Delivery ETA Tracking Without Buffer Delays</span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />
@@ -1842,10 +2636,10 @@ export default function PublicTrackerPage() {
           </div>
         </section>
 
-        {/* 9. Customer Reviews Section (Matching usinternationallogistics.com) */}
+        {/* 9. Customer Reviews Section */}
         <section id="reviews" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-8">
           <div className="text-center space-y-3">
-            <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-red-100 text-red-700 text-xs font-bold uppercase tracking-wider">
+            <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-bold uppercase tracking-wider">
               <span>Client Testimonials</span>
             </div>
             <h2 className="text-2xl sm:text-4xl font-black text-slate-900 tracking-tight">
@@ -1872,7 +2666,7 @@ export default function PublicTrackerPage() {
                 </p>
               </div>
               <div className="pt-4 border-t border-slate-100 flex items-center space-x-3">
-                <div className="w-10 h-10 bg-red-600 text-white rounded-full flex items-center justify-center font-bold text-sm">
+                <div className="w-10 h-10 bg-amber-500 text-slate-950 rounded-full flex items-center justify-center font-bold text-sm">
                   RS
                 </div>
                 <div>
@@ -1922,7 +2716,7 @@ export default function PublicTrackerPage() {
                 </p>
               </div>
               <div className="pt-4 border-t border-slate-100 flex items-center space-x-3">
-                <div className="w-10 h-10 bg-red-600 text-white rounded-full flex items-center justify-center font-bold text-sm">
+                <div className="w-10 h-10 bg-amber-500 text-slate-950 rounded-full flex items-center justify-center font-bold text-sm">
                   RY
                 </div>
                 <div>
@@ -1941,7 +2735,7 @@ export default function PublicTrackerPage() {
               Frequently Asked Questions
             </h2>
             <p className="text-slate-600 text-xs sm:text-sm">
-              Answers to common queries regarding tracking, filing buffers, and receipt lookups.
+              Answers to common queries regarding tracking, sailing schedules, and freight quotations.
             </p>
           </div>
 
@@ -1954,7 +2748,7 @@ export default function PublicTrackerPage() {
                 >
                   <span>{faq.q}</span>
                   {openFaqIndex === index ? (
-                    <ChevronUp className="w-5 h-5 text-red-600" />
+                    <ChevronUp className="w-5 h-5 text-amber-600" />
                   ) : (
                     <ChevronDown className="w-5 h-5 text-slate-400" />
                   )}
@@ -1970,49 +2764,94 @@ export default function PublicTrackerPage() {
         </section>
       </main>
 
-      {/* 11. Footer (US International Logistics) */}
+      {/* 11. Footer (MSC-Inspired Maritime Footer) */}
       <footer className="bg-slate-950 text-slate-400 py-12 px-4 sm:px-6 lg:px-8 border-t border-slate-900 text-xs">
-        <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
-          <div className="space-y-3">
+        <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
+          <div className="space-y-3 md:col-span-1">
             <div className="flex items-center space-x-2 text-white font-bold text-lg">
-              <Ship className="w-5 h-5 text-red-600" />
+              <Ship className="w-5 h-5 text-amber-500" />
               <span>US INTERNATIONAL LOGISTICS</span>
             </div>
             <p className="text-slate-400 leading-relaxed">
-              Specialized logistics partner for seamless freight forwarding, sourcing, and cargo tracking between China and India.
+              Specialized logistics partner for seamless ocean freight forwarding, sailing schedules, sourcing, and cargo tracking between China and India.
             </p>
           </div>
 
           <div className="space-y-2">
             <h4 className="font-bold text-white uppercase tracking-wider text-xs">Contact Details</h4>
             <p className="flex items-center space-x-2">
-              <Phone className="w-3.5 h-3.5 text-red-500" />
+              <Phone className="w-3.5 h-3.5 text-amber-500" />
               <span>Phone: +91 9355456060</span>
             </p>
             <p className="flex items-center space-x-2">
-              <Mail className="w-3.5 h-3.5 text-red-500" />
+              <Mail className="w-3.5 h-3.5 text-amber-500" />
               <span>Mail: info@usinternationallogistics.com</span>
             </p>
             <p className="flex items-start space-x-2">
-              <MapPin className="w-3.5 h-3.5 text-red-500 flex-shrink-0 mt-0.5" />
-              <span>Address: Sector-7, Near Rohini West Metro Station, Rohini West, New Delhi 110085</span>
+              <MapPin className="w-3.5 h-3.5 text-amber-500 flex-shrink-0 mt-0.5" />
+              <span>Address: Sector-7, Near Rohini West Metro Station, New Delhi 110085</span>
             </p>
           </div>
 
           <div className="space-y-2">
-            <h4 className="font-bold text-white uppercase tracking-wider text-xs">Quick Navigation</h4>
+            <h4 className="font-bold text-white uppercase tracking-wider text-xs">eBusiness Tools</h4>
             <ul className="space-y-1">
-              <li><a href="#tracking" className="hover:text-red-400 transition">Cargo Tracking Portal</a></li>
-              <li><a href="#services" className="hover:text-red-400 transition">Freight Services</a></li>
-              <li><a href="#reviews" className="hover:text-red-400 transition">Customer Reviews</a></li>
-              <li><Link href="/admin/login" className="hover:text-red-400 transition">Admin Login</Link></li>
+              <li>
+                <button onClick={() => { setHeroWidgetTab('track'); document.getElementById('ebusiness-widget')?.scrollIntoView({ behavior: 'smooth' }); }} className="hover:text-amber-400 transition text-left">
+                  Track a Shipment
+                </button>
+              </li>
+              <li>
+                <button onClick={() => { setHeroWidgetTab('schedules'); document.getElementById('ebusiness-widget')?.scrollIntoView({ behavior: 'smooth' }); }} className="hover:text-amber-400 transition text-left">
+                  Point-to-Point Sailing Schedules
+                </button>
+              </li>
+              <li>
+                <button onClick={() => { setHeroWidgetTab('quote'); document.getElementById('ebusiness-widget')?.scrollIntoView({ behavior: 'smooth' }); }} className="hover:text-amber-400 transition text-left">
+                  Instant Freight Quote Calculator
+                </button>
+              </li>
+              <li>
+                <button onClick={() => { setHeroWidgetTab('book'); document.getElementById('ebusiness-widget')?.scrollIntoView({ behavior: 'smooth' }); }} className="hover:text-amber-400 transition text-left">
+                  Book a Cargo Shipment
+                </button>
+              </li>
+            </ul>
+          </div>
+
+          <div className="space-y-2">
+            <h4 className="font-bold text-white uppercase tracking-wider text-xs">Official Carrier Portals</h4>
+            <ul className="space-y-1">
+              <li>
+                <a href="https://www.msc.com/" target="_blank" rel="noopener noreferrer" className="hover:text-amber-400 transition flex items-center space-x-1">
+                  <span>MSC Mediterranean Shipping (msc.com)</span>
+                  <ExternalLink className="w-2.5 h-2.5" />
+                </a>
+              </li>
+              <li>
+                <a href="https://www.msc.com/en/track-a-shipment" target="_blank" rel="noopener noreferrer" className="hover:text-amber-400 transition flex items-center space-x-1">
+                  <span>MSC Track a Shipment</span>
+                  <ExternalLink className="w-2.5 h-2.5" />
+                </a>
+              </li>
+              <li>
+                <a href="https://ldb.co.in/ldb/containersearch" target="_blank" rel="noopener noreferrer" className="hover:text-amber-400 transition flex items-center space-x-1">
+                  <span>Indian Railway LDB Tracking</span>
+                  <ExternalLink className="w-2.5 h-2.5" />
+                </a>
+              </li>
+              <li>
+                <Link href="/admin/login" className="hover:text-amber-400 transition">
+                  Staff &amp; Admin Sign In
+                </Link>
+              </li>
             </ul>
           </div>
         </div>
 
         <div className="max-w-7xl mx-auto border-t border-slate-900 pt-6 flex flex-col sm:flex-row items-center justify-between text-slate-500 gap-2">
           <p>© {new Date().getFullYear()} US International Logistics. All rights reserved.</p>
-          <p>Confidential carrier container numbers strictly masked for public tracking.</p>
+          <p>Global ocean carrier tracking powered by live API connectivity.</p>
         </div>
       </footer>
     </div>

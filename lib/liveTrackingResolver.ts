@@ -375,9 +375,22 @@ export async function resolveLiveReceiptsForTrackingDoc(
         const effectiveDeliveryDate = isDelivered ? (markedDate || liveEta || null) : null;
 
         // Public Container No. (Never exposes carrier shipping line / actual container)
-        let displayContainer = cleanDisplayContainer(s.container || entry.containerNo || 'In Transit');
-        if (!displayContainer || displayContainer === 'In Transit' || displayContainer === 'Pending Allocation') {
-          displayContainer = await getContainerForReceiptDate(receiptDate);
+        // User rule: "if container no. not avail in any receipt no. in db then not show container no. only show eta in public link"
+        const rawCont = (s.container || entry.containerNo || '').trim();
+        const hasRealContainer = Boolean(
+          rawCont &&
+          rawCont !== '-' &&
+          rawCont.toLowerCase() !== 'unassigned' &&
+          rawCont.toLowerCase() !== 'in transit' &&
+          !rawCont.toLowerCase().includes('pending') &&
+          !rawCont.toLowerCase().includes('not loaded')
+        );
+
+        let displayContainer = '';
+        if (hasRealContainer) {
+          displayContainer = cleanDisplayContainer(rawCont);
+        } else if (options.includeAdminFields) {
+          displayContainer = 'In Warehouse (Not Loaded)';
         }
 
         // Marka resolution (Live from Shipment or WarehouseReceipt)
@@ -474,16 +487,15 @@ export async function resolveLiveReceiptsForTrackingDoc(
             '-';
 
           const whDate = whDoc.date || whDoc.createdAt;
-          const fallbackContainer = await getContainerForReceiptDate(whDate);
           const fallbackEta = calculateCommittedEta(whDate);
 
           resolvedList.push({
             id: `${entry.id || rNo}_wh_remainder`,
             marka: baseMarka,
             receiptNo: rNo,
-              warehouse: whDoc?.warehouse || targetWarehouse || undefined,
-              itemName: whItemName,
-            containerNo: options.includeAdminFields ? 'In Warehouse (Not Loaded)' : fallbackContainer,
+            warehouse: whDoc?.warehouse || targetWarehouse || undefined,
+            itemName: whItemName,
+            containerNo: options.includeAdminFields ? 'In Warehouse (Not Loaded)' : '',
             actualContainerNo: options.includeAdminFields ? '' : undefined,
             cbm: String(whDoc.remainingVolume || whDoc.volume || '0'),
             weight: String(whDoc.remainingWeight || whDoc.weight || '-'),
@@ -511,7 +523,6 @@ export async function resolveLiveReceiptsForTrackingDoc(
       const isDelivered = /deliver/i.test(whStatus);
       const markedDate = whDoc.deliveryDate || entry.deliveryDate || null;
       const whDate = whDoc.date || whDoc.createdAt;
-      const fallbackContainer = await getContainerForReceiptDate(whDate);
       const fallbackEta = calculateCommittedEta(whDate);
 
       // Multi-item check in warehouse receipt
@@ -522,9 +533,9 @@ export async function resolveLiveReceiptsForTrackingDoc(
             id: `${entry.id || rNo}_wh_item_${wIdx}`,
             marka: it.mainMarka || it.subMarka || baseMarka,
             receiptNo: rNo,
-              warehouse: whDoc?.warehouse || targetWarehouse || undefined,
-              itemName: it.itemName || it.english || it.chinese || '-',
-            containerNo: options.includeAdminFields ? 'In Warehouse (Not Loaded)' : fallbackContainer,
+            warehouse: whDoc?.warehouse || targetWarehouse || undefined,
+            itemName: it.itemName || it.english || it.chinese || '-',
+            containerNo: options.includeAdminFields ? 'In Warehouse (Not Loaded)' : '',
             actualContainerNo: options.includeAdminFields ? '' : undefined,
             cbm: String(it.volume || whDoc.volume || '0'),
             weight: String(it.weight || whDoc.weight || '-'),
@@ -551,9 +562,9 @@ export async function resolveLiveReceiptsForTrackingDoc(
           id: `${entry.id || rNo}_wh_0`,
           marka: baseMarka,
           receiptNo: rNo,
-              warehouse: whDoc?.warehouse || targetWarehouse || undefined,
-              itemName: whItemName,
-          containerNo: options.includeAdminFields ? 'In Warehouse (Not Loaded)' : fallbackContainer,
+          warehouse: whDoc?.warehouse || targetWarehouse || undefined,
+          itemName: whItemName,
+          containerNo: options.includeAdminFields ? 'In Warehouse (Not Loaded)' : '',
           actualContainerNo: options.includeAdminFields ? '' : undefined,
           cbm: String(whDoc.volume || entry.cbm || '0'),
           weight: String(whDoc.weight || entry.weight || '-'),
@@ -575,11 +586,20 @@ export async function resolveLiveReceiptsForTrackingDoc(
       const isDelivered = /deliver|arrived/i.test(entry.status || '');
       const markedDate = entry.deliveryDate || entry.markedDate || null;
       const refDate = entry.date || entry.createdAt || trackingDoc.createdAt;
-      const fallbackContainer = await getContainerForReceiptDate(refDate);
       const fallbackEta = calculateCommittedEta(refDate);
 
-      const hasContainer = entry.containerNo && entry.containerNo !== '-' && entry.containerNo !== 'Pending Allocation';
-      const displayContainer = hasContainer ? cleanDisplayContainer(entry.containerNo) : (options.includeAdminFields ? 'In Warehouse (Not Loaded)' : fallbackContainer);
+      const rawEntryCont = (entry.containerNo || '').trim();
+      const hasContainer = Boolean(
+        rawEntryCont &&
+        rawEntryCont !== '-' &&
+        rawEntryCont.toLowerCase() !== 'unassigned' &&
+        rawEntryCont.toLowerCase() !== 'in transit' &&
+        !rawEntryCont.toLowerCase().includes('pending') &&
+        !rawEntryCont.toLowerCase().includes('not loaded')
+      );
+      const displayContainer = hasContainer
+        ? cleanDisplayContainer(rawEntryCont)
+        : (options.includeAdminFields ? 'In Warehouse (Not Loaded)' : '');
       const finalEta = entry.eta || fallbackEta;
 
       resolvedList.push({

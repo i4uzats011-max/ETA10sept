@@ -1028,7 +1028,7 @@ export default function PublicReceiptTrackingPage() {
         return [
           (r.receiptNo ? (r.warehouse ? `${r.receiptNo} (${r.warehouse} WH)` : r.receiptNo) : '-'),
           r.marka || linkName || '-',
-          r.containerNo && r.containerNo !== '-' ? r.containerNo : 'Pending Allocation',
+          (r.containerNo && r.containerNo.trim() && r.containerNo !== '-' && !r.containerNo.toLowerCase().includes('pending') && !r.containerNo.toLowerCase().includes('warehouse') && !r.containerNo.toLowerCase().includes('not loaded') ? r.containerNo : '-'),
           r.itemName || '-',
           isDelivered ? 'Delivered' : cleanStat,
           isDelivered ? `Delivered: ${dateText}` : `${dateText} (${daysText})`,
@@ -1193,7 +1193,7 @@ export default function PublicReceiptTrackingPage() {
         const row = worksheet.addRow([
           (r.receiptNo ? (r.warehouse ? `${r.receiptNo} (${r.warehouse} WH)` : r.receiptNo) : '-'),
           r.marka || linkName || '-',
-          r.containerNo && r.containerNo !== '-' ? r.containerNo : 'Pending Allocation',
+          (r.containerNo && r.containerNo.trim() && r.containerNo !== '-' && !r.containerNo.toLowerCase().includes('pending') && !r.containerNo.toLowerCase().includes('warehouse') && !r.containerNo.toLowerCase().includes('not loaded') ? r.containerNo : '-'),
           r.itemName || '-',
           isDelivered ? 'Delivered' : cleanStat,
           etaWithDays,
@@ -1983,14 +1983,16 @@ export default function PublicReceiptTrackingPage() {
                         {r.itemName || 'Cargo Item'}
                       </div>
 
-                      {/* Container & ETA Box */}
+                      {/* Container & ETA Box - if container no not avail in db, only show ETA */}
                       <div className="bg-slate-50 border border-slate-200/80 rounded-lg p-2.5 mb-2.5 space-y-1.5 text-[11px]">
-                        <div className="flex items-center justify-between">
-                          <span className="text-slate-500 font-semibold">Container (Loading Plan):</span>
-                          <span className="font-mono font-bold text-slate-800">
-                            {r.containerNo && r.containerNo !== '-' ? r.containerNo : 'Pending Allocation'}
-                          </span>
-                        </div>
+                        {r.containerNo && r.containerNo.trim() && r.containerNo !== '-' && !r.containerNo.toLowerCase().includes('pending') && !r.containerNo.toLowerCase().includes('warehouse') && !r.containerNo.toLowerCase().includes('not loaded') ? (
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500 font-semibold">Container:</span>
+                            <span className="font-mono font-bold text-slate-800">
+                              {r.containerNo}
+                            </span>
+                          </div>
+                        ) : null}
 
                         <div className="flex items-center justify-between">
                           <span className="text-slate-500 font-semibold">
@@ -2415,14 +2417,14 @@ export default function PublicReceiptTrackingPage() {
                         </span>
                       </td>
 
-                      {/* 3. Container No. (not actual) */}
+                      {/* 3. Container No. - if not available in DB, only show - */}
                       <td className="py-3.5 px-4 whitespace-nowrap font-mono font-bold text-slate-700">
-                        {r.containerNo && r.containerNo !== '-' ? (
+                        {r.containerNo && r.containerNo.trim() && r.containerNo !== '-' && !r.containerNo.toLowerCase().includes('pending') && !r.containerNo.toLowerCase().includes('warehouse') && !r.containerNo.toLowerCase().includes('not loaded') ? (
                           <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-800 border border-slate-200">
                             {r.containerNo}
                           </span>
                         ) : (
-                          <span className="text-slate-400 font-normal">Pending Allocation</span>
+                          <span className="text-slate-400 font-normal">-</span>
                         )}
                       </td>
 

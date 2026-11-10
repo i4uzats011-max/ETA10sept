@@ -123,7 +123,6 @@ export async function GET(req: NextRequest) {
 
     if (!rawShipments || rawShipments.length === 0) {
       const whDate = whItem.date || whItem.createdAt;
-      const fallbackContainer = await getContainerForReceiptDate(whDate);
       const fallbackEta = calculateCommittedEta(whDate);
       const fallbackFormattedEta = formatGlobalDate(fallbackEta) || fallbackEta;
 
@@ -131,7 +130,7 @@ export async function GET(req: NextRequest) {
         id: String(whItem._id),
         receipt: receiptQuery,
         party: whItem.party || 'General Party',
-        container: fallbackContainer,
+        container: '', // User rule: if container not in db, do not show container no
         status: whItem.isDelivered ? 'Delivered' : 'In Transit',
         portDate: null,
         dateOfDelivery: whItem.isDelivered ? (whItem.deliveryDate || fallbackFormattedEta) : fallbackFormattedEta,
@@ -251,9 +250,14 @@ export async function GET(req: NextRequest) {
       const rawDeliveryDate = shipment.deliveryDate || fallbackDoc?.deliveryDate || whItem?.deliveryDate || '';
       const formattedDeliveryDate = rawDeliveryDate ? (formatGlobalDate(rawDeliveryDate) || rawDeliveryDate) : '';
 
-      const finalContainer = (shipment.container && shipment.container !== 'Unassigned' && shipment.container !== 'Pending Allocation')
-        ? shipment.container
-        : fallbackContainer;
+      const hasRealContainer = Boolean(
+        shipment.container &&
+        shipment.container !== 'Unassigned' &&
+        shipment.container !== 'Pending Allocation' &&
+        shipment.container !== '-' &&
+        !shipment.container.toLowerCase().includes('pending')
+      );
+      const finalContainer = hasRealContainer ? shipment.container : '';
 
       return {
         id: shipment._id,
