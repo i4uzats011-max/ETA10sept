@@ -109,11 +109,18 @@ export async function GET(req: NextRequest) {
       // 2b. Check remaining warehouse stock or unloaded warehouse items
       whItems.forEach((w) => {
         const rKey = (w.receipt || '').toLowerCase().trim();
-        const rShipments = shipmentsByReceipt.get(rKey) || [];
+        const rShipments = (shipmentsByReceipt.get(rKey) || []).filter((s: any) => {
+          const sWh = (s.warehouse || '').toUpperCase().trim();
+          const wWh = (w.warehouse || '').toUpperCase().trim();
+          if (sWh && wWh && sWh !== wWh) return false;
+          return true;
+        });
 
         const totalQty = typeof w.quantity === 'number' ? w.quantity : (parseFloat(String(w.quantity || '0')) || 0);
-        const loadedQty = typeof w.loadedQuantity === 'number' ? w.loadedQuantity : (parseFloat(String(w.loadedQuantity || '0')) || 0);
-        const remainingQty = typeof w.remainingQuantity === 'number' ? w.remainingQuantity : (totalQty - loadedQty);
+        const recordedLoaded = typeof w.loadedQuantity === 'number' ? w.loadedQuantity : (parseFloat(String(w.loadedQuantity || '0')) || 0);
+        const actualLoaded = rShipments.reduce((sum: number, s: any) => sum + (parseFloat(String(s.quantity || '0')) || 0), 0);
+        const loadedQty = rShipments.length > 0 ? actualLoaded : recordedLoaded;
+        const remainingQty = Math.max(0, totalQty - loadedQty);
 
         if (rShipments.length === 0) {
           // Completely in warehouse
@@ -233,13 +240,19 @@ export async function GET(req: NextRequest) {
 
       for (const w of whItems) {
         const totalQty = typeof w.quantity === 'number' ? w.quantity : (parseFloat(String(w.quantity || '0')) || 0);
-        const loadedQty = typeof w.loadedQuantity === 'number' ? w.loadedQuantity : (parseFloat(String(w.loadedQuantity || '0')) || 0);
-        const remainingQty = typeof w.remainingQuantity === 'number' ? w.remainingQuantity : (totalQty - loadedQty);
+        const recordedLoaded = typeof w.loadedQuantity === 'number' ? w.loadedQuantity : (parseFloat(String(w.loadedQuantity || '0')) || 0);
 
-        const wShipments = shipments.filter((s: any) =>
-          (s.receiptId && String(s.receiptId) === String(w._id)) ||
-          ((s.warehouse || '').toUpperCase().trim() === (w.warehouse || '').toUpperCase().trim())
-        );
+        const wShipments = shipments.filter((s: any) => {
+          if (s.receiptId && String(s.receiptId) === String(w._id)) return true;
+          const sWh = (s.warehouse || '').toUpperCase().trim();
+          const targetWh = (w.warehouse || '').toUpperCase().trim();
+          if (sWh && targetWh && sWh !== targetWh) return false;
+          return sWh === targetWh;
+        });
+
+        const actualLoaded = wShipments.reduce((sum: number, s: any) => sum + (parseFloat(String(s.quantity || '0')) || 0), 0);
+        const loadedQty = wShipments.length > 0 ? actualLoaded : recordedLoaded;
+        const remainingQty = Math.max(0, totalQty - loadedQty);
 
         if (wShipments.length === 0) {
           allSplitItems.push({

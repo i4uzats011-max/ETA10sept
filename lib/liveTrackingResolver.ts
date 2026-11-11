@@ -42,7 +42,6 @@ export function pickTargetWarehouseReceipt(
   shipmentsList: any[] = []
 ): any {
   if (!whList || whList.length === 0) return null;
-  if (whList.length === 1) return whList[0];
 
   const entryWh = (entry.warehouse || '').toUpperCase().trim();
   const entryWhId = String(entry.warehouseReceiptId || '').trim();
@@ -56,11 +55,17 @@ export function pickTargetWarehouseReceipt(
     if (found) return found;
   }
 
-  // 2. Direct match on warehouse code
+  // 2. Direct match on warehouse code (Rule 1: Receipt numbers are unique per warehouse)
+  // If warehouse was explicitly specified (e.g. "GZ"), it MUST match that warehouse
   if (entryWh) {
     const found = whList.find(w => (w.warehouse || '').toUpperCase().trim() === entryWh);
     if (found) return found;
+    // CRITICAL: If an explicit warehouse was requested (e.g. GZ), but whList only has YW,
+    // we MUST NOT blindly fall back to YW! Rule 1: Every receipt is unique per warehouse.
+    return null;
   }
+
+  if (whList.length === 1) return whList[0];
 
   // 3. Multi-factor scoring across warehouses
   let bestScore = -1;
@@ -304,11 +309,16 @@ export async function resolveLiveReceiptsForTrackingDoc(
     // Filter shipments strictly for this warehouse receipt so different warehouses/parties never mix
     let rShipments: any[] = [];
     if (whDoc) {
+      const targetWhCode = (whDoc.warehouse || targetWarehouse || '').toUpperCase().trim();
       rShipments = allShipmentsForReceipt.filter((s: any) => {
+        const sWh = (s.warehouse || '').toUpperCase().trim();
+        // Rule 1: A shipment for YW must never match a GZ receipt and vice versa
+        if (sWh && targetWhCode && sWh !== targetWhCode) return false;
+
         if (s.receiptId && String(s.receiptId) === String(whDoc._id)) return true;
-        if (s.warehouse && whDoc.warehouse && s.warehouse.toUpperCase().trim() === whDoc.warehouse.toUpperCase().trim()) return true;
-        if (!s.warehouse && s.mainMarka && whDoc.mainMarka && s.mainMarka.toUpperCase().trim() === whDoc.mainMarka.toUpperCase().trim()) return true;
-        return false;
+        if (sWh && targetWhCode && sWh === targetWhCode) return true;
+        if (!sWh && s.mainMarka && whDoc.mainMarka && s.mainMarka.toUpperCase().trim() === whDoc.mainMarka.toUpperCase().trim()) return true;
+        return !sWh && !targetWhCode;
       });
     } else if (targetWarehouse) {
       rShipments = allShipmentsForReceipt.filter((s: any) =>
@@ -472,19 +482,25 @@ export async function resolveLiveReceiptsForTrackingDoc(
       }
 
       // Check if this receipt still has remaining cartons in warehouse to load
-      // E.g.: Total 5 CTN: 2 loaded in Cont A, 1 loaded in Cont B, 2 CTN REMAIN in warehouse
+      // E.g.: Total 34 CTN: 12 loaded in Cont 1, 12 loaded in Cont 2, 10 CTN REMAIN in warehouse
       if (whDoc) {
         const totalQty = typeof whDoc.quantity === 'number'
           ? whDoc.quantity
           : (parseFloat(String(whDoc.quantity || '0')) || 0);
 
-        const loadedQty = typeof whDoc.loadedQuantity === 'number'
-          ? whDoc.loadedQuantity
-          : (parseFloat(String(whDoc.loadedQuantity || '0')) || 0);
+        // Compute actual loaded quantity directly from the live shipments found for this receipt!
+        const actualLoadedFromShipments = rShipments.reduce((sum: number, s: any) => {
+          return sum + (parseFloat(String(s.quantity || '0')) || 0);
+        }, 0);
 
-        const remainingQty = typeof whDoc.remainingQuantity === 'number'
-          ? whDoc.remainingQuantity
-          : (totalQty - loadedQty);
+        // Use actual shipments sum if shipments exist; fall back to whDoc.loadedQuantity only when no shipments exist
+        const loadedQty = rShipments.length > 0
+          ? actualLoadedFromShipments
+          : (typeof whDoc.loadedQuantity === 'number'
+              ? whDoc.loadedQuantity
+              : (parseFloat(String(whDoc.loadedQuantity || '0')) || 0));
+
+        const remainingQty = Math.max(0, totalQty - loadedQty);
 
         if (remainingQty > 0) {
           const whItemName =
@@ -501,6 +517,7 @@ export async function resolveLiveReceiptsForTrackingDoc(
           const remainderKey = `${rKey}_${(targetWarehouse || '').toUpperCase()}_wh_remainder`;
           if (!seenShipmentKeys.has(remainderKey)) {
             seenShipmentKeys.add(remainderKey);
+            const whStatus = whDoc.status && !/deliver/i.test(whDoc.status) ? whDoc.status : 'Received in Warehouse';
             resolvedList.push({
               id: `${entry.id || rNo}_wh_remainder`,
               marka: baseMarka,
@@ -515,13 +532,13 @@ export async function resolveLiveReceiptsForTrackingDoc(
               eta: fallbackEta,
               deliveryDate: null,
               markedDate: null,
-              status: options.includeAdminFields ? (whDoc.status || 'Received in Warehouse') : 'In Transit',
+              status: options.includeAdminFields ? (whDoc.status || 'Received in Warehouse') : whStatus,
               remainDays: calculateRemainDays(fallbackEta),
               updatedAt: whDoc.updatedAt || entry.updatedAt || trackingDoc.updatedAt,
               isSplit: true,
               splitInfo: options.includeAdminFields
                 ? `Remaining ${remainingQty} CTN to load in warehouse`
-                : `Split Cargo (${remainingQty} CTN)`,
+                : `In Warehouse (${remainingQty} CTN)`,
               adminNotes: options.includeAdminFields ? (whDoc.remarks || 'Remaining in warehouse') : undefined
             });
           }
@@ -537,6 +554,7 @@ export async function resolveLiveReceiptsForTrackingDoc(
       const markedDate = whDoc.deliveryDate || entry.deliveryDate || null;
       const whDate = whDoc.date || whDoc.createdAt;
       const fallbackEta = calculateCommittedEta(whDate);
+      const publicStatus = isDelivered ? 'Delivered' : (cleanDisplayStatus(whStatus) || 'Received in Warehouse');
 
       // Multi-item check in warehouse receipt
       if (Array.isArray(whDoc.items) && whDoc.items.length > 1) {
@@ -560,7 +578,7 @@ export async function resolveLiveReceiptsForTrackingDoc(
             eta: fallbackEta,
             deliveryDate: isDelivered ? markedDate : null,
             markedDate: markedDate,
-            status: options.includeAdminFields ? whStatus : (isDelivered ? 'Delivered' : 'In Transit'),
+            status: options.includeAdminFields ? whStatus : publicStatus,
             remainDays: isDelivered ? null : calculateRemainDays(fallbackEta),
             updatedAt: whDoc.updatedAt || entry.updatedAt || trackingDoc.updatedAt,
             adminNotes: options.includeAdminFields ? (it.remarks || whDoc.remarks || '') : undefined
@@ -592,7 +610,7 @@ export async function resolveLiveReceiptsForTrackingDoc(
             eta: fallbackEta,
             deliveryDate: isDelivered ? markedDate : null,
             markedDate: markedDate,
-            status: options.includeAdminFields ? whStatus : (isDelivered ? 'Delivered' : 'In Transit'),
+            status: options.includeAdminFields ? whStatus : publicStatus,
             remainDays: isDelivered ? null : calculateRemainDays(fallbackEta),
             updatedAt: whDoc.updatedAt || entry.updatedAt || trackingDoc.updatedAt,
             adminNotes: options.includeAdminFields ? (whDoc.remarks || entry.adminNotes || '') : undefined

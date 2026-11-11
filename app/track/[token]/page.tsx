@@ -754,6 +754,11 @@ export default function PublicReceiptTrackingPage() {
     };
   }, [receipts]);
 
+  // Distinct count of Receipt numbers displayed
+  const distinctFilteredReceiptsCount = useMemo(() => {
+    return new Set(filteredReceipts.map(r => (r.receiptNo || '').trim().toUpperCase())).size;
+  }, [filteredReceipts]);
+
   // Delivery, In Transit, and In Warehouse (Not loaded to container) Statistics for Public User
   const stats = useMemo(() => {
     let delivered = 0;
@@ -2147,7 +2152,9 @@ export default function PublicReceiptTrackingPage() {
                 {/* Mobile Cards Summary Bar */}
                 <div className="p-3 bg-slate-900 text-white rounded-xl text-xs space-y-2">
                   <div className="font-bold uppercase tracking-wider text-[11px] text-blue-300">
-                    Summary ({filteredReceipts.length} Receipts)
+                    {distinctFilteredReceiptsCount === filteredReceipts.length
+                      ? `Summary (${filteredReceipts.length} ${filteredReceipts.length === 1 ? 'Receipt' : 'Receipts'})`
+                      : `Summary (${distinctFilteredReceiptsCount} ${distinctFilteredReceiptsCount === 1 ? 'Receipt' : 'Receipts'} · ${filteredReceipts.length} Shipments)`}
                   </div>
                   <div className="grid grid-cols-3 gap-2 text-center">
                     <div className="bg-white/10 p-1.5 rounded-lg">
@@ -2604,7 +2611,9 @@ export default function PublicReceiptTrackingPage() {
                     <tr className="bg-slate-100/90 text-slate-800 font-bold border-t-2 border-slate-300 text-xs">
                       <td className="py-3 px-3 text-center no-jpg"></td>
                       <td className="py-3 px-4 font-black uppercase text-slate-700" colSpan={4}>
-                        Summary ({filteredReceipts.length} {filteredReceipts.length === 1 ? 'Receipt' : 'Receipts'})
+                        {distinctFilteredReceiptsCount === filteredReceipts.length
+                          ? `Summary (${filteredReceipts.length} ${filteredReceipts.length === 1 ? 'Receipt' : 'Receipts'})`
+                          : `Summary (${distinctFilteredReceiptsCount} ${distinctFilteredReceiptsCount === 1 ? 'Receipt' : 'Receipts'} · ${filteredReceipts.length} Shipments)`}
                       </td>
                       <td className="py-3 px-4"></td>
                       <td className="py-3 px-4"></td>
