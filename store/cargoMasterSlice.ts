@@ -3,6 +3,7 @@ import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 export interface ContainerMasterItem {
   container: string;
   containerNumber?: string;
+  blNumber?: string;
   shippingLine?: string;
   shippedFrom?: string;
   shippedTo?: string;

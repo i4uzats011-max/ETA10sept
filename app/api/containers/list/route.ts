@@ -178,6 +178,7 @@ export async function GET(req: NextRequest) {
       return {
         container: c.container, // Public alias (e.g. "USI-01")
         containerNumber: isStaffOrAdmin ? (c.containerNumber || '') : undefined,
+        blNumber: c.blNumber || '',
         isMappedWithActual,
         shippingLine: isStaffOrAdmin ? (c.shippingLine || 'MSC') : undefined,
         warehouse: c.warehouse || 'China Warehouse',

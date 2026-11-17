@@ -17,6 +17,7 @@ export interface IShipment extends Document {
   receipt: string;              // Receipt/Bill number (Indexed for fast search)
   container: string;            // Public container alias e.g., 'USI 01', 'USI-1' (Indexed)
   containerNumber: string;      // Actual Shipping Container No e.g., 'MSCU1234567' (Admin-only, Indexed)
+  blNumber?: string;            // Bill of Lading Number (B/L No.) - Common for one or more containers
   shippingLine: string;         // Carrier code: MSCU, MAEU, CMAU, HLCU, COSU, ONEU, EMCU, YMLU (Default: 'Default')
 
   // Manifest & Warehouse Cargo Details
@@ -86,6 +87,7 @@ const ShipmentSchema = new Schema<IShipment>({
   receipt: { type: String, required: true, index: true, trim: true },
   container: { type: String, required: true, index: true, trim: true },
   containerNumber: { type: String, default: '', index: true, trim: true },
+  blNumber: { type: String, default: '', index: true, trim: true },
   shippingLine: { type: String, default: 'Default', trim: true },
 
   stockstatus: { type: String, default: '' },
@@ -180,6 +182,7 @@ const ShipmentSchema = new Schema<IShipment>({
 ShipmentSchema.index({ receipt: 1, container: 1 });
 ShipmentSchema.index({ container: 1, containerNumber: 1 });
 ShipmentSchema.index({ containerNumber: 1, receipt: 1 });
+ShipmentSchema.index({ blNumber: 1 });
 ShipmentSchema.index({ party: 1, receipt: 1 });
 ShipmentSchema.index({ warehouse: 1 });
 ShipmentSchema.index({ receipt: 1, warehouse: 1 });

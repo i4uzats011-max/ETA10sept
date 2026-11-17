@@ -11,6 +11,7 @@ export interface IContainerRemark {
 export interface IContainer extends Document {
   container: string;            // Public container alias (e.g. 'USI-01', 'USI-03') - User visible
   containerNumber: string;      // Actual carrier container number (e.g. 'MSCU1234567') - Admin-only/Masked
+  blNumber?: string;            // Bill of Lading Number (B/L No.) - Common for one or more containers
   shippingLine: string;         // Carrier code (e.g. 'MSC', 'MAERSK', 'COSCO')
   shippedFrom?: string;         // Start port / location (e.g. 'Ningbo / Shanghai, China')
   shippedTo?: string;           // Destination port / location (e.g. 'Nhava Sheva / Mundra, India')
@@ -58,6 +59,7 @@ const ContainerSchema = new Schema<IContainer>(
   {
     container: { type: String, required: true, unique: true, index: true, trim: true },
     containerNumber: { type: String, default: '', index: true, trim: true },
+    blNumber: { type: String, default: '', index: true, trim: true },
     shippingLine: { type: String, default: 'Default', trim: true },
     shippedFrom: { type: String, default: 'China Port' },
     shippedTo: { type: String, default: 'India Port' },
@@ -119,6 +121,7 @@ const ContainerSchema = new Schema<IContainer>(
 
 // Fast search indexes for public tracking, admin, and employee lookup
 ContainerSchema.index({ containerNumber: 1, container: 1 });
+ContainerSchema.index({ blNumber: 1 });
 ContainerSchema.index({ warehouse: 1, planStatus: 1 });
 ContainerSchema.index({ status: 1, lastApiSync: 1 });
 

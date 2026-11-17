@@ -1158,7 +1158,10 @@ export default function InternalEmployeeViewPage() {
         row['Public Tracking Link'] = links.length > 0 ? `Already Linked: ${links.map(l => l.name || l.token).join(', ')}` : 'Not Linked';
       }
       if (showContainer) row['Container Alias'] = s.container || '';
-      if (showActualContainer) row['Actual Container No'] = s.containerNumber || '';
+      if (showActualContainer) {
+        row['Actual Container No'] = s.containerNumber || '';
+        row['BL No'] = s.blNumber || '';
+      }
       if (showShippingLine) row['Shipping Line'] = s.shippingLine || '';
       if (showCommodity) {
         row['Commodity (English)'] = translateToEnglish(s.english || s.commodity || '');
@@ -2671,6 +2674,11 @@ export default function InternalEmployeeViewPage() {
                             {item.containerNumber ? (
                               <div className="flex items-center space-x-1.5">
                                 <span>{item.containerNumber}</span>
+                                {item.blNumber && (
+                                  <span className="text-[10px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-normal" title={`BL: ${item.blNumber}`}>
+                                    BL: {item.blNumber}
+                                  </span>
+                                )}
                                 <a
                                   href={getLdbRailwayTrackingUrl(item.containerNumber)}
                                   target="_blank"

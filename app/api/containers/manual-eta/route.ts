@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
       container,
       newContainerAlias,
       containerNumber,
+      blNumber,
       loadingDate,
       startDate,
       rawEta,
@@ -85,6 +86,9 @@ export async function POST(req: NextRequest) {
     }
     if (finalContainerNo !== undefined) {
       updateFields.containerNumber = finalContainerNo;
+    }
+    if (blNumber !== undefined) {
+      updateFields.blNumber = String(blNumber || '').trim().toUpperCase();
     }
     if (inputLoading) {
       updateFields.loadingDate = inputLoading;
@@ -234,6 +238,9 @@ export async function POST(req: NextRequest) {
     if (finalContainerNo) {
       await invalidateContainerCache(finalContainerNo);
     }
+    if (updateFields.blNumber) {
+      await invalidateContainerCache(updateFields.blNumber);
+    }
 
     // Record Edit Log for CUD operation
     await recordEditLog(req, {
@@ -246,6 +253,7 @@ export async function POST(req: NextRequest) {
       details: {
         container: effectiveTargetAlias,
         containerNumber: finalContainerNo,
+        blNumber: updateFields.blNumber || '',
         loadingDate: inputLoading,
         rawEta: inputActualEta,
         eta: inputGraceEta,

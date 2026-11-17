@@ -52,6 +52,7 @@ export async function GET(req: NextRequest) {
       orConditions.push({ container: { $regex: zeroPaddedRegex } });
     }
     orConditions.push({ containerNumber: { $regex: new RegExp(`^${cleanEscaped}$`, 'i') } });
+    orConditions.push({ blNumber: { $regex: new RegExp(`^${cleanEscaped}$`, 'i') } });
 
     // 1. Check Container fleet model first (Admin configured containers)
     const foundContainer: any = await Container.findOne({ $or: orConditions }).lean();
@@ -135,6 +136,7 @@ export async function GET(req: NextRequest) {
       success: true,
       container: target.container,
       containerNumber: target.containerNumber || '',
+      blNumber: target.blNumber || '',
       shippingLine: target.shippingLine || '',
       portDate: portDate || null,
       eta: publicEta,

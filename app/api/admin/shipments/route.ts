@@ -41,6 +41,7 @@ export async function GET(req: NextRequest) {
         { receipt: regex },
         { container: regex },
         { containerNumber: regex },
+        { blNumber: regex },
         { shippingLine: regex },
         { commodity: regex },
         { english: regex },

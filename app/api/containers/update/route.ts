@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { container, actualContainerNo, shippingLine, loadingDate } = body;
+    const { container, actualContainerNo, shippingLine, loadingDate, blNumber } = body;
 
     if (body.action === 'demap') {
       const targetAlias = (container || '').trim();
@@ -82,6 +82,10 @@ export async function POST(req: NextRequest) {
       lastModifiedByRole: modifiedByRole,
     };
 
+    if (blNumber !== undefined) {
+      updateFields.blNumber = String(blNumber || '').trim().toUpperCase();
+    }
+
     if (cleanLoadingDate) {
       updateFields.loadingDate = cleanLoadingDate;
       updateFields.startDate = cleanLoadingDate;
@@ -126,6 +130,7 @@ export async function POST(req: NextRequest) {
       details: {
         container: container.trim(),
         containerNumber: actualContainerNo.trim(),
+        blNumber: updateFields.blNumber || '',
         shippingLine: shippingLine.trim(),
         loadingDate: cleanLoadingDate,
       },

@@ -23,6 +23,7 @@ import {
 interface DateChangeItem {
   container: string;
   containerNumber: string;
+  blNumber?: string;
   shippingLine: string;
   portName: string;
   isEtaChanged: boolean;
@@ -303,6 +304,9 @@ export default function BulkContainerUpdateModal({
                 </span>
                 <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-bold border border-blue-200">
                   Internal Container
+                </span>
+                <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-bold border border-blue-200">
+                  BL No. (Blank if not set)
                 </span>
                 <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-bold border border-blue-200">
                   Shipping Line Company Name

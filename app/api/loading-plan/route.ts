@@ -692,7 +692,7 @@ export async function POST(req: NextRequest) {
     // Action 4: Finalize Plan & Allot Actual Container
     // ----------------------------------------------------
     if (action === 'finalize-and-allot') {
-      const { container, containerNumber, shippingLine, loadingDate, shippedTo, autoSync, etaBufferDays } = body;
+      const { container, containerNumber, blNumber, shippingLine, loadingDate, shippedTo, autoSync, etaBufferDays } = body;
       const cleanAlias = (container || '').trim();
       const cleanNum = (containerNumber || '').trim();
       const cleanCarrier = (shippingLine || 'MSC').trim();
@@ -743,6 +743,9 @@ export async function POST(req: NextRequest) {
       targetContainer.etaBufferDays = cleanBufferDays;
 
       targetContainer.containerNumber = cleanNum;
+      if (blNumber !== undefined) {
+        targetContainer.blNumber = String(blNumber || '').trim().toUpperCase();
+      }
       targetContainer.shippingLine = cleanCarrier;
       targetContainer.loadingDate = cleanLoadingDate;
       targetContainer.startDate = cleanLoadingDate;
@@ -781,6 +784,9 @@ export async function POST(req: NextRequest) {
         startDate: cleanLoadingDate,
         etaBufferDays: cleanBufferDays,
       };
+      if (blNumber !== undefined) {
+        updateShipmentPayload.blNumber = String(blNumber || '').trim().toUpperCase();
+      }
       if (cleanShippedTo) {
         updateShipmentPayload.shippedTo = cleanShippedTo;
       }

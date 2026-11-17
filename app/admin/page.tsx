@@ -231,6 +231,7 @@ export default function AdminDashboardPage() {
   const [distinctContainers, setDistinctContainers] = useState<string[]>([]);
   const [selectedContainer, setSelectedContainer] = useState('');
   const [actualContainerNo, setActualContainerNo] = useState('');
+  const [blNumber, setBlNumber] = useState('');
   const [shippingLine, setShippingLine] = useState('MSC');
   const [isUpdatingContainer, setIsUpdatingContainer] = useState(false);
   const [containerUpdateStatus, setContainerUpdateStatus] = useState<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null);
@@ -271,6 +272,7 @@ export default function AdminDashboardPage() {
   const [isContainerDropdownOpen, setIsContainerDropdownOpen] = useState(false);
   const containerSearchRef = useRef<HTMLDivElement>(null);
   const [manualActualContainerNo, setManualActualContainerNo] = useState('');
+  const [manualBlNumber, setManualBlNumber] = useState('');
   const [manualLoadingDate, setManualLoadingDate] = useState('');
   const [manualActualEtaDate, setManualActualEtaDate] = useState('');
   const [manualGraceEtaDate, setManualGraceEtaDate] = useState('');
@@ -527,6 +529,8 @@ export default function AdminDashboardPage() {
       if (res.ok) {
         setManualActualContainerNo(data.containerNumber || '');
         setActualContainerNo(data.containerNumber || '');
+        setBlNumber(data.blNumber || '');
+        setManualBlNumber(data.blNumber || '');
         if (data.shippingLine) {
           setShippingLine(data.shippingLine);
           setManualShippingCompany(data.shippingLine);
@@ -593,6 +597,7 @@ export default function AdminDashboardPage() {
         body: JSON.stringify({
           container: selectedContainer,
           actualContainerNo,
+          blNumber,
           shippingLine,
         }),
       });
@@ -609,6 +614,7 @@ export default function AdminDashboardPage() {
       });
 
       setActualContainerNo('');
+      setBlNumber('');
       fetchDistinctContainers();
       fetchApiStats();
 
@@ -778,6 +784,7 @@ export default function AdminDashboardPage() {
           container: effectiveContainer,
           newContainerAlias: isEditingContainerNumber && editedAliasInput.trim() && editedAliasInput.trim() !== effectiveContainer ? editedAliasInput.trim() : undefined,
           containerNumber: manualActualContainerNo.trim(),
+          blNumber: manualBlNumber.trim(),
           loadingDate: manualLoadingDate,
           startDate: manualLoadingDate,
           rawEta: manualActualEtaDate,
@@ -1820,6 +1827,7 @@ export default function AdminDashboardPage() {
                       setNewContainerInput('');
                       setContainerSearchInput('');
                       setManualActualContainerNo('');
+                      setManualBlNumber('');
                       setManualLoadingDate('');
                       setManualActualEtaDate('');
                       setManualGraceEtaDate('');
@@ -2112,6 +2120,32 @@ export default function AdminDashboardPage() {
                             )}
                           </div>
 
+                          {/* BL No Display */}
+                          <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 flex items-center space-x-3">
+                            <div>
+                              <span className="text-[10px] font-bold text-slate-500 uppercase">
+                                BL No (Bill of Lading):
+                              </span>
+                              <div className="font-mono text-xs font-bold text-indigo-950">
+                                {manualBlNumber || (
+                                  <span className="text-slate-400 italic">Not Set / Blank</span>
+                                )}
+                              </div>
+                            </div>
+                            {manualBlNumber && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (navigator.clipboard) navigator.clipboard.writeText(manualBlNumber);
+                                }}
+                                className="p-1 text-slate-400 hover:text-indigo-600 transition"
+                                title="Copy BL number"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+
                           {/* Toggle Edit / Correct Button */}
                           <button
                             type="button"
@@ -2131,7 +2165,7 @@ export default function AdminDashboardPage() {
                               <Edit className="w-3.5 h-3.5 text-amber-700" />
                               <span>Correct Container Details (कंटेनर नंबर सही करें)</span>
                             </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                               <div>
                                 <label className="block text-[11px] font-bold text-slate-700 mb-1">
                                   Container Alias (e.g. USI-01)
@@ -2156,6 +2190,18 @@ export default function AdminDashboardPage() {
                                   placeholder="Actual Container No (MSCU1234567)"
                                 />
                               </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                                  BL No. (Bill of Lading)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={manualBlNumber}
+                                  onChange={(e) => setManualBlNumber(e.target.value.toUpperCase())}
+                                  className="w-full px-3 py-2 rounded-lg border border-amber-300 text-xs font-bold bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                                  placeholder="e.g. MEDU12345678"
+                                />
+                              </div>
                             </div>
                             <p className="text-[10px] text-amber-800">
                               * Saving updates both the Container fleet directory and all loaded shipment receipts with this corrected container number.
@@ -2172,7 +2218,7 @@ export default function AdminDashboardPage() {
                       <Boxes className="w-4 h-4 text-blue-700" />
                       <span>Register New Container into Fleet (नया कंटेनर जोड़ें)</span>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div>
                         <label className="block text-[11px] font-bold text-slate-700 mb-1">
                           New Container Alias * (e.g. USI-12)
@@ -2195,6 +2241,18 @@ export default function AdminDashboardPage() {
                           value={manualActualContainerNo}
                           onChange={(e) => setManualActualContainerNo(e.target.value.toUpperCase())}
                           placeholder="e.g. MSCU1234567, MEDU9876543"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                          BL No. (Bill of Lading)
+                        </label>
+                        <input
+                          type="text"
+                          value={manualBlNumber}
+                          onChange={(e) => setManualBlNumber(e.target.value.toUpperCase())}
+                          placeholder="e.g. MEDU12345678"
+                          className="w-full px-3 py-2.5 rounded-lg border border-blue-300 text-xs font-bold bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
                           className="w-full px-3 py-2.5 rounded-lg border border-blue-300 text-xs font-bold bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
                         />
                       </div>
@@ -2814,9 +2872,9 @@ export default function AdminDashboardPage() {
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <div className="flex items-center space-x-2">
                   <Box className="w-5 h-5 text-blue-600" />
-                  <h2 className="font-bold text-slate-900 text-base">Update Actual Container & Shipping Line</h2>
+                  <h2 className="font-bold text-slate-900 text-base">Update Actual Container, BL No & Shipping Line</h2>
                 </div>
-                <span className="text-xs text-slate-400">3-Column Mapping</span>
+                <span className="text-xs text-slate-400">Container Mapping</span>
               </div>
 
               {containerUpdateStatus && (
@@ -2839,7 +2897,7 @@ export default function AdminDashboardPage() {
               )}
 
               <form onSubmit={handleUpdateContainer} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   {/* Column 1: Public Container Alias Dropdown */}
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
@@ -2895,11 +2953,28 @@ export default function AdminDashboardPage() {
                     />
                   </div>
 
-                  {/* Column 3: Shipping Line Dropdown */}
+                  {/* Column 3: BL No. (Bill of Lading) Input */}
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                        3. Shipping Line
+                        3. BL No. (Bill of Lading)
+                      </label>
+                      <span className="text-[10px] text-slate-400">Common for 1+ cont.</span>
+                    </div>
+                    <input
+                      type="text"
+                      value={blNumber}
+                      onChange={(e) => setBlNumber(e.target.value.toUpperCase())}
+                      placeholder="e.g. MEDU12345678"
+                      className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-sm font-mono font-medium text-slate-800 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 uppercase"
+                    />
+                  </div>
+
+                  {/* Column 4: Shipping Line Dropdown */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        4. Shipping Line
                       </label>
                       {shippingLine && (
                         <a

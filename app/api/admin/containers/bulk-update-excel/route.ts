@@ -14,6 +14,7 @@ export const dynamic = 'force-dynamic';
 interface RowDateChange {
   container: string;
   containerNumber: string;
+  blNumber?: string;
   shippingLine: string;
   portName: string;
   isEtaChanged: boolean;
@@ -108,6 +109,7 @@ function generateDateChangeTxtReport(
   dateChanges.forEach((c, idx) => {
     out += `[${idx + 1}] CONTAINER ALIAS : ${c.container}\n`;
     out += `    Carrier No      : ${c.containerNumber || 'Not Allotted / Blank'}\n`;
+    out += `    BL No           : ${c.blNumber || 'Not Set / Blank'}\n`;
     out += `    Shipping Line   : ${c.shippingLine || 'Default'}\n`;
     out += `    Destination Port: ${c.portName || 'India Port'}\n`;
 
@@ -194,6 +196,7 @@ export async function GET(req: NextRequest) {
       .select({
         container: 1,
         containerNumber: 1,
+        blNumber: 1,
         shippingLine: 1,
         destinationDate: 1,
         eta: 1,
@@ -220,6 +223,7 @@ export async function GET(req: NextRequest) {
         $group: {
           _id: '$container',
           containerNumber: { $first: '$containerNumber' },
+          blNumber: { $first: '$blNumber' },
           shippingLine: { $first: '$shippingLine' },
           destinationDate: { $first: '$destinationDate' },
           eta: { $first: '$eta' },
@@ -239,6 +243,7 @@ export async function GET(req: NextRequest) {
         containerMap.set(key, {
           container: s._id,
           containerNumber: s.containerNumber || '',
+          blNumber: s.blNumber || '',
           shippingLine: s.shippingLine || 'MSC',
           destinationDate: s.destinationDate || s.eta || '',
           eta: s.eta || '',
@@ -251,6 +256,7 @@ export async function GET(req: NextRequest) {
       } else {
         const existing = containerMap.get(key);
         if (!existing.containerNumber && s.containerNumber) existing.containerNumber = s.containerNumber;
+        if (!existing.blNumber && s.blNumber) existing.blNumber = s.blNumber;
         if (!existing.shippingLine && s.shippingLine) existing.shippingLine = s.shippingLine;
         if (!existing.destinationDate && s.destinationDate) existing.destinationDate = s.destinationDate;
         if (!existing.rawEta && s.rawEta) existing.rawEta = s.rawEta;
@@ -279,6 +285,7 @@ export async function GET(req: NextRequest) {
       { header: 'Container No.', key: 'sr', width: 14 },
       { header: 'Actual Container No.', key: 'actual', width: 24 },
       { header: 'Internal Container', key: 'internal', width: 20 },
+      { header: 'BL No.', key: 'blNumber', width: 22 },
       { header: 'Shipping Line Company Name', key: 'shippingLine', width: 26 },
       { header: 'ETA Date', key: 'newEta', width: 18 },
       { header: 'Port Date', key: 'newPortDate', width: 18 },
@@ -298,14 +305,14 @@ export async function GET(req: NextRequest) {
       cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
       cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
 
-      if (colNumber <= 4) {
-        // Container info columns: Navy Blue (#1E3A8A)
+      if (colNumber <= 5) {
+        // Container & BL info columns: Navy Blue (#1E3A8A)
         cell.fill = {
           type: 'pattern',
           pattern: 'solid',
           fgColor: { argb: 'FF1E3A8A' },
         };
-      } else if (colNumber <= 8) {
+      } else if (colNumber <= 9) {
         // Editable update columns: Forest Green (#047857)
         cell.fill = {
           type: 'pattern',
@@ -337,6 +344,8 @@ export async function GET(req: NextRequest) {
       const rawLastPortDate = c.portDate || c.rawEta || '';
       const cleanLastPortDate = rawLastPortDate && rawLastPortDate !== 'N/A' && rawLastPortDate !== 'Pending' ? rawLastPortDate : '';
 
+      const cleanBlNumber = c.blNumber && c.blNumber !== 'N/A' && c.blNumber !== 'Pending' && c.blNumber !== '-' ? String(c.blNumber).trim() : '';
+
       let latestRemark = '';
       if (Array.isArray(c.remarks) && c.remarks.length > 0) {
         const last = c.remarks[c.remarks.length - 1];
@@ -347,6 +356,7 @@ export async function GET(req: NextRequest) {
         sr: idx + 1,
         actual: c.containerNumber || '',
         internal: c.container || '',
+        blNumber: cleanBlNumber, // If found, show it; if not found, blank!
         shippingLine: c.shippingLine || 'MSC',
         newEta: '',       // Blank for user to enter
         newPortDate: '',  // Blank for user to enter
@@ -365,11 +375,11 @@ export async function GET(req: NextRequest) {
         cell.font = { name: 'Calibri', size: 10 };
         cell.alignment = {
           vertical: 'middle',
-          horizontal: [1, 5, 6, 9, 10].includes(colNumber) ? 'center' : 'left',
+          horizontal: [1, 6, 7, 10, 11].includes(colNumber) ? 'center' : 'left',
         };
 
-        // Light highlight for editable blank update columns (5 to 8)
-        if (colNumber >= 5 && colNumber <= 8) {
+        // Light highlight for editable blank update columns (6 to 9)
+        if (colNumber >= 6 && colNumber <= 9) {
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
@@ -484,6 +494,21 @@ export async function POST(req: NextRequest) {
         getRowVal(row, ['internal container', 'internal', 'container alias', 'container', 'alias']) || ''
       ).trim();
 
+      const blVal = String(
+        getRowVal(row, [
+          'bl no',
+          'bl no.',
+          'bl number',
+          'b/l no',
+          'b/l no.',
+          'b/l number',
+          'bl',
+          'bill of lading',
+          'bill of lading no',
+          'bill of lading number',
+        ]) || ''
+      ).trim().toUpperCase();
+
       const shippingLineVal = String(
         getRowVal(row, ['shipping line company name', 'shipping line', 'carrier', 'company']) || ''
       ).trim();
@@ -537,6 +562,7 @@ export async function POST(req: NextRequest) {
         Boolean(parsedPortDate) ||
         Boolean(portNameVal) ||
         Boolean(remarksVal) ||
+        Boolean(blVal) ||
         (Boolean(shippingLineVal) && shippingLineVal !== 'Default') ||
         (Boolean(actualContainerVal));
 
@@ -565,6 +591,7 @@ export async function POST(req: NextRequest) {
           existingContainer = {
             container: existingShipment.container || internalContainerVal,
             containerNumber: existingShipment.containerNumber || actualContainerVal,
+            blNumber: existingShipment.blNumber || blVal || '',
             shippingLine: existingShipment.shippingLine || shippingLineVal || 'MSC',
             shippedTo: existingShipment.shippedTo || portNameVal || 'India Port',
             destinationDate: existingShipment.destinationDate || existingShipment.eta || '',
@@ -617,6 +644,7 @@ export async function POST(req: NextRequest) {
         dateChanges.push({
           container: effectiveAlias,
           containerNumber: effectiveActual,
+          blNumber: blVal || existingContainer?.blNumber || '',
           shippingLine: effectiveShippingLine,
           portName: portNameVal || existingContainer?.shippedTo || 'India Port',
           isEtaChanged,
@@ -639,6 +667,7 @@ export async function POST(req: NextRequest) {
       };
 
       if (effectiveActual) containerSetFields.containerNumber = effectiveActual;
+      if (blVal) containerSetFields.blNumber = blVal;
       if (effectiveShippingLine) containerSetFields.shippingLine = effectiveShippingLine;
       if (portNameVal) containerSetFields.shippedTo = portNameVal;
 
@@ -714,6 +743,9 @@ export async function POST(req: NextRequest) {
       await invalidateContainerCache(effectiveAlias).catch(() => {});
       if (effectiveActual) {
         await invalidateContainerCache(effectiveActual).catch(() => {});
+      }
+      if (blVal) {
+        await invalidateContainerCache(blVal).catch(() => {});
       }
 
       totalUpdated++;

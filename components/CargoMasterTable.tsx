@@ -63,6 +63,7 @@ import {
 export const ALL_CARGO_COLUMNS: { key: string; label: string }[] = [
   { key: 'container', label: 'Container Alias' },
   { key: 'containerNumber', label: 'Carrier Container' },
+  { key: 'blNumber', label: 'BL No. (B/L)' },
   { key: 'shippingLine', label: 'Shipping Line' },
   { key: 'warehouse', label: 'Warehouse (Origin)' },
   { key: 'startDate', label: 'Loading / Receipt Date' },
@@ -276,10 +277,11 @@ export default function CargoMasterTable({
         const q = searchTerm.toLowerCase();
         const matchAlias = c.container.toLowerCase().includes(q);
         const matchNo = (c.containerNumber || '').toLowerCase().includes(q);
+        const matchBl = (c.blNumber || '').toLowerCase().includes(q);
         const matchLine = (c.shippingLine || '').toLowerCase().includes(q);
         const matchStatus = (c.status || '').toLowerCase().includes(q);
         const matchPort = (c.shippedTo || '').toLowerCase().includes(q);
-        return matchAlias || matchNo || matchLine || matchStatus || matchPort;
+        return matchAlias || matchNo || matchBl || matchLine || matchStatus || matchPort;
       }
 
       return true;
@@ -425,6 +427,30 @@ export default function CargoMasterTable({
                 <span>Rail LDB</span>
                 <ExternalLink className="w-2.5 h-2.5 text-emerald-600" />
               </a>
+            </div>
+          );
+        },
+      },
+      {
+        accessorKey: 'blNumber',
+        header: 'BL No. (B/L)',
+        cell: ({ row }) => {
+          const bl = row.original.blNumber;
+          if (!bl) return <span className="text-slate-400 text-xs italic">—</span>;
+          const isCopied = copiedId === `bl-${row.original.container}`;
+          return (
+            <div className="flex items-center space-x-1.5 font-mono text-xs">
+              <span className="font-bold text-slate-800 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md">
+                {bl}
+              </span>
+              <button
+                type="button"
+                onClick={() => copyToClipboard(bl, `bl-${row.original.container}`)}
+                className="text-slate-400 hover:text-slate-700 p-0.5 transition"
+                title="Copy BL number"
+              >
+                {isCopied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+              </button>
             </div>
           );
         },
@@ -1039,6 +1065,7 @@ export default function CargoMasterTable({
       return {
         'Container Alias': c.container,
         'Actual Container No': c.containerNumber || 'Unmapped',
+        'BL No': c.blNumber || '—',
         'Shipping Line': c.shippingLine || 'MSC',
         'Destination Port': c.shippedTo || 'India Port',
         'Origin Port': c.shippedFrom || 'China Port',

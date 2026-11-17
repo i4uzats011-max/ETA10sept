@@ -47,6 +47,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       container: doc.container,
       containerNumber: doc.containerNumber || '',
+      blNumber: doc.blNumber || '',
       shippingLine: doc.shippingLine || 'MSC',
       shippedFrom: doc.shippedFrom || 'Ningbo / Shanghai, China',
       shippedTo: doc.shippedTo || 'India Port',
