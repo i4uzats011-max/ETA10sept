@@ -45,6 +45,28 @@ function normalizeDate(val: any): string | null {
 }
 
 /**
+ * Determines if a container is already delivered
+ */
+function isContainerDelivered(c: any): boolean {
+  if (!c) return false;
+  if (c.isDelivered === true) return true;
+  if (
+    c.deliveryDate &&
+    typeof c.deliveryDate === 'string' &&
+    c.deliveryDate.trim() &&
+    c.deliveryDate !== '—' &&
+    c.deliveryDate !== 'N/A' &&
+    c.deliveryDate.toLowerCase() !== 'in transit'
+  ) {
+    return true;
+  }
+  if (c.status && typeof c.status === 'string' && c.status.toLowerCase().trim() === 'delivered') {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Builds the comprehensive Date Change .txt report
  */
 function generateDateChangeTxtReport(
@@ -239,6 +261,10 @@ export async function GET(req: NextRequest) {
     const allContainers = Array.from(containerMap.values());
     allContainers.sort((a, b) => String(a.container).localeCompare(String(b.container), undefined, { numeric: true }));
 
+    // User requirement: Delivered containers are not required to be updated anymore.
+    // Exclude delivered containers and export only undelivered / active containers.
+    const undeliveredContainers = allContainers.filter((c) => !isContainerDelivered(c));
+
     // 3. Create Excel Workbook using ExcelJS with clean styling
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'US International Logistics';
@@ -303,8 +329,8 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    // Populate rows
-    allContainers.forEach((c, idx) => {
+    // Populate rows (Undelivered Containers Only)
+    undeliveredContainers.forEach((c, idx) => {
       const rawLastEta = c.destinationDate || c.eta || '';
       const cleanLastEta = rawLastEta && rawLastEta !== 'N/A' && rawLastEta !== 'Pending' ? rawLastEta : '';
 
@@ -362,7 +388,7 @@ export async function GET(req: NextRequest) {
 
     const buffer = await workbook.xlsx.writeBuffer();
     const dateStr = new Date().toISOString().slice(0, 10);
-    const fileName = `Container_Update_Template_${dateStr}.xlsx`;
+    const fileName = `Container_Update_Template_Undelivered_${dateStr}.xlsx`;
 
     return new NextResponse(buffer, {
       status: 200,
@@ -553,6 +579,13 @@ export async function POST(req: NextRequest) {
       const effectiveAlias = internalContainerVal || existingContainer?.container || actualContainerVal;
       const effectiveActual = actualContainerVal || existingContainer?.containerNumber || '';
       const effectiveShippingLine = shippingLineVal || existingContainer?.shippingLine || 'MSC';
+
+      // User requirement: Delivered containers are not allowed/required to be updated anymore
+      if (existingContainer && isContainerDelivered(existingContainer)) {
+        warnings.push(`Skipped ${effectiveAlias}: Container is already marked as Delivered. Delivered containers cannot be modified.`);
+        skippedCount++;
+        continue;
+      }
 
       // Compare Previous vs New Dates to detect DATE CHANGES
       const oldEtaRaw = existingContainer?.destinationDate || existingContainer?.eta || '';

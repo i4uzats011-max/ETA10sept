@@ -95,7 +95,7 @@ export default function BulkContainerUpdateModal({
       const a = document.createElement('a');
       a.href = url;
       const today = new Date().toISOString().slice(0, 10);
-      a.download = `Container_Update_Template_${today}.xlsx`;
+      a.download = `Container_Update_Template_Undelivered_${today}.xlsx`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -254,11 +254,16 @@ export default function BulkContainerUpdateModal({
                   1
                 </div>
                 <div>
-                  <h4 className="text-sm font-black text-slate-900">
-                    Download Container List Template (कंटेनर लिस्ट एक्सेल डाउनलोड करें)
-                  </h4>
-                  <p className="text-xs text-slate-500">
-                    Includes Container No., Actual No., Internal Alias, Shipping Line, Last ETA, Last Port Date & blank columns.
+                  <div className="flex items-center space-x-2">
+                    <h4 className="text-sm font-black text-slate-900">
+                      Download Undelivered Containers Template (अन-डिलीवर्ड कंटेनर एक्सेल)
+                    </h4>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                      Undelivered Only
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Includes only active/undelivered containers. Delivered containers are excluded per policy and cannot be updated.
                   </p>
                 </div>
               </div>
@@ -277,7 +282,7 @@ export default function BulkContainerUpdateModal({
                 ) : (
                   <>
                     <Download className="w-4 h-4" />
-                    <span>Download Excel Template (.xlsx)</span>
+                    <span>Download Undelivered Excel (.xlsx)</span>
                   </>
                 )}
               </button>
