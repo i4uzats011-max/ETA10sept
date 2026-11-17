@@ -182,7 +182,6 @@ const ShipmentSchema = new Schema<IShipment>({
 ShipmentSchema.index({ receipt: 1, container: 1 });
 ShipmentSchema.index({ container: 1, containerNumber: 1 });
 ShipmentSchema.index({ containerNumber: 1, receipt: 1 });
-ShipmentSchema.index({ blNumber: 1 });
 ShipmentSchema.index({ party: 1, receipt: 1 });
 ShipmentSchema.index({ warehouse: 1 });
 ShipmentSchema.index({ receipt: 1, warehouse: 1 });

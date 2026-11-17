@@ -377,6 +377,7 @@ export default function AdminDashboardPage() {
   const [bulkEditData, setBulkEditData] = useState({
     container: '',
     containerNumber: '',
+    blNumber: '',
     shippingLine: '',
     warehouse: '',
     stockstatus: '',
@@ -386,6 +387,7 @@ export default function AdminDashboardPage() {
     receipt: '',
     container: '',
     containerNumber: '',
+    blNumber: '',
     shippingLine: 'MSC',
     mainMarka: '',
     subMarka: '',
@@ -1044,6 +1046,7 @@ export default function AdminDashboardPage() {
           receipt: editingShipment.receipt,
           container: editingShipment.container,
           containerNumber: editingShipment.containerNumber,
+          blNumber: editingShipment.blNumber || '',
           shippingLine: editingShipment.shippingLine,
           english: editingShipment.english,
           commodity: editingShipment.commodity,
@@ -1099,6 +1102,7 @@ export default function AdminDashboardPage() {
         receipt: '',
         container: '',
         containerNumber: '',
+        blNumber: '',
         shippingLine: 'MSC',
         mainMarka: '',
         subMarka: '',
@@ -2252,7 +2256,6 @@ export default function AdminDashboardPage() {
                           value={manualBlNumber}
                           onChange={(e) => setManualBlNumber(e.target.value.toUpperCase())}
                           placeholder="e.g. MEDU12345678"
-                          className="w-full px-3 py-2.5 rounded-lg border border-blue-300 text-xs font-bold bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
                           className="w-full px-3 py-2.5 rounded-lg border border-blue-300 text-xs font-bold bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
                         />
                       </div>
@@ -3646,6 +3649,17 @@ export default function AdminDashboardPage() {
               </div>
 
               <div>
+                <label className="text-slate-600">BL No. (B/L Number)</label>
+                <input
+                  type="text"
+                  value={editingShipment.blNumber || ''}
+                  onChange={(e) => setEditingShipment({ ...editingShipment, blNumber: e.target.value })}
+                  placeholder="e.g. MEDU123456"
+                  className="w-full p-2.5 border rounded-lg mt-1 text-sm font-mono uppercase"
+                />
+              </div>
+
+              <div>
                 <label className="text-slate-600">Shipping Line</label>
                 <select
                   value={editingShipment.shippingLine}
@@ -3788,6 +3802,17 @@ export default function AdminDashboardPage() {
               </div>
 
               <div>
+                <label className="text-slate-600">BL No. (B/L Number)</label>
+                <input
+                  type="text"
+                  value={bulkEditData.blNumber}
+                  onChange={(e) => setBulkEditData({ ...bulkEditData, blNumber: e.target.value })}
+                  placeholder="Leave empty to keep existing"
+                  className="w-full p-2.5 border rounded-lg mt-1 font-mono uppercase"
+                />
+              </div>
+
+              <div>
                 <label className="text-slate-600">Shipping Line</label>
                 <select
                   value={bulkEditData.shippingLine}
@@ -3915,6 +3940,17 @@ export default function AdminDashboardPage() {
                   value={newEntryData.containerNumber}
                   onChange={(e) => setNewEntryData({ ...newEntryData, containerNumber: e.target.value })}
                   placeholder="e.g. MSCU1234567"
+                  className="w-full p-2.5 border rounded-lg mt-1 text-sm font-mono uppercase"
+                />
+              </div>
+
+              <div>
+                <label className="text-slate-600">BL No. (Optional)</label>
+                <input
+                  type="text"
+                  value={newEntryData.blNumber}
+                  onChange={(e) => setNewEntryData({ ...newEntryData, blNumber: e.target.value })}
+                  placeholder="e.g. MEDU123456"
                   className="w-full p-2.5 border rounded-lg mt-1 text-sm font-mono uppercase"
                 />
               </div>

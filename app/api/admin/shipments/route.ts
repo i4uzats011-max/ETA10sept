@@ -108,6 +108,13 @@ export async function PUT(req: NextRequest) {
     // Direct database update: Zero external API calls during user edits
     const updated = await Shipment.findByIdAndUpdate(id, { $set: updateFields }, { new: true });
 
+    if (updateFields.blNumber !== undefined && updated?.container) {
+      await Container.findOneAndUpdate(
+        { container: updated.container },
+        { $set: { blNumber: updateFields.blNumber } }
+      ).catch(() => {});
+    }
+
     // Sync "Overall / Receipt Freight Rate" receipt no. wise to WarehouseReceipt if updated
     if (updateFields.rate !== undefined && updated?.receipt) {
       const cleanRate = String(updateFields.rate).trim();
@@ -264,6 +271,13 @@ export async function POST(req: NextRequest) {
         });
       }
 
+      if (createData.blNumber && created.container) {
+        await Container.findOneAndUpdate(
+          { container: String(created.container).trim() },
+          { $set: { blNumber: String(createData.blNumber).trim() } }
+        ).catch(() => {});
+      }
+
       await recordEditLog(req, {
         action: 'CREATE',
         entityType: 'Shipment',
@@ -378,6 +392,17 @@ export async function POST(req: NextRequest) {
         { _id: { $in: ids } },
         { $set: cleanedUpdateData }
       );
+
+      if (cleanedUpdateData.blNumber) {
+        const matchingForContainers = await Shipment.find({ _id: { $in: ids } }).select({ container: 1 }).lean();
+        const containersToUpdate = Array.from(new Set(matchingForContainers.map((s: any) => s.container).filter(Boolean)));
+        if (containersToUpdate.length > 0) {
+          await Container.updateMany(
+            { container: { $in: containersToUpdate } },
+            { $set: { blNumber: cleanedUpdateData.blNumber } }
+          ).catch(() => {});
+        }
+      }
 
       await recordEditLog(req, {
         action: 'UPDATE',

@@ -121,7 +121,6 @@ const ContainerSchema = new Schema<IContainer>(
 
 // Fast search indexes for public tracking, admin, and employee lookup
 ContainerSchema.index({ containerNumber: 1, container: 1 });
-ContainerSchema.index({ blNumber: 1 });
 ContainerSchema.index({ warehouse: 1, planStatus: 1 });
 ContainerSchema.index({ status: 1, lastApiSync: 1 });
 
