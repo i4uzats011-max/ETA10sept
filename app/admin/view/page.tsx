@@ -453,6 +453,8 @@ export default function InternalEmployeeViewPage() {
         trackingName: targetName,
         items: items.map(item => ({
           receiptNo: item.receipt,
+          warehouse: item.warehouse || '',
+          warehouseReceiptId: item.receiptId ? String(item.receiptId) : '',
           marka: item.mainMarka || item.subMarka || item.party || targetName,
           itemName: translateToEnglish(item.english || item.commodity || item.chinese),
           cbm: item.volume,

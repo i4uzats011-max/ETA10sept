@@ -3,11 +3,18 @@ import { connectToDatabase } from '@/lib/mongodb';
 import Shipment from '@/models/Shipment';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
 import Container from '@/models/Container';
+import ReceiptTracking from '@/models/ReceiptTracking';
+import { isMarkaMatch } from '@/lib/liveTrackingResolver';
+import { isStaffOrAdminAuthenticated } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 export async function GET(req: NextRequest) {
+  if (!isStaffOrAdminAuthenticated(req)) {
+    return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+  }
+
   const { searchParams } = new URL(req.url);
   const receiptQuery = searchParams.get('receipt')?.trim();
   const listParam = searchParams.get('list');
@@ -33,7 +40,7 @@ export async function GET(req: NextRequest) {
     if (markaQuery) {
       const markaRegex = new RegExp(`^${markaQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
 
-      const shipments: any[] = await Shipment.find({
+      const rawShipments: any[] = await Shipment.find({
         $or: [
           { mainMarka: markaRegex },
           { subMarka: markaRegex },
@@ -41,13 +48,26 @@ export async function GET(req: NextRequest) {
         ]
       }).sort({ date: -1 }).lean();
 
-      const whItems: any[] = await WarehouseReceipt.find({
+      const rawWhItems: any[] = await WarehouseReceipt.find({
         $or: [
           { mainMarka: markaRegex },
           { subMarka: markaRegex },
           { party: markaRegex }
         ]
       }).sort({ createdAt: -1 }).lean();
+
+      // Filter strictly by isMarkaMatch so multi-token and partial matches align properly
+      const shipments = rawShipments.filter((s: any) =>
+        isMarkaMatch(markaQuery, s.mainMarka) ||
+        isMarkaMatch(markaQuery, s.subMarka) ||
+        isMarkaMatch(markaQuery, s.party)
+      );
+
+      const whItems = rawWhItems.filter((w: any) =>
+        isMarkaMatch(markaQuery, w.mainMarka) ||
+        isMarkaMatch(markaQuery, w.subMarka) ||
+        isMarkaMatch(markaQuery, w.party)
+      );
 
       // Look up containers for live ETA
       const containerAliases = Array.from(
@@ -72,24 +92,22 @@ export async function GET(req: NextRequest) {
         shipmentsByReceipt.get(rKey)!.push(s);
       });
 
-      // Group WH receipts by receipt
-      const whMap = new Map<string, any>();
-      whItems.forEach((w) => {
-        const rKey = (w.receipt || '').toLowerCase().trim();
-        whMap.set(rKey, w);
-      });
-
       // 2a. Process shipments (supports split containers)
+      // Transaction is uniquely identified by: Receipt No. + Marka + Warehouse Name!
       shipments.forEach((s) => {
         const cDoc = containerMap.get((s.container || '').toLowerCase().trim());
         const liveEta = cDoc?.destinationDate || cDoc?.eta || s.destinationDate || s.eta || '';
         const liveStatus = cDoc?.isDelivered ? 'Delivered' : (s.isDelivered ? 'Delivered' : (cDoc?.status || s.status || 'In Transit'));
-        const uniqueKey = `${s.receipt}_${s.container}`.toLowerCase();
+        const sWh = (s.warehouse || '').toUpperCase().trim();
+        const sMarka = (s.mainMarka || s.subMarka || s.party || markaQuery).toUpperCase().trim();
+        const uniqueKey = `${s.receipt}_${sWh}_${sMarka}_${s.container}_${s.quantity}`.toLowerCase();
 
         if (!seenKeys.has(uniqueKey)) {
           seenKeys.add(uniqueKey);
           receiptList.push({
             receiptNo: s.receipt,
+            warehouse: s.warehouse || '',
+            warehouseReceiptId: s.receiptId ? String(s.receiptId) : '',
             marka: s.mainMarka || s.subMarka || s.party || markaQuery,
             itemName: s.english || s.commodity || s.chinese || '',
             cbm: s.volume || '0',
@@ -109,10 +127,14 @@ export async function GET(req: NextRequest) {
       // 2b. Check remaining warehouse stock or unloaded warehouse items
       whItems.forEach((w) => {
         const rKey = (w.receipt || '').toLowerCase().trim();
+        const wWh = (w.warehouse || '').toUpperCase().trim();
+        const wMarka = (w.mainMarka || w.subMarka || w.party || markaQuery).toUpperCase().trim();
+
         const rShipments = (shipmentsByReceipt.get(rKey) || []).filter((s: any) => {
           const sWh = (s.warehouse || '').toUpperCase().trim();
-          const wWh = (w.warehouse || '').toUpperCase().trim();
           if (sWh && wWh && sWh !== wWh) return false;
+          const sMarka = (s.mainMarka || s.subMarka || s.party || '').toUpperCase().trim();
+          if (sMarka && wMarka && !isMarkaMatch(wMarka, sMarka)) return false;
           return true;
         });
 
@@ -124,11 +146,13 @@ export async function GET(req: NextRequest) {
 
         if (rShipments.length === 0) {
           // Completely in warehouse
-          const uniqueKey = `${w.receipt}_warehouse`.toLowerCase();
+          const uniqueKey = `${w.receipt}_${wWh}_${wMarka}_warehouse`.toLowerCase();
           if (!seenKeys.has(uniqueKey)) {
             seenKeys.add(uniqueKey);
             receiptList.push({
               receiptNo: w.receipt,
+              warehouse: w.warehouse || '',
+              warehouseReceiptId: String(w._id),
               marka: w.mainMarka || w.subMarka || w.party || markaQuery,
               itemName: w.english || w.commodity || w.chinese || (w.items && w.items[0]?.itemName) || '',
               cbm: w.volume || '0',
@@ -145,11 +169,13 @@ export async function GET(req: NextRequest) {
           }
         } else if (remainingQty > 0) {
           // Partially loaded, remaining stock in warehouse
-          const uniqueKey = `${w.receipt}_warehouse_remainder`.toLowerCase();
+          const uniqueKey = `${w.receipt}_${wWh}_${wMarka}_warehouse_remainder`.toLowerCase();
           if (!seenKeys.has(uniqueKey)) {
             seenKeys.add(uniqueKey);
             receiptList.push({
               receiptNo: w.receipt,
+              warehouse: w.warehouse || '',
+              warehouseReceiptId: String(w._id),
               marka: w.mainMarka || w.subMarka || w.party || markaQuery,
               itemName: w.english || w.commodity || w.chinese || (w.items && w.items[0]?.itemName) || '',
               cbm: String(w.remainingVolume || w.volume || '0'),
@@ -165,6 +191,33 @@ export async function GET(req: NextRequest) {
             });
           }
         }
+      });
+
+      // 2c. Check which receipts are already linked in ReceiptTracking
+      // Transaction is matched by: Receipt No. + Warehouse + Marka
+      const allLinkedDocs: any[] = await ReceiptTracking.find({}).lean();
+
+      receiptList.forEach((it) => {
+        let matchedDoc: any = null;
+        for (const doc of allLinkedDocs) {
+          const hasMatch = (doc.receipts || []).some((r: any) => {
+            if ((r.receiptNo || '').trim().toLowerCase() !== it.receiptNo.trim().toLowerCase()) return false;
+            const rWh = (r.warehouse || '').toUpperCase().trim();
+            const itWh = (it.warehouse || '').toUpperCase().trim();
+            if (rWh && itWh && rWh !== itWh) return false;
+            const rMarka = (r.marka || doc.name || '').toUpperCase().trim();
+            const itMarka = (it.marka || markaQuery).toUpperCase().trim();
+            if (rMarka && itMarka && !isMarkaMatch(itMarka, rMarka)) return false;
+            return true;
+          });
+          if (hasMatch) {
+            matchedDoc = doc;
+            break;
+          }
+        }
+        it.isAlreadyLinked = Boolean(matchedDoc);
+        it.linkedToken = matchedDoc ? matchedDoc.token : undefined;
+        it.linkedName = matchedDoc ? (matchedDoc.name || matchedDoc.token) : undefined;
       });
 
       return NextResponse.json({
@@ -242,12 +295,16 @@ export async function GET(req: NextRequest) {
         const totalQty = typeof w.quantity === 'number' ? w.quantity : (parseFloat(String(w.quantity || '0')) || 0);
         const recordedLoaded = typeof w.loadedQuantity === 'number' ? w.loadedQuantity : (parseFloat(String(w.loadedQuantity || '0')) || 0);
 
+        const wWh = (w.warehouse || '').toUpperCase().trim();
+        const wMarka = (w.mainMarka || w.subMarka || w.party || '').toUpperCase().trim();
+
         const wShipments = shipments.filter((s: any) => {
           if (s.receiptId && String(s.receiptId) === String(w._id)) return true;
           const sWh = (s.warehouse || '').toUpperCase().trim();
-          const targetWh = (w.warehouse || '').toUpperCase().trim();
-          if (sWh && targetWh && sWh !== targetWh) return false;
-          return sWh === targetWh;
+          if (sWh && wWh && sWh !== wWh) return false;
+          const sMarka = (s.mainMarka || s.subMarka || s.party || '').toUpperCase().trim();
+          if (sMarka && wMarka && !isMarkaMatch(wMarka, sMarka)) return false;
+          return true;
         });
 
         const actualLoaded = wShipments.reduce((sum: number, s: any) => sum + (parseFloat(String(s.quantity || '0')) || 0), 0);

@@ -3,6 +3,7 @@ import { connectToDatabase } from '@/lib/mongodb';
 import Container from '@/models/Container';
 import Shipment from '@/models/Shipment';
 import { parseReceiptDate } from '@/lib/dateUtils';
+import { isStaffOrAdminAuthenticated } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,6 +41,10 @@ function computeStats(values: number[]): MetricStats {
 }
 
 export async function GET(req: NextRequest) {
+  if (!isStaffOrAdminAuthenticated(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
     // Strictly READ-ONLY operations
     await connectToDatabase();

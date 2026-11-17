@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import translate from '@iamtraction/google-translate';
+import { isAnyAuthenticated } from '@/lib/auth';
 
 // Server-side in-memory translation cache (preserves API quota & provides sub-millisecond response)
 const liveCache = new Map<string, string>();
@@ -10,6 +11,10 @@ const liveCache = new Map<string, string>();
  * without modifying any database records.
  */
 export async function POST(req: NextRequest) {
+  if (!isAnyAuthenticated(req)) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
     const { text, texts, from = 'zh-CN', to = 'en' } = body;

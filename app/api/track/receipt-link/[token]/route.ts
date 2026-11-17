@@ -29,11 +29,30 @@ export async function GET(
     await connectToDatabase();
 
     const trackingDoc = await ReceiptTracking.findOne({ token }).lean();
-    if (!trackingDoc || !trackingDoc.receipts || trackingDoc.receipts.length === 0) {
+    if (!trackingDoc) {
       return NextResponse.json(
-        { success: false, message: 'No shipment found for this tracking link.' },
+        { success: false, message: 'Tracking link not found or expired.' },
         {
           status: 404,
+          headers: {
+            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          }
+        }
+      );
+    }
+
+    if (!trackingDoc.receipts || trackingDoc.receipts.length === 0) {
+      return NextResponse.json(
+        {
+          success: true,
+          token: trackingDoc.token,
+          name: trackingDoc.name || undefined,
+          count: 0,
+          receipts: []
+        },
+        {
           headers: {
             'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
             'Pragma': 'no-cache',

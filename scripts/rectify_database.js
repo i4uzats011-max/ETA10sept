@@ -3,17 +3,20 @@ const fs = require('fs');
 const path = require('path');
 
 function getMongoUri() {
-  const envPath = path.join(__dirname, '..', '.env.local');
-  if (fs.existsSync(envPath)) {
-    const lines = fs.readFileSync(envPath, 'utf-8').split('\n');
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('MONGO_URI=')) {
-        return trimmed.replace('MONGO_URI=', '').trim();
+  if (process.env.MONGO_URI) return process.env.MONGO_URI;
+  for (const envFile of ['.env.local', '.env']) {
+    const envPath = path.join(__dirname, '..', envFile);
+    if (fs.existsSync(envPath)) {
+      const lines = fs.readFileSync(envPath, 'utf-8').split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('MONGO_URI=')) {
+          return trimmed.replace('MONGO_URI=', '').replace(/^["']|["']$/g, '').trim();
+        }
       }
     }
   }
-  return 'mongodb+srv://i4uzats011_db_user:K7X5BETnFdTgTgTE@cluster0.2gn7lxt.mongodb.net/cargo_tracker_v2?appName=Cluster0';
+  throw new Error('MONGO_URI is not defined in environment or .env/.env.local');
 }
 
 async function rectify() {

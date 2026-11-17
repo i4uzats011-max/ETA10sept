@@ -3,7 +3,7 @@ import { connectToDatabase } from '@/lib/mongodb';
 import ReceiptTracking, { IReceiptEntry } from '@/models/ReceiptTracking';
 import Shipment from '@/models/Shipment';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
-import { calculateRemainDays } from '@/lib/liveTrackingResolver';
+import { calculateRemainDays, isMarkaMatch } from '@/lib/liveTrackingResolver';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -89,10 +89,14 @@ export async function POST(
       const whCtn = normalizeCarton(w.quantity) ?? 0;
       const wIdStr = String(w._id);
 
-      const relatedShipments = allShipments.filter((s: any) =>
-        (s.receiptId && String(s.receiptId) === wIdStr) ||
-        ((s.warehouse || '').toUpperCase().trim() === whCode)
-      );
+      const wMarka = (w.mainMarka || w.subMarka || w.party || '').trim();
+      const relatedShipments = allShipments.filter((s: any) => {
+        if (s.receiptId && String(s.receiptId) === wIdStr) return true;
+        const sWh = (s.warehouse || '').toUpperCase().trim();
+        if (sWh && sWh !== whCode) return false;
+        if (!wMarka) return sWh === whCode;
+        return sWh === whCode && isMarkaMatch(wMarka, s.mainMarka || s.subMarka || s.party);
+      });
 
       const primaryShipment = relatedShipments[0] || null;
 
@@ -119,14 +123,17 @@ export async function POST(
     const remainingShipments = allShipments.filter(s => !s.receiptId || !coveredWhIds.has(String(s.receiptId)));
 
     if (remainingShipments.length > 0) {
-      const shipmentsByWh = new Map<string, any[]>();
+      const shipmentsByGroup = new Map<string, any[]>();
       remainingShipments.forEach((s: any) => {
         const whKey = (s.warehouse || 'CHINA').toUpperCase().trim();
-        if (!shipmentsByWh.has(whKey)) shipmentsByWh.set(whKey, []);
-        shipmentsByWh.get(whKey)!.push(s);
+        const sMarkaKey = (s.mainMarka || s.subMarka || s.party || '').toUpperCase().trim();
+        const groupKey = `${whKey}___${sMarkaKey}`;
+        if (!shipmentsByGroup.has(groupKey)) shipmentsByGroup.set(groupKey, []);
+        shipmentsByGroup.get(groupKey)!.push(s);
       });
 
-      for (const [whKey, sList] of shipmentsByWh.entries()) {
+      for (const [groupKey, sList] of shipmentsByGroup.entries()) {
+        const whKey = groupKey.split('___')[0] || 'CHINA';
         const sumQty = sList.reduce((acc: number, s: any) => acc + (normalizeCarton(s.quantity) || 0), 0);
         const origQty = normalizeCarton(sList[0]?.originalTotalQuantity);
         const totalCtn = origQty !== null && origQty > 0 ? origQty : sumQty;
@@ -191,12 +198,9 @@ export async function POST(
 
     // 3a. No warehouse slip matches the input CTN
     if (ctnMatchedCandidates.length === 0) {
-      const hints = candidates.map(c => `${c.warehouse} (${c.totalCtn} CTN)`).join(', ');
       return NextResponse.json({
         success: false,
-        message: candidates.length > 1
-          ? `Receipt #${inputReceiptNo} exists in warehouse records with different carton counts: ${hints}. Your entered carton count (${inputCtn} CTN) does not match. Please enter the exact total cartons received as per your warehouse slip.`
-          : `Verification failed: Carton count (${inputCtn} CTN) does not match total packages received in warehouse for Receipt #${inputReceiptNo} (${candidates[0].totalCtn} CTN). Please enter total cartons received as per your warehouse slip.`
+        message: `Verification failed: The entered carton count (${inputCtn} CTN) does not match our warehouse records for Receipt #${inputReceiptNo}. Please enter the exact total cartons received as per your warehouse receipt slip.`
       }, { status: 400 });
     }
 
@@ -277,10 +281,26 @@ export async function POST(
           }
         }
 
-        // 3. Compare warehouses:
+        // 3. Compare warehouses & markas:
+        // Transaction is unique by: Receipt No. + Marka + Warehouse
         // Different warehouses (e.g. GZ vs YW) -> DIFFERENT RECEIPTS (ALLOWED, NOT a duplicate)!
-        if (newWh && existWh) {
-          return newWh === existWh;
+        if (newWh && existWh && newWh !== existWh) {
+          return false;
+        }
+
+        const candidateMarka = (chosenCandidate.marka || trackingDoc.name || '').toUpperCase().trim();
+        const existingMarka = (r.marka || linkDoc.name || '').toUpperCase().trim();
+
+        // If markas differ, they are distinct parties/transactions (NOT a duplicate)!
+        if (candidateMarka && existingMarka && !isMarkaMatch(candidateMarka, existingMarka)) {
+          return false;
+        }
+
+        if (newWh && existWh && newWh === existWh) {
+          if (candidateMarka && existingMarka) {
+            return isMarkaMatch(candidateMarka, existingMarka);
+          }
+          return true;
         }
 
         // 4. If warehouse could not be determined, but carton count differs across slips

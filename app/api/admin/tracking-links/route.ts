@@ -4,13 +4,18 @@ import { connectToDatabase } from '@/lib/mongodb';
 import ReceiptTracking, { IReceiptEntry } from '@/models/ReceiptTracking';
 import Shipment from '@/models/Shipment';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
-import { resolveLiveReceiptsForTrackingDoc, calculateRemainDays } from '@/lib/liveTrackingResolver';
+import { resolveLiveReceiptsForTrackingDoc, calculateRemainDays, isMarkaMatch } from '@/lib/liveTrackingResolver';
+import { isStaffOrAdminAuthenticated, isAdminAuthenticated } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 // GET all tracking records for admin (resolved 100% LIVE against DB)
 export async function GET(req: NextRequest) {
+  if (!isStaffOrAdminAuthenticated(req)) {
+    return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
     await connectToDatabase();
 
@@ -66,6 +71,10 @@ function escapeRegex(str: string) {
 
 // POST create receipt(s) or attach to existing link (supports single or multiple items)
 export async function POST(req: NextRequest) {
+  if (!isStaffOrAdminAuthenticated(req)) {
+    return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
     await connectToDatabase();
 
@@ -173,42 +182,71 @@ export async function POST(req: NextRequest) {
     }
 
     // Resolve warehouse codes and warehouseReceiptIds for entries if missing
+    // Match by composite parameters: Receipt No. + Marka + Warehouse
     for (const entry of entriesToAdd) {
       if (!entry.warehouse || !entry.warehouseReceiptId) {
         const entryRegex = new RegExp(`^${escapeRegex(entry.receiptNo)}$`, 'i');
+        const entryMarka = (entry.marka || trackingName || '').toUpperCase().trim();
+        const entryCtnNum = parseFloat(String(entry.ctn || '0'));
+
         const whItems: any[] = await WarehouseReceipt.find({ receipt: entryRegex }).lean();
         if (whItems.length > 0) {
-          const entryCtnNum = parseFloat(String(entry.ctn || '0'));
-          let matchedWh = whItems.find((w: any) => (parseFloat(String(w.quantity || '0')) || 0) === entryCtnNum);
+          // 1. Match both Marka and CTN
+          let matchedWh = whItems.find((w: any) => {
+            const wMarka = (w.mainMarka || w.subMarka || w.party || '').toUpperCase().trim();
+            const wQty = parseFloat(String(w.quantity || '0')) || 0;
+            return isMarkaMatch(entryMarka, wMarka) && (entryCtnNum <= 0 || wQty === entryCtnNum);
+          });
+          // 2. Match Marka
+          if (!matchedWh && entryMarka) {
+            matchedWh = whItems.find((w: any) => {
+              const wMarka = (w.mainMarka || w.subMarka || w.party || '').toUpperCase().trim();
+              return isMarkaMatch(entryMarka, wMarka);
+            });
+          }
+          // 3. Match CTN
+          if (!matchedWh && entryCtnNum > 0) {
+            matchedWh = whItems.find((w: any) => (parseFloat(String(w.quantity || '0')) || 0) === entryCtnNum);
+          }
           if (!matchedWh && whItems.length === 1) matchedWh = whItems[0];
           if (matchedWh) {
             if (!entry.warehouse) entry.warehouse = (matchedWh.warehouse || 'CHINA').toUpperCase().trim();
             if (!entry.warehouseReceiptId) entry.warehouseReceiptId = String(matchedWh._id);
             if (!entry.ctn && matchedWh.quantity) entry.ctn = String(matchedWh.quantity);
+            if (!entry.marka && (matchedWh.mainMarka || matchedWh.party)) {
+              entry.marka = matchedWh.mainMarka || matchedWh.party;
+            }
           }
         } else {
           const shipments: any[] = await Shipment.find({ receipt: entryRegex }).lean();
           if (shipments.length > 0) {
-            if (!entry.warehouse) entry.warehouse = (shipments[0].warehouse || 'CHINA').toUpperCase().trim();
-            if (shipments[0].receiptId && !entry.warehouseReceiptId) {
-              entry.warehouseReceiptId = String(shipments[0].receiptId);
+            let matchedShip = shipments.find((s: any) =>
+              isMarkaMatch(entryMarka, s.mainMarka || s.subMarka || s.party)
+            );
+            if (!matchedShip) matchedShip = shipments[0];
+            if (!entry.warehouse) entry.warehouse = (matchedShip.warehouse || 'CHINA').toUpperCase().trim();
+            if (matchedShip.receiptId && !entry.warehouseReceiptId) {
+              entry.warehouseReceiptId = String(matchedShip.receiptId);
+            }
+            if (!entry.marka && (matchedShip.mainMarka || matchedShip.party)) {
+              entry.marka = matchedShip.mainMarka || matchedShip.party;
             }
           }
         }
       }
     }
 
-    // Deduplicate entriesToAdd: if multiple rows represent the same receipt in the same warehouse, keep one
+    // Deduplicate entriesToAdd: Unique transaction key = Receipt No. + Marka + Warehouse Name!
     const uniqueEntriesMap = new Map<string, IReceiptEntry>();
     for (const entry of entriesToAdd) {
-      const uKey = `${entry.receiptNo.toLowerCase()}_${(entry.warehouse || '').toUpperCase()}`;
+      const uKey = `${entry.receiptNo.toLowerCase()}___${(entry.warehouse || '').toUpperCase()}___${(entry.marka || trackingName || '').toUpperCase()}`;
       if (!uniqueEntriesMap.has(uKey)) {
         uniqueEntriesMap.set(uKey, entry);
       }
     }
     entriesToAdd = Array.from(uniqueEntriesMap.values());
 
-    // Check if any receipt is already linked to ANY public tracking link in the same warehouse
+    // Check if any receipt is already linked to ANY public tracking link in the same warehouse & marka
     if (!body.force) {
       const receiptNos = entriesToAdd.map(e => e.receiptNo);
       const allLinkedDocs: any[] = await ReceiptTracking.find({
@@ -217,6 +255,7 @@ export async function POST(req: NextRequest) {
 
       for (const entry of entriesToAdd) {
         const eWh = (entry.warehouse || '').toUpperCase().trim();
+        const eMarka = (entry.marka || trackingName || '').toUpperCase().trim();
 
         for (const linkDoc of allLinkedDocs) {
           const match = (linkDoc.receipts || []).find((r: any) => {
@@ -228,19 +267,34 @@ export async function POST(req: NextRequest) {
             }
 
             const rWh = (r.warehouse || '').toUpperCase().trim();
+            const rMarka = (r.marka || linkDoc.name || '').toUpperCase().trim();
 
-            // 2. Both warehouses known:
-            // Different China warehouses (e.g. GZ vs YW) -> different receipts, NOT a duplicate!
-            if (eWh && rWh) {
-              return eWh === rWh;
+            // Transaction is unique by: Receipt No. + Marka + Warehouse Name
+            // If warehouses differ, they are distinct transactions (different slips)
+            if (eWh && rWh && eWh !== rWh) return false;
+
+            // If markas differ, they are distinct parties/transactions!
+            if (eMarka && rMarka && !isMarkaMatch(eMarka, rMarka)) return false;
+
+            // If both warehouse and marka match (or are compatible)
+            if (eWh && rWh && eWh === rWh) {
+              if (eMarka && rMarka) {
+                return isMarkaMatch(eMarka, rMarka);
+              }
+              return true;
             }
 
-            // 3. Fallback comparison by carton count if warehouse was undefined
+            // Fallback comparison by carton count if warehouse was undefined
             if (entry.ctn && r.ctn) {
               return String(entry.ctn).trim() === String(r.ctn).trim();
             }
 
-            if (!eWh && !rWh) return true;
+            if (!eWh && !rWh) {
+              if (eMarka && rMarka) {
+                return isMarkaMatch(eMarka, rMarka);
+              }
+              return true;
+            }
             return false;
           });
 
@@ -344,6 +398,10 @@ export async function POST(req: NextRequest) {
 
 // PATCH: Rename Allocated Link Name
 export async function PATCH(req: NextRequest) {
+  if (!isAdminAuthenticated(req)) {
+    return NextResponse.json({ success: false, message: 'Unauthorized: Admin access required' }, { status: 401 });
+  }
+
   try {
     await connectToDatabase();
     const body = await req.json();
@@ -398,6 +456,10 @@ export async function PATCH(req: NextRequest) {
 
 // DELETE: Bulk de-link receipts or delete tracking links (Never deletes underlying DB records)
 export async function DELETE(req: NextRequest) {
+  if (!isAdminAuthenticated(req)) {
+    return NextResponse.json({ success: false, message: 'Unauthorized: Admin access required' }, { status: 401 });
+  }
+
   try {
     await connectToDatabase();
     const body = await req.json();

@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import TrackingQuery from '@/models/TrackingQuery';
+import { isStaffOrAdminAuthenticated } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
 // GET all customer queries for admin
 export async function GET(req: NextRequest) {
+  if (!isStaffOrAdminAuthenticated(req)) {
+    return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
     await connectToDatabase();
 

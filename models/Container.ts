@@ -45,6 +45,7 @@ export interface IContainer extends Document {
   apiCallCount?: number;        // Number of times API was called
   apiCallHistory?: Array<{ timestamp: Date; source?: string; eta?: string; status?: string; rawSummary?: any }>; // Full API call audit log
   rawEta?: string;              // Carrier raw ETA before filing buffer
+  portDate?: string;            // Vessel arrival port date (alias for rawEta)
   etaBufferDays?: number;       // Clearance procedure buffer days added to raw ETA (default: 7)
   lastModifiedBy?: string;      // Username of the user who last changed/updated data
   lastModifiedByRole?: string;  // Role of the user who last changed/updated data
@@ -65,6 +66,7 @@ const ContainerSchema = new Schema<IContainer>(
     destinationDate: { type: String, default: 'N/A' },
     eta: { type: String, default: 'N/A' },
     rawEta: { type: String, default: '' },
+    portDate: { type: String, default: '' },
     etaBufferDays: { type: Number, default: 7 },
     lastModifiedBy: { type: String, default: '', index: true, trim: true },
     lastModifiedByRole: { type: String, default: '', trim: true },

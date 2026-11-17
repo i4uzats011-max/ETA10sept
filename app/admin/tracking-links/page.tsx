@@ -141,6 +141,8 @@ export default function AdminTrackingLinksPage() {
   // Single Add Form State
   const [formData, setFormData] = useState({
     receiptNo: '',
+    warehouse: '',
+    warehouseReceiptId: '',
     marka: '',
     itemName: '',
     cbm: '',
@@ -233,6 +235,8 @@ export default function AdminTrackingLinksPage() {
         setFormData(prev => ({
           ...prev,
           receiptNo: result.data.receiptNo || targetReceipt,
+          warehouse: result.data.warehouse || '',
+          warehouseReceiptId: result.data.warehouseReceiptId || '',
           marka: result.data.marka || prev.marka || '',
           itemName: result.data.itemName || '',
           cbm: result.data.cbm || '',
@@ -258,6 +262,8 @@ export default function AdminTrackingLinksPage() {
       {
         id: Math.random().toString(36).substring(2, 9),
         receiptNo: '',
+        warehouse: '',
+        warehouseReceiptId: '',
         marka: formData.marka || '',
         itemName: '',
         cbm: '',
@@ -294,6 +300,8 @@ export default function AdminTrackingLinksPage() {
           copy[index] = {
             ...copy[index],
             receiptNo: result.data.receiptNo || targetReceipt,
+            warehouse: result.data.warehouse || copy[index].warehouse || '',
+            warehouseReceiptId: result.data.warehouseReceiptId || copy[index].warehouseReceiptId || '',
             marka: result.data.marka || copy[index].marka || '',
             itemName: result.data.itemName || '',
             cbm: result.data.cbm || '',
@@ -320,6 +328,8 @@ export default function AdminTrackingLinksPage() {
     }
   };
 
+  const getMarkaRowKey = (r: any) => `${r.receiptNo || ''}___${r.warehouse || ''}___${r.marka || ''}___${r.containerNo || ''}___${r.ctn ?? ''}`;
+
   const handleSelectMarka = async (marka: string) => {
     setMarkaInput(marka);
     const clean = marka.trim();
@@ -335,8 +345,10 @@ export default function AdminTrackingLinksPage() {
       const data = await res.json();
       if (res.ok && data.success && data.receipts) {
         setMarkaReceipts(data.receipts);
-        // By default select all receipts under this Marka
-        setSelectedMarkaReceiptNos(new Set(data.receipts.map((r: any) => r.receiptNo)));
+        // By default select unlinked receipts for this Marka, or all if none/all are linked
+        const unlinked = data.receipts.filter((r: any) => !r.isAlreadyLinked);
+        const defaultSelected = unlinked.length > 0 ? unlinked : data.receipts;
+        setSelectedMarkaReceiptNos(new Set(defaultSelected.map((r: any) => getMarkaRowKey(r))));
         // Auto-fill Allocated Link Name with this Marka
         setFormData(prev => ({
           ...prev,
@@ -354,10 +366,10 @@ export default function AdminTrackingLinksPage() {
     }
   };
 
-  const toggleSelectMarkaReceipt = (rNo: string) => {
+  const toggleSelectMarkaReceipt = (rowKey: string) => {
     const next = new Set(selectedMarkaReceiptNos);
-    if (next.has(rNo)) next.delete(rNo);
-    else next.add(rNo);
+    if (next.has(rowKey)) next.delete(rowKey);
+    else next.add(rowKey);
     setSelectedMarkaReceiptNos(next);
   };
 
@@ -365,7 +377,7 @@ export default function AdminTrackingLinksPage() {
     if (selectedMarkaReceiptNos.size === markaReceipts.length) {
       setSelectedMarkaReceiptNos(new Set());
     } else {
-      setSelectedMarkaReceiptNos(new Set(markaReceipts.map(r => r.receiptNo)));
+      setSelectedMarkaReceiptNos(new Set(markaReceipts.map(r => getMarkaRowKey(r))));
     }
   };
 
@@ -649,7 +661,7 @@ export default function AdminTrackingLinksPage() {
     let payload: any = {};
 
     if (addMode === 'marka') {
-      const itemsToSave = markaReceipts.filter(r => selectedMarkaReceiptNos.has(r.receiptNo));
+      const itemsToSave = markaReceipts.filter(r => selectedMarkaReceiptNos.has(getMarkaRowKey(r)));
       if (itemsToSave.length === 0) {
         alert('Please select at least one receipt from the table to generate link.');
         return;
@@ -674,6 +686,8 @@ export default function AdminTrackingLinksPage() {
           items: [
             {
               receiptNo: formData.receiptNo,
+              warehouse: formData.warehouse,
+              warehouseReceiptId: formData.warehouseReceiptId,
               marka: formData.marka,
               itemName: formData.itemName,
               cbm: formData.cbm,
@@ -712,6 +726,8 @@ export default function AdminTrackingLinksPage() {
         setSelectedMarkaReceiptNos(new Set());
         setFormData({
           receiptNo: '',
+          warehouse: '',
+          warehouseReceiptId: '',
           marka: '',
           itemName: '',
           cbm: '',
@@ -1814,40 +1830,62 @@ export default function AdminTrackingLinksPage() {
                                 />
                               </th>
                               <th className="p-2">Receipt No.</th>
+                              <th className="p-2">Warehouse</th>
                               <th className="p-2">Item Name</th>
                               <th className="p-2">CBM / CTN / Wt</th>
                               <th className="p-2">Container</th>
                               <th className="p-2">ETA</th>
+                              <th className="p-2">Link Status</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
-                            {markaReceipts.map((r) => (
-                              <tr
-                                key={r.receiptNo}
-                                onClick={() => toggleSelectMarkaReceipt(r.receiptNo)}
-                                className={`cursor-pointer transition-colors ${
-                                  selectedMarkaReceiptNos.has(r.receiptNo) ? 'bg-blue-50/70 font-semibold' : 'hover:bg-slate-50'
-                                }`}
-                              >
-                                <td className="p-2 text-center" onClick={(e) => e.stopPropagation()}>
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedMarkaReceiptNos.has(r.receiptNo)}
-                                    onChange={() => toggleSelectMarkaReceipt(r.receiptNo)}
-                                    className="w-3.5 h-3.5 rounded text-blue-600 cursor-pointer"
-                                  />
-                                </td>
-                                <td className="p-2 font-bold font-mono text-slate-900">{r.receiptNo}</td>
-                                <td className="p-2 text-slate-700 truncate max-w-[140px]" title={r.itemName}>
-                                  {r.itemName || '-'}
-                                </td>
-                                <td className="p-2 text-slate-600">
-                                  {r.cbm ? `${r.cbm}m³` : '-'} / {r.ctn ? `${r.ctn}ctn` : '-'}
-                                </td>
-                                <td className="p-2 font-mono text-blue-700">{r.containerNo || '-'}</td>
-                                <td className="p-2 font-bold text-slate-800">{r.eta || '-'}</td>
-                              </tr>
-                            ))}
+                            {markaReceipts.map((r) => {
+                              const rowKey = getMarkaRowKey(r);
+                              const isChecked = selectedMarkaReceiptNos.has(rowKey);
+                              return (
+                                <tr
+                                  key={rowKey}
+                                  onClick={() => toggleSelectMarkaReceipt(rowKey)}
+                                  className={`cursor-pointer transition-colors ${
+                                    isChecked ? 'bg-blue-50/70 font-semibold' : 'hover:bg-slate-50'
+                                  }`}
+                                >
+                                  <td className="p-2 text-center" onClick={(e) => e.stopPropagation()}>
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => toggleSelectMarkaReceipt(rowKey)}
+                                      className="w-3.5 h-3.5 rounded text-blue-600 cursor-pointer"
+                                    />
+                                  </td>
+                                  <td className="p-2 font-bold font-mono text-slate-900">{r.receiptNo}</td>
+                                  <td className="p-2">
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 border text-slate-800 uppercase">
+                                      {r.warehouse ? `${r.warehouse} WH` : 'WH'}
+                                    </span>
+                                  </td>
+                                  <td className="p-2 text-slate-700 truncate max-w-[140px]" title={r.itemName}>
+                                    {r.itemName || '-'}
+                                  </td>
+                                  <td className="p-2 text-slate-600">
+                                    {r.cbm ? `${r.cbm}m³` : '-'} / {r.ctn ? `${r.ctn}ctn` : '-'}
+                                  </td>
+                                  <td className="p-2 font-mono text-blue-700">{r.containerNo || '-'}</td>
+                                  <td className="p-2 font-bold text-slate-800">{r.eta || '-'}</td>
+                                  <td className="p-2">
+                                    {r.isAlreadyLinked ? (
+                                      <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-semibold whitespace-nowrap" title={`Linked to ${r.linkedName}`}>
+                                        Linked ({r.linkedName})
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-semibold whitespace-nowrap">
+                                        Ready to Link
+                                      </span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>

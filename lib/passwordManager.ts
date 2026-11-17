@@ -31,14 +31,20 @@ export function hashPassword(password: string): string {
 }
 
 export function verifyPassword(password: string, stored: string): boolean {
-  if (!stored) return false;
+  if (!stored || !password) return false;
   if (stored.includes(':')) {
     const [salt, originalHash] = stored.split(':');
     const hash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
-    return hash === originalHash;
+    const hashBuf = Buffer.from(hash, 'utf8');
+    const origBuf = Buffer.from(originalHash, 'utf8');
+    if (hashBuf.length !== origBuf.length) return false;
+    return crypto.timingSafeEqual(hashBuf, origBuf);
   }
-  // Direct match for legacy / plain stored passwords
-  return password === stored;
+  // Direct match for legacy / plain stored passwords with constant-time comparison
+  const passBuf = Buffer.from(password, 'utf8');
+  const storedBuf = Buffer.from(stored, 'utf8');
+  if (passBuf.length !== storedBuf.length) return false;
+  return crypto.timingSafeEqual(passBuf, storedBuf);
 }
 
 export function isDefaultRolePassword(role: UserRole, candidate: string): boolean {

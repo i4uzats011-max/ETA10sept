@@ -572,13 +572,13 @@ export default function PublicReceiptTrackingPage() {
       });
       const data = await res.json();
 
-      if (!res.ok || !data.success || !data.receipts || data.receipts.length === 0) {
+      if (!res.ok || !data.success) {
         setError(data.message || 'Tracking link not found or expired.');
         setReceipts([]);
         setLinkName(null);
       } else {
         setError(null);
-        setReceipts(data.receipts);
+        setReceipts(data.receipts || []);
         setLinkName(data.name || null);
         const now = new Date();
         setLastUpdated(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
@@ -1758,6 +1758,35 @@ export default function PublicReceiptTrackingPage() {
             <p className="text-xs text-slate-500 max-w-md mx-auto">
               Please double-check the URL or contact US International Logistics for an updated tracking link.
             </p>
+          </div>
+        )}
+
+        {/* Empty State when tracking link exists but no receipts linked yet */}
+        {!loading && !error && receipts.length === 0 && (
+          <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center shadow-sm space-y-4">
+            <div className="w-16 h-16 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto border border-emerald-200">
+              <Package className="w-8 h-8" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-slate-900">No Cargo Receipts Linked Yet</h3>
+              <p className="text-xs text-slate-500 max-w-md mx-auto mt-1">
+                This tracking link is active for your shipments. You can add your warehouse receipts using your Receipt Number and Carton Count (CTN).
+              </p>
+            </div>
+            <div>
+              <button
+                type="button"
+                onClick={() => {
+                  setAddError(null);
+                  setExistingLinkDetails(null);
+                  setIsAddReceiptOpen(true);
+                }}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition shadow-md cursor-pointer text-sm"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Receipt Now</span>
+              </button>
+            </div>
           </div>
         )}
 

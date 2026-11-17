@@ -26,6 +26,7 @@ import { formatGlobalDate, parseReceiptDate } from '@/lib/dateUtils';
 import CargoMasterChart from './CargoMasterChart';
 import MarkDeliveredModal from './MarkDeliveredModal';
 import ContainerRateDownloadModal from './ContainerRateDownloadModal';
+import BulkContainerUpdateModal from './BulkContainerUpdateModal';
 import { getCarrierTrackingUrl, getLdbRailwayTrackingUrl } from '@/lib/trackingUrls';
 import { downloadContainerWiseRateExcel, downloadReceiptWiseRateExcel } from '@/lib/containerRateExport';
 import * as XLSX from 'xlsx';
@@ -112,6 +113,7 @@ export default function CargoMasterTable({
   const [isDownloadingReceiptRates, setIsDownloadingReceiptRates] = useState(false);
   const [isRateModalOpen, setIsRateModalOpen] = useState(false);
   const [selectedContainerForModal, setSelectedContainerForModal] = useState<string>('ALL');
+  const [isBulkExcelModalOpen, setIsBulkExcelModalOpen] = useState(false);
 
   useEffect(() => {
     fetch('/api/auth/me')
@@ -1091,6 +1093,13 @@ export default function CargoMasterTable({
         onClose={() => setIsRateModalOpen(false)}
         initialContainer={selectedContainerForModal}
       />
+      <BulkContainerUpdateModal
+        isOpen={isBulkExcelModalOpen}
+        onClose={() => setIsBulkExcelModalOpen(false)}
+        onSuccess={() => {
+          dispatch(fetchCargoFleet());
+        }}
+      />
 
       {/* Action Notification Banner */}
       {actionMessage && (
@@ -1180,6 +1189,18 @@ export default function CargoMasterTable({
 
               {/* Dual Download Buttons + Container Rates */}
               <div className="flex flex-wrap items-center gap-1.5">
+                {!isStaffOnly && (
+                  <button
+                    type="button"
+                    onClick={() => setIsBulkExcelModalOpen(true)}
+                    className="px-2.5 sm:px-3 py-1.5 sm:py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white rounded-xl font-black text-xs transition flex items-center space-x-1.5 shadow-xs"
+                    title="Bulk update container ETA date, port date, port name & remarks via Excel, and auto-generate date change .txt audit file"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-white" />
+                    <span className="hidden sm:inline">Bulk Excel Update (ETA/Port/Remarks)</span>
+                    <span className="sm:hidden">Excel Update</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => exportToExcel(false)}

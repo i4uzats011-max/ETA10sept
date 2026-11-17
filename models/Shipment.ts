@@ -60,6 +60,7 @@ export interface IShipment extends Document {
   apiCalled?: boolean;          // Whether API was invoked for this container/shipment
   apiCallCount?: number;        // Count of API calls made
   rawEta?: string;              // Carrier raw ETA
+  portDate?: string;            // Vessel arrival port date
   etaBufferDays?: number;       // Clearance procedure buffer days added to raw ETA (default: 7)
   lastModifiedBy?: string;      // Username of the user who last changed/updated data
   lastModifiedByRole?: string;  // Role of the user who last changed/updated data
@@ -137,6 +138,7 @@ const ShipmentSchema = new Schema<IShipment>({
 
   eta: { type: String, default: 'N/A' },
   rawEta: { type: String, default: '' },
+  portDate: { type: String, default: '' },
   etaBufferDays: { type: Number, default: 7 },
   lastModifiedBy: { type: String, default: '', index: true, trim: true },
   lastModifiedByRole: { type: String, default: '', trim: true },

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import TrackingQuery from '@/models/TrackingQuery';
+import { isStaffOrAdminAuthenticated, isAdminAuthenticated } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,6 +10,10 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  if (!isStaffOrAdminAuthenticated(req)) {
+    return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
     const id = params.id;
     const body = await req.json();
@@ -58,6 +63,10 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  if (!isAdminAuthenticated(req)) {
+    return NextResponse.json({ success: false, message: 'Unauthorized: Admin access required' }, { status: 401 });
+  }
+
   try {
     const id = params.id;
     await connectToDatabase();

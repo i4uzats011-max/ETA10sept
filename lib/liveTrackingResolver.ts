@@ -25,15 +25,79 @@ export interface ILivePublicReceipt {
   adminNotes?: string;
 }
 
+export const GENERIC_MARKA_WORDS = new Set([
+  'PARTY', 'GENERAL', 'GENERALPARTY', 'TRADERS', 'TRADING', 'ENTERPRISES',
+  'ENTERPRISE', 'IMPEX', 'EXPORTS', 'IMPORTS', 'EXPORT', 'IMPORT',
+  'PVT', 'LTD', 'LIMITED', 'CORP', 'CORPORATION', 'CO', 'COMPANY',
+  'CARGO', 'LOGISTICS', 'INTERNATIONAL', 'INDIA', 'CHINA', 'WAREHOUSE'
+]);
+
 /**
- * Resolves which WarehouseReceipt belongs to this tracking entry when
- * the same receipt number exists across multiple China warehouses (e.g. Guangzhou vs Yiwu).
+ * Normalizes shipping mark string for resilient comparison.
+ */
+export function normalizeMarkaStr(str?: string): string {
+  if (!str) return '';
+  return String(str).toUpperCase().replace(/[\s\-_/\\,.]+/g, '').trim();
+}
+
+export function extractDistinctiveTokens(str?: string): string[] {
+  if (!str) return [];
+  const rawTokens = String(str).toUpperCase().split(/[\s,;/\\|_\-]+/).filter(Boolean);
+  return rawTokens
+    .map(t => t.replace(/[^A-Z0-9]/g, '').trim())
+    .filter(t => t.length >= 2 && !GENERIC_MARKA_WORDS.has(t));
+}
+
+/**
+ * Evaluates whether an item's shipping mark or party matches the target party/marka.
+ * Avoids false-positive matches on common suffixes like 'TRADERS', 'PARTY', 'IMPEX'.
+ */
+export function isMarkaMatch(targetMarka?: string, itemMarka?: string): boolean {
+  if (!targetMarka || !itemMarka) return false;
+  const tNorm = normalizeMarkaStr(targetMarka);
+  const mNorm = normalizeMarkaStr(itemMarka);
+  if (!tNorm || !mNorm) return false;
+  if (GENERIC_MARKA_WORDS.has(tNorm) || GENERIC_MARKA_WORDS.has(mNorm)) return false;
+  if (tNorm === mNorm) return true;
+
+  // 1. Composite / Delimited list check: e.g. 'SJT-720/1 / SJT-720/2' vs 'SJT-720/1'
+  const tDelim = String(targetMarka).toUpperCase().split(/[,;|/]+/).map(normalizeMarkaStr).filter(Boolean);
+  const mDelim = String(itemMarka).toUpperCase().split(/[,;|/]+/).map(normalizeMarkaStr).filter(Boolean);
+  if (tDelim.some(t => !GENERIC_MARKA_WORDS.has(t) && mDelim.includes(t))) return true;
+
+  // 2. Normalized prefix check for shipping mark codes (e.g. SJT720 vs SJT720A)
+  if (tNorm.length >= 4 && mNorm.length >= 4) {
+    if (tNorm.startsWith(mNorm) || mNorm.startsWith(tNorm)) {
+      const diff = Math.abs(tNorm.length - mNorm.length);
+      if (diff <= 2) return true;
+    }
+  }
+
+  // 3. Distinctive words matching (excluding generic business terms like TRADERS, PARTY, IMPEX)
+  const tTokens = extractDistinctiveTokens(targetMarka);
+  const mTokens = extractDistinctiveTokens(itemMarka);
+  if (tTokens.length === 0 || mTokens.length === 0) return false;
+
+  const hasExactTokenMatch = tTokens.some(t => mTokens.some(m => t === m && t.length >= 3));
+  if (hasExactTokenMatch) {
+    if (tTokens.length >= 2 && mTokens.length >= 2) {
+      const overlap = tTokens.filter(t => mTokens.includes(t)).length;
+      return overlap >= Math.min(tTokens.length, mTokens.length);
+    }
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Resolves which WarehouseReceipt belongs to this tracking entry.
+ * Transaction is unique by composite key: Receipt No. + Marka + Warehouse Name!
  * Matches by:
  * 1. entry.warehouseReceiptId
- * 2. entry.warehouse
- * 3. entry.ctn matching w.quantity
- * 4. entry.marka / trackingDoc.name matching w.mainMarka / w.subMarka / w.party
- * 5. entry.containerNo matching s.container
+ * 2. entry.warehouse + entry.marka + entry.ctn
+ * 3. entry.marka / trackingDoc.name matching w.mainMarka / w.subMarka / w.party
+ * 4. Multi-factor scoring
  */
 export function pickTargetWarehouseReceipt(
   entry: any,
@@ -45,7 +109,8 @@ export function pickTargetWarehouseReceipt(
 
   const entryWh = (entry.warehouse || '').toUpperCase().trim();
   const entryWhId = String(entry.warehouseReceiptId || '').trim();
-  const entryMarka = (entry.marka || defaultMarka || '').toUpperCase().trim();
+  const explicitMarka = (entry.marka || '').toUpperCase().trim();
+  const fallbackMarka = (defaultMarka || '').toUpperCase().trim();
   const entryCtn = parseFloat(String(entry.ctn || '0'));
   const entryContainer = (entry.containerNo || '').toUpperCase().trim();
 
@@ -55,23 +120,69 @@ export function pickTargetWarehouseReceipt(
     if (found) return found;
   }
 
-  // 2. Direct match on warehouse code (Rule 1: Receipt numbers are unique per warehouse)
-  // If warehouse was explicitly specified (e.g. "GZ"), it MUST match that warehouse
+  // Filter pool by warehouse if warehouse was explicitly specified
+  let candidatePool = whList;
   if (entryWh) {
-    const found = whList.find(w => (w.warehouse || '').toUpperCase().trim() === entryWh);
-    if (found) return found;
-    // CRITICAL: If an explicit warehouse was requested (e.g. GZ), but whList only has YW,
-    // we MUST NOT blindly fall back to YW! Rule 1: Every receipt is unique per warehouse.
-    return null;
+    candidatePool = whList.filter(w => (w.warehouse || '').toUpperCase().trim() === entryWh);
+    // If an explicit warehouse was requested (e.g. GZ), but whList has none for that warehouse,
+    // we MUST NOT blindly fall back to another warehouse (Rule 1: Never cross warehouses).
+    if (candidatePool.length === 0) return null;
   }
 
-  if (whList.length === 1) return whList[0];
+  // 2. Match on Explicit Marka + CTN within candidatePool (Entry's own CTN & Marka take highest priority)
+  if (explicitMarka && entryCtn > 0) {
+    const matchBothAndCtn = candidatePool.find(w => {
+      const wQty = typeof w.quantity === 'number' ? w.quantity : (parseFloat(String(w.quantity || '0')) || 0);
+      const wMarka = (w.mainMarka || w.subMarka || w.party || '').toUpperCase().trim();
+      return isMarkaMatch(explicitMarka, wMarka) && wQty === entryCtn;
+    });
+    if (matchBothAndCtn) return matchBothAndCtn;
+  }
 
-  // 3. Multi-factor scoring across warehouses
+  // 2b. Match by Carton count within candidatePool (CTN criteria basis: e.g. GZ: 229 CTN vs YW: 2 CTN)
+  if (entryCtn > 0) {
+    const matchCtn = candidatePool.find(w => {
+      const wQty = typeof w.quantity === 'number' ? w.quantity : (parseFloat(String(w.quantity || '0')) || 0);
+      return wQty === entryCtn;
+    });
+    if (matchCtn) return matchCtn;
+  }
+
+  // 2c. Match warehouse + explicit marka
+  if (explicitMarka) {
+    const matchMarka = candidatePool.find(w => {
+      const wMarka = (w.mainMarka || w.subMarka || w.party || '').toUpperCase().trim();
+      return isMarkaMatch(explicitMarka, wMarka);
+    });
+    if (matchMarka) return matchMarka;
+  }
+
+  if (candidatePool.length === 1) return candidatePool[0];
+
+  // 2d. Fallback Marka match (Link overall title) + CTN if multiple candidates remain
+  if (fallbackMarka && entryCtn > 0) {
+    const matchFallbackCtn = candidatePool.find(w => {
+      const wQty = typeof w.quantity === 'number' ? w.quantity : (parseFloat(String(w.quantity || '0')) || 0);
+      const wMarka = (w.mainMarka || w.subMarka || w.party || '').toUpperCase().trim();
+      return isMarkaMatch(fallbackMarka, wMarka) && wQty === entryCtn;
+    });
+    if (matchFallbackCtn) return matchFallbackCtn;
+  }
+
+  if (fallbackMarka) {
+    const matchFallback = candidatePool.find(w => {
+      const wMarka = (w.mainMarka || w.subMarka || w.party || '').toUpperCase().trim();
+      return isMarkaMatch(fallbackMarka, wMarka);
+    });
+    if (matchFallback) return matchFallback;
+  }
+
+  // 3. Multi-factor scoring across candidatePool
   let bestScore = -1;
-  let bestWh = whList[0];
+  let bestWh = candidatePool[0];
+  const activeMarka = explicitMarka || fallbackMarka;
 
-  for (const w of whList) {
+  for (const w of candidatePool) {
     let score = 0;
     const wMainMarka = (w.mainMarka || '').toUpperCase().trim();
     const wSubMarka = (w.subMarka || '').toUpperCase().trim();
@@ -79,14 +190,11 @@ export function pickTargetWarehouseReceipt(
     const wQty = typeof w.quantity === 'number' ? w.quantity : (parseFloat(String(w.quantity || '0')) || 0);
 
     // Exact or partial marka match
-    if (entryMarka) {
-      if (wMainMarka === entryMarka || wSubMarka === entryMarka || wParty === entryMarka) {
+    if (activeMarka) {
+      if (wMainMarka === activeMarka || wSubMarka === activeMarka || wParty === activeMarka) {
+        score += 30;
+      } else if (isMarkaMatch(activeMarka, wMainMarka) || isMarkaMatch(activeMarka, wSubMarka) || isMarkaMatch(activeMarka, wParty)) {
         score += 20;
-      } else if (
-        (wMainMarka && (wMainMarka.includes(entryMarka) || entryMarka.includes(wMainMarka))) ||
-        (wParty && (wParty.includes(entryMarka) || entryMarka.includes(wParty)))
-      ) {
-        score += 10;
       }
     }
 
@@ -304,31 +412,91 @@ export async function resolveLiveReceiptsForTrackingDoc(
 
     // Target the specific warehouse receipt matching this tracking entry
     const whDoc = pickTargetWarehouseReceipt(entry, defaultMarka, whList, allShipmentsForReceipt);
-    const targetWarehouse = whDoc?.warehouse || entry.warehouse || '';
+    let targetWarehouse = (whDoc?.warehouse || entry.warehouse || '').toUpperCase().trim();
+    // Rule: For multi-marka links, the receipt's own Marka or warehouse slip Marka takes precedence over link name
+    const targetMarka = (entry.marka || whDoc?.mainMarka || whDoc?.subMarka || whDoc?.party || defaultMarka || '').toUpperCase().trim();
+    let targetReceiptId = whDoc?._id ? String(whDoc._id) : (entry.warehouseReceiptId ? String(entry.warehouseReceiptId) : '');
 
-    // Filter shipments strictly for this warehouse receipt so different warehouses/parties never mix
-    let rShipments: any[] = [];
-    if (whDoc) {
-      const targetWhCode = (whDoc.warehouse || targetWarehouse || '').toUpperCase().trim();
-      rShipments = allShipmentsForReceipt.filter((s: any) => {
-        const sWh = (s.warehouse || '').toUpperCase().trim();
-        // Rule 1: A shipment for YW must never match a GZ receipt and vice versa
-        if (sWh && targetWhCode && sWh !== targetWhCode) return false;
-
-        if (s.receiptId && String(s.receiptId) === String(whDoc._id)) return true;
-        if (sWh && targetWhCode && sWh === targetWhCode) return true;
-        if (!sWh && s.mainMarka && whDoc.mainMarka && s.mainMarka.toUpperCase().trim() === whDoc.mainMarka.toUpperCase().trim()) return true;
-        return !sWh && !targetWhCode;
+    const entryCtnNum = parseFloat(String(entry.ctn || '0'));
+    // If warehouse was not specified on entry or whDoc, infer strictly from shipments matching this receipt's CTN / Marka
+    if (!targetWarehouse && allShipmentsForReceipt.length > 0) {
+      // 1. Match both CTN criteria and Marka
+      let sMatched = allShipmentsForReceipt.find((s: any) => {
+        const sQty = parseFloat(String(s.quantity || s.originalTotalQuantity || '0')) || 0;
+        const matchesCtn = entryCtnNum > 0 && sQty === entryCtnNum;
+        const matchesMarka = targetMarka && isMarkaMatch(targetMarka, s.mainMarka || s.subMarka || s.party);
+        return matchesCtn && matchesMarka;
       });
-    } else if (targetWarehouse) {
-      rShipments = allShipmentsForReceipt.filter((s: any) =>
-        (s.warehouse || '').toUpperCase().trim() === targetWarehouse.toUpperCase().trim()
-      );
-    } else {
-      rShipments = allShipmentsForReceipt;
+      // 2. Match CTN criteria basis (strictly separates GZ vs YW for same receipt no.)
+      if (!sMatched && entryCtnNum > 0) {
+        sMatched = allShipmentsForReceipt.find((s: any) => {
+          const sQty = parseFloat(String(s.quantity || s.originalTotalQuantity || '0')) || 0;
+          return sQty === entryCtnNum;
+        });
+      }
+      // 3. Match Marka
+      if (!sMatched && targetMarka) {
+        sMatched = allShipmentsForReceipt.find((s: any) =>
+          isMarkaMatch(targetMarka, s.mainMarka || s.subMarka || s.party)
+        );
+      }
+      if (!sMatched && allShipmentsForReceipt.length > 0) {
+        sMatched = allShipmentsForReceipt[0];
+      }
+      if (sMatched?.warehouse) {
+        targetWarehouse = (sMatched.warehouse || '').toUpperCase().trim();
+      }
+      if (!targetReceiptId && sMatched?.receiptId) {
+        targetReceiptId = String(sMatched.receiptId);
+      }
     }
 
-    // Common Fallback / Master Marka (entry.marka takes precedence)
+    // Filter shipments strictly for this warehouse receipt & party so different warehouses/parties never mix
+    // Rule: Transaction is unique by composite key: Receipt No. + Marka + Warehouse Name!
+    // NEVER SHOW OTHER WAREHOUSE SAME RECEIPT NO.
+    let rShipments: any[] = allShipmentsForReceipt.filter((s: any) => {
+      const sWh = (s.warehouse || '').toUpperCase().trim();
+      // 1. Strict Warehouse match: GZ and YW never mix - NEVER show other warehouse
+      if (targetWarehouse) {
+        if (!sWh || sWh !== targetWarehouse) return false;
+      }
+
+      // 2. Exact receiptId match
+      if (targetReceiptId && s.receiptId && String(s.receiptId) === targetReceiptId) return true;
+
+      // 3. If shipment belongs to a different warehouse receipt in whList, don't hijack it
+      if (s.receiptId && whDoc && String(s.receiptId) !== String(whDoc._id)) {
+        return false;
+      }
+      if (s.receiptId && targetReceiptId && String(s.receiptId) !== targetReceiptId) {
+        return false;
+      }
+
+      // 4. Marka match: Different parties must NEVER mix
+      const sMainMarka = (s.mainMarka || '').toUpperCase().trim();
+      const sSubMarka = (s.subMarka || '').toUpperCase().trim();
+      const sParty = (s.party || '').toUpperCase().trim();
+      const sHasMarka = Boolean(sMainMarka || sSubMarka || (sParty && sParty !== 'GENERAL PARTY'));
+
+      if (targetMarka && sHasMarka) {
+        const matchesMarka = isMarkaMatch(targetMarka, sMainMarka) ||
+                             isMarkaMatch(targetMarka, sSubMarka) ||
+                             isMarkaMatch(targetMarka, sParty);
+        if (!matchesMarka) {
+          // Explicitly belongs to a DIFFERENT party -> DO NOT MATCH!
+          return false;
+        }
+      }
+
+      // Fallback: must match targetWarehouse if specified
+      if (targetWarehouse) {
+        return sWh === targetWarehouse;
+      }
+
+      return !sWh;
+    });
+
+    // Common Fallback / Master Marka (entry.marka or warehouse slip marka takes precedence over default link name)
     const baseMarka =
       entry.marka ||
       whDoc?.mainMarka ||
@@ -425,7 +593,7 @@ export async function resolveLiveReceiptsForTrackingDoc(
         // Check if shipment itself has multi-items breakdown (goodsItems)
         if (Array.isArray(s.goodsItems) && s.goodsItems.length > 1) {
           for (let gIdx = 0; gIdx < s.goodsItems.length; gIdx++) {
-            const shipItemKey = `${rKey}_${(targetWarehouse || '').toUpperCase()}_${String(s._id || s.container)}_${s.quantity}_item_${gIdx}`;
+            const shipItemKey = `${rKey}_${targetWarehouse}_${targetMarka}_${String(s._id || s.container)}_${s.quantity}_item_${gIdx}`;
             if (seenShipmentKeys.has(shipItemKey)) continue;
             seenShipmentKeys.add(shipItemKey);
 
@@ -453,7 +621,7 @@ export async function resolveLiveReceiptsForTrackingDoc(
             });
           }
         } else {
-          const shipKey = `${rKey}_${(targetWarehouse || '').toUpperCase()}_${String(s._id || s.container)}_${s.quantity}`;
+          const shipKey = `${rKey}_${targetWarehouse}_${targetMarka}_${String(s._id || s.container)}_${s.quantity}`;
           if (!seenShipmentKeys.has(shipKey)) {
             seenShipmentKeys.add(shipKey);
             resolvedList.push({
@@ -514,7 +682,7 @@ export async function resolveLiveReceiptsForTrackingDoc(
           const whDate = whDoc.date || whDoc.createdAt;
           const fallbackEta = calculateCommittedEta(whDate);
 
-          const remainderKey = `${rKey}_${(targetWarehouse || '').toUpperCase()}_wh_remainder`;
+          const remainderKey = `${rKey}_${targetWarehouse}_${targetMarka}_wh_remainder`;
           if (!seenShipmentKeys.has(remainderKey)) {
             seenShipmentKeys.add(remainderKey);
             const whStatus = whDoc.status && !/deliver/i.test(whDoc.status) ? whDoc.status : 'Received in Warehouse';
@@ -559,7 +727,7 @@ export async function resolveLiveReceiptsForTrackingDoc(
       // Multi-item check in warehouse receipt
       if (Array.isArray(whDoc.items) && whDoc.items.length > 1) {
         for (let wIdx = 0; wIdx < whDoc.items.length; wIdx++) {
-          const whKey = `${rKey}_${(targetWarehouse || '').toUpperCase()}_wh_item_${wIdx}`;
+          const whKey = `${rKey}_${targetWarehouse}_${targetMarka}_wh_item_${wIdx}`;
           if (seenShipmentKeys.has(whKey)) continue;
           seenShipmentKeys.add(whKey);
 
@@ -585,7 +753,7 @@ export async function resolveLiveReceiptsForTrackingDoc(
           });
         }
       } else {
-        const whKey = `${rKey}_${(targetWarehouse || '').toUpperCase()}_wh_0`;
+        const whKey = `${rKey}_${targetWarehouse}_${targetMarka}_wh_0`;
         if (!seenShipmentKeys.has(whKey)) {
           seenShipmentKeys.add(whKey);
           const whItemName =
@@ -641,13 +809,14 @@ export async function resolveLiveReceiptsForTrackingDoc(
         : (options.includeAdminFields ? 'In Warehouse (Not Loaded)' : '');
       const finalEta = entry.eta || fallbackEta;
 
-      const entryKey = `${rKey}_${(entry.warehouse || '').toUpperCase()}_standalone_${entry.id || (entry.containerNo + '_' + entry.ctn)}`;
+      const entryKey = `${rKey}_${(entry.warehouse || '').toUpperCase()}_${targetMarka}_standalone_${entry.id || (entry.containerNo + '_' + entry.ctn)}`;
       if (!seenShipmentKeys.has(entryKey)) {
         seenShipmentKeys.add(entryKey);
         resolvedList.push({
           id: entry.id || rNo,
           marka: entry.marka || defaultMarka || '-',
           receiptNo: rNo || 'N/A',
+          warehouse: entry.warehouse || undefined,
           itemName: entry.itemName || '-',
           containerNo: displayContainer,
           actualContainerNo: options.includeAdminFields ? (entry.actualContainerNo || '') : undefined,

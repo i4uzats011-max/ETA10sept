@@ -22,6 +22,7 @@ import ChangePasswordModal from '@/components/ChangePasswordModal';
 import UserManager from '@/components/UserManager';
 import EditLogViewer from '@/components/EditLogViewer';
 import ContainerRateDownloadModal from '@/components/ContainerRateDownloadModal';
+import BulkContainerUpdateModal from '@/components/BulkContainerUpdateModal';
 import { getCarrierTrackingUrl, getLdbRailwayTrackingUrl } from '@/lib/trackingUrls';
 import { downloadContainerWiseRateExcel, downloadReceiptWiseRateExcel } from '@/lib/containerRateExport';
 import { ReduxProvider } from '@/store/ReduxProvider';
@@ -284,6 +285,7 @@ export default function AdminDashboardPage() {
   const [isSettingManualEta, setIsSettingManualEta] = useState(false);
   const [manualEtaStatus, setManualEtaStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [manualEtaLastUpdated, setManualEtaLastUpdated] = useState<string | null>(null);
+  const [isBulkExcelModalOpen, setIsBulkExcelModalOpen] = useState(false);
 
   // Container Remarks & Status Timeline state (Container-wise chronological records)
   const [containerRemarks, setContainerRemarks] = useState<Array<{ _id?: string; date: string; remarks: string; createdAt?: string; createdBy?: string }>>([]);
@@ -1743,6 +1745,31 @@ export default function AdminDashboardPage() {
               <div>
                 <strong>Zero JSONCargo API Calls:</strong> API quota is exhausted. Updating dates, destination ports, and container numbers here directly modifies MongoDB across all receipts under this container without consuming any carrier API credits.
               </div>
+            </div>
+
+            {/* Bulk Excel Update Launcher Banner */}
+            <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-blue-50 border-2 border-emerald-400 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <FileSpreadsheet className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-xs sm:text-sm font-black text-slate-900">
+                    Bulk Excel Update (ETA Date, Port Date &amp; Remarks)
+                  </h3>
+                  <p className="text-[11px] text-slate-600">
+                    Step 1: Download container Excel • Step 2: Fill updates &amp; upload • ⚡ Auto-generates .txt file for date changes
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsBulkExcelModalOpen(true)}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl transition flex items-center justify-center space-x-2 shrink-0 shadow-xs"
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                <span>Open Bulk Excel Updater</span>
+              </button>
             </div>
 
             {/* Success / Error Notification */}
@@ -3972,6 +3999,15 @@ export default function AdminDashboardPage() {
         isOpen={isRateModalOpen}
         onClose={() => setIsRateModalOpen(false)}
         initialContainer={selectedContainerForModal}
+      />
+
+      {/* Bulk Excel Update Modal */}
+      <BulkContainerUpdateModal
+        isOpen={isBulkExcelModalOpen}
+        onClose={() => setIsBulkExcelModalOpen(false)}
+        onSuccess={() => {
+          fetchContainerFleet();
+        }}
       />
     </div>
   );

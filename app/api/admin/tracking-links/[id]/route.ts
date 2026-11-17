@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import ReceiptTracking from '@/models/ReceiptTracking';
 import { calculateRemainDays } from '@/lib/liveTrackingResolver';
+import { isAdminAuthenticated } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,6 +11,10 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  if (!isAdminAuthenticated(req)) {
+    return NextResponse.json({ success: false, message: 'Unauthorized: Admin access required' }, { status: 401 });
+  }
+
   try {
     await connectToDatabase();
     const id = params.id;
@@ -122,6 +127,10 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  if (!isAdminAuthenticated(req)) {
+    return NextResponse.json({ success: false, message: 'Unauthorized: Admin access required' }, { status: 401 });
+  }
+
   try {
     await connectToDatabase();
     const id = params.id;
