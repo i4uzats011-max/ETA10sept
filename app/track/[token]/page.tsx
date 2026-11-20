@@ -379,8 +379,9 @@ export default function PublicReceiptTrackingPage() {
   const [selectedReceiptNos, setSelectedReceiptNos] = useState<Set<string>>(new Set());
 
   // Delivery Visibility (Hidden by default) & Status Tabs
+  // Default is 'transit': in-warehouse cargo and delivered cargo are hidden by default!
   const [showDelivered, setShowDelivered] = useState(false);
-  const [activeStatusTab, setActiveStatusTab] = useState<'active' | 'transit' | 'warehouse' | 'delivered' | 'all'>('active');
+  const [activeStatusTab, setActiveStatusTab] = useState<'transit' | 'warehouse' | 'delivered' | 'all'>('transit');
 
   // Customer Query State (Supports multiple selected receipts)
   const [isQueryModalOpen, setIsQueryModalOpen] = useState(false);
@@ -693,8 +694,15 @@ export default function PublicReceiptTrackingPage() {
     const deliveredItems = list.filter((r) => getReceiptCategory(r) === 'delivered');
 
     // Tab-based single category views
+    // Default view is 'transit': Only in-transit loaded items are shown!
+    // Warehouse items are hidden by default. Delivered items can be toggled to show at the bottom.
     if (activeStatusTab === 'transit') {
-      return [...transitItems].sort(compareItems);
+      const sortedTransit = [...transitItems].sort(compareItems);
+      if (showDelivered) {
+        const sortedDelivered = [...deliveredItems].sort(compareItems);
+        return [...sortedTransit, ...sortedDelivered];
+      }
+      return sortedTransit;
     }
     if (activeStatusTab === 'warehouse') {
       return [...warehouseItems].sort(compareItems);
@@ -703,31 +711,15 @@ export default function PublicReceiptTrackingPage() {
       return [...deliveredItems].sort(compareItems);
     }
 
-    // Default ETA Ascending Sort:
-    // Respects status hierarchy: Transit -> Warehouse -> Delivered (if shown)
-    // Within each group, items are strictly ordered chronologically by ETA ascending (e.g. 12 sep, 10 oct, 4 nov, 8 nov)
-    if (sortField === 'eta' && sortDirection === 'asc') {
-      const sortedTransit = [...transitItems].sort(compareItems);
-      const sortedWarehouse = [...warehouseItems].sort(compareItems);
-      const sortedDelivered = [...deliveredItems].sort(compareItems);
+    // All category view: Transit -> Warehouse -> Delivered
+    const sortedTransit = [...transitItems].sort(compareItems);
+    const sortedWarehouse = [...warehouseItems].sort(compareItems);
+    const sortedDelivered = [...deliveredItems].sort(compareItems);
 
-      if (activeStatusTab === 'all' || showDelivered) {
-        return [...sortedTransit, ...sortedWarehouse, ...sortedDelivered];
-      }
-      // Default view: Active Cargo (Transit then Warehouse; Delivered hidden)
-      return [...sortedTransit, ...sortedWarehouse];
+    if (showDelivered || activeStatusTab === 'all') {
+      return [...sortedTransit, ...sortedWarehouse, ...sortedDelivered];
     }
-
-    // Custom Column Sort (A to Z / Z to A / Descending ETA):
-    // Determines the visible rows (active cargo by default, or all if delivered is enabled)
-    let visibleList: IPublicReceipt[] = [];
-    if (activeStatusTab === 'all' || showDelivered) {
-      visibleList = [...transitItems, ...warehouseItems, ...deliveredItems];
-    } else {
-      visibleList = [...transitItems, ...warehouseItems];
-    }
-
-    return [...visibleList].sort(compareItems);
+    return [...sortedTransit, ...sortedWarehouse];
   }, [receipts, filterQuery, activeStatusTab, showDelivered, sortField, sortDirection]);
 
   // Aggregate Totals
@@ -1834,22 +1826,10 @@ export default function PublicReceiptTrackingPage() {
                   {/* Status Tabs */}
                   <button
                     type="button"
-                    onClick={() => { setActiveStatusTab('active'); setShowDelivered(false); }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                      activeStatusTab === 'active' && !showDelivered
+                    onClick={() => { setActiveStatusTab('transit'); setShowDelivered(false); }}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                      activeStatusTab === 'transit' && !showDelivered
                         ? 'bg-blue-600 text-white shadow-xs'
-                        : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    Active Cargo (Transit & Warehouse)
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setActiveStatusTab('transit')}
-                    className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                      activeStatusTab === 'transit'
-                        ? 'bg-blue-700 text-white shadow-xs'
                         : 'bg-white text-blue-700 border border-blue-200 hover:bg-blue-50'
                     }`}
                   >
@@ -1859,8 +1839,8 @@ export default function PublicReceiptTrackingPage() {
 
                   <button
                     type="button"
-                    onClick={() => setActiveStatusTab('warehouse')}
-                    className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    onClick={() => { setActiveStatusTab('warehouse'); setShowDelivered(false); }}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
                       activeStatusTab === 'warehouse'
                         ? 'bg-amber-600 text-white shadow-xs'
                         : 'bg-white text-amber-800 border border-amber-200 hover:bg-amber-50'
@@ -1875,7 +1855,7 @@ export default function PublicReceiptTrackingPage() {
                       type="button"
                       onClick={() => {
                         if (activeStatusTab === 'delivered') {
-                          setActiveStatusTab('active');
+                          setActiveStatusTab('transit');
                           setShowDelivered(false);
                         } else {
                           setActiveStatusTab('delivered');
@@ -2604,10 +2584,12 @@ export default function PublicReceiptTrackingPage() {
                           </div>
                         ) : (
                           <div className="flex flex-col gap-1 items-start">
-                            <div className="font-extrabold text-slate-900 flex items-center gap-1.5 text-xs">
-                              <Calendar className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                              <span>ETA: {formatDisplayDate(r.eta)}</span>
-                            </div>
+                            {r.eta && r.eta !== '-' ? (
+                              <div className="font-extrabold text-slate-900 flex items-center gap-1.5 text-xs">
+                                <Calendar className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                                <span>ETA: {formatDisplayDate(r.eta)}</span>
+                              </div>
+                            ) : null}
                             <div>
                               {renderRemainDaysBadge(getEffectiveRemainDays(r))}
                             </div>
@@ -2662,7 +2644,7 @@ export default function PublicReceiptTrackingPage() {
             </div>
 
             {/* Delivered Shipments Visibility Toggle Banner */}
-            {stats.delivered > 0 && (activeStatusTab === 'active' || activeStatusTab === 'transit') && (
+            {stats.delivered > 0 && activeStatusTab === 'transit' && (
               <div className="p-3 bg-emerald-50/70 border-t border-emerald-200 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-emerald-900 no-jpg">
                 <div className="flex items-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />

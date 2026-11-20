@@ -10,7 +10,8 @@ import { isStaffOrAdminAuthenticated, isAdminAuthenticated } from '@/lib/auth';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-// GET all tracking records for admin (resolved 100% LIVE against DB)
+// GET tracking links summary for admin (FAST on-demand loading)
+// If ?token=... or ?id=... is passed, resolves live receipts ONLY for that specific link!
 export async function GET(req: NextRequest) {
   if (!isStaffOrAdminAuthenticated(req)) {
     return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
@@ -19,33 +20,64 @@ export async function GET(req: NextRequest) {
   try {
     await connectToDatabase();
 
-    const trackingDocs = await ReceiptTracking.find({}).sort({ updatedAt: -1 }).lean();
+    const targetToken = req.nextUrl.searchParams.get('token')?.trim();
+    const targetId = req.nextUrl.searchParams.get('id')?.trim();
 
-    const flattened = [];
-    for (const doc of trackingDocs) {
-      const liveList = await resolveLiveReceiptsForTrackingDoc(doc, { includeAdminFields: true });
-      for (const r of liveList) {
-        flattened.push({
-          ...r,
-          trackingToken: doc.token,
-          trackingName: doc.name,
-          docId: doc._id.toString()
-        });
+    // ON-DEMAND DRILL DOWN: Load live receipts for a single specific link when clicked
+    if (targetToken || targetId) {
+      const query = targetToken ? { token: targetToken } : { _id: targetId };
+      const doc = await ReceiptTracking.findOne(query).lean();
+      if (!doc) {
+        return NextResponse.json({ success: false, message: 'Tracking link not found' }, { status: 404 });
       }
+
+      const liveList = await resolveLiveReceiptsForTrackingDoc(doc, { includeAdminFields: true });
+      const flattened = liveList.map(r => ({
+        ...r,
+        trackingToken: doc.token,
+        trackingName: doc.name,
+        docId: doc._id.toString()
+      }));
+
+      return NextResponse.json(
+        {
+          success: true,
+          token: doc.token,
+          name: doc.name,
+          receipts: flattened
+        },
+        {
+          headers: {
+            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+            'Pragma': 'no-cache',
+            'Expires': '0',
+            'Surrogate-Control': 'no-store'
+          }
+        }
+      );
     }
 
-    // Also collect list of unique tracking tokens for linking dropdown
+    // FAST OVERVIEW: Return only basic details (Name, Nickname/Token, Receipts list, and Count)
+    // NEVER load all receipts for all links at once - makes the Link Manager page open instantly!
+    const trackingDocs = await ReceiptTracking.find({})
+      .select('token name receipts.receiptNo createdAt updatedAt')
+      .sort({ updatedAt: -1 })
+      .lean();
+
     const tokenList = trackingDocs.map((doc: any) => ({
       token: doc.token,
       name: doc.name,
-      receipts: (doc.receipts || []).map((r: any) => r.receiptNo)
+      receiptCount: (doc.receipts || []).length,
+      receipts: (doc.receipts || []).map((r: any) => r.receiptNo).filter(Boolean),
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt
     }));
 
     return NextResponse.json(
       {
         success: true,
-        receipts: flattened,
-        tokens: tokenList
+        tokens: tokenList,
+        receipts: []
       },
       {
         headers: {

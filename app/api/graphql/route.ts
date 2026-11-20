@@ -284,8 +284,8 @@ function createRootResolver(req: NextRequest) {
       if (!rawShipments || rawShipments.length === 0) {
         if (whItem && formattedWhReceipt) {
           const whDate = whItem.date || whItem.createdAt;
-          const fallbackEta = calculateCommittedEta(whDate);
-          const fallbackFormattedEta = formatGlobalDate(fallbackEta) || fallbackEta;
+          const fallbackEta = null;
+          const fallbackFormattedEta = '-';
 
           const dummyShipment = {
             id: String(whItem._id),

@@ -377,13 +377,15 @@ export default function InternalEmployeeViewPage() {
       if (res.ok && data.success) {
         setTrackingTokensList(data.tokens || []);
         const map = new Map<string, Array<{ token: string; name: string }>>();
-        (data.receipts || []).forEach((r: any) => {
-          const rKey = (r.receiptNo || '').toLowerCase().trim();
-          if (!rKey) return;
-          if (!map.has(rKey)) map.set(rKey, []);
-          map.get(rKey)!.push({
-            token: r.trackingToken,
-            name: r.trackingName || r.name || r.trackingToken
+        (data.tokens || []).forEach((t: any) => {
+          (t.receipts || []).forEach((rNo: string) => {
+            const rKey = (rNo || '').toLowerCase().trim();
+            if (!rKey) return;
+            if (!map.has(rKey)) map.set(rKey, []);
+            map.get(rKey)!.push({
+              token: t.token,
+              name: t.name || t.token
+            });
           });
         });
         setLinkedReceiptsMap(map);

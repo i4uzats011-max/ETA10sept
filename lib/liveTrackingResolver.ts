@@ -517,7 +517,7 @@ export async function resolveLiveReceiptsForTrackingDoc(
 
         const receiptDate = s.date || whDoc?.date || s.createdAt || whDoc?.createdAt;
 
-        // Live ETA resolution: Container ETA -> Shipment ETA -> Entry ETA -> Committed ETA (Receipt Date + 45 days)
+        // Live ETA resolution: Container ETA -> Shipment ETA -> Entry ETA
         let liveEta =
           cDoc?.destinationDate ||
           cDoc?.eta ||
@@ -526,8 +526,8 @@ export async function resolveLiveReceiptsForTrackingDoc(
           entry.eta ||
           null;
 
-        if (!liveEta || liveEta === '-' || liveEta.toLowerCase() === 'pending' || liveEta.toLowerCase() === 'n/a') {
-          liveEta = calculateCommittedEta(receiptDate);
+        if (liveEta === '-' || liveEta?.toLowerCase() === 'pending' || liveEta?.toLowerCase() === 'n/a') {
+          liveEta = null;
         }
 
         // Live Delivery & Status Resolution
@@ -651,7 +651,9 @@ export async function resolveLiveReceiptsForTrackingDoc(
 
       // Check if this receipt still has remaining cartons in warehouse to load
       // E.g.: Total 34 CTN: 12 loaded in Cont 1, 12 loaded in Cont 2, 10 CTN REMAIN in warehouse
-      if (whDoc) {
+      // User rule: For public tracking link, partly loaded warehouse balance is hidden (show only in-transit portion).
+      // Only included when options.includeAdminFields is true!
+      if (whDoc && options.includeAdminFields) {
         const totalQty = typeof whDoc.quantity === 'number'
           ? whDoc.quantity
           : (parseFloat(String(whDoc.quantity || '0')) || 0);
@@ -679,8 +681,7 @@ export async function resolveLiveReceiptsForTrackingDoc(
             entry.itemName ||
             '-';
 
-          const whDate = whDoc.date || whDoc.createdAt;
-          const fallbackEta = calculateCommittedEta(whDate);
+          const fallbackEta = null; // Unloaded / warehouse estimated ETA removed
 
           const remainderKey = `${rKey}_${targetWarehouse}_${targetMarka}_wh_remainder`;
           if (!seenShipmentKeys.has(remainderKey)) {
@@ -701,7 +702,7 @@ export async function resolveLiveReceiptsForTrackingDoc(
               deliveryDate: null,
               markedDate: null,
               status: options.includeAdminFields ? (whDoc.status || 'Received in Warehouse') : whStatus,
-              remainDays: calculateRemainDays(fallbackEta),
+              remainDays: null,
               updatedAt: whDoc.updatedAt || entry.updatedAt || trackingDoc.updatedAt,
               isSplit: true,
               splitInfo: options.includeAdminFields
@@ -721,7 +722,7 @@ export async function resolveLiveReceiptsForTrackingDoc(
       const isDelivered = /deliver/i.test(whStatus);
       const markedDate = whDoc.deliveryDate || entry.deliveryDate || null;
       const whDate = whDoc.date || whDoc.createdAt;
-      const fallbackEta = calculateCommittedEta(whDate);
+      const fallbackEta = null; // Unloaded warehouse receipts do not show estimated ETA
       const publicStatus = isDelivered ? 'Delivered' : (cleanDisplayStatus(whStatus) || 'Received in Warehouse');
 
       // Multi-item check in warehouse receipt
@@ -747,7 +748,7 @@ export async function resolveLiveReceiptsForTrackingDoc(
             deliveryDate: isDelivered ? markedDate : null,
             markedDate: markedDate,
             status: options.includeAdminFields ? whStatus : publicStatus,
-            remainDays: isDelivered ? null : calculateRemainDays(fallbackEta),
+            remainDays: null,
             updatedAt: whDoc.updatedAt || entry.updatedAt || trackingDoc.updatedAt,
             adminNotes: options.includeAdminFields ? (it.remarks || whDoc.remarks || '') : undefined
           });
@@ -779,7 +780,7 @@ export async function resolveLiveReceiptsForTrackingDoc(
             deliveryDate: isDelivered ? markedDate : null,
             markedDate: markedDate,
             status: options.includeAdminFields ? whStatus : publicStatus,
-            remainDays: isDelivered ? null : calculateRemainDays(fallbackEta),
+            remainDays: null,
             updatedAt: whDoc.updatedAt || entry.updatedAt || trackingDoc.updatedAt,
             adminNotes: options.includeAdminFields ? (whDoc.remarks || entry.adminNotes || '') : undefined
           });
@@ -793,7 +794,7 @@ export async function resolveLiveReceiptsForTrackingDoc(
       const isDelivered = /deliver|arrived/i.test(entry.status || '');
       const markedDate = entry.deliveryDate || entry.markedDate || null;
       const refDate = entry.date || entry.createdAt || trackingDoc.createdAt;
-      const fallbackEta = calculateCommittedEta(refDate);
+      const fallbackEta = null; // Unloaded standalone entries without ETA do not calculate committed ETA
 
       const rawEntryCont = (entry.containerNo || '').trim();
       const hasContainer = Boolean(

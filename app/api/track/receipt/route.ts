@@ -123,8 +123,8 @@ export async function GET(req: NextRequest) {
 
     if (!rawShipments || rawShipments.length === 0) {
       const whDate = whItem.date || whItem.createdAt;
-      const fallbackEta = calculateCommittedEta(whDate);
-      const fallbackFormattedEta = formatGlobalDate(fallbackEta) || fallbackEta;
+      const fallbackEta = null;
+      const fallbackFormattedEta = '-';
 
       const dummyShipment = {
         id: String(whItem._id),
@@ -202,12 +202,11 @@ export async function GET(req: NextRequest) {
       const rawCarrierEta = shipment.rawEta || fallbackDoc?.rawEta;
 
       const receiptDate = shipment.date || whItem?.date || shipment.createdAt || whItem?.createdAt;
-      const committedFallbackEta = calculateCommittedEta(receiptDate);
       const fallbackContainer = await getContainerForReceiptDate(receiptDate);
 
       const resolvedEta = (shipment.eta && shipment.eta !== 'N/A' && shipment.eta !== 'Pending')
         ? shipment.eta
-        : (containerEta || shipment.eta || committedFallbackEta);
+        : (containerEta || shipment.eta || null);
 
       const rawPortDate = rawCarrierEta || shipment.rawEta || fallbackDoc?.rawEta || '';
       const formattedPortDate =
@@ -224,9 +223,9 @@ export async function GET(req: NextRequest) {
           ? shipment.destinationDate
           : (rawPortDate && rawPortDate !== 'N/A' && rawPortDate !== 'Pending')
           ? rawPortDate
-          : committedFallbackEta;
+          : '';
 
-      const publicDeliveryDate = rawActualEta !== 'Pending' ? (formatGlobalDate(rawActualEta) || rawActualEta) : (formatGlobalDate(committedFallbackEta) || committedFallbackEta);
+      const publicDeliveryDate = rawActualEta && rawActualEta !== 'Pending' ? (formatGlobalDate(rawActualEta) || rawActualEta) : 'Pending';
 
       const rawEtaUpdated =
         fallbackDoc?.etaUpdatedAt ||

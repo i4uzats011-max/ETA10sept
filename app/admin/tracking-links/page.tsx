@@ -2,6 +2,14 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import {
+  fetchTrackingLinks,
+  fetchReceiptsForToken,
+  invalidateTokenCache,
+  removeToken as removeReduxToken,
+  removeReceiptFromToken
+} from '@/store/trackingLinksSlice';
 import {
   Package,
   Plus,
@@ -63,7 +71,7 @@ interface IAdminReceipt {
   weight?: string;
   containerNo?: string;
   actualContainerNo?: string;
-  eta?: string;
+  eta?: string | null;
   status?: string;
   adminNotes?: string;
   trackingToken: string;
@@ -80,15 +88,34 @@ interface ITokenOption {
 }
 
 export default function AdminTrackingLinksPage() {
+  const dispatch = useAppDispatch();
+  const {
+    tokens: reduxTokens,
+    loadingTokens: reduxLoadingTokens,
+    receiptsByToken,
+    loadingReceiptsForToken
+  } = useAppSelector((state) => state.trackingLinks);
+
   const [currentUserRole, setCurrentUserRole] = useState<'admin' | 'staff' | 'developer'>('staff');
-  const [receipts, setReceipts] = useState<IAdminReceipt[]>([]);
-  const [tokens, setTokens] = useState<ITokenOption[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [activeToken, setActiveToken] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  const tokens = reduxTokens;
+  const loading = reduxLoadingTokens;
+
   // View Mode: 'links' (Allocated links table overview) vs 'receipts' (Detailed cargo receipts table)
   const [viewMode, setViewMode] = useState<'links' | 'receipts'>('links');
+
+  // Handle drill down into a specific link on demand
+  const handleOpenLinkCargo = (token: string, name?: string) => {
+    setSelectedNickName(name || token);
+    setActiveToken(token);
+    setViewMode('receipts');
+    if (!receiptsByToken[token]) {
+      dispatch(fetchReceiptsForToken(token));
+    }
+  };
 
   // Generate Link Modal State
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
@@ -397,18 +424,9 @@ export default function AdminTrackingLinksPage() {
   };
 
   const loadData = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch('/api/admin/tracking-links');
-      const data = await res.json();
-      if (data.success) {
-        setReceipts(data.receipts || []);
-        setTokens(data.tokens || []);
-      }
-    } catch (err) {
-      console.error('Failed to load tracking links:', err);
-    } finally {
-      setLoading(false);
+    dispatch(fetchTrackingLinks());
+    if (activeToken) {
+      dispatch(fetchReceiptsForToken(activeToken));
     }
   };
 
@@ -419,7 +437,7 @@ export default function AdminTrackingLinksPage() {
         if (d && d.role) setCurrentUserRole(d.role);
       })
       .catch(() => {});
-    loadData();
+    dispatch(fetchTrackingLinks());
     loadQueries();
     loadAvailableReceipts();
     loadAvailableMarkas();
@@ -832,28 +850,42 @@ export default function AdminTrackingLinksPage() {
     setIsEditOpen(true);
   };
 
-  // Unique Markas across all receipts
-  const uniqueMarkas = Array.from(
-    new Set(receipts.map(r => (r.marka || '').trim()).filter(Boolean))
-  ).sort();
+  const currentTokenReceipts = useMemo(() => {
+    if (!activeToken) return [];
+    return receiptsByToken[activeToken] || [];
+  }, [activeToken, receiptsByToken]);
+
+  const isReceiptsLoading = useMemo(() => {
+    if (!activeToken) return false;
+    return Boolean(loadingReceiptsForToken[activeToken]);
+  }, [activeToken, loadingReceiptsForToken]);
+
+  // Unique Markas across all receipts & links
+  const uniqueMarkas = useMemo(() => {
+    const list = new Set<string>();
+    (availableMarkas || []).forEach(m => { if (m) list.add(m); });
+    (tokens || []).forEach(t => { if (t.name) list.add(t.name); });
+    (currentTokenReceipts || []).forEach(r => { if (r.marka) list.add(r.marka); });
+    return Array.from(list).sort();
+  }, [availableMarkas, tokens, currentTokenReceipts]);
 
   // Active vs Inactive links calculation
-  const activeLinks = tokens.filter(t => (t.receipts && t.receipts.length > 0) || receipts.some(r => r.trackingToken === t.token));
-  const inactiveLinks = tokens.filter(t => (!t.receipts || t.receipts.length === 0) && !receipts.some(r => r.trackingToken === t.token));
+  const activeLinks = tokens.filter(t => (t.receipts && t.receipts.length > 0) || (t.receiptCount && t.receiptCount > 0));
+  const inactiveLinks = tokens.filter(t => (!t.receipts || t.receipts.length === 0) && (!t.receiptCount || t.receiptCount === 0));
 
   const pendingQueriesCount = queriesList.filter(q => q.status === 'Pending').length;
 
   // Nick Names / Allocated Link List for quick filter bar
   const nickNameOptions = Array.from(
     new Map(
-      tokens.map(t => [t.token, { token: t.token, name: t.name || 'Default Link', count: (t.receipts || []).length }])
+      tokens.map(t => [t.token, { token: t.token, name: t.name || 'Default Link', count: (t.receipts || []).length || t.receiptCount || 0 }])
     ).values()
   );
 
   // Filtered Tokens (for the Allocated Links Table)
   const filteredTokens = tokens.filter(t => {
-    const tokenReceipts = receipts.filter(r => r.trackingToken === t.token);
-    const isActive = (t.receipts && t.receipts.length > 0) || tokenReceipts.length > 0;
+    const count = (t.receipts && t.receipts.length > 0) ? t.receipts.length : (t.receiptCount || 0);
+    const isActive = count > 0;
 
     // Status Filter (All / Active / Inactive)
     if (linkStatusFilter === 'active' && !isActive) return false;
@@ -870,15 +902,13 @@ export default function AdminTrackingLinksPage() {
     if (selectedMarkaFilter) {
       const mFilter = selectedMarkaFilter.toLowerCase();
       const matchName = (t.name || '').toLowerCase().includes(mFilter);
-      const matchReceiptMarka = tokenReceipts.some(r => (r.marka || '').toLowerCase() === mFilter);
-      if (!matchName && !matchReceiptMarka) return false;
+      if (!matchName) return false;
     }
 
     // Receipt No Filter
     if (receiptNoFilter.trim()) {
       const rFilter = receiptNoFilter.trim().toLowerCase();
-      const hasReceipt = (t.receipts || []).some(rn => rn.toLowerCase().includes(rFilter)) ||
-        tokenReceipts.some(r => r.receiptNo.toLowerCase().includes(rFilter));
+      const hasReceipt = (t.receipts || []).some(rn => rn.toLowerCase().includes(rFilter));
       if (!hasReceipt) return false;
     }
 
@@ -887,44 +917,30 @@ export default function AdminTrackingLinksPage() {
       const q = searchQuery.toLowerCase();
       const matchName = (t.name || '').toLowerCase().includes(q);
       const matchToken = t.token.toLowerCase().includes(q);
-      const matchReceipts = (t.receipts || []).some(rn => rn.toLowerCase().includes(q)) ||
-        tokenReceipts.some(r =>
-          r.receiptNo.toLowerCase().includes(q) ||
-          (r.marka || '').toLowerCase().includes(q) ||
-          (r.itemName || '').toLowerCase().includes(q)
-        );
+      const matchReceipts = (t.receipts || []).some(rn => rn.toLowerCase().includes(q));
       if (!matchName && !matchToken && !matchReceipts) return false;
     }
 
     return true;
   });
 
-  // Filtered Receipts (for the Detailed Receipts Table)
-  const filteredReceipts = receipts.filter(r => {
-    // 1. Nick Name / Allocated Link Focused Filter
-    if (selectedNickName) {
-      const matchToken = r.trackingToken === selectedNickName;
-      const matchName = (r.trackingName || '').trim().toLowerCase() === selectedNickName.trim().toLowerCase();
-      if (!matchToken && !matchName) {
-        return false;
-      }
-    }
-
-    // 2. Marka Filter
+  // Filtered Receipts (for the Detailed Receipts Table of the active link)
+  const filteredReceipts = currentTokenReceipts.filter(r => {
+    // 1. Marka Filter
     if (selectedMarkaFilter) {
       if ((r.marka || '').trim().toLowerCase() !== selectedMarkaFilter.trim().toLowerCase()) {
         return false;
       }
     }
 
-    // 3. Receipt No Filter
+    // 2. Receipt No Filter
     if (receiptNoFilter.trim()) {
       if (!r.receiptNo.toLowerCase().includes(receiptNoFilter.trim().toLowerCase())) {
         return false;
       }
     }
 
-    // 4. Search Query Filter
+    // 3. Search Query Filter
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       return (
@@ -1043,7 +1059,7 @@ export default function AdminTrackingLinksPage() {
             <div className="text-3xl font-black text-emerald-700">{activeLinks.length}</div>
             <div className="text-[11px] text-emerald-600 font-semibold mt-1 flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Tracking live shipments ({receipts.length} receipts)</span>
+              <span>Tracking live shipments ({tokens.reduce((acc, t) => acc + ((t.receipts && t.receipts.length > 0) ? t.receipts.length : (t.receiptCount || 0)), 0)} receipts)</span>
             </div>
           </div>
 
@@ -1335,8 +1351,7 @@ export default function AdminTrackingLinksPage() {
                   )}
 
                   {!loading && filteredTokens.map((t) => {
-                    const tokenReceipts = receipts.filter(r => r.trackingToken === t.token);
-                    const count = (t.receipts && t.receipts.length > 0) ? t.receipts.length : tokenReceipts.length;
+                    const count = (t.receipts && t.receipts.length > 0) ? t.receipts.length : (t.receiptCount || 0);
                     const isActive = count > 0;
 
                     return (
@@ -1345,10 +1360,7 @@ export default function AdminTrackingLinksPage() {
                         <td className="py-3.5 px-4">
                           <button
                             type="button"
-                            onClick={() => {
-                              setSelectedNickName(t.name || t.token);
-                              setViewMode('receipts');
-                            }}
+                            onClick={() => handleOpenLinkCargo(t.token, t.name)}
                             className="text-left font-black text-sm text-blue-700 hover:text-blue-900 hover:underline flex items-center gap-1.5 cursor-pointer group"
                             title="Click to view detailed cargo table & manage receipts for this link"
                           >
@@ -1399,20 +1411,22 @@ export default function AdminTrackingLinksPage() {
                         <td className="py-3.5 px-4 text-center">
                           <button
                             type="button"
-                            onClick={() => {
-                              setSelectedNickName(t.name || t.token);
-                              setViewMode('receipts');
-                            }}
+                            onClick={() => handleOpenLinkCargo(t.token, t.name)}
                             className={`inline-flex items-center gap-1 font-bold px-2.5 py-1 rounded-full text-xs transition cursor-pointer ${
                               isActive
                                 ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
                                 : 'bg-slate-100 text-slate-500 border border-slate-200'
                             }`}
-                            title="Click to view receipts"
+                            title="Click to load & view receipts for this link"
                           >
                             <Package className="w-3 h-3" />
                             <span>{count} receipt{count === 1 ? '' : 's'}</span>
                           </button>
+                          {t.receipts && t.receipts.length > 0 && (
+                            <div className="text-[10px] text-slate-500 mt-1 max-w-[190px] mx-auto truncate font-mono" title={t.receipts.join(', ')}>
+                              {t.receipts.slice(0, 3).join(', ')}{t.receipts.length > 3 ? ` +${t.receipts.length - 3} more` : ''}
+                            </div>
+                          )}
                         </td>
 
                         {/* 4. Status */}
@@ -1434,10 +1448,7 @@ export default function AdminTrackingLinksPage() {
                           <div className="flex items-center justify-end gap-1.5">
                             <button
                               type="button"
-                              onClick={() => {
-                                setSelectedNickName(t.name || t.token);
-                                setViewMode('receipts');
-                              }}
+                              onClick={() => handleOpenLinkCargo(t.token, t.name)}
                               className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition cursor-pointer"
                               title="Go to detailed Cargo Table for this link"
                             >
@@ -1495,6 +1506,7 @@ export default function AdminTrackingLinksPage() {
                   type="button"
                   onClick={() => {
                     setSelectedNickName(null);
+                    setActiveToken(null);
                     setViewMode('links');
                   }}
                   className="inline-flex items-center gap-1 text-xs font-bold text-blue-700 bg-white border border-blue-300 px-3 py-1.5 rounded-xl hover:bg-blue-50 transition cursor-pointer"
@@ -1568,18 +1580,21 @@ export default function AdminTrackingLinksPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {loading && (
+                  {isReceiptsLoading && (
                     <tr>
-                      <td colSpan={11} className="text-center py-10 text-slate-400">
-                        Loading tracking records...
+                      <td colSpan={11} className="text-center py-12 text-slate-500">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <RefreshCw className="w-6 h-6 text-blue-600 animate-spin" />
+                          <span className="font-semibold text-sm">Loading live cargo receipts for {selectedNickName || 'link'}...</span>
+                        </div>
                       </td>
                     </tr>
                   )}
 
-                  {!loading && filteredReceipts.length === 0 && (
+                  {!isReceiptsLoading && filteredReceipts.length === 0 && (
                     <tr>
                       <td colSpan={11} className="text-center py-12 text-slate-500">
-                        No receipts found. Click <strong>&quot;Add / Map Receipts by Marka&quot;</strong> to map receipts!
+                        No receipts found in this link. Click <strong>&quot;Add / Map Receipts by Marka&quot;</strong> to map receipts!
                       </td>
                     </tr>
                   )}
@@ -2674,7 +2689,7 @@ export default function AdminTrackingLinksPage() {
 
               <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
                 {tokens.map((t) => {
-                  const matchingReceiptsCount = receipts.filter(r => r.trackingToken === t.token).length;
+                  const matchingReceiptsCount = (t.receipts && t.receipts.length > 0) ? t.receipts.length : (t.receiptCount || 0);
                   return (
                     <div
                       key={t.token}
