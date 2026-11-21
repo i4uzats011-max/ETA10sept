@@ -717,6 +717,138 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
     }
   };
 
+  // China Warehouse Parameter Comparison & Error Checking State
+  const [isChinaAuditModalOpen, setIsChinaAuditModalOpen] = useState(false);
+  const [isAuditingChina, setIsAuditingChina] = useState(false);
+  const [auditMismatches, setAuditMismatches] = useState<any[]>([]);
+  const [auditStatusMessage, setAuditStatusMessage] = useState<{
+    type: 'success' | 'warning' | 'error';
+    message: string;
+  } | null>(null);
+  const [auditWhFilter, setAuditWhFilter] = useState<'ALL' | 'GZ' | 'YW'>('ALL');
+  const [isResolvingMismatchId, setIsResolvingMismatchId] = useState<string | null>(null);
+  const [isBulkAcceptingAll, setIsBulkAcceptingAll] = useState(false);
+
+  const handleRunChinaAudit = async (period: '24h' | 'sunday' = '24h') => {
+    setIsAuditingChina(true);
+    setAuditStatusMessage(null);
+    setIsChinaAuditModalOpen(true);
+    try {
+      // 1. Run live comparison engine
+      await fetch('/api/warehouse/china-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: period === 'sunday' ? 'audit_sunday' : 'verify_24h',
+          warehouse: 'ALL',
+        }),
+      });
+
+      // 2. Fetch pending mismatches
+      const mRes = await fetch('/api/warehouse/mismatches?status=PENDING&limit=200');
+      const mData = await mRes.json();
+      if (mData.success) {
+        setAuditMismatches(mData.mismatches || []);
+        if (mData.mismatches && mData.mismatches.length > 0) {
+          setAuditStatusMessage({
+            type: 'warning',
+            message: `Comparison complete: Found ${mData.mismatches.length} discrepancy(ies) between Chinese Warehouse portal and Local DB stock for CBM, Weight, or Quantity.`,
+          });
+        } else {
+          setAuditStatusMessage({
+            type: 'success',
+            message: 'All parameters match 100%! Local DB stock (CTN, CBM, Weight) is perfectly in sync with the Chinese warehouse portal.',
+          });
+        }
+      } else {
+        setAuditStatusMessage({
+          type: 'error',
+          message: mData.error || 'Failed to retrieve comparison discrepancies.',
+        });
+      }
+    } catch (err: any) {
+      setAuditStatusMessage({
+        type: 'error',
+        message: err.message || 'Error running Chinese warehouse comparison audit.',
+      });
+    } finally {
+      setIsAuditingChina(false);
+    }
+  };
+
+  const handleAcceptChinaMismatch = async (mismatchId: string) => {
+    setIsResolvingMismatchId(mismatchId);
+    try {
+      const res = await fetch('/api/warehouse/mismatches', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: mismatchId, action: 'ACCEPT_CHINA' }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setAuditMismatches((prev) => prev.filter((m) => m._id !== mismatchId));
+        dispatch(fetchWarehouseReceipts());
+      } else {
+        alert(data.error || 'Failed to accept China warehouse data');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Network error accepting China warehouse data');
+    } finally {
+      setIsResolvingMismatchId(null);
+    }
+  };
+
+  const handleBulkAcceptAllChina = async () => {
+    if (!confirm('Are you sure you want to update all local DB receipts with the Chinese warehouse portal data (Quantity, CBM, and Weight) as-is?')) {
+      return;
+    }
+    setIsBulkAcceptingAll(true);
+    try {
+      const res = await fetch('/api/warehouse/mismatches', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bulkAction: 'ACCEPT_ALL_CHINA' }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setAuditMismatches([]);
+        setAuditStatusMessage({
+          type: 'success',
+          message: data.message || 'All records successfully updated in DB from Chinese warehouse portal!',
+        });
+        dispatch(fetchWarehouseReceipts());
+      } else {
+        alert(data.error || 'Failed to bulk accept China warehouse records');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Network error during bulk accept');
+    } finally {
+      setIsBulkAcceptingAll(false);
+    }
+  };
+
+  const handleKeepDbMismatch = async (mismatchId: string) => {
+    setIsResolvingMismatchId(mismatchId);
+    try {
+      const res = await fetch('/api/warehouse/mismatches', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: mismatchId, action: 'KEEP_DB' }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setAuditMismatches((prev) => prev.filter((m) => m._id !== mismatchId));
+        dispatch(fetchWarehouseReceipts());
+      } else {
+        alert(data.error || 'Failed to preserve DB data');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Network error preserving DB data');
+    } finally {
+      setIsResolvingMismatchId(null);
+    }
+  };
+
   // Upload Tracking & Deletion History State
   const [uploadSearchTerm, setUploadSearchTerm] = useState('');
   const [uploadTypeFilter, setUploadTypeFilter] = useState<'all' | 'stock' | 'plan'>('all');
@@ -3733,6 +3865,7 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
               </button>
 
               <button
+                type="button"
                 onClick={() => {
                   const userWhs = availableWarehouses.filter((w) => w !== 'ALL');
                   if (userWhs.length > 0 && (!chinaFetchWh || chinaFetchWh === 'ALL')) {
@@ -3740,11 +3873,31 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
                   }
                   setIsChinaFetchModalOpen(true);
                 }}
-                className="flex items-center space-x-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-md transition"
-                title="Fetch a receipt directly from China warehouse portal (zg.kuaisongkj.com) into DB"
+                className="flex items-center space-x-1.5 px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 rounded-xl text-xs font-black shadow-md transition active:scale-95"
+                title="Fetch and save receipts directly from China warehouse portal (zg.kuaisongkj.com) into DB"
               >
-                <Zap className="w-4 h-4 text-amber-200" />
-                <span>⚡ Fetch China Receipt</span>
+                <Zap className="w-4 h-4 text-slate-950" />
+                <span>⚡ Get Data (China WH)</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={isAuditingChina}
+                onClick={() => handleRunChinaAudit('24h')}
+                className="flex items-center space-x-1.5 px-3.5 py-2 bg-gradient-to-r from-indigo-600 to-blue-700 hover:from-indigo-700 hover:to-blue-800 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow-md transition active:scale-95"
+                title="Check and compare Chinese warehouse vs DB warehouse (CTN, CBM, Weight) and accept updates"
+              >
+                {isAuditingChina ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                    <span>Comparing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Search className="w-4 h-4 text-blue-200" />
+                    <span>🔍 Check &amp; Compare (China vs DB)</span>
+                  </>
+                )}
               </button>
 
               <button
@@ -3819,6 +3972,68 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
       {/* SUB-TAB 1: CHINA WAREHOUSE INWARD STOCK */}
       {activeSubTab === 'stock' && (
         <div className="space-y-4">
+          {/* Prominent China Warehouse Portal & Parameter Audit Bar */}
+          <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-2xl p-4 text-white shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4 border border-indigo-900/50">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center shrink-0">
+                <Zap className="w-5 h-5 text-amber-300" />
+              </div>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <h4 className="font-black text-sm uppercase tracking-wider text-white">
+                    China Warehouse Live Sync &amp; Verification
+                  </h4>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500 text-white shadow-xs">
+                    Live Portal
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-500 text-white shadow-xs">
+                    CTN • CBM • Weight
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 mt-0.5">
+                  Fetch live data from Guangzhou (RS-21) &amp; Yiwu (AS-14), auto-translate with Gemini AI, and compare DB vs China portal.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2.5 shrink-0 flex-wrap">
+              <button
+                type="button"
+                onClick={() => {
+                  const userWhs = availableWarehouses.filter((w) => w !== 'ALL');
+                  if (userWhs.length > 0 && (!chinaFetchWh || chinaFetchWh === 'ALL')) {
+                    setChinaFetchWh(userWhs[0]);
+                  }
+                  setIsChinaFetchModalOpen(true);
+                }}
+                className="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 active:scale-95 text-slate-950 font-black text-xs rounded-xl shadow-md transition flex items-center space-x-1.5"
+                title="Fetch data/receipt from Chinese warehouse portal into DB"
+              >
+                <Zap className="w-4 h-4 text-slate-950" />
+                <span>⚡ Get Data (China WH)</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={isAuditingChina}
+                onClick={() => handleRunChinaAudit('24h')}
+                className="px-4 py-2 bg-gradient-to-r from-indigo-500 via-blue-600 to-blue-700 hover:from-indigo-600 hover:to-blue-800 disabled:opacity-50 active:scale-95 text-white font-black text-xs rounded-xl shadow-md transition flex items-center space-x-1.5"
+                title="Compare Chinese warehouse vs DB warehouse (CTN, CBM, Weight) and accept updates"
+              >
+                {isAuditingChina ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                    <span>Auditing DB vs China...</span>
+                  </>
+                ) : (
+                  <>
+                    <Search className="w-4 h-4 text-blue-200" />
+                    <span>🔍 Check &amp; Compare DB</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
           {/* Filters Bar */}
           <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -6335,7 +6550,7 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
                 <Zap className="w-5 h-5 text-amber-200" />
                 <div>
                   <h3 className="font-black text-sm uppercase tracking-wider">
-                    Fetch Receipt from China Warehouse
+                    Get Data from China Warehouse
                   </h3>
                   <p className="text-[11px] text-amber-100 font-medium">
                     Live query portal (zg.kuaisongkj.com), auto-translate Chinese to English &amp; save to DB
@@ -6459,6 +6674,266 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
                     <span>Fetch &amp; Save in DB</span>
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CHINA WAREHOUSE VS DB PARAMETER COMPARISON & AUDIT */}
+      {isChinaAuditModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fadeIn">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-5xl w-full border border-slate-200 overflow-hidden max-h-[90vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="p-5 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex items-center justify-between shrink-0 border-b border-indigo-900/50">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-400/30 flex items-center justify-center">
+                  <Search className="w-5 h-5 text-blue-300" />
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <h3 className="font-black text-sm uppercase tracking-wider">
+                      China Warehouse vs DB Warehouse Comparison
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-500 text-white shadow-2xs">
+                      CTN • CBM • Weight
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 mt-0.5">
+                    Live comparison between Chinese portal (zg.kuaisongkj.com) and local DB stock. Accept any row to update DB as-is.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  disabled={isAuditingChina}
+                  onClick={() => handleRunChinaAudit('24h')}
+                  className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isAuditingChina ? 'animate-spin' : ''}`} />
+                  <span>Re-Check</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsChinaAuditModalOpen(false)}
+                  className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
+                >
+                  <X className="w-4 h-4 text-white" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Sub-Header / Action Toolbar */}
+            <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-bold text-slate-700">Filter Warehouse:</span>
+                {(['ALL', 'GZ', 'YW'] as const).map((wh) => (
+                  <button
+                    key={wh}
+                    type="button"
+                    onClick={() => setAuditWhFilter(wh)}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
+                      auditWhFilter === wh
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    {wh === 'ALL' ? 'All' : wh}
+                  </button>
+                ))}
+              </div>
+
+              {auditMismatches.length > 0 && (
+                <button
+                  type="button"
+                  disabled={isBulkAcceptingAll || isAuditingChina}
+                  onClick={handleBulkAcceptAllChina}
+                  className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow-md flex items-center space-x-1.5 transition active:scale-95"
+                >
+                  {isBulkAcceptingAll ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Updating All to DB...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>⚡ Accept All &amp; Update DB ({auditMismatches.length})</span>
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 overflow-y-auto flex-1 space-y-4">
+              {auditStatusMessage && (
+                <div
+                  className={`p-3.5 rounded-2xl text-xs font-semibold flex items-center justify-between ${
+                    auditStatusMessage.type === 'success'
+                      ? 'bg-emerald-50 border border-emerald-200 text-emerald-900'
+                      : auditStatusMessage.type === 'warning'
+                      ? 'bg-amber-50 border border-amber-300 text-amber-900'
+                      : 'bg-red-50 border border-red-200 text-red-900'
+                  }`}
+                >
+                  <span>{auditStatusMessage.message}</span>
+                  <button
+                    type="button"
+                    onClick={() => setAuditStatusMessage(null)}
+                    className="text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              {isAuditingChina ? (
+                <div className="py-16 text-center space-y-3">
+                  <RefreshCw className="w-8 h-8 text-indigo-600 animate-spin mx-auto" />
+                  <p className="text-xs font-bold text-slate-700">
+                    Connecting to Guangzhou (RS-21) and Yiwu (AS-14) portals...
+                  </p>
+                  <p className="text-[11px] text-slate-400">
+                    Comparing Cartons (CTN), CBM, Weight, and Commodity against local DB stock...
+                  </p>
+                </div>
+              ) : (
+                (() => {
+                  const filtered = auditMismatches.filter(
+                    (m) => auditWhFilter === 'ALL' || m.warehouse === auditWhFilter
+                  );
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="py-12 text-center space-y-3 bg-emerald-50/50 rounded-2xl border border-emerald-100">
+                        <CheckCircle2 className="w-12 h-12 text-emerald-600 mx-auto" />
+                        <h4 className="text-sm font-black text-emerald-950 uppercase tracking-wider">
+                          100% Parameter Match
+                        </h4>
+                        <p className="text-xs text-emerald-700 max-w-md mx-auto font-medium">
+                          No discrepancies found. Local DB stock (Quantity, CBM, and Weight) perfectly mirrors the Chinese warehouse portal.
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-100 text-[10px] uppercase font-bold text-slate-700 border-b border-slate-200 sticky top-0">
+                          <tr>
+                            <th className="p-3">Receipt / WH</th>
+                            <th className="p-3">Local DB Stock</th>
+                            <th className="p-3">China Portal Live</th>
+                            <th className="p-3">Parameter Mismatch</th>
+                            <th className="p-3 text-right">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {filtered.map((m) => (
+                            <tr key={m._id} className="hover:bg-slate-50 transition">
+                              <td className="p-3">
+                                <span className="font-mono font-black text-slate-900 block">
+                                  #{m.receipt}
+                                </span>
+                                <span className="inline-block mt-0.5 px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-800">
+                                  {m.warehouse}
+                                </span>
+                              </td>
+
+                              <td className="p-3">
+                                <div className="space-y-0.5">
+                                  <div className="font-bold text-slate-800">
+                                    {m.dbData?.quantity !== undefined ? `${m.dbData.quantity} CTN` : '—'}
+                                  </div>
+                                  <div className="text-[11px] text-slate-500">
+                                    {m.dbData?.volume || 0} m³ • {m.dbData?.weight || 0} kg
+                                  </div>
+                                  <div className="text-[11px] text-slate-400 truncate max-w-[140px]">
+                                    {m.dbData?.commodity || '—'}
+                                  </div>
+                                </div>
+                              </td>
+
+                              <td className="p-3 bg-indigo-50/40">
+                                <div className="space-y-0.5">
+                                  <div className="font-black text-indigo-900">
+                                    {m.portalData?.actualQuantity !== undefined ? `${m.portalData.actualQuantity} CTN` : '—'}
+                                  </div>
+                                  <div className="text-[11px] font-semibold text-indigo-700">
+                                    {m.portalData?.volume || 0} m³ • {m.portalData?.weight || 0} kg
+                                  </div>
+                                  <div className="text-[11px] text-indigo-600 truncate max-w-[140px]">
+                                    {m.portalData?.commodity || '—'}
+                                  </div>
+                                </div>
+                              </td>
+
+                              <td className="p-3">
+                                <div className="space-y-1">
+                                  <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-200">
+                                    {m.mismatchType || 'PARAMETER_DIFF'}
+                                  </span>
+                                  <div className="text-[11px] text-slate-600 font-medium">
+                                    {m.diffSummary}
+                                  </div>
+                                </div>
+                              </td>
+
+                              <td className="p-3 text-right whitespace-nowrap">
+                                <div className="flex items-center justify-end space-x-1.5">
+                                  <button
+                                    type="button"
+                                    disabled={isResolvingMismatchId === m._id}
+                                    onClick={() => handleAcceptChinaMismatch(m._id)}
+                                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-xs transition flex items-center space-x-1"
+                                    title="Accept China warehouse data and update local DB as-is"
+                                  >
+                                    {isResolvingMismatchId === m._id ? (
+                                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <Check className="w-3.5 h-3.5" />
+                                    )}
+                                    <span>Accept China &amp; Update DB</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    disabled={isResolvingMismatchId === m._id}
+                                    onClick={() => handleKeepDbMismatch(m._id)}
+                                    className="px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 disabled:opacity-50 text-slate-700 rounded-xl text-xs font-bold transition"
+                                    title="Keep local DB stock values as-is"
+                                  >
+                                    Keep DB
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
+              <span className="text-[11px] text-slate-500 font-medium">
+                {auditMismatches.length > 0
+                  ? `${auditMismatches.length} discrepancy(ies) detected across China warehouse accounts.`
+                  : 'All warehouse receipts are verified and consistent.'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsChinaAuditModalOpen(false)}
+                className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition"
+              >
+                Close
               </button>
             </div>
           </div>

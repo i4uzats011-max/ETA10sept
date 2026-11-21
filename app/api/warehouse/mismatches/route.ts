@@ -72,6 +72,44 @@ export async function PATCH(req: NextRequest) {
   try {
     await connectToDatabase();
     const body = await req.json();
+
+    // Bulk Accept All China Values into DB
+    if (body.bulkAction === 'ACCEPT_ALL_CHINA') {
+      const pendingList = await ChinaSyncMismatch.find({ status: 'PENDING' });
+      let updatedCount = 0;
+      for (const m of pendingList) {
+        const portal = m.portalData || {};
+        const updateData: any = {};
+        if (portal.actualQuantity !== undefined) updateData.quantity = portal.actualQuantity;
+        if (portal.weight !== undefined) updateData.weight = portal.weight;
+        if (portal.volume !== undefined) updateData.volume = portal.volume;
+        if (portal.mark) updateData.mainMarka = portal.mark;
+
+        await WarehouseReceipt.findOneAndUpdate(
+          { receipt: m.receipt, warehouse: m.warehouse },
+          {
+            $set: {
+              ...updateData,
+              hasMismatch: false,
+              isVerified: true,
+              verifiedAt: new Date(),
+            },
+          }
+        );
+        m.status = 'RESOLVED';
+        m.resolutionAction = 'ACCEPT_CHINA';
+        m.resolvedAt = new Date();
+        m.resolutionNotes = 'Bulk accepted China portal updated values';
+        await m.save();
+        updatedCount++;
+      }
+      return NextResponse.json({
+        success: true,
+        message: `Updated ${updatedCount} receipt(s) in DB with exact Chinese warehouse data!`,
+        updatedCount,
+      });
+    }
+
     const { id, action, notes } = body;
 
     if (!id || !action) {
