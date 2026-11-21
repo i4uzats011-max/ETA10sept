@@ -28,11 +28,16 @@ import {
   Info,
   Clock,
   Sparkles,
+  Bell,
+  X,
+  Tag,
 } from 'lucide-react';
 import SalesWhatsAppChat from '@/components/SalesWhatsAppChat';
 import SalesDiscrepancyModal from '@/components/SalesDiscrepancyModal';
 import SalesHoldModal from '@/components/SalesHoldModal';
 import SalesTeamMaster from '@/components/SalesTeamMaster';
+import SalesDatePickerCalendar from '@/components/SalesDatePickerCalendar';
+import SearchableContainerSelect from '@/components/SearchableContainerSelect';
 
 export default function SalesPortalPage() {
   const router = useRouter();
@@ -49,10 +54,11 @@ export default function SalesPortalPage() {
   const [activeTab, setActiveTab] = useState<'sheet' | 'team'>('sheet');
 
   // Filter & Selection Bar State (NO PRELOAD)
-  const [mode, setMode] = useState<'warehouse_date' | 'container'>('warehouse_date');
-  const [selectedWarehouse, setSelectedWarehouse] = useState('');
-  const [selectedDate, setSelectedDate] = useState('');
-  const [selectedContainer, setSelectedContainer] = useState('');
+  const [mode, setMode] = useState<'warehouse_date' | 'container' | 'marka'>('warehouse_date');
+  const [selectedWarehouses, setSelectedWarehouses] = useState<string[]>([]);
+  const [selectedDates, setSelectedDates] = useState<string[]>([]);
+  const [selectedContainers, setSelectedContainers] = useState<string[]>([]);
+  const [markaQuery, setMarkaQuery] = useState('');
   const [salesPersonFilter, setSalesPersonFilter] = useState('ALL');
 
   // Options from backend
@@ -68,8 +74,13 @@ export default function SalesPortalPage() {
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Notifications State (Receipt-wise on login)
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const notifRef = useRef<HTMLDivElement>(null);
+
   // Inline Edits Tracking
-  const [editingRowId, setEditingRowId] = useState<string | null>(null);
   const [savingCells, setSavingCells] = useState<Record<string, boolean>>({});
   const [savedSuccessCells, setSavedSuccessCells] = useState<Record<string, boolean>>({});
 
@@ -84,6 +95,17 @@ export default function SalesPortalPage() {
 
   const [holdModalOpen, setHoldModalOpen] = useState(false);
   const [holdTarget, setHoldTarget] = useState<any | null>(null);
+
+  // Close notifications on outside click
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (notifRef.current && !notifRef.current.contains(event.target as Node)) {
+        setShowNotifications(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Check auth session
   useEffect(() => {
@@ -115,24 +137,41 @@ export default function SalesPortalPage() {
     checkAuth();
   }, [router]);
 
+  // Fetch notifications on login (receipt-wise communications)
+  const fetchNotifications = async () => {
+    try {
+      const res = await fetch('/api/sales/notifications');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.notifications)) {
+        setNotifications(data.notifications);
+        setUnreadCount(data.totalUnread || 0);
+      }
+    } catch (e) {
+      console.error('Failed to load notifications:', e);
+    }
+  };
+
+  useEffect(() => {
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Load lightweight dropdown options on mount
-  const fetchOptions = async (wh?: string) => {
+  const fetchOptions = async (whs?: string[]) => {
     try {
       setLoadingOptions(true);
-      const url = wh ? `/api/sales/options?warehouse=${encodeURIComponent(wh)}` : '/api/sales/options';
-      const res = await fetch(url);
+      const whParam = whs && whs.length > 0 ? `?warehouse=${encodeURIComponent(whs.join(','))}` : '';
+      const res = await fetch(`/api/sales/options${whParam}`);
       const data = await res.json();
       if (data.success) {
-        if (!wh) {
+        if (!whs || whs.length === 0) {
           setWarehouses(data.warehouses || []);
-          if (data.warehouses && data.warehouses.length > 0 && !selectedWarehouse) {
-            setSelectedWarehouse(data.warehouses[0]);
+          if (data.warehouses && data.warehouses.length > 0 && selectedWarehouses.length === 0) {
+            setSelectedWarehouses([data.warehouses[0]]);
           }
         }
         setDates(data.dates || []);
-        if (data.dates && data.dates.length > 0 && !selectedDate) {
-          setSelectedDate(data.dates[0]);
-        }
         setContainers(data.containers || []);
         setSalesTeam(data.salesTeam || []);
       }
@@ -147,31 +186,55 @@ export default function SalesPortalPage() {
     fetchOptions();
   }, []);
 
-  // When warehouse changes, re-fetch distinct dates for that warehouse
-  const handleWarehouseChange = (wh: string) => {
-    setSelectedWarehouse(wh);
-    fetchOptions(wh);
+  const handleWarehouseToggle = (wh: string) => {
+    let next: string[];
+    if (wh === 'ALL') {
+      next = ['ALL'];
+    } else {
+      const cleaned = selectedWarehouses.filter((w) => w !== 'ALL');
+      if (cleaned.includes(wh)) {
+        next = cleaned.filter((w) => w !== wh);
+      } else {
+        next = [...cleaned, wh];
+      }
+    }
+    setSelectedWarehouses(next);
+    fetchOptions(next);
   };
 
   // LOAD DATA ON-DEMAND (Never preloaded)
-  const handleLoadData = async () => {
-    if (mode === 'warehouse_date' && (!selectedWarehouse || !selectedDate)) {
-      alert('Please select both a Warehouse and a Date to load data.');
+  const executeLoadData = async (
+    customMode?: 'warehouse_date' | 'container' | 'marka',
+    customDates?: string[],
+    customContainers?: string[],
+    customMarka?: string
+  ) => {
+    const activeM = customMode || mode;
+    const activeDates = customDates !== undefined ? customDates : selectedDates;
+    const activeContainers = customContainers !== undefined ? customContainers : selectedContainers;
+    const activeMarka = customMarka !== undefined ? customMarka : markaQuery;
+
+    if (activeM === 'warehouse_date' && (selectedWarehouses.length === 0 || activeDates.length === 0)) {
       return;
     }
-    if (mode === 'container' && !selectedContainer) {
-      alert('Please select a Loading Plan / Container to load data.');
+    if (activeM === 'container' && activeContainers.length === 0) {
+      return;
+    }
+    if (activeM === 'marka' && !activeMarka.trim()) {
       return;
     }
 
     setLoadingData(true);
     try {
-      let url = `/api/sales/receipts?mode=${mode}`;
-      if (mode === 'warehouse_date') {
-        url += `&warehouse=${encodeURIComponent(selectedWarehouse)}&date=${encodeURIComponent(selectedDate)}`;
-      } else {
-        url += `&container=${encodeURIComponent(selectedContainer)}`;
+      let url = `/api/sales/receipts?mode=${activeM}`;
+      if (activeM === 'warehouse_date') {
+        url += `&warehouses=${encodeURIComponent(selectedWarehouses.join(','))}&dates=${encodeURIComponent(activeDates.join(','))}`;
+      } else if (activeM === 'container') {
+        url += `&containers=${encodeURIComponent(activeContainers.join(','))}`;
+      } else if (activeM === 'marka') {
+        url += `&marka=${encodeURIComponent(activeMarka.trim())}`;
       }
+
       if (salesPersonFilter && salesPersonFilter !== 'ALL') {
         url += `&salesPerson=${encodeURIComponent(salesPersonFilter)}`;
       }
@@ -184,9 +247,23 @@ export default function SalesPortalPage() {
       }
     } catch (e) {
       console.error('Failed to load receipts:', e);
-      alert('Failed to load receipts from server.');
     } finally {
       setLoadingData(false);
+    }
+  };
+
+  // Auto-load triggers when user selects dates or containers
+  const handleDatesChange = (newDates: string[]) => {
+    setSelectedDates(newDates);
+    if (newDates.length > 0 && selectedWarehouses.length > 0) {
+      executeLoadData('warehouse_date', newDates, undefined, undefined);
+    }
+  };
+
+  const handleContainersChange = (newContainers: string[]) => {
+    setSelectedContainers(newContainers);
+    if (newContainers.length > 0) {
+      executeLoadData('container', undefined, newContainers, undefined);
     }
   };
 
@@ -219,11 +296,17 @@ export default function SalesPortalPage() {
 
       const data = await res.json();
       if (data.success) {
-        // Update local state
         setReceipts((prev) =>
           prev.map((r) => {
             if (r.receipt === receiptNo) {
-              return { ...r, ...payload };
+              const updated = { ...r };
+              if (field === 'rate') updated.rate = value;
+              if (field === 'remarks') updated.salesRemarks = value;
+              if (field === 'salesPerson') {
+                updated.salesPerson = value;
+                if (payload.salesPersonUsername) updated.salesPersonUsername = payload.salesPersonUsername;
+              }
+              return updated;
             }
             return r;
           })
@@ -266,7 +349,7 @@ export default function SalesPortalPage() {
       'CTN': r.quantity || 0,
       'Rate': r.rate || '',
       'Sales Person': r.salesPerson || '',
-      'Remarks': r.salesRemarks || r.remarks || '',
+      'Sales Remarks': r.salesRemarks || '',
       'Sales Status': r.salesStatus || 'Normal',
       'Hold Reason': r.holdReason || '',
       'Discrepancy': r.salesDiscrepancy?.hasDiscrepancy ? 'Yes' : 'No',
@@ -350,13 +433,83 @@ export default function SalesPortalPage() {
               </span>
             </div>
             <div className="text-[11px] text-slate-400">
-              China Inward Cargo, Rate Sheet, Hold & Two-Way Sales Communications
+              China Inward Cargo, Rate Sheet, Hold & Two-Way Live Communications
             </div>
           </div>
         </div>
 
-        {/* Tab Switcher & User Profile */}
+        {/* Tab Switcher, Notification Bell & User Profile */}
         <div className="flex items-center space-x-3">
+          {/* Notification Bell */}
+          <div className="relative" ref={notifRef}>
+            <button
+              onClick={() => setShowNotifications(!showNotifications)}
+              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition relative"
+              title="Recent Receipt Communications & Remarks"
+            >
+              <Bell className="w-4 h-4" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 bg-rose-600 text-white text-[10px] font-black w-4 h-4 rounded-full flex items-center justify-center animate-pulse">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+
+            {/* Notification Dropdown */}
+            {showNotifications && (
+              <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-white rounded-xl shadow-2xl border border-slate-300 text-slate-800 z-50 overflow-hidden animate-in fade-in zoom-in-95">
+                <div className="bg-slate-900 text-white p-3 flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Bell className="w-4 h-4 text-emerald-400" />
+                    <span className="font-bold text-xs">Recent Communications & Remarks</span>
+                  </div>
+                  <span className="text-[10px] bg-emerald-700 px-1.5 py-0.5 rounded font-mono">
+                    Receipt-Wise
+                  </span>
+                </div>
+
+                <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 p-1 text-xs">
+                  {notifications.length === 0 ? (
+                    <div className="p-6 text-center text-slate-500 text-xs">
+                      No communications yet. Start a chat on any receipt.
+                    </div>
+                  ) : (
+                    notifications.map((n) => (
+                      <div
+                        key={n.receiptNo}
+                        onClick={() => {
+                          setChatReceiptNo(n.receiptNo);
+                          setChatContainerNo(n.container);
+                          setChatPartnerName(n.senderName);
+                          setChatModalOpen(true);
+                          setShowNotifications(false);
+                        }}
+                        className={`p-3 rounded-lg hover:bg-slate-50 cursor-pointer transition flex flex-col space-y-1 ${
+                          n.unreadCount > 0 ? 'bg-emerald-50/60' : ''
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono font-bold text-emerald-800">
+                            Receipt #{n.receiptNo}
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            {new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        <p className="text-slate-700 text-xs truncate font-medium">
+                          <strong className="text-slate-900">{n.senderName}:</strong> {n.latestMessage}
+                        </p>
+                        {n.container && (
+                          <div className="text-[10px] text-slate-500">Container: {n.container}</div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
           {isSalesHeadOrAdmin && (
             <div className="bg-slate-800 p-0.5 rounded-lg flex items-center border border-slate-700 text-xs">
               <button
@@ -416,7 +569,7 @@ export default function SalesPortalPage() {
           <SalesTeamMaster />
         ) : (
           <div className="space-y-4">
-            {/* GOOGLE SHEET TOOLBAR & ON-DEMAND SELECTION BAR */}
+            {/* GOOGLE SHEET TOOLBAR & MULTI-SELECT ON-DEMAND BAR */}
             <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-4 space-y-3">
               {/* Mode Toggle & Description */}
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-200">
@@ -434,7 +587,7 @@ export default function SalesPortalPage() {
                       }`}
                     >
                       <Warehouse className="w-3.5 h-3.5" />
-                      <span>Warehouse & Date</span>
+                      <span>Warehouse & Date(s)</span>
                     </button>
                     <button
                       onClick={() => setMode('container')}
@@ -445,7 +598,18 @@ export default function SalesPortalPage() {
                       }`}
                     >
                       <Boxes className="w-3.5 h-3.5" />
-                      <span>Loading Plan / Container</span>
+                      <span>Container(s) Multi-Select</span>
+                    </button>
+                    <button
+                      onClick={() => setMode('marka')}
+                      className={`px-3 py-1.5 rounded-md font-semibold transition flex items-center space-x-1.5 ${
+                        mode === 'marka'
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      <Tag className="w-3.5 h-3.5" />
+                      <span>Marka Search</span>
                     </button>
                   </div>
                 </div>
@@ -453,7 +617,7 @@ export default function SalesPortalPage() {
                 <div className="text-xs text-slate-500 flex items-center space-x-1">
                   <Info className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                   <span>
-                    डेटा पहले से लोड नहीं होगा। कृपया वेयरहाउस और तारीख या कंटेनर सेलेक्ट करें और लोड करें।
+                    डेटा पहले से लोड नहीं होगा। सेलेक्ट करते ही ऑटोमैटिक लोड होगा ताकि पेज फास्ट रहे।
                   </span>
                 </div>
               </div>
@@ -462,63 +626,91 @@ export default function SalesPortalPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
                 {mode === 'warehouse_date' ? (
                   <>
-                    {/* Warehouse Selector */}
+                    {/* Warehouse Selector (Multi-Select Chips) */}
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                        Select Warehouse (वेयरहाउस) *
-                      </label>
-                      <select
-                        value={selectedWarehouse}
-                        onChange={(e) => handleWarehouseChange(e.target.value)}
-                        className="w-full px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-semibold focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                      >
-                        <option value="">-- Choose Warehouse --</option>
-                        {warehouses.map((w) => (
-                          <option key={w} value={w}>
-                            {w}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-[11px] font-bold text-slate-700">
+                          Select Warehouse(s) *
+                        </label>
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          {selectedWarehouses.length} Active
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-1 p-1 bg-slate-50 border border-slate-300 rounded-lg min-h-[34px] items-center">
+                        <button
+                          type="button"
+                          onClick={() => handleWarehouseToggle('ALL')}
+                          className={`px-2 py-0.5 rounded text-[11px] font-bold transition ${
+                            selectedWarehouses.includes('ALL')
+                              ? 'bg-emerald-700 text-white shadow-2xs'
+                              : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          ALL
+                        </button>
+                        {warehouses.map((w) => {
+                          const isSel = selectedWarehouses.includes(w);
+                          return (
+                            <button
+                              key={w}
+                              type="button"
+                              onClick={() => handleWarehouseToggle(w)}
+                              className={`px-2 py-0.5 rounded text-[11px] font-bold transition ${
+                                isSel
+                                  ? 'bg-emerald-600 text-white shadow-2xs'
+                                  : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                              }`}
+                            >
+                              {w}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
 
-                    {/* Date Selector */}
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                        Select Date (तारीख) *
-                      </label>
-                      <select
-                        value={selectedDate}
-                        onChange={(e) => setSelectedDate(e.target.value)}
-                        className="w-full px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-semibold focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                      >
-                        <option value="">-- Choose Date --</option>
-                        {dates.map((d) => (
-                          <option key={d} value={d}>
-                            {d}
-                          </option>
-                        ))}
-                      </select>
+                    {/* Interactive Calendar Date Picker (Green = Entry Available, Gray = No Entry) */}
+                    <div className="lg:col-span-2">
+                      <SalesDatePickerCalendar
+                        selectedDates={selectedDates}
+                        onChangeDates={handleDatesChange}
+                        availableDates={dates}
+                        warehouseName={selectedWarehouses.join(', ')}
+                      />
+                    </div>
+                  </>
+                ) : mode === 'container' ? (
+                  <>
+                    {/* Type-Searchable Multi-Container Selector */}
+                    <div className="lg:col-span-3">
+                      <SearchableContainerSelect
+                        containers={containers}
+                        selectedContainers={selectedContainers}
+                        onChangeContainers={handleContainersChange}
+                      />
                     </div>
                   </>
                 ) : (
                   <>
-                    {/* Container / Loading Plan Selector */}
-                    <div className="lg:col-span-2">
+                    {/* Marka Search Mode */}
+                    <div className="lg:col-span-3">
                       <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                        Select Loading Plan / Container *
+                        Search by Marka (Main Marka / Sub Marka) *
                       </label>
-                      <select
-                        value={selectedContainer}
-                        onChange={(e) => setSelectedContainer(e.target.value)}
-                        className="w-full px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-semibold focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                      >
-                        <option value="">-- Select Container / Loading Plan --</option>
-                        {containers.map((c) => (
-                          <option key={c.container} value={c.container}>
-                            {c.container} {c.containerNumber ? `(${c.containerNumber})` : ''} — {c.warehouse} [{c.loadingDate || 'No Date'}]
-                          </option>
-                        ))}
-                      </select>
+                      <div className="relative">
+                        <Tag className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+                        <input
+                          type="text"
+                          value={markaQuery}
+                          onChange={(e) => setMarkaQuery(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              executeLoadData('marka', undefined, undefined, markaQuery);
+                            }
+                          }}
+                          placeholder="Type shipping mark (e.g. AS-14, R-99, KINGS)..."
+                          className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-semibold focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                        />
+                      </div>
                     </div>
                   </>
                 )}
@@ -531,7 +723,9 @@ export default function SalesPortalPage() {
                     </label>
                     <select
                       value={salesPersonFilter}
-                      onChange={(e) => setSalesPersonFilter(e.target.value)}
+                      onChange={(e) => {
+                        setSalesPersonFilter(e.target.value);
+                      }}
                       className="w-full px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                     >
                       <option value="ALL">All Sales Persons</option>
@@ -544,10 +738,10 @@ export default function SalesPortalPage() {
                   </div>
                 )}
 
-                {/* LOAD DATA BUTTON */}
+                {/* LOAD DATA / REFRESH BUTTON */}
                 <div>
                   <button
-                    onClick={handleLoadData}
+                    onClick={() => executeLoadData()}
                     disabled={loadingData}
                     className="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs flex items-center justify-center space-x-1.5 transition disabled:opacity-50"
                   >
@@ -555,30 +749,14 @@ export default function SalesPortalPage() {
                     <span>{loadingData ? 'Loading...' : '⚡ Load Data'}</span>
                   </button>
                 </div>
-
-                {/* Quick Search in Loaded Data */}
-                {hasLoadedOnce && (
-                  <div>
-                    <div className="relative">
-                      <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
-                      <input
-                        type="text"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Filter in sheet..."
-                        className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                )}
               </div>
 
-              {/* Summary Metrics Bar (Shown when data is loaded) */}
+              {/* Quick Search within Loaded Data Bar */}
               {hasLoadedOnce && receipts.length > 0 && (
                 <div className="pt-2 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
                   <div className="flex flex-wrap items-center gap-3">
                     <span className="font-semibold text-slate-900">
-                      Total Receipts: <strong className="text-emerald-700">{summary.totalReceipts}</strong>
+                      Loaded Receipts: <strong className="text-emerald-700">{summary.totalReceipts}</strong>
                     </span>
                     <span>|</span>
                     <span>
@@ -603,13 +781,23 @@ export default function SalesPortalPage() {
                   </div>
 
                   <div className="flex items-center space-x-2">
+                    <div className="relative w-48 sm:w-64">
+                      <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Type-search in sheet..."
+                        className="w-full pl-8 pr-3 py-1 bg-white border border-slate-300 rounded text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                      />
+                    </div>
                     <button
                       onClick={handleExportExcel}
                       className="px-3 py-1 bg-white hover:bg-slate-100 border border-slate-300 rounded text-xs font-semibold text-slate-700 flex items-center space-x-1 shadow-2xs transition"
                       title="Download as Excel Sheet"
                     >
                       <Download className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>Export Sheet</span>
+                      <span>Export</span>
                     </button>
                   </div>
                 </div>
@@ -627,7 +815,7 @@ export default function SalesPortalPage() {
                   No Data Preloaded (डेटा अभी लोड नहीं किया गया है)
                 </h3>
                 <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 leading-relaxed">
-                  कृपया ऊपर फ़िल्टर बार से वेयरहाउस और डेट चुनें, या लोडिंग प्लान सेलेक्ट करके <strong>&quot;⚡ Load Data&quot;</strong> पर क्लिक करें। आपके चयन के आधार पर गूगल शीट में डेटा लोड होगा।
+                  कृपया ऊपर फ़िल्टर बार से वेयरहाउस और डेट (कैलेंडर से ग्रीन डेट) चुनें, या कंटेनर सर्च करके सेलेक्ट करें। सेलेक्ट करते ही आपका गूगल शीट डेटा ऑटोमैटिक लोड होगा।
                 </p>
               </div>
             ) : filteredReceipts.length === 0 ? (
@@ -660,7 +848,7 @@ export default function SalesPortalPage() {
                           Sales Person 👤
                         </th>
                         <th className="py-2.5 px-3 border-r border-emerald-800 bg-[#0d452b] min-w-[150px]">
-                          Remarks 💬
+                          Remarks (सेल्स हेड) 💬
                         </th>
                         <th className="py-2.5 px-3 border-r border-emerald-800 text-center">Status</th>
                         <th className="py-2.5 px-3 border-r border-emerald-800 text-center">Discrepancy</th>
@@ -822,7 +1010,7 @@ export default function SalesPortalPage() {
                               )}
                             </td>
 
-                            {/* REMARKS (Direct Inline Editable Text by Sales Head) */}
+                            {/* REMARKS (Strictly blank unless Sales Head typed) */}
                             <td className="py-1 px-2 border-r border-slate-200 relative">
                               {isSalesHeadOrAdmin ? (
                                 <div className="flex items-center space-x-1">
@@ -1014,7 +1202,7 @@ export default function SalesPortalPage() {
         isOpen={discrepancyModalOpen}
         onClose={() => setDiscrepancyModalOpen(false)}
         onSuccess={() => {
-          handleLoadData();
+          executeLoadData();
         }}
         receiptData={discrepancyTarget}
       />
@@ -1024,7 +1212,7 @@ export default function SalesPortalPage() {
         isOpen={holdModalOpen}
         onClose={() => setHoldModalOpen(false)}
         onSuccess={() => {
-          handleLoadData();
+          executeLoadData();
         }}
         receiptData={holdTarget}
       />

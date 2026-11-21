@@ -10,7 +10,7 @@ import { recordEditLog } from '@/lib/auditLog';
 
 export const dynamic = 'force-dynamic';
 
-// GET: Fetch sales records on-demand (NO EAGER LOADING)
+// GET: Fetch sales records on-demand with multi-select (NO EAGER LOADING)
 export async function GET(req: NextRequest) {
   if (!isSalesPersonOrHeadAuthenticated(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -22,28 +22,53 @@ export async function GET(req: NextRequest) {
   try {
     await connectToDatabase();
     const { searchParams } = new URL(req.url);
-    const mode = searchParams.get('mode') || 'warehouse_date'; // 'warehouse_date' | 'container'
-    const warehouse = searchParams.get('warehouse')?.trim();
-    const date = searchParams.get('date')?.trim();
-    const container = searchParams.get('container')?.trim();
+    const mode = searchParams.get('mode') || 'warehouse_date'; // 'warehouse_date' | 'container' | 'marka'
+
+    // Multi-select query params (comma-separated or single)
+    const rawWarehouses = searchParams.get('warehouses') || searchParams.get('warehouse');
+    const rawDates = searchParams.get('dates') || searchParams.get('date');
+    const rawContainers = searchParams.get('containers') || searchParams.get('container');
+    const markaSearch = searchParams.get('marka')?.trim();
     const salesPersonFilter = searchParams.get('salesPerson')?.trim();
 
-    // NO PRELOADING: If criteria not specified, return empty list
-    if (mode === 'warehouse_date' && (!warehouse || !date)) {
+    const warehouseList = rawWarehouses
+      ? rawWarehouses.split(',').map((w) => w.trim()).filter(Boolean)
+      : [];
+    const dateList = rawDates
+      ? rawDates.split(',').map((d) => d.trim()).filter(Boolean)
+      : [];
+    const containerList = rawContainers
+      ? rawContainers.split(',').map((c) => c.trim()).filter(Boolean)
+      : [];
+
+    // STRICT RULE: NO PRELOADING
+    if (
+      mode === 'warehouse_date' &&
+      (warehouseList.length === 0 || dateList.length === 0)
+    ) {
       return NextResponse.json({
         success: true,
         receipts: [],
         total: 0,
-        message: 'No data preloaded. Please select a Warehouse and Date to load receipts.',
+        message: 'No data preloaded. Please select Warehouse(s) and Date(s) to load receipts.',
       });
     }
 
-    if (mode === 'container' && !container) {
+    if (mode === 'container' && containerList.length === 0) {
       return NextResponse.json({
         success: true,
         receipts: [],
         total: 0,
-        message: 'No data preloaded. Please select a Loading Plan / Container to load cargo items.',
+        message: 'No data preloaded. Please select Container(s) / Loading Plan(s) to load cargo items.',
+      });
+    }
+
+    if (mode === 'marka' && !markaSearch) {
+      return NextResponse.json({
+        success: true,
+        receipts: [],
+        total: 0,
+        message: 'No data preloaded. Please type Marka to search.',
       });
     }
 
@@ -51,12 +76,15 @@ export async function GET(req: NextRequest) {
     let containerInfoMap: Map<string, { container: string; containerNumber?: string; loadingDate?: string }> = new Map();
 
     if (mode === 'container') {
-      // 1. Fetch shipments inside selected container
-      const containerRegex = new RegExp(`^${container!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+      // 1. Multi-container lookup
+      const containerRegexes = containerList.map(
+        (c) => new RegExp(`^${c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
+      );
+
       const shipments = await Shipment.find({
         $or: [
-          { container: containerRegex },
-          { containerNumber: containerRegex },
+          { container: { $in: containerRegexes } },
+          { containerNumber: { $in: containerRegexes } },
         ],
       }).lean();
 
@@ -68,21 +96,30 @@ export async function GET(req: NextRequest) {
       const whMap = new Map<string, any>();
       whReceipts.forEach((r: any) => whMap.set(r.receipt, r));
 
-      // Container metadata from container collection
-      const containerDoc = await Container.findOne({
-        $or: [{ container: containerRegex }, { containerNumber: containerRegex }],
+      const containerDocs = await Container.find({
+        $or: [
+          { container: { $in: containerRegexes } },
+          { containerNumber: { $in: containerRegexes } },
+        ],
       }).lean();
+
+      const cDocMap = new Map<string, any>();
+      containerDocs.forEach((cd: any) => {
+        if (cd.container) cDocMap.set(cd.container.toLowerCase(), cd);
+        if (cd.containerNumber) cDocMap.set(cd.containerNumber.toLowerCase(), cd);
+      });
 
       rawReceipts = shipments.map((s: any) => {
         const wh = whMap.get(s.receipt) || {};
+        const cDoc = cDocMap.get((s.container || '').toLowerCase()) || cDocMap.get((s.containerNumber || '').toLowerCase());
         return {
           _id: s._id,
           receipt: s.receipt,
           date: s.date || wh.date || '',
           warehouse: s.warehouse || wh.warehouse || '',
-          container: s.container || container,
-          containerNumber: s.containerNumber || (containerDoc ? (containerDoc as any).containerNumber : ''),
-          loadingDate: s.loadingDate || (containerDoc ? (containerDoc as any).loadingDate : ''),
+          container: s.container || (cDoc ? cDoc.container : ''),
+          containerNumber: s.containerNumber || (cDoc ? cDoc.containerNumber : ''),
+          loadingDate: s.loadingDate || (cDoc ? cDoc.loadingDate : ''),
           mainMarka: s.mainMarka || wh.mainMarka || '',
           subMarka: s.subMarka || wh.subMarka || '',
           commodity: s.english || s.commodity || wh.english || wh.commodity || '',
@@ -93,7 +130,7 @@ export async function GET(req: NextRequest) {
           rate: (s as any)['Overall / Receipt Freight Rate'] || s.salesRate || s.rate || (wh as any)['Overall / Receipt Freight Rate'] || wh.salesRate || wh.rate || '',
           salesPerson: s.salesPerson || wh.salesPerson || '',
           salesPersonUsername: s.salesPersonUsername || wh.salesPersonUsername || '',
-          salesRemarks: s.salesRemarks || wh.salesRemarks || s.remarks || wh.remarks || '',
+          salesRemarks: s.salesRemarks || wh.salesRemarks || '', // STRICT: blank unless Sales Head typed
           salesStatus: s.salesStatus || wh.salesStatus || 'Normal',
           holdReason: s.holdReason || wh.holdReason || '',
           salesDiscrepancy: s.salesDiscrepancy || wh.salesDiscrepancy || null,
@@ -101,13 +138,23 @@ export async function GET(req: NextRequest) {
         };
       });
     } else {
-      // mode === 'warehouse_date'
+      // mode === 'warehouse_date' or mode === 'marka'
       const query: Record<string, any> = {};
-      if (warehouse && warehouse !== 'ALL') {
-        query.warehouse = new RegExp(`^${warehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+
+      if (warehouseList.length > 0 && !warehouseList.includes('ALL')) {
+        const whRegexes = warehouseList.map(
+          (w) => new RegExp(`^${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
+        );
+        query.warehouse = { $in: whRegexes };
       }
-      if (date) {
-        query.date = date;
+
+      if (dateList.length > 0) {
+        query.date = { $in: dateList };
+      }
+
+      if (markaSearch) {
+        const markaRegex = new RegExp(markaSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        query.$or = [{ mainMarka: markaRegex }, { subMarka: markaRegex }, { party: markaRegex }];
       }
 
       const receipts = await WarehouseReceipt.find(query)
@@ -118,7 +165,9 @@ export async function GET(req: NextRequest) {
       const receiptNums = receipts.map((r: any) => r.receipt).filter(Boolean);
       const mappedShipments = await Shipment.find({
         receipt: { $in: receiptNums },
-      }).select('receipt container containerNumber loadingDate salesRate salesPerson salesRemarks salesStatus holdReason salesDiscrepancy').lean();
+      })
+        .select('receipt container containerNumber loadingDate salesRate salesPerson salesRemarks salesStatus holdReason salesDiscrepancy')
+        .lean();
 
       mappedShipments.forEach((s: any) => {
         if (s.receipt) {
@@ -150,7 +199,7 @@ export async function GET(req: NextRequest) {
           rate: (r as any)['Overall / Receipt Freight Rate'] || r.salesRate || r.rate || '',
           salesPerson: r.salesPerson || '',
           salesPersonUsername: r.salesPersonUsername || '',
-          salesRemarks: r.salesRemarks || r.remarks || '',
+          salesRemarks: r.salesRemarks || '', // STRICT: blank unless entered by Sales Head
           salesStatus: r.salesStatus || 'Normal',
           holdReason: r.holdReason || '',
           salesDiscrepancy: r.salesDiscrepancy || null,
@@ -159,7 +208,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Role-based filtering for sales_person
+    // Role-based filtering for sales_person (Replica view)
     let filteredReceipts = rawReceipts;
     if (isSalesPersonOnly) {
       const myUsername = (currentUser.username || '').toLowerCase();
@@ -184,9 +233,9 @@ export async function GET(req: NextRequest) {
       receipts: filteredReceipts,
       total: filteredReceipts.length,
       mode,
-      warehouse: warehouse || '',
-      date: date || '',
-      container: container || '',
+      warehouses: warehouseList,
+      dates: dateList,
+      containers: containerList,
     });
   } catch (error: any) {
     console.error('Error fetching sales receipts:', error);
@@ -254,10 +303,6 @@ export async function PATCH(req: NextRequest) {
     }
     if (remarks !== undefined) {
       updates.salesRemarks = String(remarks).trim();
-      // append/set remarks
-      if (!whDoc.remarks) {
-        updates.remarks = String(remarks).trim();
-      }
     }
     if (salesStatus !== undefined && ['Normal', 'Available to Deliver', 'Hold'].includes(salesStatus)) {
       updates.salesStatus = salesStatus;
