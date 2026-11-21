@@ -41,7 +41,7 @@ jobs:
       - name: Sync Capacitor Android Project
         run: |
           mkdir -p android/app/src/main/assets
-          npx cap sync android
+          npm run cap:sync
 
       - name: Build Debug APK with Gradle
         working-directory: android

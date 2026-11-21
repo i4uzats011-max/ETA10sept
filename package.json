@@ -10,7 +10,9 @@
     "china:sync": "node scripts/sync_china_warehouse.js",
     "china:verify": "node scripts/sync_china_warehouse.js --verify",
     "china:sunday": "node scripts/sync_china_warehouse.js --sunday",
-    "china:month": "node scripts/sync_china_warehouse.js --month"
+    "china:month": "node scripts/sync_china_warehouse.js --month",
+    "cap": "cap",
+    "cap:sync": "cap sync android"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.2",
