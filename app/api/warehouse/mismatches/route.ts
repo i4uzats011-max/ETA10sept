@@ -80,9 +80,22 @@ export async function PATCH(req: NextRequest) {
       for (const m of pendingList) {
         const portal = m.portalData || {};
         const updateData: any = {};
-        if (portal.actualQuantity !== undefined) updateData.quantity = portal.actualQuantity;
-        if (portal.weight !== undefined) updateData.weight = portal.weight;
-        if (portal.volume !== undefined) updateData.volume = portal.volume;
+        const existingReceipt = await WarehouseReceipt.findOne({ receipt: m.receipt, warehouse: m.warehouse });
+        const loadedQty = existingReceipt ? Number(existingReceipt.loadedQuantity || 0) : 0;
+        const portalQty = portal.actualQuantity !== undefined ? Number(portal.actualQuantity || 0) : undefined;
+
+        if (portalQty !== undefined) {
+          updateData.remainingQuantity = portalQty;
+          updateData.quantity = loadedQty > 0 ? (portalQty + loadedQty) : portalQty;
+        }
+        if (portal.weight !== undefined) {
+          if (loadedQty === 0) updateData.weight = portal.weight;
+          updateData.remainingWeight = portal.weight;
+        }
+        if (portal.volume !== undefined) {
+          if (loadedQty === 0) updateData.volume = portal.volume;
+          updateData.remainingVolume = portal.volume;
+        }
         if (portal.mark) updateData.mainMarka = portal.mark;
 
         await WarehouseReceipt.findOneAndUpdate(
@@ -122,18 +135,24 @@ export async function PATCH(req: NextRequest) {
     }
 
     if (action === 'ACCEPT_CHINA') {
-      // Overwrite DB receipt with China portal numbers
+      // Overwrite DB receipt with China portal numbers, respecting loaded quantity
       const portal = mismatch.portalData || {};
       const updateData: any = {};
+      const existingReceipt = await WarehouseReceipt.findOne({ receipt: mismatch.receipt, warehouse: mismatch.warehouse });
+      const loadedQty = existingReceipt ? Number(existingReceipt.loadedQuantity || 0) : 0;
+      const portalQty = portal.actualQuantity !== undefined ? Number(portal.actualQuantity || 0) : undefined;
 
-      if (portal.actualQuantity !== undefined) {
-        updateData.quantity = portal.actualQuantity;
+      if (portalQty !== undefined) {
+        updateData.remainingQuantity = portalQty;
+        updateData.quantity = loadedQty > 0 ? (portalQty + loadedQty) : portalQty;
       }
       if (portal.weight !== undefined) {
-        updateData.weight = portal.weight;
+        if (loadedQty === 0) updateData.weight = portal.weight;
+        updateData.remainingWeight = portal.weight;
       }
       if (portal.volume !== undefined) {
-        updateData.volume = portal.volume;
+        if (loadedQty === 0) updateData.volume = portal.volume;
+        updateData.remainingVolume = portal.volume;
       }
       if (portal.mark) {
         updateData.mainMarka = portal.mark;

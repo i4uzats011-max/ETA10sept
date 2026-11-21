@@ -1,6 +1,7 @@
 import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
+import { fetchSingleReceiptFromChina } from '@/lib/chinaSyncEngine';
 import { calculateCommittedEta, getContainerForReceiptDate } from '@/lib/committedEtaHelper';
 
 export interface ILivePublicReceipt {
@@ -369,9 +370,33 @@ export async function resolveLiveReceiptsForTrackingDoc(
   }).lean();
 
   // 2. Fetch live WarehouseReceipts for all receipt numbers in this link
-  const liveWhReceipts: any[] = await WarehouseReceipt.find({
+  let liveWhReceipts: any[] = await WarehouseReceipt.find({
     receipt: { $in: receiptNos }
   }).lean();
+
+  // User Rule: If receipts in public link are not found in DB, check China warehouse and auto-update DB!
+  const knownFound = new Set([
+    ...liveShipments.map((s: any) => (s.receipt || '').toLowerCase().trim()),
+    ...liveWhReceipts.map((w: any) => (w.receipt || '').toLowerCase().trim()),
+  ]);
+  const missingCodes: string[] = receiptNos
+    .map((r: any) => String(r || '').trim())
+    .filter((r: string) => Boolean(r) && !knownFound.has(r.toLowerCase()));
+  if (missingCodes.length > 0) {
+    for (const missingCode of missingCodes.slice(0, 5)) {
+      try {
+        const chinaRes = await fetchSingleReceiptFromChina(missingCode, 'ALL');
+        if (chinaRes.success && chinaRes.receipt) {
+          const freshDoc = await WarehouseReceipt.findOne({ receipt: new RegExp(`^${missingCode}$`, 'i') }).lean();
+          if (freshDoc) {
+            liveWhReceipts.push(freshDoc);
+          }
+        }
+      } catch (err) {
+        // non-blocking
+      }
+    }
+  }
 
   // 3. Fetch live Containers for all unique container aliases across shipments
   const containerNames = Array.from(

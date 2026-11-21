@@ -6,6 +6,7 @@ import WarehouseReceipt from '@/models/WarehouseReceipt';
 import { translateToEnglish } from '@/lib/translate';
 import { formatGlobalDate } from '@/lib/dateUtils';
 import { calculateCommittedEta, getContainerForReceiptDate } from '@/lib/committedEtaHelper';
+import { fetchSingleReceiptFromChina } from '@/lib/chinaSyncEngine';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,9 +37,28 @@ export async function GET(req: NextRequest) {
     await connectToDatabase();
 
     // Fetch all WarehouseReceipt documents matching this receipt number
-    const matchingWhItems: any[] = await WarehouseReceipt.find({
+    let matchingWhItems: any[] = await WarehouseReceipt.find({
       receipt: { $regex: new RegExp(`^${receiptQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
     }).sort({ createdAt: -1 }).lean();
+
+    // Check if shipments exist for this receipt
+    const existingShipmentCount = await Shipment.countDocuments({
+      receipt: { $regex: new RegExp(`^${receiptQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+    });
+
+    // User Rule: If receipt not found in DB, search in China warehouse, update DB, then show results to public user!
+    if (matchingWhItems.length === 0 && existingShipmentCount === 0) {
+      try {
+        const chinaResult = await fetchSingleReceiptFromChina(receiptQuery, 'ALL');
+        if (chinaResult.success && chinaResult.receipt) {
+          matchingWhItems = await WarehouseReceipt.find({
+            receipt: { $regex: new RegExp(`^${receiptQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+          }).sort({ createdAt: -1 }).lean();
+        }
+      } catch (err) {
+        console.warn(`[Public Track Search] Auto-fetch from China warehouse failed for ${receiptQuery}:`, err);
+      }
+    }
 
     const distinctWhNames = Array.from(new Set(matchingWhItems.map((w) => (w.warehouse || 'China Warehouse').trim())));
 

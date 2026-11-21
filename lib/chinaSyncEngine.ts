@@ -227,37 +227,54 @@ export async function runChinaWarehouseSync(
         // ---------------------------------------------------------------------
         // CASE B: EXISTING RECEIPT -> Rule: DO NOT blindly overwrite our warehouse data!
         // Check for Mismatches / Receiving Discrepancies
+        // Rule: In China warehouse, loaded cartons are deducted upon loading to containers.
+        // Therefore: Balance available to load in DB (dbRemainingQty) = China warehouse stock (portalQty)!
         // ---------------------------------------------------------------------
         const dbQty = typeof existing.quantity === 'number' ? existing.quantity : parseInt(String(existing.quantity || 0), 10);
+        const loadedQty = typeof existing.loadedQuantity === 'number' ? existing.loadedQuantity : parseInt(String(existing.loadedQuantity || 0), 10);
+        const dbRemainingQty = existing.remainingQuantity !== undefined && existing.remainingQuantity !== null
+          ? (typeof existing.remainingQuantity === 'number' ? existing.remainingQuantity : parseInt(String(existing.remainingQuantity || 0), 10))
+          : Math.max(0, dbQty - loadedQty);
         const portalQty = item.actualQuantity;
+
         const dbWeight = parseFloat(String(existing.weight || 0)) || 0;
         const portalWeight = parseFloat(String(item.weight || 0)) || 0;
         const dbVolume = parseFloat(String(existing.volume || 0)) || 0;
         const portalVolume = parseFloat(String(item.volume || 0)) || 0;
 
+        const dbRemainingWeight = existing.remainingWeight !== undefined && existing.remainingWeight !== null && existing.remainingWeight !== ''
+          ? (parseFloat(String(existing.remainingWeight)) || 0)
+          : (dbQty > 0 ? (dbWeight * dbRemainingQty) / dbQty : 0);
+
+        const dbRemainingVolume = existing.remainingVolume !== undefined && existing.remainingVolume !== null && existing.remainingVolume !== ''
+          ? (parseFloat(String(existing.remainingVolume)) || 0)
+          : (dbQty > 0 ? (dbVolume * dbRemainingQty) / dbQty : 0);
+
         const mismatches: Array<{ type: MismatchType; reason: string }> = [];
 
-        // 1. Quantity mismatch (e.g. portal receiving changed after upload)
-        if (dbQty !== portalQty) {
+        // 1. Quantity mismatch: China warehouse stock (actualQuantity) should match DB balance available to load (dbRemainingQty)
+        if (dbRemainingQty !== portalQty) {
           mismatches.push({
             type: 'QUANTITY_MISMATCH',
-            reason: `Quantity mismatch: DB has ${dbQty} ctn, China Portal shows ${portalQty} ctn (diff: ${portalQty - dbQty})`,
+            reason: `Quantity mismatch: DB balance to load is ${dbRemainingQty} ctn (Total: ${dbQty}, Loaded: ${loadedQty}), China Portal shows ${portalQty} ctn in stock (diff: ${portalQty - dbRemainingQty})`,
           });
         }
 
-        // 2. Weight mismatch (> 0.5 kg difference)
-        if (Math.abs(dbWeight - portalWeight) > 0.5 && portalWeight > 0) {
+        // 2. Weight mismatch (> 0.5 kg difference against remaining warehouse stock)
+        // Only verify weight if remaining quantity exists and portal provided weight
+        if (dbRemainingQty > 0 && portalWeight > 0 && Math.abs(dbRemainingWeight - portalWeight) > 0.5) {
           mismatches.push({
             type: 'WEIGHT_MISMATCH',
-            reason: `Weight mismatch: DB has ${dbWeight} kg, China Portal shows ${portalWeight} kg`,
+            reason: `Weight mismatch: DB remaining stock has ${dbRemainingWeight.toFixed(2)} kg, China Portal shows ${portalWeight} kg`,
           });
         }
 
-        // 3. Volume mismatch (> 0.05 CBM difference)
-        if (Math.abs(dbVolume - portalVolume) > 0.05 && portalVolume > 0) {
+        // 3. Volume mismatch (> 0.05 CBM difference against remaining warehouse stock)
+        // Only verify volume if remaining quantity exists and portal provided volume
+        if (dbRemainingQty > 0 && portalVolume > 0 && Math.abs(dbRemainingVolume - portalVolume) > 0.05) {
           mismatches.push({
             type: 'VOLUME_MISMATCH',
-            reason: `Volume mismatch: DB has ${dbVolume} m³, China Portal shows ${portalVolume} m³`,
+            reason: `Volume mismatch: DB remaining stock has ${dbRemainingVolume.toFixed(3)} m³, China Portal shows ${portalVolume} m³`,
           });
         }
 
@@ -479,14 +496,21 @@ export async function fetchSingleReceiptFromChina(
 
   if (existing) {
     // Update existing with China's latest numbers
-    const totalQty = foundRecord.actualQuantity;
-    const loadedQty = existing.loadedQuantity || 0;
-    const remainingQty = Math.max(0, totalQty - loadedQty);
+    // In China warehouse, loaded cartons are deducted when loaded to containers.
+    // China warehouse actualQuantity represents the remaining stock (balance to load).
+    const loadedQty = typeof existing.loadedQuantity === 'number' ? existing.loadedQuantity : (parseInt(String(existing.loadedQuantity || 0), 10) || 0);
+    const portalInStock = foundRecord.actualQuantity;
+    const remainingQty = portalInStock;
+    const totalQty = loadedQty > 0 ? (loadedQty + remainingQty) : Math.max(existing.quantity || 0, portalInStock);
 
     existing.quantity = totalQty;
     existing.remainingQuantity = remainingQty;
-    existing.weight = foundRecord.weight;
-    existing.volume = foundRecord.volume;
+    existing.remainingWeight = foundRecord.weight;
+    existing.remainingVolume = foundRecord.volume;
+    if (loadedQty === 0) {
+      existing.weight = foundRecord.weight;
+      existing.volume = foundRecord.volume;
+    }
     existing.commodity = translatedCommodity;
     existing.chinese = foundRecord.commodity;
     existing.english = translatedCommodity;

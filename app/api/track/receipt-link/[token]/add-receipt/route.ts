@@ -3,6 +3,7 @@ import { connectToDatabase } from '@/lib/mongodb';
 import ReceiptTracking, { IReceiptEntry } from '@/models/ReceiptTracking';
 import Shipment from '@/models/Shipment';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
+import { fetchSingleReceiptFromChina } from '@/lib/chinaSyncEngine';
 import { calculateRemainDays, isMarkaMatch } from '@/lib/liveTrackingResolver';
 
 export const dynamic = 'force-dynamic';
@@ -78,8 +79,21 @@ export async function POST(
     // 2. Search database for this receipt across China warehouses
     const receiptRegex = new RegExp(`^${inputReceiptNo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
 
-    const matchingWhItems: any[] = await WarehouseReceipt.find({ receipt: receiptRegex }).lean();
-    const allShipments: any[] = await Shipment.find({ receipt: receiptRegex }).lean();
+    let matchingWhItems: any[] = await WarehouseReceipt.find({ receipt: receiptRegex }).lean();
+    let allShipments: any[] = await Shipment.find({ receipt: receiptRegex }).lean();
+
+    // User Rule: If receipt not found in DB, search in China warehouse, update DB, then allow public link adding!
+    if (matchingWhItems.length === 0 && allShipments.length === 0) {
+      try {
+        const chinaResult = await fetchSingleReceiptFromChina(inputReceiptNo, 'ALL');
+        if (chinaResult.success && chinaResult.receipt) {
+          matchingWhItems = await WarehouseReceipt.find({ receipt: receiptRegex }).lean();
+          allShipments = await Shipment.find({ receipt: receiptRegex }).lean();
+        }
+      } catch (err) {
+        console.warn(`[Public Link Add] Auto-fetch from China warehouse failed for ${inputReceiptNo}:`, err);
+      }
+    }
 
     const candidates: ICandidateSlip[] = [];
 
