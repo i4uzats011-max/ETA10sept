@@ -49,7 +49,7 @@ jobs:
       - name: Build Debug APK with Gradle
         working-directory: android
         run: |
-          ./gradlew assembleDebug --stacktrace --no-daemon 2>&1 | tee ../gradle_build.log
+          ./gradlew :app:assembleDebug --stacktrace --no-daemon 2>&1 | tee ../gradle_build.log
 
       - name: Report Build Output
         if: always()
@@ -59,22 +59,23 @@ jobs:
           tail -n 120 gradle_build.log >> $GITHUB_STEP_SUMMARY || echo "No log found" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
-      - name: Upload Build Log on Failure
-        if: failure()
+      - name: Upload Build Log
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: gradle-failure-log
+          name: gradle-build-log
           path: gradle_build.log
 
       - name: Locate Generated APK Files
         run: |
-          echo "### Generated APK Files" >> $GITHUB_STEP_SUMMARY
-          find android/app/build/outputs -type f -name "*.apk" | tee -a $GITHUB_STEP_SUMMARY
+          echo "### All APK Files Found" >> $GITHUB_STEP_SUMMARY
+          find . -type f -name "*.apk" | tee -a $GITHUB_STEP_SUMMARY || true
 
       - name: Upload Android APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Cargo-Logistics-Pro-MultiRole-APK
-          path: android/app/build/outputs/**/*.apk
+          path: |
+            **/*.apk
           if-no-files-found: warn
           retention-days: 30
