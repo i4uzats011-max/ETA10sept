@@ -56,6 +56,28 @@ export interface IWarehouseReceipt extends Document {
   totalCost?: number | string;  // Total cost of cargo
   cost?: number | string;       // Cost alias
   goodsItems?: any[];           // Goods rate items breakdown
+  // Sales Head & Sales Team Workflow Fields
+  salesPerson?: string;         // Assigned sales executive name
+  salesPersonUsername?: string; // Assigned sales executive username
+  salesRate?: string;           // Rate entered/proposed by Sales Head
+  salesRemarks?: string;        // Remarks entered by Sales Head
+  salesStatus?: 'Normal' | 'Available to Deliver' | 'Hold'; // Three statuses: Normal, Available to Deliver, Hold
+  holdReason?: string;          // Reason if put on Hold
+  holdUpdatedAt?: Date;         // Timestamp when hold status changed
+  holdUpdatedBy?: string;       // User who updated hold status
+  salesDiscrepancy?: {          // "Data Entry Wrong" discrepancy flagged by Sales Head/Person
+    hasDiscrepancy: boolean;
+    actualCbm?: string | number;
+    actualWeight?: string | number;
+    actualCtn?: number;
+    remarks?: string;
+    reportedBy?: string;
+    reportedAt?: Date;
+    status?: 'Pending' | 'Approved' | 'Rejected';
+    adminNotes?: string;
+    resolvedAt?: Date;
+    resolvedBy?: string;
+  };
   messageSent?: boolean;        // Arrival notification sent status
   messageSentAt?: Date | null;  // Timestamp of message sent
   messageSentDate?: string;     // Formatted message sent date/time
@@ -150,6 +172,20 @@ const WarehouseReceiptSchema = new Schema<IWarehouseReceipt>(
     chinaId: { type: String, default: '', trim: true },
     chinaStockState: { type: Number, default: 0 },
     hasMismatch: { type: Boolean, default: false, index: true },
+    salesPerson: { type: String, default: '', index: true, trim: true },
+    salesPersonUsername: { type: String, default: '', index: true, trim: true },
+    salesRate: { type: String, default: '', trim: true },
+    salesRemarks: { type: String, default: '', trim: true },
+    salesStatus: {
+      type: String,
+      enum: ['Normal', 'Available to Deliver', 'Hold'],
+      default: 'Normal',
+      index: true,
+    },
+    holdReason: { type: String, default: '', trim: true },
+    holdUpdatedAt: { type: Date, default: null },
+    holdUpdatedBy: { type: String, default: '', trim: true },
+    salesDiscrepancy: { type: Schema.Types.Mixed, default: null },
   },
   {
     timestamps: true,

@@ -206,9 +206,14 @@ export default function PartyArrivalNotifications({ initialDate, onClose, readOn
       if (entry) detailLines.push(`Warehouse Entry: ${entry}`);
     }
 
-    // Optional Rate: User can mention rate or send without rate
-    // If entered (e.g. '23k'), outputs "Rate 23k" directly after Volume details
-    const currentRate = (rateInputs[r._id] !== undefined ? rateInputs[r._id] : (r.rate || '')).trim();
+    // Optional Rate: Provided by Sales Head (from DB head 'Overall / Receipt Freight Rate' or 'rate' or 'salesRate')
+    const currentRate = (
+      r.rate ||
+      (r as any)['Overall / Receipt Freight Rate'] ||
+      (r as any).salesRate ||
+      rateInputs[r._id] ||
+      ''
+    ).trim();
     let rateLine = '';
     const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
     const trackingFullUrl = r.trackingToken ? `${baseUrl}/track/${r.trackingToken}` : '';
@@ -839,33 +844,11 @@ ${trackingLine}`;
                 </div>
               </div>
 
-              {/* Quick Batch Rate Applicator */}
+              {/* Sales Head Rate Info */}
               {includeRateGlobal && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-bold text-slate-600 shrink-0">Quick Rate:</span>
-                  <input
-                    type="text"
-                    value={quickRateInput}
-                    onChange={(e) => setQuickRateInput(e.target.value)}
-                    placeholder="e.g. 23k or 25,000"
-                    className="w-36 px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono shadow-2xs"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleApplyQuickRate}
-                    className="px-3 py-1.5 bg-slate-900 hover:bg-black text-white rounded-lg text-xs font-bold transition shadow-2xs shrink-0"
-                    title="Apply this rate to all visible receipts"
-                  >
-                    Apply to All
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleClearAllRates}
-                    className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold transition shrink-0"
-                    title="Clear rates for all items"
-                  >
-                    Clear All
-                  </button>
+                <div className="flex items-center space-x-1.5 text-xs text-emerald-800 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>Freight Rates are set by Sales Head in the Sales Portal and automatically included in Party Messages.</span>
                 </div>
               )}
             </div>
@@ -1223,58 +1206,45 @@ ${trackingLine}`;
                         </p>
                       </div>
 
-                      {/* Freight / Shipping Rate (Overall / Receipt Freight Rate - e.g. 23k) */}
-                      <div className="p-3.5 bg-emerald-50/60 rounded-xl border border-emerald-200 space-y-2">
+                      {/* Freight Rate Display (Determined by Sales Head) */}
+                      <div className="p-3.5 bg-emerald-50/70 rounded-xl border border-emerald-200 space-y-2">
                         <div className="flex items-center justify-between">
                           <label className="text-[11px] font-black text-emerald-950 uppercase flex items-center space-x-1.5">
                             <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>Overall / Receipt Freight Rate (e.g. 23k, 25,000)</span>
+                            <span>Freight Rate (सेल्स हेड द्वारा तय दर)</span>
                           </label>
-                          {currentRate && (
-                            <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded font-mono">
-                              Freight Rate: {currentRate}
+                          <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200">
+                            Auto-Included in Message
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between bg-white px-3 py-2 rounded-lg border border-emerald-200 shadow-2xs">
+                          <div className="flex items-center space-x-2">
+                            <span className="text-xs text-slate-500 font-semibold">Rate:</span>
+                            <span className="text-sm font-black text-emerald-900 font-mono">
+                              {currentRate ? (
+                                `₹ ${currentRate}`
+                              ) : (
+                                <span className="text-slate-400 italic font-normal text-xs">
+                                  Pending from Sales Head
+                                </span>
+                              )}
                             </span>
-                          )}
+                          </div>
+                          <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-medium">
+                            Set by Sales Head
+                          </span>
                         </div>
 
-                        <div className="flex items-center space-x-1.5">
-                          <input
-                            type="text"
-                            value={currentRate}
-                            onChange={(e) =>
-                              setRateInputs((prev) => ({ ...prev, [r._id]: e.target.value }))
-                            }
-                            placeholder="Overall / Receipt Freight Rate (e.g. 23k, 25,000, 50/ctn)"
-                            className="flex-1 px-3 py-1.5 rounded-lg border border-emerald-300 text-xs font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono shadow-2xs"
-                          />
-
-                          <button
-                            type="button"
-                            onClick={() => handleSaveRate(r)}
-                            disabled={isSavingRate}
-                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1 shadow-2xs shrink-0 disabled:opacity-50"
-                            title="Save rate to database in head 'Overall / Receipt Freight Rate'"
-                          >
-                            {isRateSaved ? (
-                              <>
-                                <Check className="w-3.5 h-3.5" />
-                                <span>Saved!</span>
-                              </>
-                            ) : isSavingRate ? (
-                              <span>Saving...</span>
-                            ) : (
-                              <>
-                                <Save className="w-3.5 h-3.5" />
-                                <span>Save Rate</span>
-                              </>
-                            )}
-                          </button>
-                        </div>
                         <p className="text-[10px] text-emerald-800">
-                          {includeRateGlobal ? (
-                            <>Saved under <strong>Overall / Receipt Freight Rate</strong>. When sending WhatsApp/text, includes <strong>Rate {currentRate || '23k'}</strong> in message.</>
+                          {includeRateGlobal && currentRate ? (
+                            <>
+                              मैसेज में स्वतः <strong>Rate {currentRate}</strong> शामिल रहेगा। यह दर सेल्स हेड द्वारा पोर्टल में निर्धारित की गई है।
+                            </>
                           ) : (
-                            <span className="text-slate-500 italic">Rate inclusion is currently disabled in toolbar above.</span>
+                            <span className="text-slate-500 italic">
+                              सेल्स हेड द्वारा रेट निर्धारित करने पर यह मैसेज में स्वतः शामिल हो जाएगा।
+                            </span>
                           )}
                         </p>
                       </div>

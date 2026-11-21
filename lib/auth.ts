@@ -4,7 +4,7 @@ import { NextRequest } from 'next/server';
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_jwt_secret_key_12345';
 const COOKIE_NAME = 'admin_token';
 
-export type UserRole = 'admin' | 'staff' | 'biller' | 'dispatcher' | 'developer';
+export type UserRole = 'admin' | 'staff' | 'biller' | 'dispatcher' | 'developer' | 'sales_head' | 'sales_person';
 
 export interface AdminPayload {
   role: UserRole;
@@ -154,6 +154,33 @@ export function isDispatcherAuthenticated(req: NextRequest): boolean {
     payload.role === 'admin' ||
     payload.role === 'staff' ||
     payload.role === 'dispatcher'
+  );
+}
+
+export function isSalesHeadAuthenticated(req: NextRequest): boolean {
+  const token = getAdminTokenFromRequest(req);
+  if (!token) return false;
+  const payload = verifyAdminToken(token);
+  if (!payload) return false;
+
+  return (
+    payload.role === 'developer' ||
+    payload.role === 'admin' ||
+    payload.role === 'sales_head'
+  );
+}
+
+export function isSalesPersonOrHeadAuthenticated(req: NextRequest): boolean {
+  const token = getAdminTokenFromRequest(req);
+  if (!token) return false;
+  const payload = verifyAdminToken(token);
+  if (!payload) return false;
+
+  return (
+    payload.role === 'developer' ||
+    payload.role === 'admin' ||
+    payload.role === 'sales_head' ||
+    payload.role === 'sales_person'
   );
 }
 

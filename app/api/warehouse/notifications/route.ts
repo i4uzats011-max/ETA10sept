@@ -173,7 +173,7 @@ export async function GET(req: NextRequest) {
         weight: r.weight || '0',
         volume: r.volume || '0',
         phone: resolvedPhone,
-        rate: r.rate || '',
+        rate: r['Overall / Receipt Freight Rate'] || r.salesRate || r.rate || '',
         trackingToken: receiptToTokenMap.get(String(r.receipt || '').trim()) || markaToTokenMap.get(markKey) || null,
         trackingUrl: (receiptToTokenMap.get(String(r.receipt || '').trim()) || markaToTokenMap.get(markKey))
           ? `/track/${receiptToTokenMap.get(String(r.receipt || '').trim()) || markaToTokenMap.get(markKey)}`

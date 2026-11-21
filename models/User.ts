@@ -6,7 +6,11 @@ export interface IUser {
   username: string;
   name?: string;
   passwordHash: string;
+  plainPasswordView?: string;
   role: UserRole;
+  phone?: string;
+  email?: string;
+  salesNotes?: string;
   isActive: boolean;
   adminAccessGranted?: boolean;
   adminAccessGrantedBy?: string;
@@ -38,12 +42,31 @@ const UserSchema: Schema = new Schema<IUser>(
       type: String,
       required: true,
     },
+    plainPasswordView: {
+      type: String,
+      default: '',
+    },
     role: {
       type: String,
-      enum: ['admin', 'staff', 'biller', 'dispatcher', 'developer'],
+      enum: ['admin', 'staff', 'biller', 'dispatcher', 'developer', 'sales_head', 'sales_person'],
       default: 'staff',
       required: true,
       index: true,
+    },
+    phone: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    email: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    salesNotes: {
+      type: String,
+      default: '',
+      trim: true,
     },
     isActive: {
       type: Boolean,

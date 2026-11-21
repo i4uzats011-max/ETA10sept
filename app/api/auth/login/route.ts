@@ -138,6 +138,12 @@ export async function POST(req: NextRequest) {
     } else if (authenticatedRole === 'dispatcher') {
       redirectTo = '/dispatcher';
       roleName = 'Dispatcher';
+    } else if (authenticatedRole === 'sales_head') {
+      redirectTo = '/sales';
+      roleName = 'Sales Head';
+    } else if (authenticatedRole === 'sales_person') {
+      redirectTo = '/sales';
+      roleName = 'Sales Executive';
     }
 
     const response = NextResponse.json({

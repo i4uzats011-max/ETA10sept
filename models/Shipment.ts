@@ -76,6 +76,28 @@ export interface IShipment extends Document {
   containerRemarks?: Array<{ _id?: any; date: string; remarks: string; createdAt?: Date; createdBy?: string }>; // Container-wise status & remarks log
   isLabblerGoods?: boolean;     // Whether marked as labbler goods via remarks
   goodsItems?: IGoodsRateItem[];// Breakdown of one or more goods items on receipt
+  // Sales Head & Sales Team Workflow Fields
+  salesPerson?: string;         // Assigned sales executive name
+  salesPersonUsername?: string; // Assigned sales executive username
+  salesRate?: string;           // Rate entered/proposed by Sales Head
+  salesRemarks?: string;        // Remarks entered by Sales Head
+  salesStatus?: 'Normal' | 'Available to Deliver' | 'Hold'; // Normal, Available to Deliver, Hold
+  holdReason?: string;          // Reason if put on Hold
+  holdUpdatedAt?: Date;         // Timestamp when hold status changed
+  holdUpdatedBy?: string;       // User who updated hold status
+  salesDiscrepancy?: {          // "Data Entry Wrong" discrepancy flagged by Sales Head/Person
+    hasDiscrepancy: boolean;
+    actualCbm?: string | number;
+    actualWeight?: string | number;
+    actualCtn?: number;
+    remarks?: string;
+    reportedBy?: string;
+    reportedAt?: Date;
+    status?: 'Pending' | 'Approved' | 'Rejected';
+    adminNotes?: string;
+    resolvedAt?: Date;
+    resolvedBy?: string;
+  };
   messageSent?: boolean;        // Arrival notification sent status
   messageSentAt?: Date | null;  // Timestamp of message sent
   messageSentDate?: string;     // Formatted message sent date/time
@@ -156,6 +178,20 @@ const ShipmentSchema = new Schema<IShipment>({
   vesselName: { type: String, default: '' },
   voyageNumber: { type: String, default: '' },
   jsonCargoData: { type: Schema.Types.Mixed, default: null },
+  salesPerson: { type: String, default: '', index: true, trim: true },
+  salesPersonUsername: { type: String, default: '', index: true, trim: true },
+  salesRate: { type: String, default: '', trim: true },
+  salesRemarks: { type: String, default: '', trim: true },
+  salesStatus: {
+    type: String,
+    enum: ['Normal', 'Available to Deliver', 'Hold'],
+    default: 'Normal',
+    index: true,
+  },
+  holdReason: { type: String, default: '', trim: true },
+  holdUpdatedAt: { type: Date, default: null },
+  holdUpdatedBy: { type: String, default: '', trim: true },
+  salesDiscrepancy: { type: Schema.Types.Mixed, default: null },
   lastApiSync: { type: Date, default: null },
   etaUpdatedAt: { type: Date, default: null },
   apiCalled: { type: Boolean, default: false, index: true },

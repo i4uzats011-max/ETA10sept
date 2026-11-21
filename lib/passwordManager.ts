@@ -5,7 +5,7 @@ import { connectToDatabase } from '@/lib/mongodb';
 import RoleCredential from '@/models/RoleCredential';
 import { UserRole } from '@/lib/auth';
 
-export const ALL_ROLES: UserRole[] = ['admin', 'developer', 'staff', 'biller', 'dispatcher'];
+export const ALL_ROLES: UserRole[] = ['admin', 'developer', 'staff', 'biller', 'dispatcher', 'sales_head', 'sales_person'];
 
 export function getRoleDisplayName(role: UserRole): string {
   switch (role) {
@@ -19,6 +19,10 @@ export function getRoleDisplayName(role: UserRole): string {
       return 'Biller (बिलर)';
     case 'dispatcher':
       return 'Dispatcher (डिस्पैचर)';
+    case 'sales_head':
+      return 'Sales Head (सेल्स हेड)';
+    case 'sales_person':
+      return 'Sales Executive (सेल्स पर्सन)';
     default:
       return role;
   }
@@ -77,6 +81,16 @@ export function isDefaultRolePassword(role: UserRole, candidate: string): boolea
       return (
         candidate === (process.env.DISPATCHER_PASSWORD || '') ||
         candidate === 'dispatch123'
+      );
+    case 'sales_head':
+      return (
+        candidate === (process.env.SALES_HEAD_PASSWORD || '') ||
+        candidate === 'saleshead123'
+      );
+    case 'sales_person':
+      return (
+        candidate === (process.env.SALES_PERSON_PASSWORD || '') ||
+        candidate === 'sales123'
       );
     default:
       return false;
