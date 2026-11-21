@@ -288,25 +288,32 @@ export async function PATCH(req: NextRequest) {
     // They can ONLY be updated if Admin approves a discrepancy request.
 
     const updates: Record<string, any> = {};
+    const now = new Date();
 
     if (rate !== undefined) {
       const cleanRate = String(rate).trim();
       updates.salesRate = cleanRate;
       updates.rate = cleanRate;
       updates['Overall / Receipt Freight Rate'] = cleanRate;
+      updates.salesRateUpdatedAt = now;
+      updates.salesRateUpdatedBy = currentUser.username;
     }
     if (salesPerson !== undefined) {
       updates.salesPerson = String(salesPerson).trim();
+      updates.salesPersonUpdatedAt = now;
+      updates.salesPersonUpdatedBy = currentUser.username;
     }
     if (salesPersonUsername !== undefined) {
       updates.salesPersonUsername = String(salesPersonUsername).trim();
     }
     if (remarks !== undefined) {
       updates.salesRemarks = String(remarks).trim();
+      updates.salesRemarksUpdatedAt = now;
+      updates.salesRemarksUpdatedBy = currentUser.username;
     }
     if (salesStatus !== undefined && ['Normal', 'Available to Deliver', 'Hold'].includes(salesStatus)) {
       updates.salesStatus = salesStatus;
-      updates.holdUpdatedAt = new Date();
+      updates.holdUpdatedAt = now;
       updates.holdUpdatedBy = currentUser.username;
       if (salesStatus === 'Hold') {
         updates.holdReason = holdReason ? String(holdReason).trim() : 'Placed on Hold by Sales Head';

@@ -59,8 +59,14 @@ export interface IWarehouseReceipt extends Document {
   // Sales Head & Sales Team Workflow Fields
   salesPerson?: string;         // Assigned sales executive name
   salesPersonUsername?: string; // Assigned sales executive username
+  salesPersonUpdatedAt?: Date;  // Timestamp when salesperson assigned
+  salesPersonUpdatedBy?: string;// User who assigned salesperson
   salesRate?: string;           // Rate entered/proposed by Sales Head
+  salesRateUpdatedAt?: Date;    // Timestamp when rate updated
+  salesRateUpdatedBy?: string;  // User who updated rate
   salesRemarks?: string;        // Remarks entered by Sales Head
+  salesRemarksUpdatedAt?: Date; // Timestamp when remarks updated
+  salesRemarksUpdatedBy?: string; // User who updated remarks
   salesStatus?: 'Normal' | 'Available to Deliver' | 'Hold'; // Three statuses: Normal, Available to Deliver, Hold
   holdReason?: string;          // Reason if put on Hold
   holdUpdatedAt?: Date;         // Timestamp when hold status changed
@@ -174,8 +180,14 @@ const WarehouseReceiptSchema = new Schema<IWarehouseReceipt>(
     hasMismatch: { type: Boolean, default: false, index: true },
     salesPerson: { type: String, default: '', index: true, trim: true },
     salesPersonUsername: { type: String, default: '', index: true, trim: true },
+    salesPersonUpdatedAt: { type: Date, default: null },
+    salesPersonUpdatedBy: { type: String, default: '', trim: true },
     salesRate: { type: String, default: '', trim: true },
+    salesRateUpdatedAt: { type: Date, default: null },
+    salesRateUpdatedBy: { type: String, default: '', trim: true },
     salesRemarks: { type: String, default: '', trim: true },
+    salesRemarksUpdatedAt: { type: Date, default: null },
+    salesRemarksUpdatedBy: { type: String, default: '', trim: true },
     salesStatus: {
       type: String,
       enum: ['Normal', 'Available to Deliver', 'Hold'],

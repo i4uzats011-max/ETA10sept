@@ -42,6 +42,12 @@ async function ensureDefaultUsers() {
       name: 'Dispatcher',
       defaultPass: process.env.DISPATCHER_PASSWORD || 'dispatch123',
     },
+    {
+      role: 'sales_head',
+      username: 'saleshead',
+      name: 'Sales Head',
+      defaultPass: process.env.SALES_HEAD_PASSWORD || 'saleshead123',
+    },
   ];
 
   for (const acc of defaultAccounts) {
@@ -133,7 +139,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const allowedRoles = ['admin', 'staff', 'biller', 'dispatcher', 'developer'];
+    const allowedRoles: UserRole[] = ['admin', 'staff', 'biller', 'dispatcher', 'developer', 'sales_head', 'sales_person'];
     if (!role || !allowedRoles.includes(role)) {
       return NextResponse.json(
         { error: `Invalid role "${role}". Must be one of: ${allowedRoles.join(', ')}` },
@@ -223,7 +229,7 @@ export async function PUT(req: NextRequest) {
 
     // Role assignment
     if (role !== undefined) {
-      const allowedRoles = ['admin', 'staff', 'biller', 'dispatcher', 'developer'];
+      const allowedRoles: UserRole[] = ['admin', 'staff', 'biller', 'dispatcher', 'developer', 'sales_head', 'sales_person'];
       if (!allowedRoles.includes(role)) {
         return NextResponse.json(
           { error: `Invalid role "${role}". Must be one of: ${allowedRoles.join(', ')}` },
@@ -378,7 +384,7 @@ export async function DELETE(req: NextRequest) {
     }
 
     // Prevent deleting default root role accounts
-    const rootUsernames = ['developer', 'admin', 'staff', 'biller', 'dispatcher'];
+    const rootUsernames = ['developer', 'admin', 'staff', 'biller', 'dispatcher', 'saleshead'];
     if (rootUsernames.includes(user.username.toLowerCase())) {
       return NextResponse.json(
         { error: `Default system account "${user.username}" cannot be deleted. You can reset its password or deactivate it.` },

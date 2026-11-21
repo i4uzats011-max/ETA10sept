@@ -26,6 +26,8 @@ import {
   UserX,
   Clock,
   BadgeCheck,
+  Briefcase,
+  TrendingUp,
 } from 'lucide-react';
 import { UserRole } from '@/lib/auth';
 
@@ -160,6 +162,8 @@ export default function UserManager() {
       total: users.length,
       developer: 0,
       admin: 0,
+      sales_head: 0,
+      sales_person: 0,
       biller: 0,
       dispatcher: 0,
       staff: 0,
@@ -209,6 +213,20 @@ export default function UserManager() {
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-red-500/10 text-red-400 border border-red-500/30">
             <Shield className="w-3.5 h-3.5" />
             Super Admin
+          </span>
+        );
+      case 'sales_head':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-purple-500/10 text-purple-400 border border-purple-500/30">
+            <Briefcase className="w-3.5 h-3.5" />
+            Sales Head (सेल्स हेड)
+          </span>
+        );
+      case 'sales_person':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-teal-500/10 text-teal-400 border border-teal-500/30">
+            <TrendingUp className="w-3.5 h-3.5" />
+            Sales Person (सेल्स टीम)
           </span>
         );
       case 'biller':
@@ -579,6 +597,22 @@ export default function UserManager() {
           <span className="text-[10px] text-slate-400">Full cargo admin</span>
         </div>
 
+        <div className="bg-slate-900/70 border border-purple-800/40 rounded-2xl p-3.5">
+          <span className="text-[10px] font-mono uppercase tracking-wider text-purple-400 block flex items-center gap-1">
+            <Briefcase className="w-3 h-3" /> Sales Head
+          </span>
+          <span className="text-xl font-black font-mono text-purple-300 mt-1 block">{roleStats.sales_head}</span>
+          <span className="text-[10px] text-slate-400">Rates, hold & team</span>
+        </div>
+
+        <div className="bg-slate-900/70 border border-teal-800/40 rounded-2xl p-3.5">
+          <span className="text-[10px] font-mono uppercase tracking-wider text-teal-400 block flex items-center gap-1">
+            <TrendingUp className="w-3 h-3" /> Sales Team
+          </span>
+          <span className="text-xl font-black font-mono text-teal-300 mt-1 block">{roleStats.sales_person}</span>
+          <span className="text-[10px] text-slate-400">Assigned accounts</span>
+        </div>
+
         <div className="bg-slate-900/70 border border-amber-800/40 rounded-2xl p-3.5">
           <span className="text-[10px] font-mono uppercase tracking-wider text-amber-400 block flex items-center gap-1">
             <FileText className="w-3 h-3" /> Billers
@@ -627,6 +661,8 @@ export default function UserManager() {
             <option value="all">All Roles</option>
             <option value="developer">Developer Admin</option>
             <option value="admin">Super Admin</option>
+            <option value="sales_head">Sales Head (सेल्स हेड)</option>
+            <option value="sales_person">Sales Person (सेल्स टीम)</option>
             <option value="biller">Biller</option>
             <option value="dispatcher">Dispatcher</option>
             <option value="staff">Staff / Employee</option>
@@ -922,6 +958,20 @@ export default function UserManager() {
                       icon: <Shield className="w-4 h-4 text-red-400" />,
                     },
                     {
+                      role: 'sales_head' as UserRole,
+                      title: 'Sales Head (सेल्स हेड)',
+                      desc: 'Set Rates, Manage Sales Team & Release/Hold',
+                      color: 'border-purple-800/80 bg-purple-950/20 text-purple-300',
+                      icon: <Briefcase className="w-4 h-4 text-purple-400" />,
+                    },
+                    {
+                      role: 'sales_person' as UserRole,
+                      title: 'Sales Person (सेल्स टीम)',
+                      desc: 'View Assigned Receipts, Customer Rates & Chat',
+                      color: 'border-teal-800/80 bg-teal-950/20 text-teal-300',
+                      icon: <TrendingUp className="w-4 h-4 text-teal-400" />,
+                    },
+                    {
                       role: 'biller' as UserRole,
                       title: 'Biller (बिलर)',
                       desc: 'HSN, IGST, Pcs, KG & Bill generation',
@@ -1056,6 +1106,8 @@ export default function UserManager() {
                   {[
                     { role: 'developer' as UserRole, title: 'Developer Admin', icon: <Terminal className="w-4 h-4 text-cyan-400" /> },
                     { role: 'admin' as UserRole, title: 'Super Admin', icon: <Shield className="w-4 h-4 text-red-400" /> },
+                    { role: 'sales_head' as UserRole, title: 'Sales Head (सेल्स हेड)', icon: <Briefcase className="w-4 h-4 text-purple-400" /> },
+                    { role: 'sales_person' as UserRole, title: 'Sales Person (सेल्स टीम)', icon: <TrendingUp className="w-4 h-4 text-teal-400" /> },
                     { role: 'biller' as UserRole, title: 'Biller (बिलर)', icon: <FileText className="w-4 h-4 text-amber-400" /> },
                     { role: 'dispatcher' as UserRole, title: 'Dispatcher (डिस्पैचर)', icon: <Truck className="w-4 h-4 text-emerald-400" /> },
                     { role: 'staff' as UserRole, title: 'Staff / Employee', icon: <Users className="w-4 h-4 text-blue-400" /> },

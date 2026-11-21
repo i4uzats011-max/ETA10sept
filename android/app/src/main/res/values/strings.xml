@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Cargo Logistics Pro</string>
+    <string name="title_activity_main">Cargo Logistics Pro</string>
+    <string name="package_name">com.antigravity.cargotracking</string>
+    <string name="custom_url_scheme">com.antigravity.cargotracking</string>
+</resources>
