@@ -5,10 +5,14 @@ const config: CapacitorConfig = {
   appName: 'Cargo Logistics Pro',
   webDir: 'public',
   server: {
+    url: 'https://eta-usi.vercel.app',
     androidScheme: 'https',
     cleartext: true,
     allowNavigation: [
       '*',
+      '*.vercel.app',
+      'eta-usi.vercel.app',
+      'eta-10sept.vercel.app',
       'localhost',
       '10.0.2.2',
     ],

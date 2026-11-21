@@ -39,13 +39,22 @@
   <h2>Cargo Logistics Pro</h2>
   <p>Connecting to portal services...</p>
   <script>
-    // In live native app, Capacitor server config or location will redirect to configured host URL
-    if (window.location.protocol === 'file:' || window.location.hostname === 'localhost') {
-      const serverUrl = localStorage.getItem('CUSTOM_PORTAL_URL');
-      if (serverUrl) {
-        window.location.href = serverUrl;
-      }
+    const DEFAULT_PORTAL_URL = 'https://eta-usi.vercel.app';
+    const targetUrl = localStorage.getItem('CUSTOM_PORTAL_URL') || DEFAULT_PORTAL_URL;
+
+    // Immediately redirect to production portal
+    try {
+      window.location.replace(targetUrl);
+    } catch (e) {
+      window.location.href = targetUrl;
     }
+
+    // Safety timeout fallback: if redirect is taking time or offline, retry
+    setTimeout(() => {
+      if (window.location.href.indexOf('http') === -1 || window.location.href.indexOf('eta-usi') === -1) {
+        window.location.href = targetUrl;
+      }
+    }, 1500);
   </script>
 </body>
 </html>
