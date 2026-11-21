@@ -723,7 +723,7 @@ export async function POST(req: NextRequest) {
       whReceiptMap.set(key, wh);
     });
 
-    // 3. Strict Validation: Cannot load more than received goods in warehouse
+    // 3. Strict Validation: Check Receipt existence, Quantity/CTN, CBM, and Weight exact parameters against DB stock
     const validationErrors: string[] = [];
     const splitWarnings: any[] = [];
     const errorDetails: Array<{ row?: number; receipt?: string; warehouse?: string; errorType: string; reason: string }> = [];
@@ -734,55 +734,36 @@ export async function POST(req: NextRequest) {
       const rows = fileReceiptRows.get(key) || [];
       const rowList = rows.length > 3 ? `${rows.slice(0, 3).join(', ')}... (total ${rows.length} rows)` : rows.join(', ');
 
+      // A. Check Receipt Existence in DB
       if (!wh) {
-        // Auto-register goods into warehouse inventory if this was an upload of a plan
-        const firstRowIdx = rows[0] ? rows[0] - 1 : 0;
-        const sampleRow = records[firstRowIdx] || {};
-        const sampleParty = partyHeader && sampleRow[partyHeader] ? String(sampleRow[partyHeader]).trim() : 'General Party';
-        const sampleCommodity = commodityHeader && sampleRow[commodityHeader] ? String(sampleRow[commodityHeader]).trim() : '';
-        const sampleEnglish = englishHeader && sampleRow[englishHeader] ? String(sampleRow[englishHeader]).trim() : '';
-        const { english: tEng, chinese: tCh } = translateCommodity(sampleCommodity);
-        const fEng = sampleEnglish || tEng;
-        const fCh = tCh || sampleCommodity;
-        const fPkg = translatePackaging(packagingHeader && sampleRow[packagingHeader] ? String(sampleRow[packagingHeader]).trim() : '');
-        const fWh = meta.warehouse;
-        const fMainMark = translateMark(mainMarkHeader && sampleRow[mainMarkHeader] ? String(sampleRow[mainMarkHeader]).trim() : '');
-        const fSubMark = translateMark(subMarkHeader && sampleRow[subMarkHeader] ? String(sampleRow[subMarkHeader]).trim() : '');
-
-        const newWh = await WarehouseReceipt.create({
-          receipt: meta.receipt,
-          party: sampleParty,
-          warehouse: fWh,
-          date: dateHeader && sampleRow[dateHeader] ? formatReceiptDate(String(sampleRow[dateHeader]).trim()) : '',
-          quantity: requestedQty,
-          loadedQuantity: 0,
-          remainingQuantity: requestedQty,
-          commodity: fEng,
-          english: fEng,
-          chinese: fCh,
-          packaging: fPkg,
-          mainMarka: fMainMark,
-          subMarka: fSubMark,
-          status: 'Received',
-          stockstatus: 'In Stock',
-          uploadedAt: new Date(),
-        });
-        wh = newWh;
-        whReceiptMap.set(key, newWh);
+        const errorMsg = `Receipt '${meta.receipt}' does not exist in '${meta.warehouse}' warehouse DB stock. Please fetch it from the China warehouse portal or inward stock first.`;
+        validationErrors.push(errorMsg);
+        for (const rNum of rows) {
+          errorDetails.push({
+            row: rNum + 1,
+            receipt: meta.receipt,
+            warehouse: meta.warehouse,
+            errorType: 'Receipt Not in DB Stock',
+            reason: `Receipt #${meta.receipt} does not exist in ${meta.warehouse} warehouse inventory. Click 'Fetch from China' to ingest directly into DB.`,
+          });
+        }
+        continue;
       }
 
+      // B. Check Quantity / CTN Parameter against DB
       const available = wh.remainingQuantity !== undefined ? wh.remainingQuantity : (wh.quantity - (wh.loadedQuantity || 0));
+      const totalWhQty = typeof wh.quantity === 'number' ? wh.quantity : parseInt(String(wh.quantity || 0), 10);
 
       if (requestedQty > available) {
-        const errorMsg = `Receipt '${wh.receipt}' in '${wh.warehouse}' (Row ${rowList}): Attempting to load ${requestedQty} units, but only ${available} units remain in warehouse (Total received: ${wh.quantity}, already loaded: ${wh.loadedQuantity || 0}).`;
+        const errorMsg = `Receipt '${wh.receipt}' in '${wh.warehouse}' (Row ${rowList}): Attempting to load ${requestedQty} CTN, but only ${available} CTN remain in warehouse (Total received: ${wh.quantity}, already loaded: ${wh.loadedQuantity || 0}).`;
         validationErrors.push(errorMsg);
         for (const rNum of rows) {
           errorDetails.push({
             row: rNum + 1,
             receipt: wh.receipt,
             warehouse: wh.warehouse,
-            errorType: 'Stock Exceeded',
-            reason: `Attempting to load ${requestedQty} units, but only ${available} units remain in ${wh.warehouse} warehouse stock (Total: ${wh.quantity}, Loaded: ${wh.loadedQuantity || 0}).`,
+            errorType: 'Quantity Exceeded (CTN Mismatch)',
+            reason: `Attempting to load ${requestedQty} CTN, but only ${available} CTN remain in ${wh.warehouse} warehouse stock (Total: ${wh.quantity}, Loaded: ${wh.loadedQuantity || 0}).`,
           });
         }
       } else if (requestedQty < available) {
@@ -795,13 +776,79 @@ export async function POST(req: NextRequest) {
           party: wh.party || 'General Party',
         });
       }
+
+      // C. Check CBM (Volume) Parameter against DB
+      const requestedCbm = fileCbmByKey.get(key) || 0;
+      const dbCbm = parseFloat(String(wh.volume || 0)) || 0;
+      if (requestedCbm > 0 && dbCbm > 0) {
+        // If loading full quantity, CBM must match within 0.05 m³ tolerance
+        if (requestedQty === totalWhQty && Math.abs(requestedCbm - dbCbm) > 0.05) {
+          const errorMsg = `Receipt '${wh.receipt}' in '${wh.warehouse}' (Row ${rowList}): Uploaded CBM (${requestedCbm.toFixed(2)} m³) does not match DB warehouse stock CBM (${dbCbm.toFixed(2)} m³).`;
+          validationErrors.push(errorMsg);
+          for (const rNum of rows) {
+            errorDetails.push({
+              row: rNum + 1,
+              receipt: wh.receipt,
+              warehouse: wh.warehouse,
+              errorType: 'CBM Parameter Mismatch',
+              reason: `Uploaded CBM (${requestedCbm.toFixed(2)} m³) does not match DB warehouse stock CBM (${dbCbm.toFixed(2)} m³).`,
+            });
+          }
+        } else if (requestedCbm > dbCbm + 0.05) {
+          // If CBM exceeds total DB CBM
+          const errorMsg = `Receipt '${wh.receipt}' in '${wh.warehouse}' (Row ${rowList}): Uploaded CBM (${requestedCbm.toFixed(2)} m³) exceeds DB warehouse stock CBM (${dbCbm.toFixed(2)} m³).`;
+          validationErrors.push(errorMsg);
+          for (const rNum of rows) {
+            errorDetails.push({
+              row: rNum + 1,
+              receipt: wh.receipt,
+              warehouse: wh.warehouse,
+              errorType: 'CBM Parameter Mismatch',
+              reason: `Uploaded CBM (${requestedCbm.toFixed(2)} m³) exceeds DB warehouse stock CBM (${dbCbm.toFixed(2)} m³).`,
+            });
+          }
+        }
+      }
+
+      // D. Check Weight Parameter against DB
+      const requestedWeight = fileWeightByKey.get(key) || 0;
+      const dbWeight = parseFloat(String(wh.weight || 0)) || 0;
+      if (requestedWeight > 0 && dbWeight > 0) {
+        // If loading full quantity, Weight must match within 1.0 kg tolerance
+        if (requestedQty === totalWhQty && Math.abs(requestedWeight - dbWeight) > 1.0) {
+          const errorMsg = `Receipt '${wh.receipt}' in '${wh.warehouse}' (Row ${rowList}): Uploaded Weight (${requestedWeight.toFixed(1)} kg) does not match DB warehouse stock Weight (${dbWeight.toFixed(1)} kg).`;
+          validationErrors.push(errorMsg);
+          for (const rNum of rows) {
+            errorDetails.push({
+              row: rNum + 1,
+              receipt: wh.receipt,
+              warehouse: wh.warehouse,
+              errorType: 'Weight Parameter Mismatch',
+              reason: `Uploaded Weight (${requestedWeight.toFixed(1)} kg) does not match DB warehouse stock Weight (${dbWeight.toFixed(1)} kg).`,
+            });
+          }
+        } else if (requestedWeight > dbWeight + 1.0) {
+          // If Weight exceeds total DB Weight
+          const errorMsg = `Receipt '${wh.receipt}' in '${wh.warehouse}' (Row ${rowList}): Uploaded Weight (${requestedWeight.toFixed(1)} kg) exceeds DB warehouse stock Weight (${dbWeight.toFixed(1)} kg).`;
+          validationErrors.push(errorMsg);
+          for (const rNum of rows) {
+            errorDetails.push({
+              row: rNum + 1,
+              receipt: wh.receipt,
+              warehouse: wh.warehouse,
+              errorType: 'Weight Parameter Mismatch',
+              reason: `Uploaded Weight (${requestedWeight.toFixed(1)} kg) exceeds DB warehouse stock Weight (${dbWeight.toFixed(1)} kg).`,
+            });
+          }
+        }
+      }
     }
 
-    // If over-allocation errors exist, immediately reject the upload
+    // If any validation errors exist (Receipt not found, CTN mismatch, CBM mismatch, Weight mismatch), immediately reject
     if (validationErrors.length > 0) {
       return NextResponse.json(
         {
-          error: `Upload rejected: Quantity exceeds received warehouse stock for ${validationErrors.length} receipt(s). ` + validationErrors.slice(0, 3).join(' | ') + (validationErrors.length > 3 ? ` (+${validationErrors.length - 3} more errors)` : ''),
+          error: `Loading Plan validation failed for ${validationErrors.length} issue(s): Parameters (Receipt, Quantity/CTN, CBM, or Weight) do not match DB warehouse stock. ` + validationErrors.slice(0, 3).join(' | ') + (validationErrors.length > 3 ? ` (+${validationErrors.length - 3} more)` : ''),
           validationErrors,
           errorDetails,
         },

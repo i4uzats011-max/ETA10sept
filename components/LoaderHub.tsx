@@ -665,6 +665,58 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
     URL.revokeObjectURL(url);
   };
 
+  // On-Demand 1-Click China Warehouse Receipt Fetching State
+  const [isChinaFetchModalOpen, setIsChinaFetchModalOpen] = useState(false);
+  const [chinaFetchReceiptCode, setChinaFetchReceiptCode] = useState('');
+  const [chinaFetchWh, setChinaFetchWh] = useState('');
+  const [isFetchingChinaReceipt, setIsFetchingChinaReceipt] = useState(false);
+  const [chinaFetchResult, setChinaFetchResult] = useState<{
+    type: 'success' | 'error';
+    message: string;
+    details?: any;
+  } | null>(null);
+
+  const handleQuickFetchFromChina = async (receiptCode: string, targetWh?: string) => {
+    if (!receiptCode || !receiptCode.trim()) return;
+    const cleanReceipt = receiptCode.trim();
+    setIsFetchingChinaReceipt(true);
+    setChinaFetchResult(null);
+    try {
+      const res = await fetch('/api/warehouse/china-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'fetch_receipt',
+          receipt: cleanReceipt,
+          warehouse: targetWh && targetWh !== 'ALL' ? targetWh : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setChinaFetchResult({
+          type: 'success',
+          message: `Successfully fetched receipt #${cleanReceipt} (${data.receipt?.commodity || ''}) into ${data.warehouse} warehouse DB!`,
+          details: data.receipt,
+        });
+        dispatch(fetchWarehouseReceipts());
+        // Auto-remove matching receipt error rows from uploadErrorDetails
+        setUploadErrorDetails((prev) => prev.filter((e) => e.receipt !== cleanReceipt));
+      } else {
+        setChinaFetchResult({
+          type: 'error',
+          message: data.error || `Failed to fetch receipt #${cleanReceipt} from China warehouse portal.`,
+        });
+      }
+    } catch (err: any) {
+      setChinaFetchResult({
+        type: 'error',
+        message: err.message || 'Network error fetching receipt from China portal.',
+      });
+    } finally {
+      setIsFetchingChinaReceipt(false);
+    }
+  };
+
   // Upload Tracking & Deletion History State
   const [uploadSearchTerm, setUploadSearchTerm] = useState('');
   const [uploadTypeFilter, setUploadTypeFilter] = useState<'all' | 'stock' | 'plan'>('all');
@@ -3683,6 +3735,21 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
               <button
                 onClick={() => {
                   const userWhs = availableWarehouses.filter((w) => w !== 'ALL');
+                  if (userWhs.length > 0 && (!chinaFetchWh || chinaFetchWh === 'ALL')) {
+                    setChinaFetchWh(userWhs[0]);
+                  }
+                  setIsChinaFetchModalOpen(true);
+                }}
+                className="flex items-center space-x-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-md transition"
+                title="Fetch a receipt directly from China warehouse portal (zg.kuaisongkj.com) into DB"
+              >
+                <Zap className="w-4 h-4 text-amber-200" />
+                <span>⚡ Fetch China Receipt</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  const userWhs = availableWarehouses.filter((w) => w !== 'ALL');
                   if (userWhs.length === 0) {
                     alert('No China warehouse found! You cannot enter received goods until at least one China warehouse is created. Please create a warehouse first.');
                     setWarehouseModalContext('receive');
@@ -5699,6 +5766,26 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
                       <span>Download Error CSV</span>
                     </button>
                   </div>
+
+                  {chinaFetchResult && (
+                    <div
+                      className={`p-2.5 rounded-xl text-xs font-medium flex items-center justify-between ${
+                        chinaFetchResult.type === 'success'
+                          ? 'bg-emerald-100/80 text-emerald-900 border border-emerald-300'
+                          : 'bg-red-100 text-red-900 border border-red-300'
+                      }`}
+                    >
+                      <span>{chinaFetchResult.message}</span>
+                      <button
+                        type="button"
+                        onClick={() => setChinaFetchResult(null)}
+                        className="text-slate-500 hover:text-slate-700 ml-2"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+
                   <div className="max-h-48 overflow-y-auto rounded-xl border border-red-200 bg-white text-xs">
                     <table className="w-full text-left">
                       <thead className="bg-red-100/70 text-[10px] uppercase font-bold text-red-800 border-b border-red-200 sticky top-0">
@@ -5708,6 +5795,7 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
                           <th className="p-2">Warehouse</th>
                           <th className="p-2">Error Type</th>
                           <th className="p-2">Exact Error / Reason</th>
+                          <th className="p-2 text-right">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-red-100 text-[11px]">
@@ -5718,6 +5806,20 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
                             <td className="p-2 text-slate-700">{err.warehouse || '—'}</td>
                             <td className="p-2 font-semibold text-red-700">{err.errorType || 'Validation'}</td>
                             <td className="p-2 text-slate-700">{err.reason}</td>
+                            <td className="p-2 text-right whitespace-nowrap">
+                              {err.receipt && (
+                                <button
+                                  type="button"
+                                  disabled={isFetchingChinaReceipt}
+                                  onClick={() => handleQuickFetchFromChina(err.receipt!, err.warehouse || excelUploadWarehouse)}
+                                  className="px-2 py-1 bg-amber-500 hover:bg-amber-600 active:scale-95 disabled:opacity-50 text-white rounded text-[10px] font-bold shadow-sm inline-flex items-center gap-1 transition"
+                                  title={`Fetch receipt #${err.receipt} directly from China warehouse portal into DB`}
+                                >
+                                  <Zap className="w-3 h-3 text-amber-100" />
+                                  <span>{isFetchingChinaReceipt ? 'Fetching...' : '⚡ Fetch from China'}</span>
+                                </button>
+                              )}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -6218,6 +6320,146 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
                   </div>
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ON-DEMAND CHINA WAREHOUSE RECEIPT FETCHER */}
+      {isChinaFetchModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150 flex flex-col">
+            {/* Header */}
+            <div className="p-5 bg-gradient-to-r from-amber-600 via-amber-700 to-amber-800 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-2.5">
+                <Zap className="w-5 h-5 text-amber-200" />
+                <div>
+                  <h3 className="font-black text-sm uppercase tracking-wider">
+                    Fetch Receipt from China Warehouse
+                  </h3>
+                  <p className="text-[11px] text-amber-100 font-medium">
+                    Live query portal (zg.kuaisongkj.com), auto-translate Chinese to English &amp; save to DB
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsChinaFetchModalOpen(false);
+                  setChinaFetchResult(null);
+                }}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
+              >
+                <X className="w-4 h-4 text-white" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1.5">
+                  Target Warehouse
+                </label>
+                <select
+                  value={chinaFetchWh}
+                  onChange={(e) => setChinaFetchWh(e.target.value)}
+                  className="w-full text-xs font-semibold px-3 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                >
+                  <option value="">Auto-Detect (GZ &amp; YW)</option>
+                  {availableWarehouses
+                    .filter((w) => w !== 'ALL')
+                    .map((wh) => (
+                      <option key={wh} value={wh}>
+                        {wh} {wh.toUpperCase() === 'GZ' ? '(Guangzhou RS-21)' : wh.toUpperCase() === 'YW' ? '(Yiwu AS-14)' : ''}
+                      </option>
+                    ))}
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Leave on Auto-Detect to search across all configured China warehouse accounts.
+                </p>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1.5">
+                  Receipt / Bill Number (单号) <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. 261121020 or RS-21 / AS-14 receipt number"
+                  value={chinaFetchReceiptCode}
+                  onChange={(e) => setChinaFetchReceiptCode(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleQuickFetchFromChina(chinaFetchReceiptCode, chinaFetchWh);
+                    }
+                  }}
+                  className="w-full text-xs font-mono font-bold px-3 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              {chinaFetchResult && (
+                <div
+                  className={`p-3.5 rounded-2xl text-xs ${
+                    chinaFetchResult.type === 'success'
+                      ? 'bg-emerald-50 border border-emerald-200 text-emerald-900'
+                      : 'bg-red-50 border border-red-200 text-red-900'
+                  }`}
+                >
+                  <div className="flex items-start space-x-2">
+                    {chinaFetchResult.type === 'success' ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                    )}
+                    <div className="flex-1 space-y-1">
+                      <div className="font-bold">{chinaFetchResult.message}</div>
+                      {chinaFetchResult.details && (
+                        <div className="text-[11px] grid grid-cols-2 gap-1.5 mt-2 bg-white/70 p-2 rounded-lg border border-emerald-100">
+                          <div><span className="font-semibold text-slate-500">Receipt:</span> #{chinaFetchResult.details.receipt}</div>
+                          <div><span className="font-semibold text-slate-500">Warehouse:</span> {chinaFetchResult.details.warehouse}</div>
+                          <div><span className="font-semibold text-slate-500">Commodity (EN):</span> {chinaFetchResult.details.commodity || '—'}</div>
+                          <div><span className="font-semibold text-slate-500">Commodity (ZH):</span> {chinaFetchResult.details.chinese || '—'}</div>
+                          <div><span className="font-semibold text-slate-500">CTN/Qty:</span> {chinaFetchResult.details.quantity}</div>
+                          <div><span className="font-semibold text-slate-500">CBM / Weight:</span> {chinaFetchResult.details.volume || 0} m³ / {chinaFetchResult.details.weight || 0} kg</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsChinaFetchModalOpen(false);
+                  setChinaFetchResult(null);
+                }}
+                className="px-4 py-2 border border-slate-200 hover:bg-white text-slate-600 rounded-xl text-xs font-bold transition"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                disabled={isFetchingChinaReceipt || !chinaFetchReceiptCode.trim()}
+                onClick={() => handleQuickFetchFromChina(chinaFetchReceiptCode, chinaFetchWh)}
+                className="px-5 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-md transition"
+              >
+                {isFetchingChinaReceipt ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Fetching from China &amp; Translating...</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-4 h-4" />
+                    <span>Fetch &amp; Save in DB</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>
