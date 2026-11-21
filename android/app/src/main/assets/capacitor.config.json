@@ -1,0 +1,18 @@
+{
+	"appId": "com.antigravity.cargotracking",
+	"appName": "Cargo Logistics Pro",
+	"webDir": "public",
+	"server": {
+		"androidScheme": "https",
+		"cleartext": true,
+		"allowNavigation": [
+			"*",
+			"localhost",
+			"10.0.2.2"
+		]
+	},
+	"plugins": {
+		"Geolocation": {},
+		"Preferences": {}
+	}
+}

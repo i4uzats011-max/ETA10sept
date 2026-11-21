@@ -9,6 +9,8 @@ jobs:
   build:
     name: Build Multi-Role APK
     runs-on: ubuntu-latest
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
 
     steps:
       - name: Checkout Code Repository
@@ -29,6 +31,9 @@ jobs:
       - name: Install Project Dependencies
         run: npm install --legacy-peer-deps
 
+      - name: Make Gradlew Executable
+        run: chmod +x android/gradlew
+
       - name: Sync Capacitor Android Project
         run: |
           mkdir -p android/app/src/main/assets
@@ -36,9 +41,7 @@ jobs:
 
       - name: Build Debug APK with Gradle
         working-directory: android
-        run: |
-          chmod +x ./gradlew
-          ./gradlew assembleDebug --stacktrace
+        run: ./gradlew assembleDebug --stacktrace
 
       - name: Upload Android APK Artifact
         uses: actions/upload-artifact@v4

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400" width="100%" height="100%">
+  <defs>
+    <linearGradient id="srcBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E1B4B"/>
+      <stop offset="100%" stop-color="#312E81"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="600" height="400" rx="16" fill="url(#srcBg)"/>
+  
+  <!-- Factory Buildings Backdrop -->
+  <rect x="50" y="180" width="120" height="150" fill="#3730A3" rx="4"/>
+  <polygon points="50,180 80,150 110,180 140,150 170,180" fill="#3730A3"/>
+  
+  <rect x="190" y="140" width="140" height="190" fill="#4338CA" rx="4"/>
+  <rect x="210" y="170" width="25" height="35" fill="#818CF8" rx="2"/>
+  <rect x="250" y="170" width="25" height="35" fill="#818CF8" rx="2"/>
+  <rect x="290" y="170" width="25" height="35" fill="#818CF8" rx="2"/>
+
+  <!-- Inspection Quality Check Badge -->
+  <g transform="translate(350, 100)">
+    <circle cx="100" cy="100" r="80" fill="#059669"/>
+    <circle cx="100" cy="100" r="68" fill="#10B981" stroke="#34D399" stroke-width="4"/>
+    <!-- Checkmark -->
+    <path d="M 65 100 L 90 125 L 140 75" stroke="#FFFFFF" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </g>
+
+  <!-- Title Badge -->
+  <rect x="150" y="320" width="300" height="45" fill="#EF4444" rx="22"/>
+  <text x="300" y="348" font-family="Arial, sans-serif" font-weight="bold" font-size="16" fill="#FFFFFF" text-anchor="middle">CHINA FACTORY SOURCING</text>
+</svg>
