@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { CONFIG } from '@/lib/config';
 
 interface MongooseCache {
   conn: typeof mongoose | null;
@@ -17,9 +18,9 @@ if (!global.mongooseCache) {
 }
 
 export async function connectToDatabase() {
-  const mongoUri = process.env.MONGO_URI;
+  const mongoUri = CONFIG.MONGO_URI;
   if (!mongoUri) {
-    throw new Error('Please define the MONGO_URI environment variable inside .env.local');
+    throw new Error('Please define the MONGO_URI in CONFIG or environment');
   }
 
   if (cached.conn) {
@@ -29,7 +30,7 @@ export async function connectToDatabase() {
   if (!cached.promise) {
     const opts = {
       bufferCommands: false,
-      dbName: process.env.MONGO_DB || 'cargo_tracker_v2',
+      dbName: CONFIG.MONGO_DB || 'cargo_tracker_v2',
     };
 
     cached.promise = mongoose.connect(mongoUri, opts).then((mongooseInstance) => {

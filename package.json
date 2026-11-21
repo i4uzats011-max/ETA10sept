@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "cron:7am": "node scripts/cron-7am-sync.js"
+    "cron:7am": "node scripts/cron-7am-sync.js",
+    "china:sync": "node scripts/sync_china_warehouse.js",
+    "china:verify": "node scripts/sync_china_warehouse.js --verify",
+    "china:sunday": "node scripts/sync_china_warehouse.js --sunday",
+    "china:month": "node scripts/sync_china_warehouse.js --month"
   },
   "dependencies": {
     "@iamtraction/google-translate": "^3.0.0",

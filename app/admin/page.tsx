@@ -16,6 +16,7 @@ import { addFilingBufferDays } from '@/lib/jsoncargo';
 import { translateToEnglish } from '@/lib/translate';
 import CargoMasterTable from '@/components/CargoMasterTable';
 import LoaderHub from '@/components/LoaderHub';
+import ChinaWarehouseSyncManager from '@/components/ChinaWarehouseSyncManager';
 import PartyArrivalNotifications from '@/components/PartyArrivalNotifications';
 import ShippingLineManager from '@/components/ShippingLineManager';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
@@ -258,7 +259,7 @@ export default function AdminDashboardPage() {
   };
 
   // Modern Modular Menu Bar Tabs state
-  type AdminTab = 'loader-hub' | 'shipping-lines' | 'notifications' | 'shipments' | 'containers' | 'manual-eta' | 'api-sync' | 'alerts' | 'users' | 'edit-logs';
+  type AdminTab = 'loader-hub' | 'china-sync' | 'shipping-lines' | 'notifications' | 'shipments' | 'containers' | 'manual-eta' | 'api-sync' | 'alerts' | 'users' | 'edit-logs';
   const [activeAdminTab, setActiveAdminTab] = useState<AdminTab>('loader-hub');
 
   // Container Fleet Directory state (Table view)
@@ -1437,7 +1438,7 @@ export default function AdminDashboardPage() {
 
         {/* ── MODERN ADMIN MENU BAR (Zero Scrollbars - Responsive Grid) ── */}
         <div className="bg-white border border-slate-200 rounded-2xl p-2 shadow-sm">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-9 gap-2 w-full">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-10 gap-2 w-full">
             <button
               type="button"
               onClick={() => setActiveAdminTab('loader-hub')}
@@ -1449,6 +1450,20 @@ export default function AdminDashboardPage() {
             >
               <Warehouse className="w-4 h-4 shrink-0" />
               <span className="truncate">Loader Hub</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveAdminTab('china-sync')}
+              className={`px-3 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 w-full ${
+                activeAdminTab === 'china-sync'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'bg-indigo-50/70 hover:bg-indigo-100 text-indigo-900 border border-indigo-200'
+              }`}
+            >
+              <RefreshCw className="w-4 h-4 shrink-0" />
+              <span className="truncate">China Sync</span>
+              <span className="px-1 py-0.2 rounded-full text-[9px] font-black bg-emerald-500 text-white">AI</span>
             </button>
 
             <button
@@ -3070,6 +3085,13 @@ export default function AdminDashboardPage() {
             <ReduxProvider>
               <LoaderHub />
             </ReduxProvider>
+          </div>
+        )}
+
+        {/* ── TAB: CHINA WAREHOUSE AUTO-SYNC & MISMATCHES ── */}
+        {activeAdminTab === 'china-sync' && (
+          <div className="animate-fadeIn">
+            <ChinaWarehouseSyncManager />
           </div>
         )}
 

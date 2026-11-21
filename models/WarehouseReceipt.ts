@@ -63,6 +63,12 @@ export interface IWarehouseReceipt extends Document {
   uploadedAt: Date;             // Entry creation timestamp
   lastModifiedBy?: string;
   lastModifiedByRole?: string;
+  isVerified?: boolean;         // Verified in 10 AM / Sunday audit sync
+  verifiedAt?: Date;            // Verification timestamp
+  lastChinaSyncAt?: Date;       // Timestamp when last checked with China portal
+  chinaId?: string;             // Internal ID from China warehouse portal
+  chinaStockState?: number;     // 0 = In Stock, 1 = Out of Stock / Dispatched
+  hasMismatch?: boolean;        // Whether receipt has an unresolved discrepancy with China portal
   createdAt: Date;
   updatedAt: Date;
 }
@@ -138,6 +144,12 @@ const WarehouseReceiptSchema = new Schema<IWarehouseReceipt>(
     uploadedAt: { type: Date, default: Date.now },
     lastModifiedBy: { type: String, default: '', trim: true },
     lastModifiedByRole: { type: String, default: '', trim: true },
+    isVerified: { type: Boolean, default: false, index: true },
+    verifiedAt: { type: Date, default: null },
+    lastChinaSyncAt: { type: Date, default: null },
+    chinaId: { type: String, default: '', trim: true },
+    chinaStockState: { type: Number, default: 0 },
+    hasMismatch: { type: Boolean, default: false, index: true },
   },
   {
     timestamps: true,
