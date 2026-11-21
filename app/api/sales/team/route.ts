@@ -121,7 +121,7 @@ Here are your credentials for the *US International Logistics Sales Portal*:
 
 Please log in to review your assigned cargo, freight rates, remarks, and update communications with the Sales Head.`;
 
-    await recordEditLog({
+    await recordEditLog(req, {
       username: currentUser.username,
       role: currentUser.role,
       action: 'CREATE',
@@ -195,7 +195,7 @@ export async function PATCH(req: NextRequest) {
 
     await User.updateOne({ _id: user._id }, { $set: updates });
 
-    await recordEditLog({
+    await recordEditLog(req, {
       username: currentUser.username,
       role: currentUser.role,
       action: 'UPDATE',

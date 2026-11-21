@@ -121,6 +121,8 @@ export function updateEnvPassword(role: UserRole, newPassword: string): void {
     staff: ['EADMIN_PASSWORD', 'STAFF_PASSWORD', 'ADMIN2_PASSWORD'],
     biller: ['BILLER_PASSWORD'],
     dispatcher: ['DISPATCHER_PASSWORD'],
+    sales_head: ['SALES_HEAD_PASSWORD'],
+    sales_person: ['SALES_PERSON_PASSWORD'],
   };
 
   const keys = roleEnvMap[role] || [];

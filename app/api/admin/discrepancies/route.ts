@@ -141,7 +141,7 @@ export async function PATCH(req: NextRequest) {
       });
 
       // Record audit log
-      await recordEditLog({
+      await recordEditLog(req, {
         username: currentUser.username,
         role: currentUser.role,
         action: 'UPDATE',
