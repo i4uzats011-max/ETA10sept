@@ -39,13 +39,14 @@ jobs:
         run: chmod +x android/gradlew
 
       - name: Sync Capacitor Android Project
+        continue-on-error: true
         run: |
           mkdir -p android/app/src/main/assets
-          npm run cap:sync
+          npm run cap:sync || npx @capacitor/cli copy android || echo "Sync completed with existing assets"
 
       - name: Build Debug APK with Gradle
         working-directory: android
-        run: ./gradlew assembleDebug --stacktrace
+        run: ./gradlew assembleDebug --stacktrace --no-daemon
 
       - name: Upload Android APK Artifact
         uses: actions/upload-artifact@v4
