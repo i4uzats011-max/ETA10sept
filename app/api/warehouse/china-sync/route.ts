@@ -3,7 +3,7 @@ import { connectToDatabase } from '@/lib/mongodb';
 import { isAdminAuthenticated } from '@/lib/auth';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
 import ChinaSyncMismatch from '@/models/ChinaSyncMismatch';
-import { runChinaWarehouseSync, SyncMode } from '@/lib/chinaSyncEngine';
+import { runChinaWarehouseSync, fetchSingleReceiptFromChina, SyncMode } from '@/lib/chinaSyncEngine';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -71,6 +71,18 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json().catch(() => ({}));
+
+    // 1-Click Single Receipt Fetch from China Portal
+    if (body.action === 'fetch_receipt' || (body.receipt && !body.mode)) {
+      const receiptCode = String(body.receipt || '').trim();
+      const warehouse = (body.warehouse as 'GZ' | 'YW' | 'ALL') || 'ALL';
+      const singleRes = await fetchSingleReceiptFromChina(receiptCode, warehouse);
+      if (!singleRes.success) {
+        return NextResponse.json({ success: false, error: singleRes.message }, { status: 404 });
+      }
+      return NextResponse.json(singleRes);
+    }
+
     const mode = (body.mode as SyncMode) || 'sync';
     const warehouse = (body.warehouse as 'GZ' | 'YW' | 'ALL') || 'ALL';
     const daysBack = body.daysBack !== undefined ? parseInt(String(body.daysBack), 10) : undefined;

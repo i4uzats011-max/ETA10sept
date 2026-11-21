@@ -168,7 +168,7 @@ async function loginChinaWh(wh) {
 }
 
 // Fetch portal records
-async function fetchChinaRecords(wh, startDate, endDate, maxRecords = 2000) {
+async function fetchChinaRecords(wh, startDate, endDate, maxRecords = 2000, receiptCode = '') {
   const cookie = await loginChinaWh(wh);
   const limit = 200;
   let page = 1;
@@ -181,6 +181,7 @@ async function fetchChinaRecords(wh, startDate, endDate, maxRecords = 2000) {
       startDate: startDate || '',
       endDate: endDate || '',
       stockState: '',
+      code: receiptCode || '',
     });
 
     const res = await fetch(`${BASE_URL}/search`, {
@@ -256,6 +257,9 @@ async function runCliSync() {
   const targetWh = whArg ? whArg.split('=')[1].toUpperCase() : 'ALL';
   const whList = targetWh === 'ALL' ? ['GZ', 'YW'] : [targetWh];
 
+  const receiptArg = args.find((a) => a.startsWith('--receipt='));
+  const singleReceiptCode = receiptArg ? receiptArg.split('=')[1].trim() : null;
+
   const endDate = getFormattedDate(new Date());
   const startDateObj = new Date();
   startDateObj.setDate(startDateObj.getDate() - daysBack);
@@ -278,7 +282,13 @@ async function runCliSync() {
 
   for (const wh of whList) {
     console.log(`--> Fetching records for warehouse ${wh}...`);
-    const records = await fetchChinaRecords(wh, startDate, endDate);
+    const records = await fetchChinaRecords(
+      wh,
+      singleReceiptCode ? '' : startDate,
+      singleReceiptCode ? '' : endDate,
+      2000,
+      singleReceiptCode || ''
+    );
     console.log(`    Found ${records.length} records in China portal for ${wh}.`);
 
     if (records.length === 0) continue;

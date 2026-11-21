@@ -19,6 +19,7 @@ import {
   ArrowRight,
   Database,
   SlidersHorizontal,
+  Zap,
 } from 'lucide-react';
 
 interface MismatchItem {
@@ -72,6 +73,43 @@ export default function ChinaWarehouseSyncManager() {
   const [selectedStatus, setSelectedStatus] = useState<'PENDING' | 'RESOLVED' | 'IGNORED' | 'ALL'>('PENDING');
   const [selectedPeriod, setSelectedPeriod] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // 1-Click Single Receipt Fetch state
+  const [fetchReceiptInput, setFetchReceiptInput] = useState('');
+  const [fetchWhInput, setFetchWhInput] = useState<'ALL' | 'GZ' | 'YW'>('ALL');
+  const [isFetchingSingle, setIsFetchingSingle] = useState(false);
+  const [singleFetchResult, setSingleFetchResult] = useState<any | null>(null);
+
+  // 1-Click Single Receipt Fetch handler
+  const handleFetchSingleReceipt = async (codeToFetch?: string, whToFetch?: 'GZ' | 'YW' | 'ALL') => {
+    const code = (codeToFetch || fetchReceiptInput).trim();
+    const wh = whToFetch || fetchWhInput;
+    if (!code) {
+      alert('Please enter a receipt number to fetch');
+      return;
+    }
+    setIsFetchingSingle(true);
+    setSingleFetchResult(null);
+    setError(null);
+    try {
+      const res = await fetch('/api/warehouse/china-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'fetch_receipt', receipt: code, warehouse: wh }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to fetch receipt from China portal');
+      }
+      setSingleFetchResult(data);
+      if (!codeToFetch) setFetchReceiptInput('');
+      await loadData();
+    } catch (err: any) {
+      setError(err.message || 'Error fetching receipt');
+    } finally {
+      setIsFetchingSingle(false);
+    }
+  };
 
   // Fetch Stats & Mismatches
   const loadData = useCallback(async () => {
@@ -286,6 +324,84 @@ export default function ChinaWarehouseSyncManager() {
               Automated every 5h (2h night)
             </div>
           </div>
+        </div>
+
+        {/* 1-Click Single Receipt Fetch from China Portal */}
+        <div className="mt-5 p-4 bg-indigo-50/60 border border-indigo-100 rounded-xl">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                <Zap className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-xs sm:text-sm font-bold text-slate-900">
+                  1-Click Direct Fetch Receipt from China Portal to DB
+                </h4>
+                <p className="text-[11px] text-slate-500">
+                  Enter any receipt number to fetch directly from China warehouse, translate via Gemini AI, and save to DB.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={fetchWhInput}
+                onChange={(e) => setFetchWhInput(e.target.value as any)}
+                className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              >
+                <option value="ALL">Auto-Detect WH</option>
+                <option value="GZ">Guangzhou (GZ)</option>
+                <option value="YW">Yiwu (YW)</option>
+              </select>
+
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  placeholder="Receipt # (e.g. 261121020)"
+                  value={fetchReceiptInput}
+                  onChange={(e) => setFetchReceiptInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleFetchSingleReceipt();
+                  }}
+                  className="px-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-900 w-44 sm:w-48 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleFetchSingleReceipt()}
+                  disabled={isFetchingSingle || !fetchReceiptInput.trim()}
+                  className="inline-flex items-center px-3.5 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs transition disabled:opacity-50"
+                >
+                  <ArrowRight className={`w-3.5 h-3.5 mr-1 ${isFetchingSingle ? 'animate-pulse' : ''}`} />
+                  {isFetchingSingle ? 'Fetching...' : 'Fetch to DB'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Single Fetch Success Banner */}
+          {singleFetchResult && (
+            <div className="mt-3 p-3 bg-white rounded-lg border border-emerald-300 text-xs flex items-center justify-between gap-3 shadow-xs animate-fadeIn">
+              <div className="flex items-center gap-2 text-emerald-950">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>
+                  <strong>Receipt #{singleFetchResult.receipt?.receipt}</strong> ({singleFetchResult.warehouse} Warehouse) —
+                  Commodity: <strong>{singleFetchResult.receipt?.commodity}</strong> {singleFetchResult.receipt?.chinese && `(${singleFetchResult.receipt.chinese})`} •
+                  Qty: <strong>{singleFetchResult.receipt?.quantity} ctn</strong> •
+                  Mark: <strong>{singleFetchResult.receipt?.mainMarka || '—'}</strong>
+                </span>
+                <span className="ml-2 px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                  {singleFetchResult.isNew ? 'New Inward Saved' : 'Updated from China'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSingleFetchResult(null)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Action Buttons Toolbar */}
@@ -556,6 +672,13 @@ export default function ChinaWarehouseSyncManager() {
                     <td className="py-3 px-4 text-right whitespace-nowrap">
                       {m.status === 'PENDING' ? (
                         <div className="inline-flex items-center gap-1.5">
+                          <button
+                            onClick={() => handleFetchSingleReceipt(m.receipt, m.warehouse)}
+                            title="Re-fetch this receipt directly from China portal and update DB"
+                            className="px-2 py-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded"
+                          >
+                            Re-Fetch
+                          </button>
                           <button
                             onClick={() => handleResolveMismatch(m._id, 'ACCEPT_CHINA')}
                             title="Update local DB to match China numbers"

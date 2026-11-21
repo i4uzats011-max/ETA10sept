@@ -407,3 +407,212 @@ export async function runChinaWarehouseSync(
     details: overall.details,
   };
 }
+
+
+/**
+ * Fetch a single receipt directly from the China Warehouse portal by receipt code
+ * with instant Gemini AI translation and direct DB save/update (1-Click Fetch).
+ */
+export async function fetchSingleReceiptFromChina(
+  receiptCode: string,
+  targetWh: 'GZ' | 'YW' | 'ALL' = 'ALL'
+): Promise<{
+  success: boolean;
+  message: string;
+  isNew?: boolean;
+  warehouse?: string;
+  receipt?: any;
+  error?: string;
+}> {
+  await connectToDatabase();
+  const cleanCode = String(receiptCode || '').trim();
+  if (!cleanCode) {
+    return { success: false, message: 'Receipt number is required', error: 'Empty receipt code' };
+  }
+
+  const client = new ChinaWarehouseClient();
+  const whsToCheck: Array<'GZ' | 'YW'> = targetWh === 'ALL' ? ['GZ', 'YW'] : [targetWh];
+
+  let foundRecord: ChinaWarehouseRecord | null = null;
+  let foundWh: 'GZ' | 'YW' | null = null;
+
+  for (const wh of whsToCheck) {
+    try {
+      const cookie = await client.login(wh);
+      const res = await client.fetchBatch(wh, cookie, { code: cleanCode, limit: 10 });
+      const match = res.records.find(
+        (r) => r.code.trim().toLowerCase() === cleanCode.toLowerCase()
+      );
+      if (match) {
+        foundRecord = match;
+        foundWh = wh;
+        break;
+      }
+    } catch (err: any) {
+      console.warn(`[Single Fetch] Check in ${wh} failed:`, err.message);
+    }
+  }
+
+  if (!foundRecord || !foundWh) {
+    return {
+      success: false,
+      message: `Receipt #${cleanCode} not found in China warehouse portal (${targetWh}).`,
+      error: 'Not found',
+    };
+  }
+
+  // Translate Chinese terms with Gemini AI
+  const terms = [foundRecord.commodity, foundRecord.packaging, foundRecord.remark].filter(Boolean);
+  const transMap = await batchTranslateWithGemini(terms);
+
+  const translatedCommodity =
+    transMap[foundRecord.commodity] || foundRecord.commodity || 'General Goods';
+  const translatedPackaging =
+    transMap[foundRecord.packaging] || translatePackaging(foundRecord.packaging) || 'Carton';
+  const cleanMark = translateMark(foundRecord.mark) || foundRecord.mark || '';
+
+  // Check if exists in DB
+  const existing = await WarehouseReceipt.findOne({
+    receipt: new RegExp(`^${cleanCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+    warehouse: foundWh,
+  });
+
+  if (existing) {
+    // Update existing with China's latest numbers
+    const totalQty = foundRecord.actualQuantity;
+    const loadedQty = existing.loadedQuantity || 0;
+    const remainingQty = Math.max(0, totalQty - loadedQty);
+
+    existing.quantity = totalQty;
+    existing.remainingQuantity = remainingQty;
+    existing.weight = foundRecord.weight;
+    existing.volume = foundRecord.volume;
+    existing.commodity = translatedCommodity;
+    existing.chinese = foundRecord.commodity;
+    existing.english = translatedCommodity;
+    existing.packaging = translatedPackaging;
+    if (cleanMark) existing.mainMarka = cleanMark;
+    if (foundRecord.remark) {
+      existing.notes = foundRecord.remark;
+      existing.remarks = foundRecord.remark;
+    }
+    existing.chinaId = foundRecord.id;
+    existing.chinaStockState = foundRecord.stockState;
+    existing.lastChinaSyncAt = new Date();
+    existing.isVerified = true;
+    existing.verifiedAt = new Date();
+    existing.hasMismatch = false;
+
+    // Update balance item
+    existing.balanceItem = {
+      name: translatedCommodity,
+      ctn: remainingQty,
+      cbm: foundRecord.volume,
+      weight: foundRecord.weight,
+    };
+
+    await existing.save();
+
+    // Auto-resolve any pending mismatches
+    await ChinaSyncMismatch.updateMany(
+      { receipt: foundRecord.code, warehouse: foundWh, status: 'PENDING' },
+      {
+        $set: {
+          status: 'RESOLVED',
+          resolvedAt: new Date(),
+          resolutionAction: 'ACCEPT_CHINA',
+          resolutionNotes: 'Updated via 1-click single receipt fetch from China portal',
+        },
+      }
+    );
+
+    try {
+      await indexSingleWarehouseReceipt(existing);
+    } catch {}
+
+    return {
+      success: true,
+      isNew: false,
+      warehouse: foundWh,
+      message: `Receipt #${cleanCode} (${foundWh}) successfully updated from China warehouse with Gemini AI translation.`,
+      receipt: existing.toObject(),
+    };
+  } else {
+    // Insert brand new receipt
+    const uploadBatchId = `SYNC-CLICK-${Date.now()}`;
+    const newDoc = new WarehouseReceipt({
+      receipt: foundRecord.code,
+      party: foundRecord.customerName || 'General Party',
+      warehouse: foundWh,
+      warehouseEntry: foundRecord.entryCode || (foundWh === 'GZ' ? 'RS-21' : 'AS-14'),
+      date: foundRecord.formattedDate || new Date().toISOString().slice(0, 10),
+      quantity: foundRecord.actualQuantity,
+      loadedQuantity: 0,
+      remainingQuantity: foundRecord.actualQuantity,
+      weight: foundRecord.weight,
+      loadedWeight: 0,
+      remainingWeight: foundRecord.weight,
+      volume: foundRecord.volume,
+      loadedVolume: 0,
+      remainingVolume: foundRecord.volume,
+      commodity: translatedCommodity,
+      chinese: foundRecord.commodity,
+      english: translatedCommodity,
+      packaging: translatedPackaging,
+      mainMarka: cleanMark,
+      subMarka: '',
+      status: 'Received in Warehouse',
+      stockstatus: 'In Stock',
+      notes: foundRecord.remark || '',
+      remarks: foundRecord.remark || '',
+      phone: foundRecord.phone || '',
+      isDelivered: false,
+      isVerified: true,
+      verifiedAt: new Date(),
+      lastChinaSyncAt: new Date(),
+      chinaId: foundRecord.id,
+      chinaStockState: foundRecord.stockState,
+      hasMismatch: false,
+      items: [
+        {
+          itemName: translatedCommodity,
+          english: translatedCommodity,
+          chinese: foundRecord.commodity,
+          quantity: foundRecord.actualQuantity,
+          packaging: translatedPackaging,
+          weight: foundRecord.weight,
+          volume: foundRecord.volume,
+          rate: '',
+          rateUnit: 'CTN',
+          cost: '',
+          remarks: foundRecord.remark || '',
+          mainMarka: cleanMark,
+          subMarka: '',
+        },
+      ],
+      balanceItem: {
+        name: translatedCommodity,
+        ctn: foundRecord.actualQuantity,
+        cbm: foundRecord.volume,
+        weight: foundRecord.weight,
+      },
+      loadedItems: [],
+      uploadBatchId,
+      uploadedAt: new Date(),
+    });
+
+    await newDoc.save();
+
+    try {
+      await indexSingleWarehouseReceipt(newDoc);
+    } catch {}
+
+    return {
+      success: true,
+      isNew: true,
+      warehouse: foundWh,
+      message: `Receipt #${cleanCode} (${foundWh}) fetched from China portal, translated by Gemini AI, and saved to DB.`,
+      receipt: newDoc.toObject(),
+    };
+  }
+}

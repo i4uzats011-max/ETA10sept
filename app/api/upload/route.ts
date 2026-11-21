@@ -19,6 +19,7 @@ import {
   translateWarehouse,
   translateMark,
 } from '@/lib/translate';
+import { batchTranslateWithGemini } from '@/lib/geminiTranslate';
 import { parseMetricNumber } from '@/lib/metricUtils';
 
 export const dynamic = 'force-dynamic';
@@ -255,6 +256,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Collect all Chinese terms from uploaded rows for Google Gemini AI batch translation
+    const chineseTermsToTranslate: string[] = [];
+    for (const r of records) {
+      const comm = commodityHeader && r[commodityHeader] !== undefined ? String(r[commodityHeader]).trim() : '';
+      const eng = englishHeader && r[englishHeader] !== undefined ? String(r[englishHeader]).trim() : '';
+      const pkg = packagingHeader && r[packagingHeader] !== undefined ? String(r[packagingHeader]).trim() : '';
+      const rem = remarksHeader && r[remarksHeader] !== undefined ? String(r[remarksHeader]).trim() : '';
+      if (hasChineseCharacters(comm)) chineseTermsToTranslate.push(comm);
+      if (hasChineseCharacters(eng)) chineseTermsToTranslate.push(eng);
+      if (hasChineseCharacters(pkg)) chineseTermsToTranslate.push(pkg);
+      if (hasChineseCharacters(rem)) chineseTermsToTranslate.push(rem);
+    }
+    const aiTranslationMap = await batchTranslateWithGemini(chineseTermsToTranslate);
+
     // -----------------------------------------------------------------------------------
     // MODE A: CHINA WAREHOUSE INWARD STOCK UPLOAD (No Container Column and not uploading as a plan)
     // -----------------------------------------------------------------------------------
@@ -371,10 +386,23 @@ export async function POST(req: NextRequest) {
           const rCommodity = commodityHeader && r[commodityHeader] !== undefined ? String(r[commodityHeader]).trim() : '';
           const rEnglish = englishHeader && r[englishHeader] !== undefined ? String(r[englishHeader]).trim() : '';
 
-          const { english: tEn, chinese: tCn } = translateCommodity(rCommodity);
-          const itEn = (rEnglish && rEnglish !== 'General Merchandise') ? (hasChineseCharacters(rEnglish) ? translateToEnglish(rEnglish) : rEnglish) : tEn;
-          const itCn = tCn || (hasChineseCharacters(rCommodity) ? rCommodity : '');
-          const itPkg = translatePackaging(packagingHeader && r[packagingHeader] !== undefined ? String(r[packagingHeader]).trim() : '');
+          let itEn = '';
+          if (hasChineseCharacters(rEnglish)) {
+            itEn = aiTranslationMap[rEnglish] || translateToEnglish(rEnglish);
+          } else if (rEnglish && rEnglish !== 'General Merchandise') {
+            itEn = rEnglish;
+          } else if (hasChineseCharacters(rCommodity)) {
+            itEn = aiTranslationMap[rCommodity] || translateCommodity(rCommodity).english;
+          } else {
+            itEn = rCommodity || 'General Goods';
+          }
+
+          const itCn = hasChineseCharacters(rCommodity) ? rCommodity : (hasChineseCharacters(rEnglish) ? rEnglish : '');
+
+          const rawPkg = packagingHeader && r[packagingHeader] !== undefined ? String(r[packagingHeader]).trim() : '';
+          const itPkg = hasChineseCharacters(rawPkg)
+            ? (aiTranslationMap[rawPkg] || translatePackaging(rawPkg) || 'Carton')
+            : (translatePackaging(rawPkg) || 'Carton');
           const itWt = weightHeader && r[weightHeader] !== undefined ? String(r[weightHeader]).trim() : '';
           const itVol = volumeHeader && r[volumeHeader] !== undefined ? String(r[volumeHeader]).trim() : '';
           const itRate = rateHeader && r[rateHeader] !== undefined ? String(r[rateHeader]).trim() : '';
@@ -826,13 +854,27 @@ export async function POST(req: NextRequest) {
         ? String(row[partyHeader]).trim()
         : 'General Party';
 
-      // Commodity & English with automatic Chinese-to-English translation
+      // Commodity & English with automatic Chinese-to-English translation via Gemini AI
       const rawCommodity = commodityHeader && row[commodityHeader] !== undefined ? String(row[commodityHeader]).trim() : '';
       const rawEnglish = englishHeader && row[englishHeader] !== undefined ? String(row[englishHeader]).trim() : '';
-      const { english: translatedEnglish, chinese: translatedChinese } = translateCommodity(rawCommodity);
-      const finalEnglish = (rawEnglish && rawEnglish !== 'General Merchandise') ? (hasChineseCharacters(rawEnglish) ? translateToEnglish(rawEnglish) : rawEnglish) : translatedEnglish;
-      const finalChinese = translatedChinese || (hasChineseCharacters(rawCommodity) ? rawCommodity : '');
-      const finalPackaging = translatePackaging(packagingHeader && row[packagingHeader] !== undefined ? String(row[packagingHeader]).trim() : '');
+
+      let finalEnglish = '';
+      if (hasChineseCharacters(rawEnglish)) {
+        finalEnglish = aiTranslationMap[rawEnglish] || translateToEnglish(rawEnglish);
+      } else if (rawEnglish && rawEnglish !== 'General Merchandise') {
+        finalEnglish = rawEnglish;
+      } else if (hasChineseCharacters(rawCommodity)) {
+        finalEnglish = aiTranslationMap[rawCommodity] || translateCommodity(rawCommodity).english;
+      } else {
+        finalEnglish = rawCommodity || 'General Goods';
+      }
+
+      const finalChinese = hasChineseCharacters(rawCommodity) ? rawCommodity : (hasChineseCharacters(rawEnglish) ? rawEnglish : '');
+
+      const rawPackaging = packagingHeader && row[packagingHeader] !== undefined ? String(row[packagingHeader]).trim() : '';
+      const finalPackaging = hasChineseCharacters(rawPackaging)
+        ? (aiTranslationMap[rawPackaging] || translatePackaging(rawPackaging) || 'Carton')
+        : (translatePackaging(rawPackaging) || 'Carton');
       const finalWarehouse = translateWarehouse(warehouseHeader && row[warehouseHeader] !== undefined ? String(row[warehouseHeader]).trim() : defaultWarehouse);
       const finalMainMark = translateMark(mainMarkHeader && row[mainMarkHeader] !== undefined ? String(row[mainMarkHeader]).trim() : '');
       const finalSubMark = translateMark(subMarkHeader && row[subMarkHeader] !== undefined ? String(row[subMarkHeader]).trim() : '');
