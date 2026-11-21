@@ -1,16 +1,3 @@
 {
-  "crons": [
-    {
-      "path": "/api/cron/china-sync",
-      "schedule": "30 0,5,10,15,18,20,22 * * *"
-    },
-    {
-      "path": "/api/cron/china-verify?type=daily",
-      "schedule": "30 4 * * *"
-    },
-    {
-      "path": "/api/cron/china-verify?type=sunday",
-      "schedule": "30 4 * * 0"
-    }
-  ]
+  "crons": []
 }

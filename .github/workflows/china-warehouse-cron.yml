@@ -1,0 +1,29 @@
+name: China Warehouse Auto-Sync & Audit Cron
+
+on:
+  schedule:
+    # 1. Regular Sync: Every 5 hours during daytime, every 2 hours after midnight IST
+    # 00:30 UTC (06:00 IST), 05:30 UTC (11:00 IST), 10:30 UTC (16:00 IST), 15:30 UTC (21:00 IST), 18:30 UTC (00:00 IST), 20:30 UTC (02:00 IST), 22:30 UTC (04:00 IST)
+    - cron: '30 0,5,10,15,18,20,22 * * *'
+    # 2. Daily Verification at 10:00 AM IST (04:30 UTC)
+    - cron: '30 4 * * *'
+  workflow_dispatch: # Allows manual trigger from GitHub UI
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger China Warehouse Auto-Sync on Vercel
+        run: |
+          echo "Triggering China Warehouse sync on production..."
+          curl -s -X POST "https://eta-10sept.vercel.app/api/cron/china-sync" \
+            -H "Authorization: Bearer cron_secret_bearer_token_998877" \
+            -H "Content-Type: application/json" || echo "Sync trigger completed"
+
+      - name: Trigger Daily / Sunday Verification
+        if: github.event.schedule == '30 4 * * *' || github.event_name == 'workflow_dispatch'
+        run: |
+          echo "Triggering Verification & Audit..."
+          curl -s -X POST "https://eta-10sept.vercel.app/api/cron/china-verify" \
+            -H "Authorization: Bearer cron_secret_bearer_token_998877" \
+            -H "Content-Type: application/json" || echo "Verify trigger completed"
