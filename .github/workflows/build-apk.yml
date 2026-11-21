@@ -32,7 +32,7 @@ jobs:
           java-version: '21'
           cache: 'gradle'
 
-      - name: Accept Android SDK Licenses
+      - name: Accept Android SDK Licenses & Install Android 36
         run: |
           mkdir -p "$ANDROID_HOME/licenses"
           printf "24333f8a63b6825ea9c5514f83c2829b004d1fee\nd56f5187479edd1fe5892186497b66524c942834\n" > "$ANDROID_HOME/licenses/android-sdk-license"
@@ -40,6 +40,7 @@ jobs:
           SDKMANAGER=$(find "$ANDROID_HOME" -name sdkmanager -type f 2>/dev/null | head -n 1)
           if [ -n "$SDKMANAGER" ]; then
             yes | "$SDKMANAGER" --licenses 2>/dev/null || true
+            "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0" 2>/dev/null || true
           fi
 
       - name: Install Project Dependencies
