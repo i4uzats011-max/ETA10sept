@@ -94,15 +94,15 @@ export async function GET(req: NextRequest) {
           { isDelivered: true },
         ],
       })
-        .select('receipt party warehouse date quantity loadedQuantity remainingQuantity weight volume commodity packaging mainMarka subMarka salesStatus salesPerson isDelivered deliveryDate phone partyPhone holdReason goodsReceivedStatus receivedQuantity goodsReceivedRemarks goodsReceivedAt goodsReceivedBy')
+        .select('receipt party warehouse date quantity loadedQuantity remainingQuantity weight volume commodity packaging mainMarka subMarka salesStatus salesPerson isDelivered deliveryDate phone partyPhone holdReason goodsReceivedStatus receivedQuantity goodsReceivedRemarks goodsReceivedAt goodsReceivedBy unloadStatus sentQuantity warehouseQuantity unloadRemarks unloadedAt unloadedBy')
         .sort({ updatedAt: -1 })
-        .limit(300)
+        .limit(400)
         .lean();
 
       // Match each receipt with its container from Shipment if available
       const receiptNumbers = availableReceipts.map((r) => r.receipt).filter(Boolean);
       const matchingShipments = await Shipment.find({ receipt: { $in: receiptNumbers } })
-        .select('receipt container containerNumber packages commodity english salesStatus holdReason')
+        .select('receipt container containerNumber packages commodity english salesStatus holdReason unloadStatus sentQuantity warehouseQuantity unloadRemarks unloadedAt unloadedBy')
         .lean();
 
       const shipmentMap = new Map<string, any>();
@@ -114,6 +114,9 @@ export async function GET(req: NextRequest) {
         const sh = shipmentMap.get(r.receipt);
         const sStatus = r.salesStatus || sh?.salesStatus || (r.isDelivered ? 'Available to Deliver' : 'Normal');
         const hReason = r.holdReason || sh?.holdReason || '';
+        const unStatus = (r as any).unloadStatus || sh?.unloadStatus || undefined;
+        const sQty = (r as any).sentQuantity ?? sh?.sentQuantity ?? 0;
+        const wQty = (r as any).warehouseQuantity ?? sh?.warehouseQuantity ?? 0;
         return {
           _id: r._id,
           receipt: r.receipt,
@@ -135,6 +138,12 @@ export async function GET(req: NextRequest) {
           goodsReceivedRemarks: (r as any).goodsReceivedRemarks || '',
           goodsReceivedAt: (r as any).goodsReceivedAt || null,
           goodsReceivedBy: (r as any).goodsReceivedBy || '',
+          unloadStatus: unStatus,
+          sentQuantity: sQty,
+          warehouseQuantity: wQty,
+          unloadRemarks: (r as any).unloadRemarks || sh?.unloadRemarks || '',
+          unloadedAt: (r as any).unloadedAt || sh?.unloadedAt || null,
+          unloadedBy: (r as any).unloadedBy || sh?.unloadedBy || '',
           isDelivered: Boolean(r.isDelivered),
           phone: r.phone || r.partyPhone || '',
         };
@@ -463,6 +472,139 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         success: true,
         message: 'डिस्पैच अनुरोध सफलतापूर्वक डिलीट कर दिया गया है। (Dispatch request deleted successfully.)',
+      });
+    }
+
+    // ACTION: MARK CONTAINER UNLOAD STATUS (कंटेनर अनलोडिंग स्थिति: Not In Container, Partly Sent, Fully Sent, Stored in Warehouse)
+    if (action === 'mark_unload_status') {
+      const {
+        receipt,
+        unloadStatus, // 'fully_sent' | 'partly_sent' | 'not_in_container' | 'stored_in_warehouse'
+        sentQuantity, // cartons sent to party
+        remarks,
+      } = body;
+
+      if (!receipt || !unloadStatus) {
+        return NextResponse.json({ error: 'Receipt number and unloadStatus are required.' }, { status: 400 });
+      }
+
+      const wr = await WarehouseReceipt.findOne({ receipt: String(receipt).trim() });
+      if (!wr) {
+        return NextResponse.json({ error: 'Warehouse receipt not found.' }, { status: 404 });
+      }
+
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const totalQty = wr.quantity || 0;
+      let sent = 0;
+      let inWarehouse = 0;
+      let isDelivered = false;
+
+      if (unloadStatus === 'fully_sent') {
+        sent = totalQty;
+        inWarehouse = 0;
+        isDelivered = true;
+        wr.remainingQuantity = 0;
+        wr.isDelivered = true;
+        wr.status = 'Delivered';
+        wr.stockstatus = 'Delivered';
+        wr.goodsReceivedStatus = 'full';
+        wr.receivedQuantity = totalQty;
+        wr.deliveryDate = todayStr;
+        wr.remarks = [
+          wr.remarks,
+          `[${todayStr} Unload] Fully Sent: All ${totalQty} CTN dispatched directly to party${remarks ? ': ' + remarks : ''}`,
+        ].filter(Boolean).join(' | ');
+      } else if (unloadStatus === 'partly_sent') {
+        sent = Number(sentQuantity) || 0;
+        if (sent <= 0 || sent > totalQty) {
+          return NextResponse.json(
+            { error: `भेजे गए कार्टून 1 से ${totalQty} के बीच होने चाहिए।` },
+            { status: 400 }
+          );
+        }
+        inWarehouse = Math.max(0, totalQty - sent);
+        isDelivered = inWarehouse === 0;
+        wr.remainingQuantity = inWarehouse;
+        wr.isDelivered = isDelivered;
+        wr.status = isDelivered ? 'Delivered' : 'Partially Delivered';
+        wr.stockstatus = inWarehouse > 0 ? 'In Stock (Warehouse)' : 'Delivered';
+        wr.goodsReceivedStatus = 'partial';
+        wr.receivedQuantity = sent;
+        wr.remarks = [
+          wr.remarks,
+          `[${todayStr} Unload] Partly Sent: ${sent} CTN sent to party | ${inWarehouse} CTN moved to Indian Warehouse Stock${remarks ? ' - ' + remarks : ''}`,
+        ].filter(Boolean).join(' | ');
+      } else if (unloadStatus === 'not_in_container') {
+        sent = 0;
+        inWarehouse = 0;
+        isDelivered = false;
+        wr.remainingQuantity = totalQty; // preserved for records
+        wr.goodsReceivedStatus = 'not_received';
+        wr.receivedQuantity = 0;
+        wr.remarks = [
+          wr.remarks,
+          `[${todayStr} Unload SHORTAGE] Not In Container: Listed in manifest but physically missing from container!${remarks ? ' Notes: ' + remarks : ''}`,
+        ].filter(Boolean).join(' | ');
+      } else if (unloadStatus === 'stored_in_warehouse') {
+        sent = 0;
+        inWarehouse = totalQty;
+        isDelivered = false;
+        wr.remainingQuantity = totalQty;
+        wr.status = 'Received in Warehouse';
+        wr.stockstatus = 'In Stock';
+        wr.goodsReceivedStatus = 'not_received';
+        wr.receivedQuantity = 0;
+        wr.remarks = [
+          wr.remarks,
+          `[${todayStr} Unload] Stored in Warehouse: All ${totalQty} CTN unloaded & securely stored in warehouse${remarks ? ': ' + remarks : ''}`,
+        ].filter(Boolean).join(' | ');
+      }
+
+      wr.unloadStatus = unloadStatus;
+      wr.sentQuantity = sent;
+      wr.warehouseQuantity = inWarehouse;
+      wr.unloadRemarks = String(remarks || '').trim();
+      wr.unloadedAt = new Date();
+      wr.unloadedBy = currentUser.username;
+      wr.lastModifiedBy = currentUser.username;
+      wr.lastModifiedByRole = currentUser.role;
+      wr.updatedAt = new Date();
+      await wr.save();
+
+      // Update matching Shipment
+      await Shipment.updateMany(
+        { receipt: wr.receipt },
+        {
+          $set: {
+            unloadStatus,
+            sentQuantity: sent,
+            warehouseQuantity: inWarehouse,
+            unloadRemarks: wr.unloadRemarks,
+            unloadedAt: wr.unloadedAt,
+            unloadedBy: wr.unloadedBy,
+            goodsReceivedStatus: wr.goodsReceivedStatus,
+            receivedQuantity: sent,
+            isDelivered,
+            deliveryDate: isDelivered ? todayStr : undefined,
+          },
+        }
+      );
+
+      return NextResponse.json({
+        success: true,
+        message:
+          unloadStatus === 'fully_sent'
+            ? `✓ रसीद ${wr.receipt}: पूरा माल (${sent} CTN) भेजा गया।`
+            : unloadStatus === 'partly_sent'
+            ? `✓ रसीद ${wr.receipt}: ${sent} CTN भेजा गया, शेष ${inWarehouse} CTN वेयरहाउस में जमा।`
+            : unloadStatus === 'not_in_container'
+            ? `⚠️ रसीद ${wr.receipt}: कंटेनर में नहीं मिला (Shortage दर्ज कर ली गई है)।`
+            : `✓ रसीद ${wr.receipt}: पूरा माल (${inWarehouse} CTN) वेयरहाउस में जमा।`,
+        unloadStatus,
+        sentQuantity: sent,
+        warehouseQuantity: inWarehouse,
+        remainingQuantity: wr.remainingQuantity,
+        isDelivered,
       });
     }
 

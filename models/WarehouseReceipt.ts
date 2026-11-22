@@ -76,6 +76,12 @@ export interface IWarehouseReceipt extends Document {
   goodsReceivedRemarks?: string;// Remarks on delivery/receipt
   goodsReceivedAt?: Date;       // Timestamp when goods receipt was marked
   goodsReceivedBy?: string;     // Dispatcher username who marked goods receipt
+  unloadStatus?: 'fully_sent' | 'partly_sent' | 'not_in_container' | 'stored_in_warehouse'; // 4 Unload Statuses: Not In Container, Partly Sent, Fully Sent, Stored in Warehouse
+  sentQuantity?: number;        // Cartons sent to party
+  warehouseQuantity?: number;   // Cartons remaining stored in Indian warehouse
+  unloadRemarks?: string;       // Unloading notes
+  unloadedAt?: Date;            // Timestamp when container unload status was verified
+  unloadedBy?: string;          // Dispatcher username
   salesDiscrepancy?: {          // "Data Entry Wrong" discrepancy flagged by Sales Head/Person
     hasDiscrepancy: boolean;
     actualCbm?: string | number;
@@ -203,6 +209,17 @@ const WarehouseReceiptSchema = new Schema<IWarehouseReceipt>(
     holdUpdatedAt: { type: Date, default: null },
     holdUpdatedBy: { type: String, default: '', trim: true },
     salesDiscrepancy: { type: Schema.Types.Mixed, default: null },
+    unloadStatus: {
+      type: String,
+      enum: ['fully_sent', 'partly_sent', 'not_in_container', 'stored_in_warehouse'],
+      default: undefined,
+      index: true,
+    },
+    sentQuantity: { type: Number, default: 0 },
+    warehouseQuantity: { type: Number, default: 0 },
+    unloadRemarks: { type: String, default: '', trim: true },
+    unloadedAt: { type: Date, default: null },
+    unloadedBy: { type: String, default: '', trim: true },
   },
   {
     timestamps: true,

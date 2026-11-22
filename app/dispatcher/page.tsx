@@ -28,6 +28,11 @@ import {
   Trash2,
   Lock,
   AlertTriangle,
+  Boxes,
+  Warehouse,
+  PackageCheck,
+  PackageX,
+  ShieldAlert,
 } from 'lucide-react';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
 import { generateBillPDF } from '@/lib/billPdf';
@@ -84,6 +89,12 @@ interface DeliveryReceipt {
   goodsReceivedRemarks?: string;
   goodsReceivedAt?: string;
   goodsReceivedBy?: string;
+  unloadStatus?: 'fully_sent' | 'partly_sent' | 'not_in_container' | 'stored_in_warehouse';
+  sentQuantity?: number;
+  warehouseQuantity?: number;
+  unloadRemarks?: string;
+  unloadedAt?: string;
+  unloadedBy?: string;
   isDelivered: boolean;
   phone?: string;
 }
@@ -135,13 +146,22 @@ interface DispatchRequestItem {
 
 export default function DispatcherPortalPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'delivery' | 'goods_received' | 'requests' | 'bills' | 'eta'>('delivery');
+  const [activeTab, setActiveTab] = useState<'delivery' | 'unload' | 'warehouse_stock' | 'requests' | 'bills' | 'eta'>('delivery');
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [containerSearchInput, setContainerSearchInput] = useState('');
   const [goodsContainerSearchInput, setGoodsContainerSearchInput] = useState('');
   const [selectedGoodsContainer, setSelectedGoodsContainer] = useState('');
+
+  // Container Unload Verification Modal State (4 Statuses: Not In Container, Partly Sent, Fully Sent, Stored in Warehouse)
+  const [unloadModalOpen, setUnloadModalOpen] = useState(false);
+  const [unloadReceipt, setUnloadReceipt] = useState<DeliveryReceipt | null>(null);
+  const [unloadStatusChoice, setUnloadStatusChoice] = useState<'fully_sent' | 'partly_sent' | 'not_in_container' | 'stored_in_warehouse'>('fully_sent');
+  const [unloadSentQuantity, setUnloadSentQuantity] = useState<number | ''>('');
+  const [unloadRemarks, setUnloadRemarks] = useState('');
+  const [unloadSubmitting, setUnloadSubmitting] = useState(false);
+  const [unloadSuccessMsg, setUnloadSuccessMsg] = useState<string | null>(null);
 
   // SECTION 1: ETA Containers
   const [etaContainers, setEtaContainers] = useState<ContainerETA[]>([]);
@@ -491,6 +511,125 @@ export default function DispatcherPortalPage() {
     );
   }, [deliveryItems, selectedGoodsContainer, selectedDeliveryContainer, searchQuery]);
 
+  // Warehouse Stock Items (माल जो partly sent हुआ या warehouse में रखा गया)
+  const warehouseStockItems = useMemo(() => {
+    const list = deliveryItems.filter(
+      (r) =>
+        (r.warehouseQuantity !== undefined && r.warehouseQuantity > 0) ||
+        (r.unloadStatus === 'partly_sent' && (r.warehouseQuantity || 0) > 0) ||
+        (r.unloadStatus === 'stored_in_warehouse' && r.remainingCartons > 0)
+    );
+    if (!searchQuery.trim()) return list;
+    const q = searchQuery.toLowerCase();
+    return list.filter(
+      (r) =>
+        r.receipt.toLowerCase().includes(q) ||
+        r.marka.toLowerCase().includes(q) ||
+        r.party.toLowerCase().includes(q) ||
+        (r.commodity && r.commodity.toLowerCase().includes(q)) ||
+        (r.container && r.container.toLowerCase().includes(q))
+    );
+  }, [deliveryItems, searchQuery]);
+
+  // Open Unload Verification Modal (4 Statuses)
+  const handleOpenUnloadModal = (receipt: DeliveryReceipt) => {
+    setUnloadReceipt(receipt);
+    setUnloadStatusChoice(receipt.unloadStatus || 'fully_sent');
+    setUnloadSentQuantity(
+      receipt.sentQuantity && receipt.sentQuantity > 0
+        ? receipt.sentQuantity
+        : receipt.remainingCartons > 0
+        ? receipt.remainingCartons
+        : receipt.totalCartons
+    );
+    setUnloadRemarks(receipt.unloadRemarks || '');
+    setUnloadSuccessMsg(null);
+    setUnloadModalOpen(true);
+  };
+
+  // Submit Unload Verification Status
+  const handleSubmitUnloadStatus = async () => {
+    if (!unloadReceipt) return;
+
+    if (unloadStatusChoice === 'partly_sent') {
+      const q = Number(unloadSentQuantity);
+      if (isNaN(q) || q <= 0) {
+        alert('कृपया भेजे गए कार्टून संख्या (Quantity Sent) सही दर्ज करें।');
+        return;
+      }
+      const totalMax = unloadReceipt.totalCartons || unloadReceipt.remainingCartons || 0;
+      if (q > totalMax) {
+        alert(`भेजी गई कार्टून संख्या कुल कार्टून (${totalMax} CTN) से अधिक नहीं हो सकती।`);
+        return;
+      }
+    }
+
+    setUnloadSubmitting(true);
+    try {
+      const res = await fetch('/api/dispatcher', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'mark_unload_status',
+          receipt: unloadReceipt.receipt,
+          unloadStatus: unloadStatusChoice,
+          sentQuantity: unloadStatusChoice === 'partly_sent' ? Number(unloadSentQuantity) : undefined,
+          remarks: unloadRemarks.trim(),
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update unload status');
+
+      // Update local state immediately
+      setDeliveryItems((prev) =>
+        prev.map((item) => {
+          if (item.receipt === unloadReceipt.receipt) {
+            return {
+              ...item,
+              unloadStatus: unloadStatusChoice,
+              sentQuantity: data.sentQuantity ?? item.sentQuantity,
+              warehouseQuantity: data.warehouseQuantity ?? item.warehouseQuantity,
+              remainingCartons: data.remainingQuantity ?? item.remainingCartons,
+              isDelivered: data.isDelivered ?? item.isDelivered,
+              goodsReceivedStatus:
+                unloadStatusChoice === 'fully_sent'
+                  ? 'full'
+                  : unloadStatusChoice === 'partly_sent'
+                  ? 'partial'
+                  : 'not_received',
+              unloadRemarks: unloadRemarks.trim(),
+            };
+          }
+          return item;
+        })
+      );
+
+      triggerNotificationAlert({
+        title: '📦 Container Unload Status Updated',
+        body: `Receipt ${unloadReceipt.receipt}: ${
+          unloadStatusChoice === 'fully_sent'
+            ? 'Fully Sent (Delivered)'
+            : unloadStatusChoice === 'partly_sent'
+            ? `${unloadSentQuantity} Sent | ${data.warehouseQuantity} in Warehouse`
+            : unloadStatusChoice === 'not_in_container'
+            ? 'Shortage: Not In Container'
+            : 'Stored in Warehouse'
+        }`,
+      });
+
+      setUnloadSuccessMsg(data.message || 'सफलतापूर्वक अपडेट हो गया।');
+      setTimeout(() => {
+        setUnloadModalOpen(false);
+        fetchData();
+      }, 1200);
+    } catch (e: any) {
+      alert(e?.message || 'Error updating unload status');
+    } finally {
+      setUnloadSubmitting(false);
+    }
+  };
+
   // Day-End Status Handlers
   const handleOpenDayEndModal = (receipt: DeliveryReceipt) => {
     setDayEndReceipt(receipt);
@@ -730,48 +869,63 @@ export default function DispatcherPortalPage() {
           </div>
         </div>
 
-        {/* 3 Main Sections Navigation Tabs (Google Sheet-like grid tabs) */}
+        {/* Main Sections Navigation Tabs */}
         <div className="max-w-7xl mx-auto px-3 sm:px-6 flex items-center space-x-1 overflow-x-auto border-t border-slate-800/80 pt-1">
           <button
             onClick={() => setActiveTab('delivery')}
-            className={`px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center space-x-2 whitespace-nowrap ${
+            className={`px-3.5 py-2.5 text-xs font-bold border-b-2 transition flex items-center space-x-2 whitespace-nowrap ${
               activeTab === 'delivery'
                 ? 'border-emerald-500 text-emerald-400 bg-emerald-500/10'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
             <Truck className="w-4 h-4" />
-            <span>1. डिस्पैच एवं बिलिंग (Dispatch to Biller)</span>
+            <span>1. डिस्पैच एवं बिलिंग (Dispatch)</span>
             <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-emerald-500/20 text-emerald-300">
               {deliveryItems.filter((d) => d.salesStatus === 'Available to Deliver' && !d.isHold).length}
             </span>
           </button>
 
           <button
-            onClick={() => setActiveTab('goods_received')}
-            className={`px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center space-x-2 whitespace-nowrap ${
-              activeTab === 'goods_received'
+            onClick={() => setActiveTab('unload')}
+            className={`px-3.5 py-2.5 text-xs font-bold border-b-2 transition flex items-center space-x-2 whitespace-nowrap ${
+              activeTab === 'unload'
                 ? 'border-cyan-500 text-cyan-400 bg-cyan-500/10'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            <CheckCircle2 className="w-4 h-4 text-cyan-400" />
-            <span>2. माल प्राप्ति स्थिति (Goods Received by Party)</span>
+            <Boxes className="w-4 h-4 text-cyan-400" />
+            <span>2. कंटेनर अनलोडिंग (Unload: 4 Statuses)</span>
             <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-cyan-500/20 text-cyan-300">
-              {deliveryItems.filter((d) => d.goodsReceivedStatus === 'full').length} Full
+              {deliveryItems.filter((d) => d.unloadStatus).length} / {deliveryItems.length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('warehouse_stock')}
+            className={`px-3.5 py-2.5 text-xs font-bold border-b-2 transition flex items-center space-x-2 whitespace-nowrap ${
+              activeTab === 'warehouse_stock'
+                ? 'border-purple-500 text-purple-400 bg-purple-500/10'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Warehouse className="w-4 h-4 text-purple-400" />
+            <span>3. गोदाम स्टॉक (Warehouse Stock)</span>
+            <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-purple-500/20 text-purple-300">
+              {deliveryItems.reduce((sum, r) => sum + (r.warehouseQuantity || 0), 0)} CTN
             </span>
           </button>
 
           <button
             onClick={() => setActiveTab('requests')}
-            className={`px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center space-x-2 whitespace-nowrap ${
+            className={`px-3.5 py-2.5 text-xs font-bold border-b-2 transition flex items-center space-x-2 whitespace-nowrap ${
               activeTab === 'requests'
                 ? 'border-amber-500 text-amber-400 bg-amber-500/10'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
             <Clock className="w-4 h-4" />
-            <span>3. पेंडिंग अनुरोध (Pending Requests)</span>
+            <span>4. पेंडिंग अनुरोध (Requests)</span>
             <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-amber-500/20 text-amber-300">
               {requests.filter((r) => r.status === 'Pending').length}
             </span>
@@ -779,29 +933,29 @@ export default function DispatcherPortalPage() {
 
           <button
             onClick={() => setActiveTab('bills')}
-            className={`px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center space-x-2 whitespace-nowrap ${
+            className={`px-3.5 py-2.5 text-xs font-bold border-b-2 transition flex items-center space-x-2 whitespace-nowrap ${
               activeTab === 'bills'
-                ? 'border-purple-500 text-purple-400 bg-purple-500/10'
+                ? 'border-indigo-500 text-indigo-400 bg-indigo-500/10'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
             <FileText className="w-4 h-4" />
-            <span>4. बिलिंग इनवॉइस (Generated Bills)</span>
-            <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-purple-500/20 text-purple-300">
+            <span>5. बिलिंग इनवॉइस (Bills)</span>
+            <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-indigo-500/20 text-indigo-300">
               {bills.length}
             </span>
           </button>
 
           <button
             onClick={() => setActiveTab('eta')}
-            className={`px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center space-x-2 whitespace-nowrap ${
+            className={`px-3.5 py-2.5 text-xs font-bold border-b-2 transition flex items-center space-x-2 whitespace-nowrap ${
               activeTab === 'eta'
                 ? 'border-blue-500 text-blue-400 bg-blue-500/10'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
             <Ship className="w-4 h-4" />
-            <span>5. कंटेनर ETA (In-Transit)</span>
+            <span>6. कंटेनर ETA (In-Transit)</span>
             <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-blue-500/20 text-blue-300">
               {etaContainers.length}
             </span>
@@ -811,6 +965,77 @@ export default function DispatcherPortalPage() {
 
       {/* Main Container */}
       <main className="max-w-7xl mx-auto px-3 sm:px-6 py-6 space-y-5 flex-1 w-full">
+        {/* KPI Dashboard Quick Metrics Banner (उच्च गुणवत्ता सारांश आँकड़े) */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 shadow-md flex items-center space-x-3">
+            <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-xl">
+              <Layers className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-[10px] text-slate-400 block uppercase font-semibold">Delivered Containers</span>
+              <strong className="text-sm sm:text-base font-mono font-bold text-white">{deliveryContainers.length}</strong>
+            </div>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 shadow-md flex items-center space-x-3">
+            <div className="p-2 bg-cyan-500/10 text-cyan-400 rounded-xl">
+              <Boxes className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-[10px] text-slate-400 block uppercase font-semibold">Total Cargo Items</span>
+              <strong className="text-sm sm:text-base font-mono font-bold text-cyan-300">{deliveryItems.length}</strong>
+            </div>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 shadow-md flex items-center space-x-3">
+            <div className="p-2 bg-purple-500/10 text-purple-400 rounded-xl">
+              <Warehouse className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-[10px] text-slate-400 block uppercase font-semibold">Warehouse Stock</span>
+              <strong className="text-sm sm:text-base font-mono font-bold text-purple-300">
+                {deliveryItems.reduce((sum, r) => sum + (r.warehouseQuantity || 0), 0)} CTN
+              </strong>
+            </div>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 shadow-md flex items-center space-x-3">
+            <div className="p-2 bg-amber-500/10 text-amber-400 rounded-xl">
+              <PackageCheck className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-[10px] text-slate-400 block uppercase font-semibold">Partly Sent (आंशिक)</span>
+              <strong className="text-sm sm:text-base font-mono font-bold text-amber-300">
+                {deliveryItems.filter((r) => r.unloadStatus === 'partly_sent').length}
+              </strong>
+            </div>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 shadow-md flex items-center space-x-3">
+            <div className="p-2 bg-rose-500/10 text-rose-400 rounded-xl">
+              <PackageX className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-[10px] text-slate-400 block uppercase font-semibold">Not In Container</span>
+              <strong className="text-sm sm:text-base font-mono font-bold text-rose-400">
+                {deliveryItems.filter((r) => r.unloadStatus === 'not_in_container').length}
+              </strong>
+            </div>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 shadow-md flex items-center space-x-3">
+            <div className="p-2 bg-blue-500/10 text-blue-400 rounded-xl">
+              <Clock className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-[10px] text-slate-400 block uppercase font-semibold">Pending Requests</span>
+              <strong className="text-sm sm:text-base font-mono font-bold text-blue-300">
+                {requests.filter((r) => r.status === 'Pending').length}
+              </strong>
+            </div>
+          </div>
+        </div>
+
         {/* Search & Actions Bar */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shadow-lg">
           <div className="relative flex-1">
@@ -1308,23 +1533,23 @@ export default function DispatcherPortalPage() {
           </div>
         )}
 
-        {/* SECTION 2: GOODS RECEIVED BY PARTY (माल प्राप्ति स्थिति - FULL / PARTIAL / NOT RECEIVED) */}
-        {activeTab === 'goods_received' && (
+        {/* SECTION 2: CONTAINER UNLOAD VERIFICATION (4 STATUSES: FULLY SENT, PARTLY SENT, NOT IN CONTAINER, STORED IN WAREHOUSE) */}
+        {activeTab === 'unload' && (
           <div className="space-y-4">
-            {/* Container Selector Card for Goods Received */}
+            {/* Container Selector Card */}
             <div className="bg-slate-900 border border-cyan-500/40 rounded-2xl p-4 shadow-xl space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div className="flex items-center space-x-3">
                   <div className="p-2 bg-cyan-500/20 text-cyan-400 rounded-xl">
-                    <CheckCircle2 className="w-5 h-5" />
+                    <Boxes className="w-5 h-5" />
                   </div>
                   <div>
                     <h3 className="text-sm font-bold text-white flex items-center space-x-2">
-                      <span>माल प्राप्ति स्थिति (Goods Received by Party)</span>
+                      <span>कंटेनर अनलोडिंग व माल सत्यापन (Unload & Verify: 4 Statuses)</span>
                       <span className="text-cyan-400 font-bold">*</span>
                     </h3>
                     <p className="text-[11px] text-slate-400">
-                      कंटेनर चुनें और देखें कि पार्टी को माल पूरा मिला या अधूरा (Full, Partial या Not Received)।
+                      कंटेनर खोलने पर माल का भौतिक सत्यापन करें: Fully Sent, Partly Sent (बाकी वेयरहाउस में), Not In Container, या Stored in Warehouse।
                     </p>
                   </div>
                 </div>
@@ -1389,52 +1614,55 @@ export default function DispatcherPortalPage() {
             {!selectedGoodsContainer ? (
               <div className="bg-slate-900/60 border border-dashed border-slate-800 rounded-3xl p-12 text-center space-y-3">
                 <div className="w-16 h-16 mx-auto bg-cyan-500/10 text-cyan-400 rounded-2xl flex items-center justify-center">
-                  <CheckCircle2 className="w-8 h-8" />
+                  <Boxes className="w-8 h-8" />
                 </div>
                 <h3 className="text-base font-bold text-white">
                   कंटेनर नंबर का चयन करें (Please Select a Container)
                 </h3>
                 <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-                  पार्टी द्वारा माल प्राप्ति की स्थिति जांचने या अपडेट करने के लिए कृपया ऊपर दिए गए सर्च बॉक्स से कंटेनर चुनें।
+                  कंटेनर अनलोडिंग और 4-स्टेटस भौतिक सत्यापन (Fully Sent, Partly Sent, Not In Container, Stored in Warehouse) हेतु ऊपर से कंटेनर चुनें।
                 </p>
               </div>
             ) : (
-              /* Items Grid for Goods Received */
+              /* Items Grid for Container Unloading */
               <div className="space-y-4 animate-in fade-in duration-200">
                 {/* Summary Header */}
                 <div className="bg-cyan-950/40 border border-cyan-800/50 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <div className="flex items-center space-x-3">
                     <div className="p-2 bg-cyan-500/20 text-cyan-400 rounded-xl">
-                      <CheckCircle2 className="w-5 h-5" />
+                      <Boxes className="w-5 h-5" />
                     </div>
                     <div>
                       <h3 className="text-sm font-bold text-white flex items-center space-x-2">
-                        <span>कंटेनर माल प्राप्ति स्थिति:</span>
+                        <span>कंटेनर अनलोडिंग सत्यापन:</span>
                         <span className="font-mono text-cyan-400">{selectedGoodsContainer}</span>
                       </h3>
                       <p className="text-xs text-slate-400">
-                        प्रत्येक रसीद के लिए पार्टी द्वारा प्राप्त स्थिति (पूर्ण, आंशिक या अप्राप्त) दर्ज करें।
+                        प्रत्येक रसीद का भौतिक मिलान करें। आंशिक भेजा गया माल शेष वेयरहाउस में दर्ज होगा।
                       </p>
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs">
                     <span className="px-2.5 py-1 bg-cyan-900/60 text-cyan-300 rounded-lg font-mono font-bold">
                       {filteredGoodsItems.length} Receipts
                     </span>
                     <span className="px-2.5 py-1 bg-emerald-950 text-emerald-300 border border-emerald-700 rounded-lg font-mono font-bold">
-                      {filteredGoodsItems.filter((r) => r.goodsReceivedStatus === 'full').length} Full
+                      {filteredGoodsItems.filter((r) => r.unloadStatus === 'fully_sent').length} Fully Sent
                     </span>
                     <span className="px-2.5 py-1 bg-amber-950 text-amber-300 border border-amber-700 rounded-lg font-mono font-bold">
-                      {filteredGoodsItems.filter((r) => r.goodsReceivedStatus === 'partial').length} Partial
+                      {filteredGoodsItems.filter((r) => r.unloadStatus === 'partly_sent').length} Partly Sent
                     </span>
-                    <span className="px-2.5 py-1 bg-red-950 text-red-300 border border-red-700 rounded-lg font-mono font-bold">
-                      {filteredGoodsItems.filter((r) => r.goodsReceivedStatus === 'not_received').length} Not Received
+                    <span className="px-2.5 py-1 bg-rose-950 text-rose-300 border border-rose-700 rounded-lg font-mono font-bold">
+                      {filteredGoodsItems.filter((r) => r.unloadStatus === 'not_in_container').length} Not In Container
+                    </span>
+                    <span className="px-2.5 py-1 bg-purple-950 text-purple-300 border border-purple-700 rounded-lg font-mono font-bold">
+                      {filteredGoodsItems.filter((r) => r.unloadStatus === 'stored_in_warehouse').length} In Warehouse
                     </span>
                   </div>
                 </div>
 
-                {/* Table */}
+                {/* Unload Table */}
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs border-collapse">
@@ -1444,22 +1672,21 @@ export default function DispatcherPortalPage() {
                           <th className="py-3 px-4">Marka</th>
                           <th className="py-3 px-4">Party</th>
                           <th className="py-3 px-4">Commodity</th>
-                          <th className="py-3 px-4 text-center">Total CTN</th>
-                          <th className="py-3 px-4 text-center">Remaining CTN</th>
-                          <th className="py-3 px-4">माल प्राप्ति स्थिति (Received Status)</th>
+                          <th className="py-3 px-4 text-center">अपेक्षित कार्टून</th>
+                          <th className="py-3 px-4">अनलोड व डिस्पैच सत्यापन स्थिति</th>
                           <th className="py-3 px-4 text-right">एक्शन (Action)</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800">
                         {filteredGoodsItems.length === 0 ? (
                           <tr>
-                            <td colSpan={8} className="py-12 text-center text-slate-500">
+                            <td colSpan={7} className="py-12 text-center text-slate-500">
                               इस कंटेनर में कोई रसीद नहीं मिली।
                             </td>
                           </tr>
                         ) : (
                           filteredGoodsItems.map((r) => {
-                            const grStatus = r.goodsReceivedStatus;
+                            const unStatus = r.unloadStatus;
                             return (
                               <tr key={r._id} className="hover:bg-slate-800/40 transition">
                                 <td className="py-3 px-4 font-mono font-bold text-white">
@@ -1484,48 +1711,57 @@ export default function DispatcherPortalPage() {
                                 <td className="py-3 px-4 text-center font-mono font-bold text-slate-300">
                                   {r.totalCartons} CTN
                                 </td>
-                                <td className="py-3 px-4 text-center font-mono font-bold text-purple-300">
-                                  {r.remainingCartons} CTN
-                                </td>
                                 <td className="py-3 px-4">
-                                  {grStatus === 'full' ? (
-                                    <span className="inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-950 text-emerald-300 border border-emerald-700">
+                                  {unStatus === 'fully_sent' ? (
+                                    <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-950 text-emerald-300 border border-emerald-700">
                                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                                      <span>🟢 पूर्ण प्राप्त (Full)</span>
+                                      <span>🟢 Fully Sent (पूर्णतः भेजा गया - {r.totalCartons} CTN)</span>
                                     </span>
-                                  ) : grStatus === 'partial' ? (
-                                    <div className="space-y-0.5">
-                                      <span className="inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-bold rounded-lg bg-amber-950 text-amber-300 border border-amber-700">
+                                  ) : unStatus === 'partly_sent' ? (
+                                    <div className="space-y-1">
+                                      <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 text-xs font-bold rounded-lg bg-amber-950 text-amber-300 border border-amber-700">
                                         <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
-                                        <span>🟡 आंशिक: {r.receivedQuantity} CTN प्राप्त</span>
+                                        <span>🟡 Partly Sent ({r.sentQuantity} CTN भेजा)</span>
                                       </span>
-                                      <span className="block text-[10px] text-slate-400 font-mono">
-                                        शेष: {r.remainingCartons} CTN
+                                      <span className="block text-[11px] text-purple-300 font-mono bg-purple-950/60 border border-purple-800/60 px-2 py-0.5 rounded-md">
+                                        🏢 वेयरहाउस स्टॉक: <strong>{r.warehouseQuantity ?? Math.max(0, r.totalCartons - (r.sentQuantity || 0))} CTN</strong>
                                       </span>
                                     </div>
-                                  ) : grStatus === 'not_received' ? (
-                                    <span className="inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-bold rounded-lg bg-red-950 text-red-300 border border-red-700">
-                                      <span>🔴 प्राप्त नहीं हुआ (Not Received)</span>
+                                  ) : unStatus === 'not_in_container' ? (
+                                    <div className="space-y-0.5">
+                                      <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 text-xs font-bold rounded-lg bg-rose-950 text-rose-300 border border-rose-700 animate-pulse">
+                                        <PackageX className="w-3.5 h-3.5 text-rose-400" />
+                                        <span>🔴 Not In Container (कंटेनर में नहीं मिला)</span>
+                                      </span>
+                                      <span className="block text-[10px] text-rose-400">
+                                        ⚠️ मैनिफ़ेस्ट में था पर अनलोडिंग में भौतिक रूप से नहीं निकला
+                                      </span>
+                                    </div>
+                                  ) : unStatus === 'stored_in_warehouse' ? (
+                                    <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 text-xs font-bold rounded-lg bg-purple-950 text-purple-300 border border-purple-700">
+                                      <Warehouse className="w-3.5 h-3.5 text-purple-400" />
+                                      <span>🏢 Stored in Warehouse ({r.warehouseQuantity || r.totalCartons} CTN वेयरहाउस में जमा)</span>
                                     </span>
                                   ) : (
-                                    <span className="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-800 text-slate-400">
-                                      ⏳ लंबित (Pending)
+                                    <span className="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-800 text-slate-400 inline-flex items-center space-x-1">
+                                      <Clock className="w-3 h-3" />
+                                      <span>⏳ Unverified (सत्यापन लंबित)</span>
                                     </span>
                                   )}
-                                  {r.goodsReceivedRemarks && (
-                                    <span className="block text-[10px] text-slate-400 mt-1 max-w-[160px] truncate" title={r.goodsReceivedRemarks}>
-                                      नोट: {r.goodsReceivedRemarks}
+                                  {r.unloadRemarks && (
+                                    <span className="block text-[10px] text-slate-400 mt-1 max-w-[200px] truncate" title={r.unloadRemarks}>
+                                      रिमार्क्स: {r.unloadRemarks}
                                     </span>
                                   )}
                                 </td>
                                 <td className="py-3 px-4 text-right">
                                   <button
-                                    onClick={() => handleOpenDayEndModal(r)}
-                                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-slate-950 rounded-xl font-bold text-xs shadow-md shadow-cyan-600/30 transition transform hover:scale-105"
-                                    title="पार्टी द्वारा माल प्राप्ति स्थिति दर्ज करें (Full / Partial / Not Received)"
+                                    onClick={() => handleOpenUnloadModal(r)}
+                                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl font-bold text-xs shadow-md shadow-cyan-600/30 transition transform hover:scale-105"
+                                    title="कंटेनर अनलोडिंग सत्यापन दर्ज करें (Fully Sent, Partly Sent, Not In Container, Stored in Warehouse)"
                                   >
-                                    <CheckCircle2 className="w-3.5 h-3.5" />
-                                    <span>✍️ स्थिति दर्ज करें</span>
+                                    <PackageCheck className="w-3.5 h-3.5" />
+                                    <span>सत्यापन दर्ज करें</span>
                                   </button>
                                 </td>
                               </tr>
@@ -1538,6 +1774,153 @@ export default function DispatcherPortalPage() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* SECTION 3: WAREHOUSE STOCK (गोदाम स्टॉक - AVAILABLE TO DISPATCH FROM WAREHOUSE) */}
+        {activeTab === 'warehouse_stock' && (
+          <div className="space-y-4 animate-in fade-in duration-200">
+            {/* Warehouse Stock Header Card */}
+            <div className="bg-purple-950/40 border border-purple-800/60 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xl">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 bg-purple-500/20 text-purple-300 rounded-xl">
+                  <Warehouse className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center space-x-2">
+                    <span>गोदाम स्टॉक (Indian Warehouse Stock - Ready to Dispatch)</span>
+                  </h3>
+                  <p className="text-xs text-slate-300">
+                    कंटेनर अनलोडिंग के दौरान Partly Sent माल का शेष हिस्सा व वेयरहाउस में जमा माल यहाँ दिखेगा।
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2 text-xs">
+                <span className="px-3 py-1.5 bg-purple-900/60 text-purple-200 rounded-xl font-mono font-bold border border-purple-700/60">
+                  {warehouseStockItems.length} Receipts in Stock
+                </span>
+                <span className="px-3 py-1.5 bg-emerald-900/60 text-emerald-200 rounded-xl font-mono font-bold border border-emerald-700/60">
+                  {warehouseStockItems.reduce(
+                    (sum, r) => sum + (r.warehouseQuantity || r.remainingCartons || 0),
+                    0
+                  )}{' '}
+                  CTN Total
+                </span>
+              </div>
+            </div>
+
+            {/* Warehouse Stock Table */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-950/80 text-slate-400 border-b border-slate-800 text-[11px] uppercase tracking-wider font-semibold">
+                      <th className="py-3 px-4">Receipt #</th>
+                      <th className="py-3 px-4">Marka</th>
+                      <th className="py-3 px-4">Container</th>
+                      <th className="py-3 px-4">Party</th>
+                      <th className="py-3 px-4">Commodity</th>
+                      <th className="py-3 px-4 text-center">मूल कुल CTN</th>
+                      <th className="py-3 px-4 text-center bg-purple-950/40 text-purple-300">
+                        गोदाम में उपलब्ध स्टॉक
+                      </th>
+                      <th className="py-3 px-4">अनलोड स्थिति</th>
+                      <th className="py-3 px-4 text-right">एक्शन (Action)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {warehouseStockItems.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="py-12 text-center text-slate-500">
+                          गोदाम में वर्तमान में कोई शेष स्टॉक नहीं है। सभी माल पूर्णतः भेजा जा चुका है।
+                        </td>
+                      </tr>
+                    ) : (
+                      warehouseStockItems.map((r) => {
+                        const availableWhStock = r.warehouseQuantity || r.remainingCartons || 0;
+                        const isHold = r.isHold || r.salesStatus === 'Hold';
+
+                        return (
+                          <tr key={r._id} className="hover:bg-slate-800/40 transition">
+                            <td className="py-3 px-4 font-mono font-bold text-white">
+                              <span className="text-blue-300 font-mono font-bold text-sm">
+                                {r.receipt}
+                              </span>
+                              {r.phone && (
+                                <span className="text-[10px] text-slate-400 block font-mono">
+                                  📞 {r.phone}
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 font-black text-emerald-400 text-sm">
+                              {r.marka}
+                            </td>
+                            <td className="py-3 px-4 font-mono text-slate-300">
+                              {r.container}
+                            </td>
+                            <td className="py-3 px-4 text-slate-200 font-medium">
+                              {r.party}
+                            </td>
+                            <td className="py-3 px-4 text-slate-400">
+                              {r.commodity || '—'}
+                            </td>
+                            <td className="py-3 px-4 text-center font-mono text-slate-400">
+                              {r.totalCartons} CTN
+                            </td>
+                            <td className="py-3 px-4 text-center font-mono font-bold text-purple-300 text-sm bg-purple-950/20">
+                              {availableWhStock} CTN
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-purple-950 text-purple-300 border border-purple-800/60 inline-flex items-center space-x-1">
+                                <Warehouse className="w-3 h-3 text-purple-400" />
+                                <span>
+                                  {r.unloadStatus === 'partly_sent'
+                                    ? `Partly Sent (${r.sentQuantity} भेजा / ${availableWhStock} स्टॉक)`
+                                    : 'Stored in Warehouse'}
+                                </span>
+                              </span>
+                              {r.unloadRemarks && (
+                                <span className="block text-[10px] text-slate-400 mt-0.5 truncate max-w-[160px]" title={r.unloadRemarks}>
+                                  नोट: {r.unloadRemarks}
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              {isHold ? (
+                                <button
+                                  disabled
+                                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-red-950/70 border border-red-800 text-red-400 rounded-xl font-bold text-xs cursor-not-allowed opacity-80"
+                                  title="यह माल होल्ड पर है।"
+                                >
+                                  <Lock className="w-3.5 h-3.5" />
+                                  <span>⛔ होल्ड</span>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() =>
+                                    handleOpenDispatchModal({
+                                      ...r,
+                                      remainingCartons: availableWhStock,
+                                      totalCartons: availableWhStock,
+                                    })
+                                  }
+                                  className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 rounded-xl font-black text-xs shadow-md shadow-emerald-600/30 transition transform hover:scale-105"
+                                  title="गोदाम से गाड़ी लोड करें और बिलर को अनुरोध भेजें"
+                                >
+                                  <Truck className="w-3.5 h-3.5" />
+                                  <span>🚚 बिलिंग अनुरोध भेजें</span>
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         )}
 
@@ -2110,6 +2493,261 @@ export default function DispatcherPortalPage() {
               </button>
               <button
                 onClick={() => setDayEndModalOpen(false)}
+                className="px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold text-xs border border-slate-700 transition"
+              >
+                रद्द करें (Cancel)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CONTAINER UNLOAD VERIFICATION MODAL (4 STATUSES) */}
+      {unloadModalOpen && unloadReceipt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-xl overflow-hidden shadow-2xl space-y-4 p-6 animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <Boxes className="w-6 h-6 text-emerald-400" />
+                <div>
+                  <h3 className="text-base font-bold text-white">
+                    कंटेनर अनलोडिंग एवं भौतिक सत्यापन (Unload Verification)
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    कंटेनर खोलने पर माल की वास्तविक प्राप्ति स्थिति दर्ज करें
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setUnloadModalOpen(false)}
+                className="p-1 rounded-full text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Receipt Summary Card */}
+            <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <span className="text-slate-500">Receipt No:</span>{' '}
+                <strong className="text-blue-300 font-mono">{unloadReceipt.receipt}</strong>
+              </div>
+              <div>
+                <span className="text-slate-500">Marka:</span>{' '}
+                <strong className="text-emerald-400">{unloadReceipt.marka}</strong>
+              </div>
+              <div>
+                <span className="text-slate-500">Party:</span>{' '}
+                <strong className="text-slate-200">{unloadReceipt.party}</strong>
+              </div>
+              <div>
+                <span className="text-slate-500">Container:</span>{' '}
+                <strong className="text-cyan-300 font-mono">{unloadReceipt.container}</strong>
+              </div>
+              <div>
+                <span className="text-slate-500">Manifest Total:</span>{' '}
+                <strong className="text-purple-300 font-mono">{unloadReceipt.totalCartons} CTN</strong>
+              </div>
+              <div>
+                <span className="text-slate-500">Commodity:</span>{' '}
+                <strong className="text-slate-300">{unloadReceipt.commodity || '—'}</strong>
+              </div>
+            </div>
+
+            {/* Selection: 4 Statuses */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
+                वास्तविक स्थिति चुनें (Select Real Physical Status):
+              </label>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {/* 1. Fully Sent */}
+                <label
+                  onClick={() => setUnloadStatusChoice('fully_sent')}
+                  className={`flex items-start space-x-3 p-3 rounded-2xl border cursor-pointer transition ${
+                    unloadStatusChoice === 'fully_sent'
+                      ? 'bg-emerald-950/60 border-emerald-500 text-white shadow-md shadow-emerald-950/50'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800/60'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="unloadStatusChoice"
+                    checked={unloadStatusChoice === 'fully_sent'}
+                    onChange={() => setUnloadStatusChoice('fully_sent')}
+                    className="mt-1 text-emerald-500 focus:ring-0"
+                  />
+                  <div>
+                    <span className="text-xs font-bold block text-emerald-300 flex items-center space-x-1">
+                      <PackageCheck className="w-3.5 h-3.5" />
+                      <span>🟢 Fully Sent (पूर्णतः भेजा)</span>
+                    </span>
+                    <span className="text-[11px] text-slate-400 block mt-0.5">
+                      सभी {unloadReceipt.totalCartons} कार्टून सीधे पार्टी को रवाना
+                    </span>
+                  </div>
+                </label>
+
+                {/* 2. Partly Sent */}
+                <label
+                  onClick={() => setUnloadStatusChoice('partly_sent')}
+                  className={`flex items-start space-x-3 p-3 rounded-2xl border cursor-pointer transition ${
+                    unloadStatusChoice === 'partly_sent'
+                      ? 'bg-amber-950/60 border-amber-500 text-white shadow-md shadow-amber-950/50'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800/60'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="unloadStatusChoice"
+                    checked={unloadStatusChoice === 'partly_sent'}
+                    onChange={() => setUnloadStatusChoice('partly_sent')}
+                    className="mt-1 text-amber-500 focus:ring-0"
+                  />
+                  <div>
+                    <span className="text-xs font-bold block text-amber-300 flex items-center space-x-1">
+                      <Truck className="w-3.5 h-3.5" />
+                      <span>🟡 Partly Sent (आंशिक भेजा)</span>
+                    </span>
+                    <span className="text-[11px] text-slate-400 block mt-0.5">
+                      कुछ कार्टून पार्टी को, बाकी गोदाम स्टॉक में
+                    </span>
+                  </div>
+                </label>
+
+                {/* 3. Not In Container */}
+                <label
+                  onClick={() => setUnloadStatusChoice('not_in_container')}
+                  className={`flex items-start space-x-3 p-3 rounded-2xl border cursor-pointer transition ${
+                    unloadStatusChoice === 'not_in_container'
+                      ? 'bg-red-950/60 border-red-500 text-white shadow-md shadow-red-950/50'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800/60'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="unloadStatusChoice"
+                    checked={unloadStatusChoice === 'not_in_container'}
+                    onChange={() => setUnloadStatusChoice('not_in_container')}
+                    className="mt-1 text-red-500 focus:ring-0"
+                  />
+                  <div>
+                    <span className="text-xs font-bold block text-red-300 flex items-center space-x-1">
+                      <PackageX className="w-3.5 h-3.5" />
+                      <span>🔴 Not In Container</span>
+                    </span>
+                    <span className="text-[11px] text-slate-400 block mt-0.5">
+                      कंटेनर में माल नहीं मिला (शॉर्टेज / Missing)
+                    </span>
+                  </div>
+                </label>
+
+                {/* 4. Stored in Warehouse */}
+                <label
+                  onClick={() => setUnloadStatusChoice('stored_in_warehouse')}
+                  className={`flex items-start space-x-3 p-3 rounded-2xl border cursor-pointer transition ${
+                    unloadStatusChoice === 'stored_in_warehouse'
+                      ? 'bg-purple-950/60 border-purple-500 text-white shadow-md shadow-purple-950/50'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800/60'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="unloadStatusChoice"
+                    checked={unloadStatusChoice === 'stored_in_warehouse'}
+                    onChange={() => setUnloadStatusChoice('stored_in_warehouse')}
+                    className="mt-1 text-purple-500 focus:ring-0"
+                  />
+                  <div>
+                    <span className="text-xs font-bold block text-purple-300 flex items-center space-x-1">
+                      <Warehouse className="w-3.5 h-3.5" />
+                      <span>🏢 Stored in Warehouse</span>
+                    </span>
+                    <span className="text-[11px] text-slate-400 block mt-0.5">
+                      पूरा माल भारतीय गोदाम स्टॉक में जमा
+                    </span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* If Partly Sent: Quantity Sent Input + Live Preview */}
+            {unloadStatusChoice === 'partly_sent' && (
+              <div className="p-3.5 bg-amber-950/25 border border-amber-500/50 rounded-2xl space-y-2.5 animate-in fade-in duration-150">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-amber-300 uppercase tracking-wider">
+                    पार्टी को भेजे गए कार्टून दर्ज करें (Sent Quantity):
+                  </label>
+                  <span className="text-[11px] font-mono font-semibold text-slate-400">
+                    Max: {unloadReceipt.totalCartons} CTN
+                  </span>
+                </div>
+                <input
+                  type="number"
+                  value={unloadSentQuantity}
+                  onChange={(e) => setUnloadSentQuantity(e.target.value ? Number(e.target.value) : '')}
+                  placeholder={`1 से ${unloadReceipt.totalCartons} के बीच कार्टून दर्ज करें`}
+                  min={1}
+                  max={unloadReceipt.totalCartons}
+                  className="w-full bg-slate-950 border border-amber-500/60 rounded-xl px-3.5 py-2.5 text-base font-mono font-bold text-amber-300 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                />
+                {Number(unloadSentQuantity) > 0 && (
+                  <div className="grid grid-cols-2 gap-2 text-xs font-mono bg-slate-950/80 p-2.5 rounded-xl border border-slate-800">
+                    <div className="text-amber-400">
+                      🚚 पार्टी को रवाना: <strong>{unloadSentQuantity} CTN</strong>
+                    </div>
+                    <div className="text-purple-400 text-right">
+                      🏢 गोदाम स्टॉक में जमा:{' '}
+                      <strong className="text-emerald-400">
+                        {Math.max(0, unloadReceipt.totalCartons - Number(unloadSentQuantity))} CTN
+                      </strong>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Shortage Warning if Not In Container */}
+            {unloadStatusChoice === 'not_in_container' && (
+              <div className="p-3 bg-red-950/30 border border-red-500/40 rounded-2xl flex items-start space-x-2 text-xs text-red-300">
+                <ShieldAlert className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
+                <span>
+                  सावधानी: यह रसीद &quot;Not In Container (Shortage)&quot; चिह्नित होगी और एडमिन/चाइना वेयरहाउस को सूचित किया जाएगा कि यह माल कंटेनर में नहीं मिला।
+                </span>
+              </div>
+            )}
+
+            {/* Remarks */}
+            <div className="space-y-1">
+              <label className="text-[11px] text-slate-400">रिमार्क्स (Optional Remarks / Notes):</label>
+              <textarea
+                value={unloadRemarks}
+                onChange={(e) => setUnloadRemarks(e.target.value)}
+                placeholder="e.g. 5 कार्टून डैमेज थे, बाकी माल सही सलामत गोदाम में रखा गया..."
+                rows={2}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            {unloadSuccessMsg && (
+              <div className="p-3 bg-emerald-950/60 border border-emerald-500 rounded-xl text-emerald-300 text-xs font-bold animate-in fade-in">
+                {unloadSuccessMsg}
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex items-center space-x-2.5 pt-2">
+              <button
+                onClick={handleSubmitUnloadStatus}
+                disabled={unloadSubmitting}
+                className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 text-slate-950 rounded-xl font-black text-xs shadow-lg shadow-emerald-600/30 transition flex items-center justify-center space-x-2"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>{unloadSubmitting ? 'सहेज रहे हैं...' : 'स्थिति सहेजें (Save Unload Status)'}</span>
+              </button>
+              <button
+                onClick={() => setUnloadModalOpen(false)}
                 className="px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold text-xs border border-slate-700 transition"
               >
                 रद्द करें (Cancel)

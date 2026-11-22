@@ -96,6 +96,12 @@ export interface IShipment extends Document {
   goodsReceivedRemarks?: string;// Remarks on delivery/receipt
   goodsReceivedAt?: Date;       // Timestamp when goods receipt was marked
   goodsReceivedBy?: string;     // Dispatcher username who marked goods receipt
+  unloadStatus?: 'fully_sent' | 'partly_sent' | 'not_in_container' | 'stored_in_warehouse';
+  sentQuantity?: number;
+  warehouseQuantity?: number;
+  unloadRemarks?: string;
+  unloadedAt?: Date;
+  unloadedBy?: string;
   salesDiscrepancy?: {          // "Data Entry Wrong" discrepancy flagged by Sales Head/Person
     hasDiscrepancy: boolean;
     actualCbm?: string | number;
@@ -209,6 +215,17 @@ const ShipmentSchema = new Schema<IShipment>({
   holdUpdatedAt: { type: Date, default: null },
   holdUpdatedBy: { type: String, default: '', trim: true },
   salesDiscrepancy: { type: Schema.Types.Mixed, default: null },
+  unloadStatus: {
+    type: String,
+    enum: ['fully_sent', 'partly_sent', 'not_in_container', 'stored_in_warehouse'],
+    default: undefined,
+    index: true,
+  },
+  sentQuantity: { type: Number, default: 0 },
+  warehouseQuantity: { type: Number, default: 0 },
+  unloadRemarks: { type: String, default: '', trim: true },
+  unloadedAt: { type: Date, default: null },
+  unloadedBy: { type: String, default: '', trim: true },
   lastApiSync: { type: Date, default: null },
   etaUpdatedAt: { type: Date, default: null },
   apiCalled: { type: Boolean, default: false, index: true },
