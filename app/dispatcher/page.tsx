@@ -26,6 +26,8 @@ import {
   Zap,
   ShieldCheck,
   Trash2,
+  Lock,
+  AlertTriangle,
 } from 'lucide-react';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
 import { generateBillPDF } from '@/lib/billPdf';
@@ -75,6 +77,13 @@ interface DeliveryReceipt {
   weight?: string;
   volume?: string;
   salesStatus: 'Normal' | 'Available to Deliver' | 'Hold';
+  holdReason?: string;
+  isHold?: boolean;
+  goodsReceivedStatus?: 'full' | 'partial' | 'not_received';
+  receivedQuantity?: number;
+  goodsReceivedRemarks?: string;
+  goodsReceivedAt?: string;
+  goodsReceivedBy?: string;
   isDelivered: boolean;
   phone?: string;
 }
@@ -126,10 +135,13 @@ interface DispatchRequestItem {
 
 export default function DispatcherPortalPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'delivery' | 'eta' | 'bills' | 'requests'>('delivery');
+  const [activeTab, setActiveTab] = useState<'delivery' | 'goods_received' | 'requests' | 'bills' | 'eta'>('delivery');
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [containerSearchInput, setContainerSearchInput] = useState('');
+  const [goodsContainerSearchInput, setGoodsContainerSearchInput] = useState('');
+  const [selectedGoodsContainer, setSelectedGoodsContainer] = useState('');
 
   // SECTION 1: ETA Containers
   const [etaContainers, setEtaContainers] = useState<ContainerETA[]>([]);
@@ -419,7 +431,7 @@ export default function DispatcherPortalPage() {
       if (c && c !== 'Unassigned') {
         const existing = map.get(c) || { container: c, count: 0, availableCount: 0 };
         existing.count += 1;
-        if (item.salesStatus === 'Available to Deliver') {
+        if (item.salesStatus === 'Available to Deliver' && !item.isHold) {
           existing.availableCount += 1;
         }
         map.set(c, existing);
@@ -427,6 +439,19 @@ export default function DispatcherPortalPage() {
     });
     return Array.from(map.values()).sort((a, b) => a.container.localeCompare(b.container));
   }, [deliveryItems]);
+
+  // Matching containers filtered by search input (Clean Search without cluttered buttons)
+  const matchingDeliveryContainers = useMemo(() => {
+    if (!containerSearchInput.trim()) return deliveryContainers;
+    const q = containerSearchInput.toLowerCase().trim();
+    return deliveryContainers.filter((c) => c.container.toLowerCase().includes(q));
+  }, [deliveryContainers, containerSearchInput]);
+
+  const matchingGoodsContainers = useMemo(() => {
+    if (!goodsContainerSearchInput.trim()) return deliveryContainers;
+    const q = goodsContainerSearchInput.toLowerCase().trim();
+    return deliveryContainers.filter((c) => c.container.toLowerCase().includes(q));
+  }, [deliveryContainers, goodsContainerSearchInput]);
 
   // Delivery Items filtered strictly by Selected Container (Receipts do NOT auto-populate)
   const filteredDeliveryItems = useMemo(() => {
@@ -448,6 +473,23 @@ export default function DispatcherPortalPage() {
         r.salesStatus.toLowerCase().includes(q)
     );
   }, [deliveryItems, selectedDeliveryContainer, searchQuery]);
+
+  // Goods Received Items filtered by selected goods container
+  const filteredGoodsItems = useMemo(() => {
+    const target = selectedGoodsContainer || selectedDeliveryContainer;
+    if (!target) return [];
+
+    const containerItems = deliveryItems.filter((r) => r.container === target);
+    if (!searchQuery.trim()) return containerItems;
+    const q = searchQuery.toLowerCase();
+    return containerItems.filter(
+      (r) =>
+        r.receipt.toLowerCase().includes(q) ||
+        r.marka.toLowerCase().includes(q) ||
+        r.party.toLowerCase().includes(q) ||
+        (r.commodity && r.commodity.toLowerCase().includes(q))
+    );
+  }, [deliveryItems, selectedGoodsContainer, selectedDeliveryContainer, searchQuery]);
 
   // Day-End Status Handlers
   const handleOpenDayEndModal = (receipt: DeliveryReceipt) => {
@@ -566,6 +608,14 @@ export default function DispatcherPortalPage() {
               ...item,
               remainingCartons: data.remainingQuantity ?? item.remainingCartons,
               isDelivered: data.isDelivered ?? item.isDelivered,
+              goodsReceivedStatus: receivedType,
+              receivedQuantity:
+                receivedType === 'partial'
+                  ? Number(receivedQuantity)
+                  : receivedType === 'full'
+                  ? item.totalCartons
+                  : 0,
+              goodsReceivedRemarks: dayEndRemarks.trim(),
             };
           }
           return item;
@@ -662,6 +712,14 @@ export default function DispatcherPortalPage() {
               <span className="hidden sm:inline">Biller</span>
             </Link>
 
+            <Link
+              href="/admin"
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition border border-slate-700"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
+              <span className="hidden sm:inline">Admin</span>
+            </Link>
+
             <button
               onClick={handleLogout}
               className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-red-950/40 hover:bg-red-900/50 border border-red-800/40 text-red-300 text-xs font-semibold transition"
@@ -683,39 +741,24 @@ export default function DispatcherPortalPage() {
             }`}
           >
             <Truck className="w-4 h-4" />
-            <span>2. Delivery Section (Available to Deliver)</span>
+            <span>1. डिस्पैच एवं बिलिंग (Dispatch to Biller)</span>
             <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-emerald-500/20 text-emerald-300">
-              {deliveryItems.filter((d) => d.salesStatus === 'Available to Deliver').length}
+              {deliveryItems.filter((d) => d.salesStatus === 'Available to Deliver' && !d.isHold).length}
             </span>
           </button>
 
           <button
-            onClick={() => setActiveTab('eta')}
+            onClick={() => setActiveTab('goods_received')}
             className={`px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center space-x-2 whitespace-nowrap ${
-              activeTab === 'eta'
-                ? 'border-blue-500 text-blue-400 bg-blue-500/10'
+              activeTab === 'goods_received'
+                ? 'border-cyan-500 text-cyan-400 bg-cyan-500/10'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            <Ship className="w-4 h-4" />
-            <span>1. ETA (Container List)</span>
-            <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-blue-500/20 text-blue-300">
-              {etaContainers.length}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('bills')}
-            className={`px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center space-x-2 whitespace-nowrap ${
-              activeTab === 'bills'
-                ? 'border-purple-500 text-purple-400 bg-purple-500/10'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <FileText className="w-4 h-4" />
-            <span>3. Billing Section (Generated Bills)</span>
-            <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-purple-500/20 text-purple-300">
-              {bills.length}
+            <CheckCircle2 className="w-4 h-4 text-cyan-400" />
+            <span>2. माल प्राप्ति स्थिति (Goods Received by Party)</span>
+            <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-cyan-500/20 text-cyan-300">
+              {deliveryItems.filter((d) => d.goodsReceivedStatus === 'full').length} Full
             </span>
           </button>
 
@@ -728,9 +771,39 @@ export default function DispatcherPortalPage() {
             }`}
           >
             <Clock className="w-4 h-4" />
-            <span>Pending Dispatch Requests</span>
+            <span>3. पेंडिंग अनुरोध (Pending Requests)</span>
             <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-amber-500/20 text-amber-300">
               {requests.filter((r) => r.status === 'Pending').length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('bills')}
+            className={`px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center space-x-2 whitespace-nowrap ${
+              activeTab === 'bills'
+                ? 'border-purple-500 text-purple-400 bg-purple-500/10'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <FileText className="w-4 h-4" />
+            <span>4. बिलिंग इनवॉइस (Generated Bills)</span>
+            <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-purple-500/20 text-purple-300">
+              {bills.length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('eta')}
+            className={`px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center space-x-2 whitespace-nowrap ${
+              activeTab === 'eta'
+                ? 'border-blue-500 text-blue-400 bg-blue-500/10'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Ship className="w-4 h-4" />
+            <span>5. कंटेनर ETA (In-Transit)</span>
+            <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-blue-500/20 text-blue-300">
+              {etaContainers.length}
             </span>
           </button>
         </div>
@@ -946,10 +1019,10 @@ export default function DispatcherPortalPage() {
           </div>
         )}
 
-        {/* SECTION 2: DELIVERY (DELIVERED CONTAINERS & AVAILABLE TO DELIVER) */}
+        {/* SECTION 1: DELIVERY & DISPATCH TO BILLER (DELIVERED CONTAINERS & AVAILABLE TO DELIVER) */}
         {activeTab === 'delivery' && (
           <div className="space-y-4">
-            {/* 1. CONTAINER SELECTOR CARD (Receipts do NOT auto-populate; user must select a container first) */}
+            {/* 1. CLEAN CONTAINER SEARCH & SELECTOR (No cluttered button wall) */}
             <div className="bg-slate-900 border border-emerald-500/40 rounded-2xl p-4 shadow-xl space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div className="flex items-center space-x-3">
@@ -958,64 +1031,80 @@ export default function DispatcherPortalPage() {
                   </div>
                   <div>
                     <h3 className="text-sm font-bold text-white flex items-center space-x-2">
-                      <span>कंटेनर नंबर चुनें (Select Container Number)</span>
+                      <span>कंटेनर नंबर खोजें व चुनें (Search & Select Container)</span>
                       <span className="text-red-400 font-bold">*</span>
                     </h3>
                     <p className="text-[11px] text-slate-400">
-                      डिलीवरी रसीदें देखने के लिए पहले कंटेनर चुनें। रसीदें स्वतः पॉपुलेट नहीं होंगी।
+                      एडमिन द्वारा डिलीवर मार्क किए गए कंटेनर यहाँ दिखते हैं। कंटेनर टाइप करके या ड्रॉपडाउन से चुनें।
                     </p>
                   </div>
                 </div>
 
                 {selectedDeliveryContainer && (
                   <button
-                    onClick={() => setSelectedDeliveryContainer('')}
-                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium border border-slate-700 transition"
+                    onClick={() => {
+                      setSelectedDeliveryContainer('');
+                      setContainerSearchInput('');
+                    }}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium border border-slate-700 transition flex items-center space-x-1"
                   >
-                    कंटेनर बदलें (Change Container)
+                    <X className="w-3.5 h-3.5" />
+                    <span>कंटेनर बदलें (Change Container)</span>
                   </button>
                 )}
               </div>
 
-              {/* Container Dropdown */}
-              <select
-                value={selectedDeliveryContainer}
-                onChange={(e) => setSelectedDeliveryContainer(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm font-mono font-bold text-emerald-300 focus:outline-none focus:border-emerald-500"
-              >
-                <option value="">-- कृपया कंटेनर नंबर चुनें (Select Container Number) --</option>
-                {deliveryContainers.map((c) => (
-                  <option key={c.container} value={c.container}>
-                    📦 {c.container} — ({c.availableCount} Available to Deliver / {c.count} Total Receipts)
-                  </option>
-                ))}
-              </select>
-
-              {/* Fast-Pick Pills for Quick One-Click Selection */}
-              {deliveryContainers.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <span className="text-[10px] text-slate-400 font-semibold uppercase">
-                    क्विक पिक (Quick Select):
-                  </span>
-                  {deliveryContainers.map((c) => (
+              {/* Clean Container Search Input & Dropdown in Responsive Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                {/* Search Input Filter */}
+                <div className="relative">
+                  <Search className="w-4 h-4 text-emerald-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={containerSearchInput}
+                    onChange={(e) => setContainerSearchInput(e.target.value)}
+                    placeholder="🔍 कंटेनर नंबर टाइप करें (Type container #, e.g. USSI-271)..."
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  />
+                  {containerSearchInput && (
                     <button
-                      key={c.container}
                       type="button"
-                      onClick={() => setSelectedDeliveryContainer(c.container)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold border transition ${
-                        selectedDeliveryContainer === c.container
-                          ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-md'
-                          : 'bg-slate-800/80 text-emerald-400 border-slate-700 hover:bg-slate-800'
-                      }`}
+                      onClick={() => setContainerSearchInput('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs"
                     >
-                      {c.container} ({c.availableCount})
+                      ✕
                     </button>
-                  ))}
+                  )}
                 </div>
+
+                {/* Dropdown populated by search */}
+                <select
+                  value={selectedDeliveryContainer}
+                  onChange={(e) => {
+                    setSelectedDeliveryContainer(e.target.value);
+                    if (e.target.value) setContainerSearchInput(e.target.value);
+                  }}
+                  className="w-full bg-slate-950 border border-emerald-500/50 rounded-xl px-4 py-2.5 text-xs font-mono font-bold text-emerald-300 focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="">
+                    -- कृपया कंटेनर नंबर चुनें ({matchingDeliveryContainers.length} कंटेनर उपलब्ध) --
+                  </option>
+                  {matchingDeliveryContainers.map((c) => (
+                    <option key={c.container} value={c.container}>
+                      📦 {c.container} — ({c.availableCount} Available to Deliver / {c.count} Total Receipts)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {containerSearchInput && matchingDeliveryContainers.length === 0 && (
+                <p className="text-xs text-amber-400 pt-1">
+                  ⚠️ "{containerSearchInput}" नाम से कोई डिलीवर कंटेनर नहीं मिला।
+                </p>
               )}
             </div>
 
-            {/* 2. STATE A: NO CONTAINER SELECTED -> SHOW PROMPT (DO NOT AUTO-POPULATE) */}
+            {/* 2. STATE A: NO CONTAINER SELECTED -> SHOW PROMPT */}
             {!selectedDeliveryContainer ? (
               <div className="bg-slate-900/60 border border-dashed border-slate-800 rounded-3xl p-12 text-center space-y-3">
                 <div className="w-16 h-16 mx-auto bg-emerald-500/10 text-emerald-400 rounded-2xl flex items-center justify-center">
@@ -1025,14 +1114,14 @@ export default function DispatcherPortalPage() {
                   कंटेनर नंबर का चयन करें (Please Select a Container)
                 </h3>
                 <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-                  Delivery सेक्शन (Available to Deliver) में रसीदें और माल देखने के लिए कृपया पहले ऊपर दिए गए मेनू से कंटेनर नंबर चुनें।
+                  डिलीवरी और बिलिंग हेतु रसीदें देखने के लिए ऊपर दिए गए सर्च बॉक्स या मेनू से कंटेनर नंबर चुनें।
                 </p>
                 <div className="pt-2 text-[11px] text-slate-500 italic">
-                  (Receipt details will appear immediately upon selecting a container)
+                  (Type container number in the box above to filter and select)
                 </div>
               </div>
             ) : (
-              /* 3. STATE B: CONTAINER SELECTED -> SHOW CONTAINER RECEIPTS (NOT TO REQUEST BILL) */
+              /* 3. STATE B: CONTAINER SELECTED -> SHOW RECEIPTS WITH STRICT HOLD CHECK & SEND TO BILLER */
               <div className="space-y-4 animate-in fade-in duration-200">
                 {/* Selected Container Summary Header */}
                 <div className="bg-emerald-950/40 border border-emerald-800/50 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
@@ -1046,12 +1135,12 @@ export default function DispatcherPortalPage() {
                         <span className="font-mono text-emerald-400">{selectedDeliveryContainer}</span>
                       </h3>
                       <p className="text-xs text-slate-400">
-                        दिन के अंत में माल प्राप्ति (Full या Not Full) स्थिति यहाँ से मार्क करें।
+                        गाड़ी लोड करें और बिलिंग हेतु बिलर को अनुरोध भेजें। होल्ड माल का डिस्पैच स्वतः लॉक रहेगा।
                       </p>
                     </div>
                   </div>
 
-                  <div className="flex items-center space-x-2 text-xs">
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
                     <span className="px-2.5 py-1 bg-emerald-900/60 text-emerald-300 rounded-lg font-mono font-bold">
                       {filteredDeliveryItems.length} Receipts
                     </span>
@@ -1062,6 +1151,14 @@ export default function DispatcherPortalPage() {
                       )}{' '}
                       CTN Available
                     </span>
+                    {filteredDeliveryItems.filter((r) => r.isHold || r.salesStatus === 'Hold').length > 0 && (
+                      <span className="px-2.5 py-1 bg-red-950 text-red-300 border border-red-700 rounded-lg font-mono font-bold flex items-center space-x-1">
+                        <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+                        <span>
+                          {filteredDeliveryItems.filter((r) => r.isHold || r.salesStatus === 'Hold').length} HOLD
+                        </span>
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -1077,8 +1174,8 @@ export default function DispatcherPortalPage() {
                           <th className="py-3 px-4">Party</th>
                           <th className="py-3 px-4">Commodity</th>
                           <th className="py-3 px-4 text-center">Remaining CTN</th>
-                          <th className="py-3 px-4">Sales Status</th>
-                          <th className="py-3 px-4 text-right">दिन का अंत स्थिति (Goods Received)</th>
+                          <th className="py-3 px-4">Sales / Hold Status</th>
+                          <th className="py-3 px-4 text-right">एक्शन (Action)</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800">
@@ -1091,14 +1188,16 @@ export default function DispatcherPortalPage() {
                         ) : (
                           filteredDeliveryItems.map((r) => {
                             const isAvailable = r.salesStatus === 'Available to Deliver';
-                            const isHold = r.salesStatus === 'Hold';
+                            const isHold = r.isHold || r.salesStatus === 'Hold';
                             const isFullyDelivered = r.isDelivered || r.remainingCartons === 0;
 
                             return (
                               <tr
                                 key={r._id}
                                 className={`transition ${
-                                  isFullyDelivered
+                                  isHold
+                                    ? 'bg-red-950/20 hover:bg-red-950/30'
+                                    : isFullyDelivered
                                     ? 'bg-slate-950/40 opacity-60'
                                     : isAvailable
                                     ? 'hover:bg-emerald-950/20 bg-slate-900/90'
@@ -1133,36 +1232,301 @@ export default function DispatcherPortalPage() {
                                   {r.remainingCartons} / {r.totalCartons} CTN
                                 </td>
                                 <td className="py-3 px-4">
-                                  <span
-                                    className={`px-2.5 py-1 text-[10px] font-bold rounded-full ${
-                                      isFullyDelivered
-                                        ? 'bg-slate-800 text-slate-400 border border-slate-700'
-                                        : isAvailable
-                                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse'
-                                        : isHold
-                                        ? 'bg-red-500/20 text-red-300 border border-red-500/40'
-                                        : 'bg-slate-800 text-slate-400'
-                                    }`}
-                                  >
-                                    {isFullyDelivered ? 'Delivered' : r.salesStatus}
-                                  </span>
-                                </td>
-                                <td className="py-3 px-4 text-right">
-                                  {isFullyDelivered ? (
-                                    <span className="inline-flex items-center space-x-1 text-emerald-400 text-xs font-bold bg-emerald-950/60 border border-emerald-800/60 px-2.5 py-1 rounded-lg">
-                                      <CheckCircle2 className="w-3.5 h-3.5" />
-                                      <span>पूरा प्राप्त (Full)</span>
+                                  {isHold ? (
+                                    <div className="space-y-1">
+                                      <span className="inline-flex items-center space-x-1 px-2.5 py-1 text-[11px] font-black rounded-lg bg-red-950 text-red-300 border border-red-700 shadow-sm">
+                                        <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+                                        <span>⛔ HOLD (होल्ड पर है)</span>
+                                      </span>
+                                      {r.holdReason && (
+                                        <span className="block text-[10px] text-red-400 font-medium max-w-[150px] truncate" title={r.holdReason}>
+                                          कारण: {r.holdReason}
+                                        </span>
+                                      )}
+                                    </div>
+                                  ) : isFullyDelivered ? (
+                                    <span className="px-2.5 py-1 text-[10px] font-bold rounded-full bg-slate-800 text-slate-400 border border-slate-700">
+                                      ✓ Delivered
+                                    </span>
+                                  ) : isAvailable ? (
+                                    <span className="px-2.5 py-1 text-[10px] font-bold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse">
+                                      🟢 Available to Deliver
                                     </span>
                                   ) : (
-                                    <button
-                                      onClick={() => handleOpenDayEndModal(r)}
-                                      className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold text-xs shadow-md shadow-blue-600/30 transition transform hover:scale-105"
-                                      title="दिन के अंत में माल प्राप्ति स्थिति दर्ज करें (Full / Partial)"
-                                    >
-                                      <CheckCircle2 className="w-3.5 h-3.5" />
-                                      <span>माल प्राप्ति पुष्टि</span>
-                                    </button>
+                                    <span className="px-2.5 py-1 text-[10px] font-bold rounded-full bg-slate-800 text-slate-400">
+                                      {r.salesStatus}
+                                    </span>
                                   )}
+                                </td>
+                                <td className="py-3 px-4 text-right">
+                                  {isHold ? (
+                                    <button
+                                      disabled
+                                      className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-red-950/70 border border-red-800 text-red-400 rounded-xl font-bold text-xs cursor-not-allowed opacity-80"
+                                      title={r.holdReason ? `होल्ड कारण: ${r.holdReason}` : 'यह माल होल्ड पर है। डिस्पैच नहीं हो सकता।'}
+                                    >
+                                      <Lock className="w-3.5 h-3.5 text-red-400" />
+                                      <span>⛔ होल्ड (Locked)</span>
+                                    </button>
+                                  ) : isFullyDelivered ? (
+                                    <span className="inline-flex items-center space-x-1 text-slate-400 text-xs font-semibold px-2.5 py-1">
+                                      <span>✓ डिस्पैच पूर्ण</span>
+                                    </span>
+                                  ) : (
+                                    <div className="flex items-center justify-end space-x-2">
+                                      <button
+                                        onClick={() => handleOpenDispatchModal(r)}
+                                        className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 rounded-xl font-black text-xs shadow-md shadow-emerald-600/30 transition transform hover:scale-105"
+                                        title="गाड़ी नंबर व पता डालकर बिलर को रिक्वेस्ट भेजें"
+                                      >
+                                        <Truck className="w-3.5 h-3.5" />
+                                        <span>🚚 बिलिंग अनुरोध भेजें</span>
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          setSelectedReceipt(r);
+                                          setSelfBillModalOpen(true);
+                                        }}
+                                        className="px-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-medium text-xs border border-slate-700 transition"
+                                        title="सीधे बिलिंग तैयार करें"
+                                      >
+                                        स्वयं बिल
+                                      </button>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* SECTION 2: GOODS RECEIVED BY PARTY (माल प्राप्ति स्थिति - FULL / PARTIAL / NOT RECEIVED) */}
+        {activeTab === 'goods_received' && (
+          <div className="space-y-4">
+            {/* Container Selector Card for Goods Received */}
+            <div className="bg-slate-900 border border-cyan-500/40 rounded-2xl p-4 shadow-xl space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center space-x-3">
+                  <div className="p-2 bg-cyan-500/20 text-cyan-400 rounded-xl">
+                    <CheckCircle2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+                      <span>माल प्राप्ति स्थिति (Goods Received by Party)</span>
+                      <span className="text-cyan-400 font-bold">*</span>
+                    </h3>
+                    <p className="text-[11px] text-slate-400">
+                      कंटेनर चुनें और देखें कि पार्टी को माल पूरा मिला या अधूरा (Full, Partial या Not Received)।
+                    </p>
+                  </div>
+                </div>
+
+                {selectedGoodsContainer && (
+                  <button
+                    onClick={() => {
+                      setSelectedGoodsContainer('');
+                      setGoodsContainerSearchInput('');
+                    }}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium border border-slate-700 transition flex items-center space-x-1"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>कंटेनर बदलें (Change Container)</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Clean Search Input & Dropdown */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                <div className="relative">
+                  <Search className="w-4 h-4 text-cyan-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={goodsContainerSearchInput}
+                    onChange={(e) => setGoodsContainerSearchInput(e.target.value)}
+                    placeholder="🔍 कंटेनर नंबर टाइप करें (Type container #, e.g. USSI-271)..."
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                  />
+                  {goodsContainerSearchInput && (
+                    <button
+                      type="button"
+                      onClick={() => setGoodsContainerSearchInput('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                <select
+                  value={selectedGoodsContainer}
+                  onChange={(e) => {
+                    setSelectedGoodsContainer(e.target.value);
+                    if (e.target.value) setGoodsContainerSearchInput(e.target.value);
+                  }}
+                  className="w-full bg-slate-950 border border-cyan-500/50 rounded-xl px-4 py-2.5 text-xs font-mono font-bold text-cyan-300 focus:outline-none focus:border-cyan-500"
+                >
+                  <option value="">
+                    -- कृपया कंटेनर नंबर चुनें ({matchingGoodsContainers.length} कंटेनर उपलब्ध) --
+                  </option>
+                  {matchingGoodsContainers.map((c) => (
+                    <option key={c.container} value={c.container}>
+                      📦 {c.container} — ({c.count} रसीदें)
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Prompt if no container selected */}
+            {!selectedGoodsContainer ? (
+              <div className="bg-slate-900/60 border border-dashed border-slate-800 rounded-3xl p-12 text-center space-y-3">
+                <div className="w-16 h-16 mx-auto bg-cyan-500/10 text-cyan-400 rounded-2xl flex items-center justify-center">
+                  <CheckCircle2 className="w-8 h-8" />
+                </div>
+                <h3 className="text-base font-bold text-white">
+                  कंटेनर नंबर का चयन करें (Please Select a Container)
+                </h3>
+                <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+                  पार्टी द्वारा माल प्राप्ति की स्थिति जांचने या अपडेट करने के लिए कृपया ऊपर दिए गए सर्च बॉक्स से कंटेनर चुनें।
+                </p>
+              </div>
+            ) : (
+              /* Items Grid for Goods Received */
+              <div className="space-y-4 animate-in fade-in duration-200">
+                {/* Summary Header */}
+                <div className="bg-cyan-950/40 border border-cyan-800/50 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div className="flex items-center space-x-3">
+                    <div className="p-2 bg-cyan-500/20 text-cyan-400 rounded-xl">
+                      <CheckCircle2 className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+                        <span>कंटेनर माल प्राप्ति स्थिति:</span>
+                        <span className="font-mono text-cyan-400">{selectedGoodsContainer}</span>
+                      </h3>
+                      <p className="text-xs text-slate-400">
+                        प्रत्येक रसीद के लिए पार्टी द्वारा प्राप्त स्थिति (पूर्ण, आंशिक या अप्राप्त) दर्ज करें।
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="px-2.5 py-1 bg-cyan-900/60 text-cyan-300 rounded-lg font-mono font-bold">
+                      {filteredGoodsItems.length} Receipts
+                    </span>
+                    <span className="px-2.5 py-1 bg-emerald-950 text-emerald-300 border border-emerald-700 rounded-lg font-mono font-bold">
+                      {filteredGoodsItems.filter((r) => r.goodsReceivedStatus === 'full').length} Full
+                    </span>
+                    <span className="px-2.5 py-1 bg-amber-950 text-amber-300 border border-amber-700 rounded-lg font-mono font-bold">
+                      {filteredGoodsItems.filter((r) => r.goodsReceivedStatus === 'partial').length} Partial
+                    </span>
+                    <span className="px-2.5 py-1 bg-red-950 text-red-300 border border-red-700 rounded-lg font-mono font-bold">
+                      {filteredGoodsItems.filter((r) => r.goodsReceivedStatus === 'not_received').length} Not Received
+                    </span>
+                  </div>
+                </div>
+
+                {/* Table */}
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-slate-950/80 text-slate-400 border-b border-slate-800 text-[11px] uppercase tracking-wider font-semibold">
+                          <th className="py-3 px-4">Receipt #</th>
+                          <th className="py-3 px-4">Marka</th>
+                          <th className="py-3 px-4">Party</th>
+                          <th className="py-3 px-4">Commodity</th>
+                          <th className="py-3 px-4 text-center">Total CTN</th>
+                          <th className="py-3 px-4 text-center">Remaining CTN</th>
+                          <th className="py-3 px-4">माल प्राप्ति स्थिति (Received Status)</th>
+                          <th className="py-3 px-4 text-right">एक्शन (Action)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800">
+                        {filteredGoodsItems.length === 0 ? (
+                          <tr>
+                            <td colSpan={8} className="py-12 text-center text-slate-500">
+                              इस कंटेनर में कोई रसीद नहीं मिली।
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredGoodsItems.map((r) => {
+                            const grStatus = r.goodsReceivedStatus;
+                            return (
+                              <tr key={r._id} className="hover:bg-slate-800/40 transition">
+                                <td className="py-3 px-4 font-mono font-bold text-white">
+                                  <span className="text-blue-300 font-mono font-bold text-sm">
+                                    {r.receipt}
+                                  </span>
+                                  {r.phone && (
+                                    <span className="text-[10px] text-slate-400 block font-mono">
+                                      📞 {r.phone}
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4 font-black text-emerald-400 text-sm">
+                                  {r.marka}
+                                </td>
+                                <td className="py-3 px-4 text-slate-200 font-medium">
+                                  {r.party}
+                                </td>
+                                <td className="py-3 px-4 text-slate-400">
+                                  {r.commodity || '—'}
+                                </td>
+                                <td className="py-3 px-4 text-center font-mono font-bold text-slate-300">
+                                  {r.totalCartons} CTN
+                                </td>
+                                <td className="py-3 px-4 text-center font-mono font-bold text-purple-300">
+                                  {r.remainingCartons} CTN
+                                </td>
+                                <td className="py-3 px-4">
+                                  {grStatus === 'full' ? (
+                                    <span className="inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-950 text-emerald-300 border border-emerald-700">
+                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                                      <span>🟢 पूर्ण प्राप्त (Full)</span>
+                                    </span>
+                                  ) : grStatus === 'partial' ? (
+                                    <div className="space-y-0.5">
+                                      <span className="inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-bold rounded-lg bg-amber-950 text-amber-300 border border-amber-700">
+                                        <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                                        <span>🟡 आंशिक: {r.receivedQuantity} CTN प्राप्त</span>
+                                      </span>
+                                      <span className="block text-[10px] text-slate-400 font-mono">
+                                        शेष: {r.remainingCartons} CTN
+                                      </span>
+                                    </div>
+                                  ) : grStatus === 'not_received' ? (
+                                    <span className="inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-bold rounded-lg bg-red-950 text-red-300 border border-red-700">
+                                      <span>🔴 प्राप्त नहीं हुआ (Not Received)</span>
+                                    </span>
+                                  ) : (
+                                    <span className="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-800 text-slate-400">
+                                      ⏳ लंबित (Pending)
+                                    </span>
+                                  )}
+                                  {r.goodsReceivedRemarks && (
+                                    <span className="block text-[10px] text-slate-400 mt-1 max-w-[160px] truncate" title={r.goodsReceivedRemarks}>
+                                      नोट: {r.goodsReceivedRemarks}
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4 text-right">
+                                  <button
+                                    onClick={() => handleOpenDayEndModal(r)}
+                                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-slate-950 rounded-xl font-bold text-xs shadow-md shadow-cyan-600/30 transition transform hover:scale-105"
+                                    title="पार्टी द्वारा माल प्राप्ति स्थिति दर्ज करें (Full / Partial / Not Received)"
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    <span>✍️ स्थिति दर्ज करें</span>
+                                  </button>
                                 </td>
                               </tr>
                             );
@@ -1595,7 +1959,7 @@ export default function DispatcherPortalPage() {
                 माल प्राप्ति की स्थिति चुनें (Select Received Status):
               </label>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                 {/* Full Option */}
                 <label
                   onClick={() => setReceivedType('full')}
@@ -1614,10 +1978,10 @@ export default function DispatcherPortalPage() {
                   />
                   <div>
                     <span className="text-xs font-bold block text-emerald-300">
-                      🟢 पूरा माल प्राप्त (Full Received)
+                      🟢 पूरा प्राप्त (Full)
                     </span>
                     <span className="text-[11px] text-slate-400 block mt-0.5">
-                      पार्टी को सभी कार्टून पूर्णतः प्राप्त हो गए (0 शेष)
+                      सभी कार्टून पूर्णतः प्राप्त (0 शेष)
                     </span>
                   </div>
                 </label>
@@ -1640,10 +2004,36 @@ export default function DispatcherPortalPage() {
                   />
                   <div>
                     <span className="text-xs font-bold block text-amber-300">
-                      🟡 अधूरा / आंशिक (Not Full / Partial)
+                      🟡 आंशिक प्राप्त (Partial)
                     </span>
                     <span className="text-[11px] text-slate-400 block mt-0.5">
-                      पार्टी को कुछ ही कार्टून मिले (मात्रा दर्ज करें)
+                      कुछ कार्टून प्राप्त (मात्रा दर्ज करें)
+                    </span>
+                  </div>
+                </label>
+
+                {/* Not Received Option */}
+                <label
+                  onClick={() => setReceivedType('not_received')}
+                  className={`flex items-start space-x-3 p-3 rounded-2xl border cursor-pointer transition ${
+                    receivedType === 'not_received'
+                      ? 'bg-red-950/50 border-red-500 text-white shadow-md'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800/60'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="receivedType"
+                    checked={receivedType === 'not_received'}
+                    onChange={() => setReceivedType('not_received')}
+                    className="mt-1 text-red-500 focus:ring-0"
+                  />
+                  <div>
+                    <span className="text-xs font-bold block text-red-300">
+                      🔴 प्राप्त नहीं हुआ (None)
+                    </span>
+                    <span className="text-[11px] text-slate-400 block mt-0.5">
+                      पार्टी को माल अभी तक नहीं मिला
                     </span>
                   </div>
                 </label>

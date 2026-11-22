@@ -76,22 +76,25 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: true, cargo: cargoItems });
     }
 
-    // SECTION 2: DELIVERY (Delivered containers & receipts with 'Available to Deliver')
+    // SECTION 2: DELIVERY (Delivered containers & receipts with 'Available to Deliver' or 'Hold')
     if (section === 'delivery') {
-      // Find delivered containers
+      const containerFilter = searchParams.get('container')?.trim();
+
+      // Find delivered containers marked by Admin
       const deliveredContainers = await Container.find({ isDelivered: true })
         .select('container containerNumber deliveryDate status totalQuantity')
         .sort({ deliveryDate: -1 })
         .lean();
 
-      // Find all warehouse receipts marked "Available to Deliver"
+      // Find all warehouse receipts marked "Available to Deliver", "Hold", or delivered
       const availableReceipts = await WarehouseReceipt.find({
         $or: [
           { salesStatus: 'Available to Deliver' },
+          { salesStatus: 'Hold' },
           { isDelivered: true },
         ],
       })
-        .select('receipt party warehouse date quantity loadedQuantity remainingQuantity weight volume commodity packaging mainMarka subMarka salesStatus salesPerson isDelivered deliveryDate phone partyPhone')
+        .select('receipt party warehouse date quantity loadedQuantity remainingQuantity weight volume commodity packaging mainMarka subMarka salesStatus salesPerson isDelivered deliveryDate phone partyPhone holdReason goodsReceivedStatus receivedQuantity goodsReceivedRemarks goodsReceivedAt goodsReceivedBy')
         .sort({ updatedAt: -1 })
         .limit(300)
         .lean();
@@ -99,7 +102,7 @@ export async function GET(req: NextRequest) {
       // Match each receipt with its container from Shipment if available
       const receiptNumbers = availableReceipts.map((r) => r.receipt).filter(Boolean);
       const matchingShipments = await Shipment.find({ receipt: { $in: receiptNumbers } })
-        .select('receipt container containerNumber packages commodity english')
+        .select('receipt container containerNumber packages commodity english salesStatus holdReason')
         .lean();
 
       const shipmentMap = new Map<string, any>();
@@ -109,6 +112,8 @@ export async function GET(req: NextRequest) {
 
       const deliveryItems = availableReceipts.map((r) => {
         const sh = shipmentMap.get(r.receipt);
+        const sStatus = r.salesStatus || sh?.salesStatus || (r.isDelivered ? 'Available to Deliver' : 'Normal');
+        const hReason = r.holdReason || sh?.holdReason || '';
         return {
           _id: r._id,
           receipt: r.receipt,
@@ -122,7 +127,14 @@ export async function GET(req: NextRequest) {
           remainingCartons: r.remainingQuantity ?? r.quantity ?? 0,
           weight: r.weight || '',
           volume: r.volume || '',
-          salesStatus: r.salesStatus || (r.isDelivered ? 'Available to Deliver' : 'Normal'),
+          salesStatus: sStatus,
+          holdReason: hReason,
+          isHold: sStatus === 'Hold',
+          goodsReceivedStatus: (r as any).goodsReceivedStatus || (r.isDelivered ? 'full' : undefined),
+          receivedQuantity: (r as any).receivedQuantity || 0,
+          goodsReceivedRemarks: (r as any).goodsReceivedRemarks || '',
+          goodsReceivedAt: (r as any).goodsReceivedAt || null,
+          goodsReceivedBy: (r as any).goodsReceivedBy || '',
           isDelivered: Boolean(r.isDelivered),
           phone: r.phone || r.partyPhone || '',
         };
@@ -130,26 +142,43 @@ export async function GET(req: NextRequest) {
 
       // Build distinct containers summary for dropdown
       const containerSummaryMap = new Map<string, { container: string; count: number; availableCount: number }>();
+
+      // Seed with all delivered containers marked by Admin
+      deliveredContainers.forEach((dc: any) => {
+        const c = (dc.container || dc.containerNumber || '').trim();
+        if (c) {
+          containerSummaryMap.set(c, { container: c, count: 0, availableCount: 0 });
+        }
+      });
+
       deliveryItems.forEach((item) => {
         const c = item.container?.trim();
         if (c && c !== 'Unassigned') {
           const prev = containerSummaryMap.get(c) || { container: c, count: 0, availableCount: 0 };
           prev.count += 1;
-          if (item.salesStatus === 'Available to Deliver') {
+          if (item.salesStatus === 'Available to Deliver' && !item.isHold) {
             prev.availableCount += 1;
           }
           containerSummaryMap.set(c, prev);
         }
       });
+
       const deliveryContainers = Array.from(containerSummaryMap.values()).sort((a, b) =>
         a.container.localeCompare(b.container)
       );
+
+      // Filter deliveryItems if specific container requested
+      let filteredItems = deliveryItems;
+      if (containerFilter && containerFilter !== 'all') {
+        const rgx = new RegExp(`^${containerFilter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+        filteredItems = deliveryItems.filter((it) => rgx.test(it.container) || rgx.test(it.containerNumber));
+      }
 
       return NextResponse.json({
         success: true,
         deliveredContainers,
         deliveryContainers,
-        deliveryItems,
+        deliveryItems: filteredItems,
       });
     }
 
@@ -226,6 +255,18 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Carton count must be a positive number.' }, { status: 400 });
       }
 
+      // HOLD CHECK: Check if item is on Hold
+      const wrCheck = await WarehouseReceipt.findOne({ receipt: String(receipt).trim() }).lean();
+      const shCheck = await Shipment.findOne({ receipt: String(receipt).trim() }).lean();
+      const isHold = (wrCheck as any)?.salesStatus === 'Hold' || (shCheck as any)?.salesStatus === 'Hold';
+      if (isHold) {
+        const reason = (wrCheck as any)?.holdReason || (shCheck as any)?.holdReason || 'Put on hold by Sales/Admin';
+        return NextResponse.json(
+          { error: `यह माल होल्ड पर है (${reason})। होल्ड माल का डिस्पैच या बिलिंग नहीं की जा सकती।` },
+          { status: 400 }
+        );
+      }
+
       // Ensure commodity is never blank
       let resolvedCommodity = String(commodity || '').trim();
       if (!resolvedCommodity) {
@@ -283,6 +324,18 @@ export async function POST(req: NextRequest) {
       if (!receipt || !vehicleNumber || !cartonCount || !place) {
         return NextResponse.json(
           { error: 'Receipt, Gaadi Number, Carton Count, and Place are required for self-billing.' },
+          { status: 400 }
+        );
+      }
+
+      // HOLD CHECK: Check if item is on Hold
+      const wrCheckSelf = await WarehouseReceipt.findOne({ receipt: String(receipt).trim() }).lean();
+      const shCheckSelf = await Shipment.findOne({ receipt: String(receipt).trim() }).lean();
+      const isHoldSelf = (wrCheckSelf as any)?.salesStatus === 'Hold' || (shCheckSelf as any)?.salesStatus === 'Hold';
+      if (isHoldSelf) {
+        const reason = (wrCheckSelf as any)?.holdReason || (shCheckSelf as any)?.holdReason || 'Put on hold by Sales/Admin';
+        return NextResponse.json(
+          { error: `यह माल होल्ड पर है (${reason})। होल्ड माल का डिस्पैच या बिलिंग नहीं की जा सकती।` },
           { status: 400 }
         );
       }
@@ -474,18 +527,31 @@ export async function POST(req: NextRequest) {
         ].filter(Boolean).join(' | ');
       }
 
+      wr.goodsReceivedStatus = receivedType;
+      wr.receivedQuantity = receivedType === 'partial' ? Number(receivedQuantity) : (receivedType === 'full' ? (Number(wr.quantity) || currentRemaining) : 0);
+      wr.goodsReceivedRemarks = String(remarks || '').trim();
+      wr.goodsReceivedAt = new Date();
+      wr.goodsReceivedBy = currentUser.username;
       wr.lastModifiedBy = currentUser.username;
       wr.lastModifiedByRole = currentUser.role;
       wr.updatedAt = new Date();
       await wr.save();
 
       // Also update matching Shipment
-      if (isDelivered) {
-        await Shipment.updateMany(
-          { receipt: wr.receipt },
-          { $set: { isDelivered: true, deliveryDate: todayStr } }
-        );
-      }
+      await Shipment.updateMany(
+        { receipt: wr.receipt },
+        {
+          $set: {
+            goodsReceivedStatus: receivedType,
+            receivedQuantity: wr.receivedQuantity,
+            goodsReceivedRemarks: wr.goodsReceivedRemarks,
+            goodsReceivedAt: wr.goodsReceivedAt,
+            goodsReceivedBy: wr.goodsReceivedBy,
+            isDelivered,
+            deliveryDate: isDelivered ? todayStr : undefined,
+          },
+        }
+      );
 
       return NextResponse.json({
         success: true,

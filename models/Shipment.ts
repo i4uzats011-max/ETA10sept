@@ -91,6 +91,11 @@ export interface IShipment extends Document {
   holdReason?: string;          // Reason if put on Hold
   holdUpdatedAt?: Date;         // Timestamp when hold status changed
   holdUpdatedBy?: string;       // User who updated hold status
+  goodsReceivedStatus?: 'full' | 'partial' | 'not_received'; // Full, Partial, Not Received by Party
+  receivedQuantity?: number;    // Cartons received by party if partial
+  goodsReceivedRemarks?: string;// Remarks on delivery/receipt
+  goodsReceivedAt?: Date;       // Timestamp when goods receipt was marked
+  goodsReceivedBy?: string;     // Dispatcher username who marked goods receipt
   salesDiscrepancy?: {          // "Data Entry Wrong" discrepancy flagged by Sales Head/Person
     hasDiscrepancy: boolean;
     actualCbm?: string | number;

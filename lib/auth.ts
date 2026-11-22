@@ -157,6 +157,11 @@ export function isDispatcherAuthenticated(req: NextRequest): boolean {
   );
 }
 
+/**
+ * Sales Head Authentication:
+ * STRICT POLICY: Only Developer Admin and Sales Head can access Sales Head portal/APIs.
+ * Super Admin ('admin') CANNOT access Sales Head.
+ */
 export function isSalesHeadAuthenticated(req: NextRequest): boolean {
   const token = getAdminTokenFromRequest(req);
   if (!token) return false;
@@ -165,11 +170,15 @@ export function isSalesHeadAuthenticated(req: NextRequest): boolean {
 
   return (
     payload.role === 'developer' ||
-    payload.role === 'admin' ||
     payload.role === 'sales_head'
   );
 }
 
+/**
+ * Sales Person or Head Authentication:
+ * STRICT POLICY: Accessible by Developer Admin, Sales Head, and Sales Person.
+ * Super Admin ('admin') CANNOT access Sales APIs.
+ */
 export function isSalesPersonOrHeadAuthenticated(req: NextRequest): boolean {
   const token = getAdminTokenFromRequest(req);
   if (!token) return false;
@@ -178,7 +187,6 @@ export function isSalesPersonOrHeadAuthenticated(req: NextRequest): boolean {
 
   return (
     payload.role === 'developer' ||
-    payload.role === 'admin' ||
     payload.role === 'sales_head' ||
     payload.role === 'sales_person'
   );

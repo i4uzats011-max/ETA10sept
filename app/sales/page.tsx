@@ -49,6 +49,7 @@ export default function SalesPortalPage() {
     name?: string;
   } | null>(null);
   const [authChecking, setAuthChecking] = useState(true);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   // Active Tab: 'sheet' | 'team'
   const [activeTab, setActiveTab] = useState<'sheet' | 'team'>('sheet');
@@ -115,6 +116,13 @@ export default function SalesPortalPage() {
         if (res.ok) {
           const data = await res.json();
           if (data.authenticated) {
+            // STRICT POLICY: Sales Head can ONLY be accessed by Developer Admin or Sales Head/Executive!
+            // Super Admin ('admin') CANNOT access Sales Head!
+            if (data.role === 'admin' || (!['developer', 'sales_head', 'sales_person'].includes(data.role))) {
+              setAccessDenied(true);
+              setAuthChecking(false);
+              return;
+            }
             setCurrentUser({
               username: data.username || 'sales_user',
               role: data.role || 'sales_head',
@@ -406,10 +414,45 @@ export default function SalesPortalPage() {
     };
   }, [receipts]);
 
-  const isSalesHeadOrAdmin =
+  // STRICT POLICY: Only Sales Head and Developer Admin can perform administrative sales tasks.
+  // Super Admin ('admin') CANNOT access Sales Head!
+  const isSalesHeadOrDev =
     currentUser?.role === 'sales_head' ||
-    currentUser?.role === 'admin' ||
     currentUser?.role === 'developer';
+
+  if (accessDenied) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+        <div className="bg-slate-900 border border-red-800/80 rounded-3xl p-8 max-w-md w-full text-center space-y-4 shadow-2xl">
+          <div className="w-16 h-16 mx-auto bg-red-950/60 border border-red-700 text-red-400 rounded-2xl flex items-center justify-center">
+            <AlertTriangle className="w-8 h-8 text-red-400" />
+          </div>
+          <h2 className="text-lg font-bold text-white">अनाधिकृत प्रवेश (Access Restricted)</h2>
+          <p className="text-xs text-red-300 leading-relaxed">
+            सेल्स हेड पोर्टल सिर्फ और सिर्फ <strong>डेवलपर एडमिन (Developer Admin)</strong> या अधिकृत <strong>सेल्स हेड</strong> द्वारा ही एक्सेस किया जा सकता है।
+          </p>
+          <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 text-[11px] text-slate-400 space-y-1">
+            <p className="font-semibold text-slate-300">सुपर एडमिन एक्सेस पॉलिसी:</p>
+            <p>सुपर एडमिन केवल <strong>एम्प्लॉई व्यू</strong>, <strong>डिस्पैचर</strong>, और <strong>बिलर</strong> एक्सेस कर सकता है।</p>
+          </div>
+          <div className="pt-2 flex flex-col sm:flex-row gap-2 justify-center">
+            <Link
+              href="/admin"
+              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition"
+            >
+              ← वापस एडमिन पोर्टल
+            </Link>
+            <Link
+              href="/dispatcher"
+              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 rounded-xl text-xs font-bold transition"
+            >
+              डिस्पैचर पोर्टल
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#f8fafc] flex flex-col text-slate-800 font-sans selection:bg-emerald-500 selection:text-white">
@@ -510,7 +553,7 @@ export default function SalesPortalPage() {
             )}
           </div>
 
-          {isSalesHeadOrAdmin && (
+          {isSalesHeadOrDev && (
             <div className="bg-slate-800 p-0.5 rounded-lg flex items-center border border-slate-700 text-xs">
               <button
                 onClick={() => setActiveTab('sheet')}
@@ -537,8 +580,8 @@ export default function SalesPortalPage() {
             </div>
           )}
 
-          {/* Quick link back to Admin if Admin/Dev */}
-          {(currentUser?.role === 'admin' || currentUser?.role === 'developer') && (
+          {/* Quick link back to Admin if Developer */}
+          {currentUser?.role === 'developer' && (
             <Link
               href="/admin"
               className="text-xs text-slate-300 hover:text-white px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 transition"
@@ -565,7 +608,7 @@ export default function SalesPortalPage() {
 
       {/* Main Content Area */}
       <main className="flex-1 p-3 sm:p-5 max-w-[1920px] w-full mx-auto">
-        {activeTab === 'team' && isSalesHeadOrAdmin ? (
+        {activeTab === 'team' && isSalesHeadOrDev ? (
           <SalesTeamMaster />
         ) : (
           <div className="space-y-4">
@@ -715,8 +758,8 @@ export default function SalesPortalPage() {
                   </>
                 )}
 
-                {/* Sales Person Filter (for Sales Head) */}
-                {isSalesHeadOrAdmin && (
+                {/* Sales Person Filter (for Sales Head & Developer) */}
+                {isSalesHeadOrDev && (
                   <div>
                     <label className="block text-[11px] font-bold text-slate-700 mb-1">
                       Filter by Sales Person
@@ -949,9 +992,9 @@ export default function SalesPortalPage() {
                               {row.quantity || 0}
                             </td>
 
-                            {/* RATE (Direct Inline Editable Cell by Sales Head) */}
+                            {/* RATE (Direct Inline Editable Cell by Sales Head & Developer) */}
                             <td className="py-1 px-2 border-r border-slate-200 bg-amber-50/20 relative">
-                              {isSalesHeadOrAdmin ? (
+                              {isSalesHeadOrDev ? (
                                 <div className="flex items-center space-x-1">
                                   <input
                                     type="text"
@@ -978,9 +1021,9 @@ export default function SalesPortalPage() {
                               )}
                             </td>
 
-                            {/* SALES PERSON (Dropdown Select by Sales Head) */}
+                            {/* SALES PERSON (Dropdown Select by Sales Head & Developer) */}
                             <td className="py-1 px-2 border-r border-slate-200 relative">
-                              {isSalesHeadOrAdmin ? (
+                              {isSalesHeadOrDev ? (
                                 <div className="flex items-center space-x-1">
                                   <select
                                     defaultValue={row.salesPerson || ''}
@@ -1012,7 +1055,7 @@ export default function SalesPortalPage() {
 
                             {/* REMARKS (Strictly blank unless Sales Head typed) */}
                             <td className="py-1 px-2 border-r border-slate-200 relative">
-                              {isSalesHeadOrAdmin ? (
+                              {isSalesHeadOrDev ? (
                                 <div className="flex items-center space-x-1">
                                   <input
                                     type="text"
@@ -1041,7 +1084,7 @@ export default function SalesPortalPage() {
 
                             {/* STATUS CONTROL (Normal, Available to Deliver, Hold) */}
                             <td className="py-2 px-2 border-r border-slate-200 text-center whitespace-nowrap">
-                              {isSalesHeadOrAdmin ? (
+                              {isSalesHeadOrDev ? (
                                 <button
                                   onClick={() => {
                                     setHoldTarget({

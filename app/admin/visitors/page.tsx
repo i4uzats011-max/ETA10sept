@@ -33,6 +33,9 @@ import {
   X,
   Key,
   Users,
+  Truck,
+  FileText,
+  Briefcase,
 } from 'lucide-react';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
 import UserManager from '@/components/UserManager';
@@ -471,7 +474,60 @@ export default function VisitorLogsPage() {
       </header>
 
       {/* Main Content Area */}
-      <main className="max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6 flex-1">
+      <main className="max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-5 flex-1">
+        {/* Developer Master Portal Access Bar (डेवलपर सारे लॉगिन एक्सेस देख व खोल सकता है) */}
+        <div className="bg-slate-900/90 border border-cyan-500/30 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-3 shadow-lg">
+          <div className="flex items-center space-x-2 text-xs">
+            <span className="font-mono font-bold text-cyan-400 uppercase tracking-wider flex items-center space-x-1.5">
+              <Terminal className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Developer All-Login Access:</span>
+            </span>
+            <span className="text-slate-400 hidden md:inline">(डेवलपर सभी पोर्टल्स व लॉगिन एक्सेस सीधे खोल सकता है)</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <Link
+              href="/admin"
+              className="px-2.5 py-1 rounded-lg bg-blue-950/80 border border-blue-700/60 hover:bg-blue-900/60 text-blue-300 font-semibold transition flex items-center space-x-1"
+              title="Super Admin Dashboard"
+            >
+              <Shield className="w-3 h-3 text-blue-400" />
+              <span>Super Admin</span>
+            </Link>
+            <Link
+              href="/admin/view"
+              className="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-200 font-semibold transition flex items-center space-x-1"
+              title="Employee / Staff View"
+            >
+              <Users className="w-3 h-3 text-slate-400" />
+              <span>Employee View</span>
+            </Link>
+            <Link
+              href="/dispatcher"
+              className="px-2.5 py-1 rounded-lg bg-emerald-950/80 border border-emerald-700/60 hover:bg-emerald-900/60 text-emerald-300 font-semibold transition flex items-center space-x-1"
+              title="Dispatcher Portal"
+            >
+              <Truck className="w-3 h-3 text-emerald-400" />
+              <span>Dispatcher</span>
+            </Link>
+            <Link
+              href="/biller"
+              className="px-2.5 py-1 rounded-lg bg-amber-950/80 border border-amber-700/60 hover:bg-amber-900/60 text-amber-300 font-semibold transition flex items-center space-x-1"
+              title="Biller Portal"
+            >
+              <FileText className="w-3 h-3 text-amber-400" />
+              <span>Biller</span>
+            </Link>
+            <Link
+              href="/sales"
+              className="px-2.5 py-1 rounded-lg bg-purple-950/80 border border-purple-700/60 hover:bg-purple-900/60 text-purple-300 font-semibold transition flex items-center space-x-1"
+              title="Sales Head Portal (Developer Admin Exclusive)"
+            >
+              <Briefcase className="w-3 h-3 text-purple-400" />
+              <span>Sales Head</span>
+            </Link>
+          </div>
+        </div>
+
         {/* KPI Summary Cards: "how many and also their ip address" */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
           {/* Card 1: Total Visits */}

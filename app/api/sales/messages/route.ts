@@ -130,10 +130,10 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'Cannot edit a deleted message' }, { status: 400 });
     }
 
-    // Permission check: only original sender, sales_head, or admin can edit
+    // Permission check: only original sender, sales_head, or developer can edit
     const isSender = msg.senderUsername.toLowerCase() === currentUser.username.toLowerCase();
-    const isHeadOrAdmin = ['sales_head', 'admin', 'developer'].includes(currentUser.role);
-    if (!isSender && !isHeadOrAdmin) {
+    const isHeadOrDev = ['sales_head', 'developer'].includes(currentUser.role);
+    if (!isSender && !isHeadOrDev) {
       return NextResponse.json({ error: 'You are not authorized to edit this message' }, { status: 403 });
     }
 
@@ -188,10 +188,10 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Message not found' }, { status: 404 });
     }
 
-    // Permission check: only sender, sales_head, or admin/developer can delete
+    // Permission check: only sender, sales_head, or developer can delete
     const isSender = msg.senderUsername.toLowerCase() === currentUser.username.toLowerCase();
-    const isHeadOrAdmin = ['sales_head', 'admin', 'developer'].includes(currentUser.role);
-    if (!isSender && !isHeadOrAdmin) {
+    const isHeadOrDev = ['sales_head', 'developer'].includes(currentUser.role);
+    if (!isSender && !isHeadOrDev) {
       return NextResponse.json({ error: 'You are not authorized to delete this message' }, { status: 403 });
     }
 
