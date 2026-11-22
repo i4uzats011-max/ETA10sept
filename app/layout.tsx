@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from 'next';
 import { ReduxProvider } from '@/store/ReduxProvider';
 
 import VisitorTracker from '@/components/VisitorTracker';
+import AppNotificationManager from '@/components/AppNotificationManager';
 
 export const metadata: Metadata = {
   title: 'Cargo & Container Tracking Portal | US International Logistics',

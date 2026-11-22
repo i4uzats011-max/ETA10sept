@@ -12,6 +12,13 @@ export interface ISalesMessage extends Document {
   type: 'text' | 'rate_update' | 'hold' | 'available' | 'discrepancy';
   metadata?: Record<string, any>;
   isRead: boolean;
+  isDeleted?: boolean;
+  deletedBy?: string;
+  deletedAt?: Date | null;
+  originalMessage?: string;
+  isEdited?: boolean;
+  editedBy?: string;
+  editedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -39,6 +46,13 @@ const SalesMessageSchema = new Schema<ISalesMessage>(
     },
     metadata: { type: Schema.Types.Mixed, default: null },
     isRead: { type: Boolean, default: false, index: true },
+    isDeleted: { type: Boolean, default: false, index: true },
+    deletedBy: { type: String, default: '' },
+    deletedAt: { type: Date, default: null },
+    originalMessage: { type: String, default: '' },
+    isEdited: { type: Boolean, default: false },
+    editedBy: { type: String, default: '' },
+    editedAt: { type: Date, default: null },
   },
   {
     timestamps: true,

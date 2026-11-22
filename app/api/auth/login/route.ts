@@ -150,6 +150,7 @@ export async function POST(req: NextRequest) {
       success: true,
       message: `Authenticated as ${roleName}${authenticatedUser?.username ? ` (${authenticatedUser.username})` : ''}`,
       role: authenticatedRole,
+      token, // Explicitly return token so mobile native app can persist in preferences and storage!
       user: authenticatedUser,
       adminAccessGranted,
       redirectTo,

@@ -88,6 +88,7 @@ export async function POST(req: NextRequest) {
       type: type || 'text',
       metadata: metadata || null,
       isRead: false,
+      isDeleted: false,
     });
 
     return NextResponse.json({
@@ -96,6 +97,64 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: any) {
     console.error('Error sending sales message:', error);
+    return NextResponse.json({ error: error?.message || 'Server error' }, { status: 500 });
+  }
+}
+
+// DELETE: Delete a message within 24 hours of sending (WhatsApp style)
+export async function DELETE(req: NextRequest) {
+  if (!isSalesPersonOrHeadAuthenticated(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const currentUser = getAuthenticatedUser(req);
+
+  try {
+    await connectToDatabase();
+    const { searchParams } = new URL(req.url);
+    const messageId = searchParams.get('id');
+
+    if (!messageId) {
+      return NextResponse.json({ error: 'Message ID is required' }, { status: 400 });
+    }
+
+    const msg = await SalesMessage.findById(messageId);
+    if (!msg) {
+      return NextResponse.json({ error: 'Message not found' }, { status: 404 });
+    }
+
+    // Permission check: only sender, sales_head, or admin/developer can delete
+    const isSender = msg.senderUsername.toLowerCase() === currentUser.username.toLowerCase();
+    const isHeadOrAdmin = ['sales_head', 'admin', 'developer'].includes(currentUser.role);
+    if (!isSender && !isHeadOrAdmin) {
+      return NextResponse.json({ error: 'You are not authorized to delete this message' }, { status: 403 });
+    }
+
+    // 24-Hour window verification
+    const msgAgeMs = Date.now() - new Date(msg.createdAt).getTime();
+    const maxAgeMs = 24 * 60 * 60 * 1000; // 24 hours
+    if (msgAgeMs > maxAgeMs) {
+      return NextResponse.json(
+        { error: 'Messages can only be deleted within 24 hours of being sent.' },
+        { status: 400 }
+      );
+    }
+
+    const deleterLabel = currentUser.name || currentUser.username;
+    msg.originalMessage = msg.message;
+    msg.isDeleted = true;
+    msg.deletedBy = deleterLabel;
+    msg.deletedAt = new Date();
+    msg.message = `This message was deleted by ${deleterLabel}`;
+    await msg.save();
+
+    return NextResponse.json({
+      success: true,
+      message: msg,
+      notificationText: `This message was deleted by ${deleterLabel}`,
+    });
+  } catch (error: any) {
+    console.error('Error deleting message:', error);
     return NextResponse.json({ error: error?.message || 'Server error' }, { status: 500 });
   }
 }

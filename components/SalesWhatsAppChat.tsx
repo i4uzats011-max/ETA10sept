@@ -14,6 +14,7 @@ import {
   User,
   Shield,
   Briefcase,
+  Trash2,
 } from 'lucide-react';
 
 export interface SalesWhatsAppChatProps {
@@ -122,6 +123,25 @@ export default function SalesWhatsAppChat({
     }
   };
 
+  const handleDeleteMessage = async (msgId: string) => {
+    if (!confirm('Are you sure you want to delete this message? (Allowed within 24 hours of sending)')) return;
+    try {
+      const res = await fetch(`/api/sales/messages?id=${encodeURIComponent(msgId)}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (data.success && data.message) {
+        setMessages((prev) =>
+          prev.map((m) => (m._id === msgId ? { ...m, ...data.message } : m))
+        );
+      } else {
+        alert(data.error || 'Failed to delete message');
+      }
+    } catch (e: any) {
+      alert(e?.message || 'Error deleting message');
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -194,6 +214,9 @@ export default function SalesWhatsAppChat({
             messages.map((msg, idx) => {
               const isMe = msg.senderUsername === currentUser.username;
               const isDiscrepancy = msg.type === 'discrepancy';
+              const isDeleted = Boolean(msg.isDeleted);
+              const msgAgeMs = Date.now() - new Date(msg.createdAt).getTime();
+              const canDelete = (isMe || ['sales_head', 'admin'].includes(currentUser.role)) && msgAgeMs <= 24 * 60 * 60 * 1000;
               const timeStr = new Date(msg.createdAt).toLocaleTimeString([], {
                 hour: '2-digit',
                 minute: '2-digit',
@@ -202,11 +225,13 @@ export default function SalesWhatsAppChat({
               return (
                 <div
                   key={msg._id || idx}
-                  className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
+                  className={`flex flex-col group ${isMe ? 'items-end' : 'items-start'}`}
                 >
                   <div
                     className={`max-w-[85%] rounded-lg px-3 py-2 shadow-sm relative text-xs ${
-                      isDiscrepancy
+                      isDeleted
+                        ? 'bg-slate-100 text-slate-500 italic border border-slate-200'
+                        : isDiscrepancy
                         ? 'bg-amber-100 border border-amber-300 text-amber-950'
                         : isMe
                         ? 'bg-[#d9fdd3] text-slate-900 rounded-tr-none'
@@ -224,14 +249,30 @@ export default function SalesWhatsAppChat({
                     )}
 
                     {/* Message Text */}
-                    <div className="whitespace-pre-wrap break-words leading-relaxed text-[12px]">
-                      {msg.message}
-                    </div>
+                    {isDeleted ? (
+                      <div className="flex items-center space-x-1.5 py-0.5 text-[11px] text-slate-500 font-sans not-italic">
+                        <span className="text-xs">🚫</span>
+                        <span className="italic">{msg.message}</span>
+                      </div>
+                    ) : (
+                      <div className="whitespace-pre-wrap break-words leading-relaxed text-[12px]">
+                        {msg.message}
+                      </div>
+                    )}
 
-                    {/* Timestamp & Tick */}
-                    <div className="flex items-center justify-end space-x-1 mt-1 text-[10px] text-slate-500">
+                    {/* Timestamp & Action Row */}
+                    <div className="flex items-center justify-end space-x-1.5 mt-1 text-[10px] text-slate-500">
                       <span>{timeStr}</span>
-                      {isMe && <CheckCheck className="w-3.5 h-3.5 text-blue-500" />}
+                      {isMe && !isDeleted && <CheckCheck className="w-3.5 h-3.5 text-blue-500" />}
+                      {canDelete && !isDeleted && (
+                        <button
+                          onClick={() => handleDeleteMessage(msg._id)}
+                          title="Delete message (Allowed within 24 hours)"
+                          className="opacity-0 group-hover:opacity-100 hover:text-red-600 transition-opacity p-0.5 ml-1"
+                        >
+                          <Trash2 className="w-3 h-3 text-slate-400 hover:text-red-500" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>

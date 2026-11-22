@@ -3,11 +3,13 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { useRouter } from 'next/navigation';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { fetchGraphQL } from '@/lib/graphql';
 import { formatGlobalDate } from '@/lib/dateUtils';
 import { translateToEnglish } from '@/lib/translate';
+import { getSavedMobileSession } from '@/lib/mobileBridge';
 import {
   Package,
   Truck,
@@ -71,6 +73,29 @@ function formatCBM(volume: any): string {
 }
 
 export default function PublicTrackerPage() {
+  const router = useRouter();
+
+  // Auto-redirect to logged-in workspace on mobile app startup
+  useEffect(() => {
+    getSavedMobileSession().then((sess) => {
+      if (sess && sess.token && sess.role) {
+        if (sess.role === 'sales_head' || sess.role === 'sales_person') {
+          router.replace('/sales');
+        } else if (sess.role === 'dispatcher') {
+          router.replace('/dispatcher');
+        } else if (sess.role === 'biller') {
+          router.replace('/biller');
+        } else if (sess.role === 'developer') {
+          router.replace('/admin/visitors');
+        } else if (sess.role === 'staff') {
+          router.replace('/admin/view');
+        } else if (sess.role === 'admin') {
+          router.replace('/admin');
+        }
+      }
+    });
+  }, [router]);
+
   // Top-Level Hero eBusiness Tab (Modeled after MSC.com: Track a shipment | Instant quote | Book a shipment)
   const [heroWidgetTab, setHeroWidgetTab] = useState<'track' | 'quote' | 'book'>('track');
 

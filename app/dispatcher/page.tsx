@@ -5,2134 +5,1231 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   Truck,
+  Ship,
   CheckCircle2,
   Clock,
   Search,
   Download,
-  Printer,
   FileText,
   RefreshCw,
   LogOut,
-  ShieldCheck,
   FileSpreadsheet,
-  Layers,
   Box,
   Calendar,
-  AlertTriangle,
-  ArrowRight,
-  Filter,
-  CheckSquare,
-  Square,
-  Sparkles,
-  Plus,
-  Edit2,
-  Trash2,
-  MapPin,
-  User,
-  Phone,
-  Building,
   ChevronDown,
-  Calculator,
-  Percent,
+  ChevronUp,
   X,
   Key,
+  Volume2,
+  Send,
+  Zap,
 } from 'lucide-react';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
-import {
-  generateBillPDF,
-  generateEWayBillPDF,
-  generateBothBillAndEWayPDF,
-  generateConsolidatedMarkaPDF,
-  BillPdfData,
-} from '@/lib/billPdf';
-import { INDIAN_STATES, getStateCodeByName, getStateByGstinOrCode } from '@/lib/states';
+import { generateBillPDF } from '@/lib/billPdf';
+import { triggerNotificationAlert } from '@/lib/soundNotification';
 
-interface BillItem extends BillPdfData {
+interface ContainerETA {
+  _id?: string;
+  container: string;
+  containerNumber?: string;
+  eta?: string;
+  loadingDate?: string;
+  status?: string;
+  currentLocation?: string;
+  totalQuantity?: number;
+  totalWeight?: string;
+  totalVolume?: string;
+  isDelivered?: boolean;
+}
+
+interface CargoItem {
+  _id?: string;
+  receipt: string;
+  mainMarka?: string;
+  subMarka?: string;
+  party?: string;
+  commodity?: string;
+  packages: number;
+  weight?: string;
+  volume?: string;
+  salesStatus?: 'Normal' | 'Available to Deliver' | 'Hold';
+  salesRate?: string;
+  salesRemarks?: string;
+  remainingQuantity?: number;
+}
+
+interface DeliveryReceipt {
+  _id: string;
+  receipt: string;
+  container: string;
+  containerNumber?: string;
+  marka: string;
+  subMarka?: string;
+  party: string;
+  commodity: string;
+  totalCartons: number;
+  remainingCartons: number;
+  weight?: string;
+  volume?: string;
+  salesStatus: 'Normal' | 'Available to Deliver' | 'Hold';
+  isDelivered: boolean;
+  phone?: string;
+}
+
+interface DispatchBill {
   _id: string;
   billNumber: string;
   receipt: string;
-  hsnCode?: string;
-  igst?: number;
-  quantityPcs?: number;
-  quantityKg?: number;
-  totalCartons?: number;
-  dispatchedCartons?: number;
-  remainingCartons?: number;
-  billingUnit?: 'Pcs' | 'KG' | 'Cartons';
-  taxableValue?: number;
-  igstAmount?: number;
-  totalAmount?: number;
   container?: string;
-  containerNumber?: string;
   party?: string;
   mainMarka?: string;
   subMarka?: string;
   commodity?: string;
-  warehouse?: string;
+  totalAmount?: number;
+  taxableValue?: number;
+  igstAmount?: number;
   vehicleNumber?: string;
-  isDispatched: boolean;
-  dispatchStatus: string;
+  totalCartons?: number;
+  dispatchedCartons?: number;
+  remainingCartons?: number;
+  isDispatched?: boolean;
   deliveryDate?: string;
   deliveryTime?: string;
-  deliveryAddressTitle?: string;
   deliveryAddress?: string;
-  deliveryPhone?: string;
-  dispatchedAt?: string;
+  eWayBillNo?: string;
   createdAt?: string;
 }
 
-interface MarkaSummary {
-  marka: string;
-  totalBills: number;
-  pendingBills: number;
-  dispatchedBills: number;
-  totalPcs: number;
-  totalKg: number;
-  totalCartons: number;
-  dispatchedCartons: number;
-  remainingCartons: number;
-  totalTaxable: number;
-  grandTotal: number;
-  containers: string[];
-  vehicles: string[];
-  billingUnits?: string[];
-}
-
-interface ContainerItem {
+interface DispatchRequestItem {
   _id: string;
+  receipt: string;
   container: string;
-  containerNumber?: string;
-  status?: string;
-  shipmentCount?: number;
-  isDelivered?: boolean;
-}
-
-interface DeliveryAddress {
-  _id?: string;
-  title: string;
-  address: string;
-  city?: string;
-  state?: string;
-  stateCode?: string;
-  pincode?: string;
-  contactPerson?: string;
-  phone?: string;
-  isDefault?: boolean;
-}
-
-interface MarkaAddressRecord {
-  _id?: string;
-  marka: string;
-  purchaserName?: string;
-  registrationType?: 'Registered' | 'Unregistered';
-  gstin?: string;
-  pan?: string;
-  state?: string;
-  stateCode?: string;
-  addresses: DeliveryAddress[];
+  marka?: string;
+  party?: string;
+  commodity?: string;
+  vehicleNumber: string;
+  cartonCount: number;
+  totalCartons?: number;
+  place: string;
+  status: 'Pending' | 'Billed' | 'Completed' | 'Cancelled';
+  initiatedBy: string;
+  initiatedByName?: string;
+  initiatedAt: string;
+  billerUsername?: string;
+  billNumber?: string;
+  billedAt?: string;
+  remarks?: string;
 }
 
 export default function DispatcherPortalPage() {
   const router = useRouter();
+  const [activeTab, setActiveTab] = useState<'delivery' | 'eta' | 'bills' | 'requests'>('delivery');
   const [showPasswordModal, setShowPasswordModal] = useState(false);
-
-  // Data lists
-  const [bills, setBills] = useState<BillItem[]>([]);
-  const [markas, setMarkas] = useState<MarkaSummary[]>([]);
-  const [containersList, setContainersList] = useState<ContainerItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  // Workflow Filters
-  const [selectedContainer, setSelectedContainer] = useState<string>('all');
-  const [selectedMarka, setSelectedMarka] = useState<string>('all');
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'dispatched'>('pending');
 
-  // Dispatch Form State
-  const [selectedBillIds, setSelectedBillIds] = useState<Set<string>>(new Set());
+  // SECTION 1: ETA Containers
+  const [etaContainers, setEtaContainers] = useState<ContainerETA[]>([]);
+  const [expandedContainer, setExpandedContainer] = useState<string | null>(null);
+  const [containerCargo, setContainerCargo] = useState<Record<string, CargoItem[]>>({});
+  const [loadingCargo, setLoadingCargo] = useState<Record<string, boolean>>({});
+
+  // SECTION 2: Delivery & Available Receipts
+  const [deliveryItems, setDeliveryItems] = useState<DeliveryReceipt[]>([]);
+
+  // Dispatch Action Modal State
+  const [dispatchModalOpen, setDispatchModalOpen] = useState(false);
+  const [selectedReceipt, setSelectedReceipt] = useState<DeliveryReceipt | null>(null);
   const [vehicleNumber, setVehicleNumber] = useState('');
-  const [dispatchedCartonsInput, setDispatchedCartonsInput] = useState<number | ''>('');
-  const [dispatchDate, setDispatchDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [dispatchTime, setDispatchTime] = useState(() =>
-    new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
-  );
+  const [cartonCount, setCartonCount] = useState<number | ''>('');
+  const [placeAddress, setPlaceAddress] = useState('');
   const [remarks, setRemarks] = useState('');
-  const [isSubmittingDispatch, setIsSubmittingDispatch] = useState(false);
-  const [dispatchSuccessMsg, setDispatchSuccessMsg] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
 
-  // Marka Addresses & Purchaser State
-  const [markaRecord, setMarkaRecord] = useState<MarkaAddressRecord | null>(null);
-  const [selectedAddressId, setSelectedAddressId] = useState<string>('');
-  const [isLoadingAddress, setIsLoadingAddress] = useState(false);
+  // Self-Billing Modal State
+  const [selfBillModalOpen, setSelfBillModalOpen] = useState(false);
+  const [selfBillTaxable, setSelfBillTaxable] = useState<number>(2000);
+  const [selfBillIgst, setSelfBillIgst] = useState<number>(18);
 
-  // Add / Edit Address Modal State
-  const [showAddressModal, setShowAddressModal] = useState(false);
-  const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
-  const [addrRegType, setAddrRegType] = useState<'Registered' | 'Unregistered'>('Registered');
-  const [addrGstin, setAddrGstin] = useState('');
-  const [addressForm, setAddressForm] = useState<DeliveryAddress>({
-    title: '',
-    address: '',
-    city: 'Delhi',
-    state: 'Delhi',
-    stateCode: '07',
-    pincode: '',
-    contactPerson: '',
-    phone: '',
-    isDefault: false,
-  });
-  const [isSavingAddress, setIsSavingAddress] = useState(false);
+  // SECTION 3: Bills
+  const [bills, setBills] = useState<DispatchBill[]>([]);
 
-  // Quick Vehicle Update Modal State for Dispatcher
-  const [vehicleModalOpen, setVehicleModalOpen] = useState(false);
-  const [targetBillForVehicle, setTargetBillForVehicle] = useState<BillItem | null>(null);
-  const [quickVehicleInput, setQuickVehicleInput] = useState('');
-  const [isSavingQuickVehicle, setIsSavingQuickVehicle] = useState(false);
+  // Requests
+  const [requests, setRequests] = useState<DispatchRequestItem[]>([]);
 
-  // Per-vehicle cumulative value check on the same date
-  const checkVehicleCumulativeLimit = (
-    vehNo: string,
-    additionalAmount: number,
-    isDelhi: boolean,
-    currentEWayBill: string,
-    targetBillDate?: string
-  ): { requiresConfirm: boolean; message?: string } => {
-    const cleanVeh = vehNo.trim().toUpperCase().replace(/\s+/g, '');
-    if (!cleanVeh) return { requiresConfirm: false };
-
-    if (currentEWayBill.trim()) return { requiresConfirm: false };
-
-    const threshold = isDelhi ? 100000 : 50000;
-    const todayDateStr = targetBillDate || new Date().toISOString().split('T')[0];
-
-    const matchingBillsOnSameDate = bills.filter((b) => {
-      if (!b.vehicleNumber) return false;
-      const bVeh = b.vehicleNumber.trim().toUpperCase().replace(/\s+/g, '');
-      if (bVeh !== cleanVeh) return false;
-
-      const bDate = b.createdAt ? new Date(b.createdAt).toISOString().split('T')[0] : '';
-      return bDate === todayDateStr;
-    });
-
-    const existingVehicleTotal = matchingBillsOnSameDate.reduce(
-      (sum, b) => sum + (Number(b.totalAmount) || 0),
-      0
-    );
-    const cumulativeTotal = existingVehicleTotal + additionalAmount;
-
-    if (cumulativeTotal > threshold) {
-      const msg =
-        `⚠️ गाड़ी दैनिक लिमिट चेतावनी (Vehicle Cumulative Limit Warning):\n\n` +
-        `गाड़ी नंबर: ${vehNo.trim().toUpperCase()}\n` +
-        `दिनांक (Date): ${todayDateStr}\n` +
-        `इस गाड़ी में आज पहले से अलॉट बिल: ${matchingBillsOnSameDate.length} बिल (कुल राशि: ₹${existingVehicleTotal.toLocaleString('en-IN')})\n` +
-        `वर्तमान बिल / बैच राशि: ₹${additionalAmount.toLocaleString('en-IN')}\n` +
-        `गाड़ी में कुल संचयी माल (Cumulative Total): ₹${cumulativeTotal.toLocaleString('en-IN')}\n\n` +
-        `यह राशि बिना E-Way Bill की निर्धारित सीमा (₹${threshold.toLocaleString('en-IN')} - ${isDelhi ? 'Intra-Delhi' : 'Inter-State'}) से अधिक है!\n\n` +
-        `क्या आप वाकई इस गाड़ी में बिना E-Way Bill के यह प्रोसेस करना चाहते हैं?\n` +
-        `'OK' दबाकर पुष्टि (Confirm) करें, अथवा 'Cancel' करें।`;
-      return { requiresConfirm: true, message: msg };
-    }
-
-    return { requiresConfirm: false };
-  };
-
-  const handleOpenVehicleModal = (b: BillItem) => {
-    setTargetBillForVehicle(b);
-    setQuickVehicleInput(b.vehicleNumber || '');
-    setVehicleModalOpen(true);
-  };
-
-  const handleSaveQuickVehicle = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!targetBillForVehicle) return;
-
-    const targetState = (targetBillForVehicle.consigneeState || targetBillForVehicle.buyerState || '').toLowerCase();
-    const targetCode = (targetBillForVehicle.consigneeStateCode || targetBillForVehicle.buyerStateCode || '').trim();
-    const isDelhiTarget = targetState.includes('delhi') || targetCode === '07';
-    const vehCheck = checkVehicleCumulativeLimit(
-      quickVehicleInput,
-      Number(targetBillForVehicle.totalAmount) || 0,
-      isDelhiTarget,
-      targetBillForVehicle.eWayBillNo || '',
-      targetBillForVehicle.createdAt ? new Date(targetBillForVehicle.createdAt).toISOString().split('T')[0] : undefined
-    );
-    if (vehCheck.requiresConfirm) {
-      const proceed = window.confirm(vehCheck.message);
-      if (!proceed) return;
-    }
-
-    setIsSavingQuickVehicle(true);
+  // Fetch initial data
+  const fetchData = async () => {
+    setLoading(true);
     try {
-      const res = await fetch('/api/billing', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: targetBillForVehicle._id,
-          vehicleNumber: quickVehicleInput.trim(),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to update vehicle number');
+      // Fetch ETA containers
+      const etaRes = await fetch('/api/dispatcher?section=eta');
+      const etaData = await etaRes.json();
+      if (etaData.success) setEtaContainers(etaData.containers || []);
 
-      setBills((prev) =>
-        prev.map((b) =>
-          b._id === targetBillForVehicle._id ? { ...b, vehicleNumber: quickVehicleInput.trim() } : b
-        )
-      );
-      setVehicleModalOpen(false);
-      setTargetBillForVehicle(null);
-    } catch (err: any) {
-      alert(err.message || 'Error updating vehicle number');
-    } finally {
-      setIsSavingQuickVehicle(false);
-    }
-  };
-
-  // Fetch Containers
-  const fetchContainers = async () => {
-    try {
-      const res = await fetch('/api/billing/container-manifest');
-      if (res.ok) {
-        const data = await res.json();
-        setContainersList(data.containers || []);
+      // Fetch Delivery items
+      const delivRes = await fetch('/api/dispatcher?section=delivery');
+      const delivData = await delivRes.json();
+      if (delivData.success) {
+        setDeliveryItems(delivData.deliveryItems || []);
       }
+
+      // Fetch Bills
+      const billsRes = await fetch('/api/dispatcher?section=bills');
+      const billsData = await billsRes.json();
+      if (billsData.success) setBills(billsData.bills || []);
+
+      // Fetch Requests
+      const reqRes = await fetch('/api/dispatcher?section=requests');
+      const reqData = await reqRes.json();
+      if (reqData.success) setRequests(reqData.requests || []);
     } catch (e) {
-      console.error('Failed to load containers:', e);
-    }
-  };
-
-  // Fetch Markas and Bills (optionally filtered by container)
-  const fetchData = async (containerVal = selectedContainer) => {
-    setIsLoading(true);
-    try {
-      const containerParam = containerVal && containerVal !== 'all' ? `&container=${encodeURIComponent(containerVal)}` : '';
-      const markasParam = containerVal && containerVal !== 'all' ? `?container=${encodeURIComponent(containerVal)}` : '';
-
-      const [billsRes, markasRes] = await Promise.all([
-        fetch(`/api/billing?limit=300${containerParam}`),
-        fetch(`/api/billing/markas${markasParam}`),
-      ]);
-
-      if (billsRes.ok) {
-        const data = await billsRes.json();
-        setBills(data.bills || []);
-      }
-      if (markasRes.ok) {
-        const mData = await markasRes.json();
-        setMarkas(mData.markas || []);
-      }
-    } catch (err) {
-      console.error('Failed to load dispatcher data:', err);
+      console.error('Failed to fetch dispatcher data:', e);
     } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Fetch Marka Delivery Addresses
-  const fetchMarkaAddresses = async (markaName: string) => {
-    if (!markaName || markaName === 'all') {
-      setMarkaRecord(null);
-      setSelectedAddressId('');
-      return;
-    }
-
-    setIsLoadingAddress(true);
-    try {
-      const res = await fetch(`/api/marka-addresses?marka=${encodeURIComponent(markaName)}`);
-      if (res.ok) {
-        const data = await res.json();
-        const rec: MarkaAddressRecord | null = data.markaAddress;
-        setMarkaRecord(rec);
-
-        // Auto select default address or first address
-        if (rec && rec.addresses && rec.addresses.length > 0) {
-          const defaultAddr = rec.addresses.find((a) => a.isDefault) || rec.addresses[0];
-          setSelectedAddressId(defaultAddr._id || '');
-        } else {
-          setSelectedAddressId('');
-        }
-      }
-    } catch (err) {
-      console.error('Failed to fetch marka addresses:', err);
-    } finally {
-      setIsLoadingAddress(false);
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchContainers();
-    fetchData('all');
+    fetchData();
+    // Auto-refresh requests every 10s
+    const timer = setInterval(async () => {
+      try {
+        const reqRes = await fetch('/api/dispatcher?section=requests');
+        const reqData = await reqRes.json();
+        if (reqData.success) setRequests(reqData.requests || []);
+      } catch (e) {
+        // quiet
+      }
+    }, 10000);
+    return () => clearInterval(timer);
   }, []);
 
-  // Handle Container Change
-  const handleSelectContainer = (cName: string) => {
-    setSelectedContainer(cName);
-    setSelectedMarka('all');
-    setSelectedBillIds(new Set());
-    setMarkaRecord(null);
-    setSelectedAddressId('');
-    setDispatchedCartonsInput('');
-    setDispatchSuccessMsg(null);
-    fetchData(cName);
-  };
-
-  // Handle Marka Change
-  const handleSelectMarka = (mName: string) => {
-    setSelectedMarka(mName);
-    setDispatchSuccessMsg(null);
-
-    if (mName !== 'all') {
-      // Auto select all matching pending bills for this marka
-      const matchingPending = bills.filter(
-        (b) =>
-          !b.isDispatched &&
-          ((b.mainMarka && b.mainMarka.toLowerCase() === mName.toLowerCase()) ||
-            (b.subMarka && b.subMarka.toLowerCase() === mName.toLowerCase()))
-      );
-      setSelectedBillIds(new Set(matchingPending.map((b) => b._id)));
-
-      // Auto populate cartons to dispatch from pending total
-      const totalCartons = matchingPending.reduce((sum, b) => sum + (b.totalCartons || 0), 0);
-      setDispatchedCartonsInput(totalCartons > 0 ? totalCartons : '');
-
-      // Fetch addresses for this marka
-      fetchMarkaAddresses(mName);
-    } else {
-      setSelectedBillIds(new Set());
-      setMarkaRecord(null);
-      setSelectedAddressId('');
-      setDispatchedCartonsInput('');
-    }
-  };
-
-  // Toggle Single Bill Selection
-  const toggleSelectBill = (id: string) => {
-    const next = new Set(selectedBillIds);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setSelectedBillIds(next);
-
-    // Recalculate default cartons for selected bills
-    const selectedList = bills.filter((b) => next.has(b._id));
-    const sumCtn = selectedList.reduce((sum, b) => sum + (b.totalCartons || 0), 0);
-    setDispatchedCartonsInput(sumCtn > 0 ? sumCtn : '');
-
-    // If all selected bills belong to same marka and no marka selected, load its addresses
-    const uniqueMarkas = Array.from(new Set(selectedList.map((b) => b.mainMarka || b.subMarka).filter(Boolean)));
-    if (uniqueMarkas.length === 1 && selectedMarka === 'all') {
-      fetchMarkaAddresses(uniqueMarkas[0] as string);
-    }
-  };
-
-  // Filtered Bills
-  const filteredBills = useMemo(() => {
-    return bills.filter((b) => {
-      // Container filter
-      if (selectedContainer !== 'all') {
-        const matchesCont = b.container && b.container.toLowerCase().includes(selectedContainer.toLowerCase());
-        if (!matchesCont) return false;
-      }
-
-      // Marka filter
-      if (selectedMarka !== 'all') {
-        const matchesMain = b.mainMarka && b.mainMarka.toLowerCase() === selectedMarka.toLowerCase();
-        const matchesSub = b.subMarka && b.subMarka.toLowerCase() === selectedMarka.toLowerCase();
-        if (!matchesMain && !matchesSub) return false;
-      }
-
-      // Status filter
-      if (statusFilter === 'pending' && b.isDispatched) return false;
-      if (statusFilter === 'dispatched' && !b.isDispatched) return false;
-
-      // Search Query
-      if (!searchQuery.trim()) return true;
-      const q = searchQuery.toLowerCase();
-      return (
-        b.receipt.toLowerCase().includes(q) ||
-        b.billNumber.toLowerCase().includes(q) ||
-        (b.mainMarka && b.mainMarka.toLowerCase().includes(q)) ||
-        (b.subMarka && b.subMarka.toLowerCase().includes(q)) ||
-        (b.container && b.container.toLowerCase().includes(q)) ||
-        (b.party && b.party.toLowerCase().includes(q)) ||
-        (b.vehicleNumber && b.vehicleNumber.toLowerCase().includes(q))
-      );
-    });
-  }, [bills, selectedContainer, selectedMarka, statusFilter, searchQuery]);
-
-  // Select / Deselect All Filtered
-  const toggleSelectAllFiltered = () => {
-    if (selectedBillIds.size === filteredBills.length && filteredBills.length > 0) {
-      setSelectedBillIds(new Set());
-      setDispatchedCartonsInput('');
-    } else {
-      const allIds = new Set(filteredBills.map((b) => b._id));
-      setSelectedBillIds(allIds);
-      const sumCtn = filteredBills.reduce((sum, b) => sum + (b.totalCartons || 0), 0);
-      setDispatchedCartonsInput(sumCtn > 0 ? sumCtn : '');
-    }
-  };
-
-  // Selected Bills Details & Proportionate Calculations
-  const selectedBillsData = useMemo(() => {
-    const list = bills.filter((b) => selectedBillIds.has(b._id));
-    const totalPcs = list.reduce((sum, b) => sum + (b.quantityPcs || 0), 0);
-    const totalKg = list.reduce((sum, b) => sum + (b.quantityKg || 0), 0);
-    const totalCartons = list.reduce((sum, b) => sum + (b.totalCartons || 0), 0);
-    const totalTaxable = list.reduce((sum, b) => sum + (b.taxableValue || 0), 0);
-    const totalIgst = list.reduce((sum, b) => sum + (b.igstAmount || 0), 0);
-    const grandTotal = list.reduce((sum, b) => sum + (b.totalAmount || 0), 0);
-
-    // Primary billing unit chosen by biller (Pcs, KG, Cartons)
-    const billingUnits = Array.from(new Set(list.map((b) => b.billingUnit || 'Pcs')));
-    const primaryUnit = billingUnits[0] || 'Pcs';
-
-    // Proportionate ratio based on cartons input
-    let ratio = 1;
-    const dispCtn = typeof dispatchedCartonsInput === 'number' ? dispatchedCartonsInput : totalCartons;
-    if (totalCartons > 0 && dispCtn > 0) {
-      ratio = Math.min(1, dispCtn / totalCartons);
-    }
-
-    const proportionatePcs = Math.round(totalPcs * ratio);
-    const proportionateKg = Number((totalKg * ratio).toFixed(2));
-    const proportionateTaxable = Number((totalTaxable * ratio).toFixed(2));
-    const proportionateIgst = Number((totalIgst * ratio).toFixed(2));
-    const proportionateTotal = Number((grandTotal * ratio).toFixed(2));
-
-    return {
-      list,
-      totalPcs,
-      totalKg,
-      totalCartons,
-      totalTaxable,
-      totalIgst,
-      grandTotal,
-      primaryUnit,
-      ratio,
-      dispCtn,
-      proportionatePcs,
-      proportionateKg,
-      proportionateTaxable,
-      proportionateIgst,
-      proportionateTotal,
-      isPartial: ratio < 0.999 && totalCartons > 0,
-    };
-  }, [bills, selectedBillIds, dispatchedCartonsInput]);
-
-  // Selected Address Details
-  const activeAddress = useMemo(() => {
-    if (!markaRecord || !markaRecord.addresses) return null;
-    return markaRecord.addresses.find((a) => a._id === selectedAddressId) || markaRecord.addresses[0] || null;
-  }, [markaRecord, selectedAddressId]);
-
-  // Action: Save New or Edited Address
-  const handleSaveAddress = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const effectiveMarka = selectedMarka !== 'all' ? selectedMarka : markaRecord?.marka;
-    if (!effectiveMarka) {
-      alert('कृपया पहले एक मार्का (Marka) चुनें जिसके अंदर एड्रेस सेव करना है।');
+  // Lazy load cargo for container
+  const handleToggleContainerCargo = async (containerAlias: string) => {
+    if (expandedContainer === containerAlias) {
+      setExpandedContainer(null);
       return;
     }
+    setExpandedContainer(containerAlias);
 
-    if (!addressForm.address.trim()) {
-      alert('कृपया पूरा डिलीवरी पता (Address) दर्ज करें।');
-      return;
-    }
-
-    setIsSavingAddress(true);
-    try {
-      const stCode = addressForm.stateCode || getStateCodeByName(addressForm.state || 'Delhi') || '07';
-      if (editingAddressId) {
-        // Edit existing address
-        const res = await fetch('/api/marka-addresses', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            marka: effectiveMarka,
-            addressId: editingAddressId,
-            ...addressForm,
-            stateCode: stCode,
-          }),
-        });
+    if (!containerCargo[containerAlias]) {
+      setLoadingCargo((prev) => ({ ...prev, [containerAlias]: true }));
+      try {
+        const res = await fetch(`/api/dispatcher?section=container_cargo&container=${encodeURIComponent(containerAlias)}`);
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed to update address');
-        setMarkaRecord(data.markaAddress);
-      } else {
-        // Add new address
-        const res = await fetch('/api/marka-addresses', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            marka: effectiveMarka,
-            registrationType: addrRegType,
-            gstin: addrGstin.trim().toUpperCase(),
-            state: addressForm.state,
-            stateCode: stCode,
-            address: {
-              ...addressForm,
-              stateCode: stCode,
-            },
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed to add address');
-        setMarkaRecord(data.markaAddress);
-        if (data.markaAddress?.addresses?.length > 0) {
-          const lastAddr = data.markaAddress.addresses[data.markaAddress.addresses.length - 1];
-          setSelectedAddressId(lastAddr._id || '');
+        if (data.success) {
+          setContainerCargo((prev) => ({ ...prev, [containerAlias]: data.cargo || [] }));
         }
+      } catch (e) {
+        console.error('Failed to load cargo:', e);
+      } finally {
+        setLoadingCargo((prev) => ({ ...prev, [containerAlias]: false }));
       }
-
-      setShowAddressModal(false);
-      setEditingAddressId(null);
-      setAddrRegType('Registered');
-      setAddrGstin('');
-      setAddressForm({
-        title: '',
-        address: '',
-        city: 'Delhi',
-        state: 'Delhi',
-        stateCode: '07',
-        pincode: '',
-        contactPerson: '',
-        phone: '',
-        isDefault: false,
-      });
-    } catch (err: any) {
-      alert(err.message || 'Error saving address');
-    } finally {
-      setIsSavingAddress(false);
     }
   };
 
-  // Action: Delete Address
-  const handleDeleteAddress = async (addrId: string) => {
-    const effectiveMarka = selectedMarka !== 'all' ? selectedMarka : markaRecord?.marka;
-    if (!effectiveMarka || !addrId) return;
+  // Open Dispatch Modal for Receipt
+  const handleOpenDispatchModal = (receipt: DeliveryReceipt) => {
+    setSelectedReceipt(receipt);
+    setVehicleNumber('');
+    setCartonCount(receipt.remainingCartons > 0 ? receipt.remainingCartons : receipt.totalCartons);
+    setPlaceAddress('');
+    setRemarks('');
+    setActionSuccessMsg(null);
+    setDispatchModalOpen(true);
+  };
 
-    if (!confirm('क्या आप वाकई यह डिलीवरी एड्रेस हटाना चाहते हैं?')) return;
+  // Submit "Initiate for Billing" (बिलिंग के लिए भेजें)
+  const handleInitiateBilling = async () => {
+    if (!selectedReceipt) return;
+    if (!vehicleNumber.trim()) {
+      alert('कृपया गाड़ी नंबर (Gaadi Number) दर्ज करें।');
+      return;
+    }
+    if (!cartonCount || Number(cartonCount) <= 0) {
+      alert('कृपया सही कार्टून संख्या (Carton Count) दर्ज करें।');
+      return;
+    }
+    if (!placeAddress.trim()) {
+      alert('कृपया डिलीवरी का स्थान / पता (Place / Address) दर्ज करें।');
+      return;
+    }
 
+    setSubmitting(true);
     try {
-      const res = await fetch(
-        `/api/marka-addresses?marka=${encodeURIComponent(effectiveMarka)}&addressId=${encodeURIComponent(addrId)}`,
-        { method: 'DELETE' }
-      );
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to delete address');
-      setMarkaRecord(data.markaAddress);
-      if (selectedAddressId === addrId) {
-        setSelectedAddressId(data.markaAddress?.addresses?.[0]?._id || '');
-      }
-    } catch (err: any) {
-      alert(err.message || 'Error deleting address');
-    }
-  };
-
-  // Open Edit Modal
-  const openEditModal = (addr: DeliveryAddress) => {
-    setEditingAddressId(addr._id || null);
-    setAddrRegType(markaRecord?.registrationType || 'Registered');
-    setAddrGstin(markaRecord?.gstin || '');
-    setAddressForm({
-      title: addr.title || '',
-      address: addr.address || '',
-      city: addr.city || 'Delhi',
-      state: addr.state || 'Delhi',
-      stateCode: addr.stateCode || getStateCodeByName(addr.state || 'Delhi') || '07',
-      pincode: addr.pincode || '',
-      contactPerson: addr.contactPerson || '',
-      phone: addr.phone || '',
-      isDefault: Boolean(addr.isDefault),
-    });
-    setShowAddressModal(true);
-  };
-
-  // Action 1: Regenerate PDF with Vehicle Number, Address, and Proportionate Cartons
-  const handleRegeneratePDF = (targetBill?: BillItem, mode: 'bill' | 'both' | 'eway' = 'bill') => {
-    const vNo = vehicleNumber.trim() || targetBill?.vehicleNumber?.trim();
-    if (!vNo) {
-      alert('कृपया पहले गाड़ी नंबर (Vehicle Number) डालें ताकि पीडीएफ में गाड़ी नंबर दिख सके।');
-      return;
-    }
-
-    const formattedDeliveryAddress = activeAddress
-      ? `${activeAddress.title ? `[${activeAddress.title}] ` : ''}${activeAddress.address}, ${activeAddress.city || ''} ${activeAddress.state || ''} ${activeAddress.pincode ? `- ${activeAddress.pincode}` : ''}`
-      : undefined;
-
-    const triggerPdfDownload = (data: BillPdfData) => {
-      if (mode === 'both') {
-        generateBothBillAndEWayPDF(data, true);
-      } else if (mode === 'eway') {
-        generateEWayBillPDF(data, true);
-      } else {
-        generateBillPDF(data, true);
-      }
-    };
-
-    if (targetBill) {
-      // Regenerate for a single specific bill
-      const bRatio =
-        typeof dispatchedCartonsInput === 'number' && targetBill.totalCartons && targetBill.totalCartons > 0
-          ? Math.min(1, dispatchedCartonsInput / targetBill.totalCartons)
-          : 1;
-
-      const updatedData: BillPdfData = {
-        ...targetBill,
-        vehicleNumber: vNo,
-        isDispatched: true,
-        deliveryDate: dispatchDate,
-        deliveryTime: dispatchTime,
-        deliveryAddressTitle: activeAddress?.title,
-        deliveryAddress: formattedDeliveryAddress || targetBill.deliveryAddress,
-        deliveryPhone: activeAddress?.phone || targetBill.deliveryPhone,
-        totalCartons: targetBill.totalCartons,
-        dispatchedCartons: typeof dispatchedCartonsInput === 'number' ? dispatchedCartonsInput : targetBill.totalCartons,
-        billingUnit: targetBill.billingUnit || 'Pcs',
-        quantityPcs: bRatio < 1 ? Math.round((targetBill.quantityPcs || 0) * bRatio) : targetBill.quantityPcs,
-        quantityKg: bRatio < 1 ? Number(((targetBill.quantityKg || 0) * bRatio).toFixed(2)) : targetBill.quantityKg,
-        taxableValue: bRatio < 1 ? Number(((targetBill.taxableValue || 0) * bRatio).toFixed(2)) : targetBill.taxableValue,
-      };
-      triggerPdfDownload(updatedData);
-      return;
-    }
-
-    const selectedList = selectedBillsData.list;
-    if (selectedList.length === 0) {
-      alert('कृपया कम से कम एक बिल चुनें या बिल लिस्ट में से पीडीएफ डाउनलोड करें।');
-      return;
-    }
-
-    if (selectedList.length === 1) {
-      const b = selectedList[0];
-      const updatedData: BillPdfData = {
-        ...b,
-        vehicleNumber: vNo,
-        isDispatched: true,
-        deliveryDate: dispatchDate,
-        deliveryTime: dispatchTime,
-        deliveryAddressTitle: activeAddress?.title,
-        deliveryAddress: formattedDeliveryAddress || b.deliveryAddress,
-        deliveryPhone: activeAddress?.phone || b.deliveryPhone,
-        totalCartons: b.totalCartons,
-        dispatchedCartons: selectedBillsData.dispCtn,
-        billingUnit: b.billingUnit || 'Pcs',
-        quantityPcs: selectedBillsData.proportionatePcs,
-        quantityKg: selectedBillsData.proportionateKg,
-        taxableValue: selectedBillsData.proportionateTaxable,
-      };
-      triggerPdfDownload(updatedData);
-    } else {
-      // Consolidated Marka PDF
-      const markaLabel = selectedMarka !== 'all' ? selectedMarka : 'MULTI_MARKA';
-      const updatedList: BillPdfData[] = selectedList.map((b) => {
-        const itemRatio = selectedBillsData.ratio;
-        return {
-          ...b,
-          vehicleNumber: vNo,
-          isDispatched: true,
-          deliveryDate: dispatchDate,
-          deliveryTime: dispatchTime,
-          deliveryAddressTitle: activeAddress?.title,
-          deliveryAddress: formattedDeliveryAddress || b.deliveryAddress,
-          deliveryPhone: activeAddress?.phone || b.deliveryPhone,
-          totalCartons: b.totalCartons,
-          dispatchedCartons: Math.round((b.totalCartons || 0) * itemRatio),
-          billingUnit: b.billingUnit || 'Pcs',
-          quantityPcs: itemRatio < 1 ? Math.round((b.quantityPcs || 0) * itemRatio) : b.quantityPcs,
-          quantityKg: itemRatio < 1 ? Number(((b.quantityKg || 0) * itemRatio).toFixed(2)) : b.quantityKg,
-          taxableValue: itemRatio < 1 ? Number(((b.taxableValue || 0) * itemRatio).toFixed(2)) : b.taxableValue,
-        };
-      });
-      generateConsolidatedMarkaPDF(markaLabel, updatedList, vNo, formattedDeliveryAddress);
-    }
-  };
-
-  // Action 2: "दिस माल इस डिस्पैच्ड" (Mark as Dispatched & Record Date/Time)
-  const handleMarkAsDispatched = async () => {
-    const vNo = vehicleNumber.trim();
-    if (!vNo) {
-      alert('गाड़ी नंबर (Vehicle Number) दर्ज करना अनिवार्य है।');
-      return;
-    }
-
-    const targetIds = Array.from(selectedBillIds);
-    if (targetIds.length === 0) {
-      alert('कृपया जिन बिल्स का माल डिस्पैच करना है, उन्हें चेकबॉक्स से सेलेक्ट करें।');
-      return;
-    }
-
-    // Vehicle Cumulative Limit Check
-    const targetBills = bills.filter((b) => targetIds.includes(b._id));
-    const batchTotal = targetBills.reduce((sum, b) => sum + (Number(b.totalAmount) || 0), 0);
-    const anyOutsideDelhi = targetBills.some((b) => {
-      const st = (b.consigneeState || b.buyerState || '').toLowerCase();
-      const cd = (b.consigneeStateCode || b.buyerStateCode || '').trim();
-      return !st.includes('delhi') && cd !== '07';
-    });
-    const hasAllEWay = targetBills.every((b) => Boolean(b.eWayBillNo?.trim()));
-    const vehCheck = checkVehicleCumulativeLimit(
-      vNo,
-      batchTotal,
-      !anyOutsideDelhi,
-      hasAllEWay ? 'YES' : '',
-      dispatchDate
-    );
-    if (vehCheck.requiresConfirm) {
-      const proceed = window.confirm(vehCheck.message);
-      if (!proceed) return;
-    }
-
-    setIsSubmittingDispatch(true);
-    setDispatchSuccessMsg(null);
-
-    const formattedDeliveryAddress = activeAddress
-      ? `${activeAddress.title ? `[${activeAddress.title}] ` : ''}${activeAddress.address}, ${activeAddress.city || ''} ${activeAddress.state || ''} ${activeAddress.pincode ? `- ${activeAddress.pincode}` : ''}`
-      : undefined;
-
-    try {
-      const res = await fetch('/api/billing/dispatch', {
+      const res = await fetch('/api/dispatcher', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          billIds: targetIds,
-          vehicleNumber: vNo,
-          deliveryDate: dispatchDate,
-          deliveryTime: dispatchTime,
+          action: 'initiate_billing',
+          receipt: selectedReceipt.receipt,
+          container: selectedReceipt.container,
+          marka: selectedReceipt.marka,
+          party: selectedReceipt.party,
+          commodity: selectedReceipt.commodity,
+          vehicleNumber: vehicleNumber.trim().toUpperCase(),
+          cartonCount: Number(cartonCount),
+          totalCartons: selectedReceipt.totalCartons,
+          place: placeAddress.trim(),
           remarks: remarks.trim(),
-          deliveryAddressTitle: activeAddress?.title,
-          deliveryAddress: formattedDeliveryAddress,
-          deliveryPhone: activeAddress?.phone,
-          dispatchedCartons: typeof dispatchedCartonsInput === 'number' ? dispatchedCartonsInput : undefined,
         }),
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to dispatch bills');
+      if (!res.ok) throw new Error(data.error || 'Failed to initiate billing');
 
-      const cartonText = typeof dispatchedCartonsInput === 'number' ? ` (${dispatchedCartonsInput} Cartons)` : '';
-      setDispatchSuccessMsg(
-        `✓ सफलता! ${data.dispatchedCount} बिलों का माल गाड़ी नंबर '${vNo}'${cartonText} के साथ डिस्पैच मार्क हो गया है। कंटेनर डिलीवरी डेटा अपडेट हो गया है!`
-      );
+      // Trigger instant sound chime
+      triggerNotificationAlert({
+        title: '🚚 Dispatch Request Sent to Biller',
+        body: `Receipt ${selectedReceipt.receipt} -> Gaadi: ${vehicleNumber.trim().toUpperCase()} (${cartonCount} CTN)`,
+      });
 
-      // Offer to auto-download regenerated PDF
-      if (confirm('माल डिस्पैच हो गया है! क्या आप रीजेनरेटेड डिस्पैच पीडीएफ डाउनलोड करना चाहते हैं?')) {
-        handleRegeneratePDF();
-      }
-
-      // Reset selection and refresh
-      setSelectedBillIds(new Set());
-      setVehicleNumber('');
-      setRemarks('');
-      setDispatchedCartonsInput('');
-      await fetchData(selectedContainer);
-    } catch (err: any) {
-      alert(err?.message || 'Error marking as dispatched');
+      setActionSuccessMsg(`✓ सफलता! रसीद ${selectedReceipt.receipt} हेतु बिलिंग अनुरोध बिलर को भेज दिया गया है।`);
+      setTimeout(() => {
+        setDispatchModalOpen(false);
+        fetchData();
+        setActiveTab('requests');
+      }, 1200);
+    } catch (e: any) {
+      alert(e?.message || 'Error initiating billing');
     } finally {
-      setIsSubmittingDispatch(false);
+      setSubmitting(false);
     }
   };
 
-  // Summary Metrics
-  const metrics = useMemo(() => {
-    let pendingCount = 0;
-    let dispatchedCount = 0;
-    let totalCartons = 0;
-    for (const b of bills) {
-      if (b.isDispatched) dispatchedCount++;
-      else pendingCount++;
-      totalCartons += b.totalCartons || 0;
+  // Submit Self-Billing (खुद से बिलिंग बनाएँ)
+  const handleSelfBill = async () => {
+    if (!selectedReceipt) return;
+    if (!vehicleNumber.trim()) {
+      alert('गाड़ी नंबर दर्ज करना अनिवार्य है।');
+      return;
     }
-    return {
-      total: bills.length,
-      pending: pendingCount,
-      dispatched: dispatchedCount,
-      markasCount: markas.length,
-      totalCartons,
-    };
-  }, [bills, markas]);
+    if (!cartonCount || Number(cartonCount) <= 0) {
+      alert('कार्टून संख्या दर्ज करें।');
+      return;
+    }
+    if (!placeAddress.trim()) {
+      alert('डिलीवरी स्थान / पता दर्ज करें।');
+      return;
+    }
 
-  // Handle Logout
+    setSubmitting(true);
+    try {
+      const res = await fetch('/api/dispatcher', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'self_bill',
+          receipt: selectedReceipt.receipt,
+          container: selectedReceipt.container,
+          marka: selectedReceipt.marka,
+          party: selectedReceipt.party,
+          commodity: selectedReceipt.commodity,
+          vehicleNumber: vehicleNumber.trim().toUpperCase(),
+          cartonCount: Number(cartonCount),
+          place: placeAddress.trim(),
+          taxableValue: selfBillTaxable,
+          igstRate: selfBillIgst,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to self bill');
+
+      triggerNotificationAlert({
+        title: '🧾 Self-Bill Created Successfully',
+        body: `Bill #${data.bill?.billNumber} generated for ${selectedReceipt.receipt}`,
+      });
+
+      alert(`✓ बिल सफलतापूर्वक तैयार हो गया है! बिल नंबर: ${data.bill?.billNumber}`);
+      setSelfBillModalOpen(false);
+      setDispatchModalOpen(false);
+      fetchData();
+      setActiveTab('bills');
+    } catch (e: any) {
+      alert(e?.message || 'Error creating self bill');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Filtered views based on search
+  const filteredEtaContainers = useMemo(() => {
+    if (!searchQuery.trim()) return etaContainers;
+    const q = searchQuery.toLowerCase();
+    return etaContainers.filter(
+      (c) =>
+        c.container.toLowerCase().includes(q) ||
+        (c.containerNumber && c.containerNumber.toLowerCase().includes(q)) ||
+        (c.status && c.status.toLowerCase().includes(q))
+    );
+  }, [etaContainers, searchQuery]);
+
+  const filteredDeliveryItems = useMemo(() => {
+    if (!searchQuery.trim()) return deliveryItems;
+    const q = searchQuery.toLowerCase();
+    return deliveryItems.filter(
+      (r) =>
+        r.receipt.toLowerCase().includes(q) ||
+        r.marka.toLowerCase().includes(q) ||
+        r.container.toLowerCase().includes(q) ||
+        r.party.toLowerCase().includes(q) ||
+        r.salesStatus.toLowerCase().includes(q)
+    );
+  }, [deliveryItems, searchQuery]);
+
+  const filteredBills = useMemo(() => {
+    if (!searchQuery.trim()) return bills;
+    const q = searchQuery.toLowerCase();
+    return bills.filter(
+      (b) =>
+        b.billNumber.toLowerCase().includes(q) ||
+        b.receipt.toLowerCase().includes(q) ||
+        (b.mainMarka && b.mainMarka.toLowerCase().includes(q)) ||
+        (b.vehicleNumber && b.vehicleNumber.toLowerCase().includes(q)) ||
+        (b.party && b.party.toLowerCase().includes(q))
+    );
+  }, [bills, searchQuery]);
+
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
     router.push('/admin/login');
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 pb-24">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       {/* Top Header */}
       <header className="bg-slate-900/95 backdrop-blur border-b border-slate-800 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2 sm:py-0 min-h-16 flex flex-wrap items-center justify-between gap-2.5">
-          <div className="flex items-center space-x-2.5 sm:space-x-3">
-            <div className="p-1.5 sm:p-2 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 shrink-0">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2.5 flex items-center justify-between gap-3">
+          <div className="flex items-center space-x-3">
+            <div className="p-2 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400">
               <Truck className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
             <div>
-              <div className="flex items-center space-x-1.5 sm:space-x-2">
+              <div className="flex items-center space-x-2">
                 <span className="font-black text-sm sm:text-base text-white tracking-tight">US INTERNATIONAL</span>
                 <span className="px-2 py-0.5 text-[9px] sm:text-[10px] font-black uppercase tracking-wider bg-emerald-500 text-slate-950 rounded-full">
                   Dispatcher Portal (डिस्पैचर)
                 </span>
               </div>
               <p className="text-[10px] sm:text-xs text-slate-400 hidden sm:block">
-                Container $\rightarrow$ Marka $\rightarrow$ Vehicle Allotment $\rightarrow$ Cartons Proportionate & Multi-Address
+                ETA In-Transit Cargo $\rightarrow$ Available to Deliver Dispatches $\rightarrow$ Live Biller Sync
               </p>
             </div>
           </div>
 
-          <div className="flex items-center space-x-1.5 sm:space-x-2">
-            <Link
-              href="/biller"
-              className="inline-flex items-center space-x-1 sm:space-x-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition border border-slate-700"
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => {
+                triggerNotificationAlert({
+                  title: '🔔 Sound Test Alert',
+                  body: 'Inter-user live notification bell is working perfectly!',
+                });
+              }}
+              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 transition"
+              title="Test Notification Sound & Vibration"
             >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-amber-400" />
-              <span>Biller</span>
-            </Link>
-            <Link
-              href="/admin"
-              className="hidden sm:inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition border border-slate-700"
-            >
-              <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
-              <span>Admin</span>
-            </Link>
+              <Volume2 className="w-4 h-4" />
+            </button>
+
             <button
               onClick={() => setShowPasswordModal(true)}
-              className="inline-flex items-center space-x-1 sm:space-x-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-amber-950/40 hover:bg-amber-900/50 border border-amber-800/40 text-amber-300 text-xs font-semibold transition"
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-amber-950/40 hover:bg-amber-900/50 border border-amber-800/40 text-amber-300 text-xs font-semibold transition"
               title="Change Password"
             >
               <Key className="w-3.5 h-3.5" />
-              <span>Password</span>
+              <span className="hidden sm:inline">Password</span>
             </button>
+
+            <Link
+              href="/biller"
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition border border-slate-700"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">Biller</span>
+            </Link>
+
             <button
               onClick={handleLogout}
-              className="inline-flex items-center space-x-1 sm:space-x-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-red-950/40 hover:bg-red-900/50 border border-red-800/40 text-red-300 text-xs font-semibold transition"
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-red-950/40 hover:bg-red-900/50 border border-red-800/40 text-red-300 text-xs font-semibold transition"
             >
               <LogOut className="w-3.5 h-3.5" />
               <span className="hidden xs:inline">Logout</span>
             </button>
           </div>
         </div>
+
+        {/* 3 Main Sections Navigation Tabs (Google Sheet-like grid tabs) */}
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 flex items-center space-x-1 overflow-x-auto border-t border-slate-800/80 pt-1">
+          <button
+            onClick={() => setActiveTab('delivery')}
+            className={`px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center space-x-2 whitespace-nowrap ${
+              activeTab === 'delivery'
+                ? 'border-emerald-500 text-emerald-400 bg-emerald-500/10'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Truck className="w-4 h-4" />
+            <span>2. Delivery Section (Available to Deliver)</span>
+            <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-emerald-500/20 text-emerald-300">
+              {deliveryItems.filter((d) => d.salesStatus === 'Available to Deliver').length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('eta')}
+            className={`px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center space-x-2 whitespace-nowrap ${
+              activeTab === 'eta'
+                ? 'border-blue-500 text-blue-400 bg-blue-500/10'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Ship className="w-4 h-4" />
+            <span>1. ETA (Container List)</span>
+            <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-blue-500/20 text-blue-300">
+              {etaContainers.length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('bills')}
+            className={`px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center space-x-2 whitespace-nowrap ${
+              activeTab === 'bills'
+                ? 'border-purple-500 text-purple-400 bg-purple-500/10'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <FileText className="w-4 h-4" />
+            <span>3. Billing Section (Generated Bills)</span>
+            <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-purple-500/20 text-purple-300">
+              {bills.length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('requests')}
+            className={`px-4 py-2.5 text-xs font-bold border-b-2 transition flex items-center space-x-2 whitespace-nowrap ${
+              activeTab === 'requests'
+                ? 'border-amber-500 text-amber-400 bg-amber-500/10'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Clock className="w-4 h-4" />
+            <span>Pending Dispatch Requests</span>
+            <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-amber-500/20 text-amber-300">
+              {requests.filter((r) => r.status === 'Pending').length}
+            </span>
+          </button>
+        </div>
       </header>
 
       {/* Main Container */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-6">
-        {/* KPI Metrics */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-            <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
-              <span>Ready for Dispatch</span>
-              <Clock className="w-4 h-4 text-amber-400" />
-            </div>
-            <div className="text-2xl font-black text-amber-400">{metrics.pending}</div>
-            <span className="text-[11px] text-slate-500">Awaiting गाड़ी नंबर</span>
+      <main className="max-w-7xl mx-auto px-3 sm:px-6 py-6 space-y-5 flex-1 w-full">
+        {/* Search & Actions Bar */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shadow-lg">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by Container, Receipt, Marka, Party, or Vehicle Number..."
+              className="w-full bg-slate-950 border border-slate-700/80 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+            />
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-            <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
-              <span>Dispatched Cargo</span>
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-            </div>
-            <div className="text-2xl font-black text-emerald-400">{metrics.dispatched}</div>
-            <span className="text-[11px] text-slate-500">Delivered via Vehicle</span>
-          </div>
-
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-            <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
-              <span>Markas in Scope</span>
-              <Layers className="w-4 h-4 text-cyan-400" />
-            </div>
-            <div className="text-2xl font-black text-cyan-300">{metrics.markasCount}</div>
-            <span className="text-[11px] text-slate-500">Shipping marks</span>
-          </div>
-
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-            <div className="flex items-center justify-between text-slate-400 text-xs mb-1">
-              <span>Total Packaging Cartons</span>
-              <Box className="w-4 h-4 text-purple-400" />
-            </div>
-            <div className="text-2xl font-black text-purple-300">{metrics.totalCartons.toLocaleString('en-IN')} CTN</div>
-            <span className="text-[11px] text-slate-500">Packaging Cartons</span>
-          </div>
+          <button
+            onClick={fetchData}
+            disabled={loading}
+            className="inline-flex items-center justify-center space-x-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-emerald-400' : ''}`} />
+            <span>Refresh Data</span>
+          </button>
         </div>
 
-        {/* STEP 1: CONTAINER SELECTOR (कंटेनर नंबर चुनें) */}
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div className="flex items-center space-x-2">
-              <span className="p-1.5 bg-blue-500/10 text-blue-400 rounded-lg">
-                <Box className="w-4 h-4" />
+        {/* SECTION 1: ETA (CONTAINER LIST - IN TRANSIT) */}
+        {activeTab === 'eta' && (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Ship className="w-5 h-5 text-blue-400" />
+                <div>
+                  <h2 className="text-sm font-bold text-white uppercase tracking-wide">
+                    Section 1: ETA - In-Transit Containers
+                  </h2>
+                  <p className="text-[11px] text-slate-400">
+                    Click any container row to expand and lazy-load its underlying cargo items
+                  </p>
+                </div>
+              </div>
+              <span className="text-xs text-blue-400 font-mono font-bold">
+                {filteredEtaContainers.length} Containers In Transit
               </span>
-              <div>
-                <h2 className="text-sm font-black text-white uppercase tracking-wider">
-                  Step 1: कंटेनर नंबर चुनें (Select Container)
-                </h2>
-                <p className="text-[11px] text-slate-400">
-                  डिस्पैचर पहले कंटेनर चुनेगा ताकि केवल उसी कंटेनर के मार्का दिखाई दें
-                </p>
-              </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-              <div className="relative">
-                <input
-                  type="text"
-                  list="dispatcher-containers-list"
-                  value={selectedContainer === 'all' ? '' : selectedContainer}
-                  onChange={(e) => handleSelectContainer(e.target.value || 'all')}
-                  placeholder="कंटेनर नं. टाइप करें (e.g. 208)"
-                  className="w-44 sm:w-52 px-3 py-2 rounded-xl bg-slate-950 border border-blue-500/50 text-xs font-black text-blue-300 placeholder-slate-500 focus:ring-2 focus:ring-blue-500 outline-none uppercase"
-                />
-                <datalist id="dispatcher-containers-list">
-                  <option value="all">All Containers</option>
-                  {containersList.map((c) => (
-                    <option key={c.container} value={c.container}>
-                      {c.container} ({c.shipmentCount || 0} shipments)
-                    </option>
-                  ))}
-                </datalist>
-              </div>
-
-              <select
-                value={selectedContainer}
-                onChange={(e) => handleSelectContainer(e.target.value)}
-                className="bg-slate-950 border border-slate-700 text-white text-xs font-bold rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer max-w-[200px]"
-              >
-                <option value="all">📦 All Containers (सभी)</option>
-                {containersList.map((c) => (
-                  <option key={c._id || c.container} value={c.container}>
-                    {c.container} {c.containerNumber ? `(${c.containerNumber})` : ''} - {c.shipmentCount || 0} shipments
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Quick Container Buttons */}
-          <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-thin">
-            <button
-              onClick={() => handleSelectContainer('all')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1 flex-shrink-0 ${
-                selectedContainer === 'all'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
-                  : 'bg-slate-800 text-slate-300 hover:text-white'
-              }`}
-            >
-              <span>All Containers</span>
-            </button>
-
-            {containersList.slice(0, 8).map((c) => (
-              <button
-                key={c._id || c.container}
-                onClick={() => handleSelectContainer(c.container)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1 flex-shrink-0 ${
-                  selectedContainer.toLowerCase() === c.container.toLowerCase()
-                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
-                    : 'bg-slate-800 text-slate-300 hover:text-white border border-slate-700/50'
-                }`}
-              >
-                <span>{c.container}</span>
-                {c.isDelivered ? (
-                  <span className="w-2 h-2 rounded-full bg-emerald-400" title="Delivered" />
-                ) : (
-                  <span className="w-2 h-2 rounded-full bg-amber-400" title="In Transit / Port" />
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* STEP 2: MARKA SELECTOR (मार्का चुनें) */}
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <span className="p-1.5 bg-cyan-500/10 text-cyan-400 rounded-lg">
-                <Layers className="w-4 h-4" />
-              </span>
-              <div>
-                <h2 className="text-sm font-black text-white uppercase tracking-wider">
-                  Step 2: मार्का चुनें (Select Marka)
-                </h2>
-                <p className="text-[11px] text-slate-400">
-                  डिस्पैचर मार्का समझता है। मार्का चुनते ही उसके सारे पेंडिंग बिल्स और कार्टून सेलेक्ट हो जाएंगे।
-                </p>
-              </div>
-            </div>
-            <span className="text-xs text-slate-400">{markas.length} Available Markas</span>
-          </div>
-
-          <div className="flex items-center space-x-2 overflow-x-auto pb-2 scrollbar-thin">
-            <button
-              onClick={() => handleSelectMarka('all')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 flex-shrink-0 ${
-                selectedMarka === 'all'
-                  ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20'
-                  : 'bg-slate-800 text-slate-400 hover:text-white'
-              }`}
-            >
-              <span>All Markas</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-950/40 text-slate-200">
-                {bills.length}
-              </span>
-            </button>
-
-            {markas.map((m) => {
-              const isSelected = selectedMarka.toLowerCase() === m.marka.toLowerCase();
-              return (
-                <button
-                  key={m.marka}
-                  onClick={() => handleSelectMarka(m.marka)}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 flex-shrink-0 ${
-                    isSelected
-                      ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20'
-                      : 'bg-slate-800 text-slate-300 hover:text-white border border-slate-700/60'
-                  }`}
-                >
-                  <span className="font-extrabold">{m.marka}</span>
-                  {m.remainingCartons > 0 && (
-                    <span
-                      className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${
-                        isSelected ? 'bg-slate-950 text-emerald-400' : 'bg-purple-950 text-purple-300 border border-purple-700/50'
-                      }`}
-                      title="Remaining Cartons"
-                    >
-                      {m.remainingCartons} CTN
-                    </span>
-                  )}
-                  {m.pendingBills > 0 && (
-                    <span
-                      className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${
-                        isSelected ? 'bg-slate-950 text-amber-300' : 'bg-amber-500 text-slate-950'
-                      }`}
-                      title="Pending Bills"
-                    >
-                      {m.pendingBills} Bills
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* STEP 3 & 4: DISPATCH CONTROL + CARTON PROPORTIONATE + MULTI-ADDRESS MANAGER */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* LEFT 2 COLUMNS: VEHICLE & CARTON PROPORTIONATE CALCULATION */}
-          <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5">
-            <div className="flex items-center space-x-2 border-b border-slate-800 pb-3">
-              <span className="p-1.5 bg-emerald-500/10 text-emerald-400 rounded-lg">
-                <Truck className="w-4 h-4" />
-              </span>
-              <div>
-                <h2 className="text-sm font-black text-white uppercase tracking-wider">
-                  Step 3: गाड़ी नंबर & कार्टून संख्या (Vehicle Allotment & Cartons Proportionate)
-                </h2>
-                <p className="text-[11px] text-slate-400">
-                  गाड़ी नंबर और कार्टून डालें - सिस्टम बिलर द्वारा तय यूनिट (Pcs/KG/Cartons) के अनुसार अनुपातिक कैलकुलेशन करेगा
-                </p>
-              </div>
-            </div>
-
-            {dispatchSuccessMsg && (
-              <div className="p-4 rounded-2xl bg-emerald-950/80 border border-emerald-700 text-emerald-300 text-xs font-semibold flex items-center space-x-2">
-                <CheckCircle2 className="w-5 h-5 flex-shrink-0 text-emerald-400" />
-                <span>{dispatchSuccessMsg}</span>
-              </div>
-            )}
-
-            {/* Inputs Form */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              {/* Vehicle Number Input */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center justify-between">
-                  <span>गाड़ी नंबर (Vehicle Number) *</span>
-                  <span className="text-[10px] text-slate-400">e.g. DL 1AA 1234</span>
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    required
-                    value={vehicleNumber}
-                    onChange={(e) => setVehicleNumber(e.target.value.toUpperCase())}
-                    placeholder="HR 55 AB 1234"
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-black uppercase tracking-wider"
-                  />
-                  <Truck className="w-4 h-4 text-emerald-500 absolute left-3.5 top-3" />
-                </div>
-              </div>
-
-              {/* Cartons to Dispatch Input (कार्टून संख्या) */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold uppercase tracking-wider text-purple-400 flex items-center justify-between">
-                  <span>कार्टून संख्या (Cartons to Dispatch) *</span>
-                  <span className="text-[10px] text-slate-400">
-                    Total: {selectedBillsData.totalCartons} CTN
-                  </span>
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    min="1"
-                    max={selectedBillsData.totalCartons || undefined}
-                    value={dispatchedCartonsInput}
-                    onChange={(e) => {
-                      const val = e.target.value === '' ? '' : parseInt(e.target.value, 10);
-                      setDispatchedCartonsInput(isNaN(val as number) ? '' : val);
-                    }}
-                    placeholder={selectedBillsData.totalCartons ? String(selectedBillsData.totalCartons) : '0'}
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-purple-800/60 text-purple-200 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm font-black"
-                  />
-                  <Box className="w-4 h-4 text-purple-400 absolute left-3.5 top-3" />
-                </div>
-              </div>
-
-              {/* Dispatch Date */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-300">
-                  तारीख (Dispatch Date)
-                </label>
-                <div className="relative">
-                  <input
-                    type="date"
-                    value={dispatchDate}
-                    onChange={(e) => setDispatchDate(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-semibold"
-                  />
-                  <Calendar className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
-                </div>
-              </div>
-
-              {/* Dispatch Time */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-300">
-                  समय (Dispatch Time)
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={dispatchTime}
-                    onChange={(e) => setDispatchTime(e.target.value)}
-                    placeholder="11:45 AM"
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-semibold"
-                  />
-                  <Clock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
-                </div>
-              </div>
-
-              {/* Remarks / Driver Notes */}
-              <div className="space-y-1.5 md:col-span-2">
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-300">
-                  रिमार्क्स (Driver / Dispatch Notes)
-                </label>
-                <input
-                  type="text"
-                  value={remarks}
-                  onChange={(e) => setRemarks(e.target.value)}
-                  placeholder="Direct delivery to client godown via GT Road"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-medium"
-                />
-              </div>
-            </div>
-
-            {/* LIVE PROPORTIONATE CALCULATION PANEL */}
-            {selectedBillsData.list.length > 0 && (
-              <div className="bg-slate-950/90 border border-purple-900/50 rounded-2xl p-4 space-y-3.5 shadow-inner">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-purple-900/30 pb-2.5">
-                  <div className="flex items-center space-x-2">
-                    <Calculator className="w-4 h-4 text-purple-400" />
-                    <span className="text-xs font-black text-purple-200 uppercase tracking-wider">
-                      कार्टून अनुपातिक कैलकुलेटर (Proportionate Preview)
-                    </span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <span className="px-2.5 py-1 rounded-lg text-[11px] font-black bg-purple-950 border border-purple-600 text-purple-200">
-                      ★ Biller Unit: {selectedBillsData.primaryUnit}
-                    </span>
-                    {selectedBillsData.isPartial ? (
-                      <span className="px-2 py-1 rounded-lg text-[10px] font-black bg-amber-950 border border-amber-700 text-amber-300 flex items-center space-x-1">
-                        <Percent className="w-3 h-3" />
-                        <span>Partial ({(selectedBillsData.ratio * 100).toFixed(1)}%)</span>
-                      </span>
-                    ) : (
-                      <span className="px-2 py-1 rounded-lg text-[10px] font-black bg-emerald-950 border border-emerald-700 text-emerald-300">
-                        Full Dispatch (100%)
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Biller's Unit Decision Banner */}
-                <div className="p-3 rounded-xl border text-xs space-y-1 bg-slate-900 border-slate-800">
-                  <div className="flex items-center space-x-1.5 text-cyan-300 font-black text-[11px] uppercase tracking-wider">
-                    <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>बिलर का निर्णय (Biller's Decision on Unit):</span>
-                  </div>
-                  <div className="text-[11px] text-slate-300 leading-relaxed pl-5">
-                    {selectedBillsData.primaryUnit === 'Cartons' && (
-                      <p>
-                        🎯 <strong>कार्टून यूनिट (Billed in Cartons):</strong> बिलर ने इस माल का बिल <strong>कार्टून</strong> में तय किया है। डिस्पैचर ने <strong>{selectedBillsData.dispCtn} कार्टून</strong> दर्ज किए हैं। बिल मुख्य रूप से कार्टून संख्या पर जारी होगा।
-                      </p>
-                    )}
-                    {selectedBillsData.primaryUnit === 'Pcs' && (
-                      <p>
-                        🎯 <strong>पीस यूनिट (Billed in Pieces):</strong> बिलर ने इस माल का बिल <strong>पीस</strong> में तय किया है। डिस्पैचर ने केवल कार्टून डाले (<strong>{selectedBillsData.dispCtn} CTN</strong>) $\rightarrow$ कुल {selectedBillsData.totalCartons} कार्टून के अनुपात ({(selectedBillsData.ratio * 100).toFixed(1)}%) से <strong>{selectedBillsData.proportionatePcs.toLocaleString('en-IN')} पीस</strong> का बिल स्वतः तैयार होगा।
-                      </p>
-                    )}
-                    {selectedBillsData.primaryUnit === 'KG' && (
-                      <p>
-                        🎯 <strong>वजन यूनिट (Billed in KG):</strong> बिलर ने इस माल का बिल <strong>वजन (KG)</strong> में तय किया है। डिस्पैचर ने केवल कार्टून डाले (<strong>{selectedBillsData.dispCtn} CTN</strong>) $\rightarrow$ कुल {selectedBillsData.totalCartons} कार्टून के अनुपात ({(selectedBillsData.ratio * 100).toFixed(1)}%) से <strong>{selectedBillsData.proportionateKg.toLocaleString('en-IN')} KG</strong> का बिल स्वतः तैयार होगा।
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {/* 4 Cards Breakdown */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                  <div className={`p-2.5 rounded-xl border ${selectedBillsData.primaryUnit === 'Cartons' ? 'bg-purple-950/40 border-purple-600 ring-1 ring-purple-500' : 'bg-slate-900 border-slate-800'}`}>
-                    <div className="flex items-center justify-between text-slate-400 text-[10px] mb-0.5">
-                      <span>Cartons (कार्टून)</span>
-                      {selectedBillsData.primaryUnit === 'Cartons' && <span className="text-[9px] font-black text-purple-400">★ Main</span>}
-                    </div>
-                    <span className="font-black text-purple-300 text-sm">
-                      {selectedBillsData.dispCtn} / {selectedBillsData.totalCartons} CTN
-                    </span>
-                    <span className="block text-[9px] text-slate-500 mt-0.5">डिस्पैचर इनपुट</span>
-                  </div>
-
-                  <div className={`p-2.5 rounded-xl border ${selectedBillsData.primaryUnit === 'Pcs' ? 'bg-purple-950/40 border-purple-600 ring-1 ring-purple-500' : 'bg-slate-900 border-slate-800'}`}>
-                    <div className="flex items-center justify-between text-slate-400 text-[10px] mb-0.5">
-                      <span>Pieces (पीस)</span>
-                      {selectedBillsData.primaryUnit === 'Pcs' && <span className="text-[9px] font-black text-cyan-400">★ Main</span>}
-                    </div>
-                    <span className="font-black text-purple-200 text-sm">
-                      {selectedBillsData.proportionatePcs.toLocaleString('en-IN')} Pcs
-                    </span>
-                    <span className="block text-[9px] text-slate-500 mt-0.5">कुल: {selectedBillsData.totalPcs.toLocaleString('en-IN')}</span>
-                  </div>
-
-                  <div className={`p-2.5 rounded-xl border ${selectedBillsData.primaryUnit === 'KG' ? 'bg-purple-950/40 border-purple-600 ring-1 ring-purple-500' : 'bg-slate-900 border-slate-800'}`}>
-                    <div className="flex items-center justify-between text-slate-400 text-[10px] mb-0.5">
-                      <span>Weight (वजन)</span>
-                      {selectedBillsData.primaryUnit === 'KG' && <span className="text-[9px] font-black text-cyan-400">★ Main</span>}
-                    </div>
-                    <span className="font-black text-cyan-300 text-sm">
-                      {selectedBillsData.proportionateKg.toLocaleString('en-IN')} KG
-                    </span>
-                    <span className="block text-[9px] text-slate-500 mt-0.5">कुल: {selectedBillsData.totalKg.toLocaleString('en-IN')}</span>
-                  </div>
-
-                  <div className="p-2.5 rounded-xl border bg-slate-900 border-slate-800">
-                    <span className="text-slate-400 block text-[10px] mb-0.5">Taxable (₹ राशि)</span>
-                    <span className="font-black text-emerald-400 text-sm">
-                      ₹{selectedBillsData.proportionateTaxable.toLocaleString('en-IN')}
-                    </span>
-                    <span className="block text-[9px] text-slate-500 mt-0.5">कुल: ₹{selectedBillsData.totalTaxable.toLocaleString('en-IN')}</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ACTION BUTTONS */}
-            <div className="flex flex-col sm:flex-row items-center justify-between bg-slate-950 border border-slate-800/80 rounded-2xl p-4 gap-3">
-              <div className="text-xs text-slate-400">
-                Selected Bills:{' '}
-                <span className="font-bold text-white text-sm">{selectedBillIds.size}</span>
-                {selectedMarka !== 'all' && (
-                  <span className="ml-2 text-cyan-400">
-                    (Marka: <strong className="text-white">{selectedMarka}</strong>)
-                  </span>
-                )}
-                {activeAddress && (
-                  <span className="ml-2 text-emerald-400">
-                    (Address: <strong className="text-white">{activeAddress.title || 'Selected'}</strong>)
-                  </span>
-                )}
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
-                {/* Button: PRINT BOTH (INVOICE + E-WAY BILL) */}
-                <button
-                  type="button"
-                  onClick={() => handleRegeneratePDF(undefined, 'both')}
-                  disabled={!vehicleNumber.trim() || selectedBillIds.size === 0}
-                  className="flex-1 sm:flex-initial px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-xl text-xs transition shadow-lg shadow-emerald-950/40 flex items-center justify-center space-x-1.5 disabled:opacity-40"
-                  title="बिल और सरकारी ई-वे बिल दोनों एक साथ प्रिंट करें (Print Both Invoice & Government e-Way Bill in 1 PDF)"
-                >
-                  <Printer className="w-4 h-4" />
-                  <span>🖨️ Print Both (Bill + e-Way)</span>
-                </button>
-
-                {/* Button 1: REGENERATE INVOICE PDF */}
-                <button
-                  type="button"
-                  onClick={() => handleRegeneratePDF(undefined, 'bill')}
-                  disabled={!vehicleNumber.trim() || selectedBillIds.size === 0}
-                  className="flex-1 sm:flex-initial px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/30 font-bold rounded-xl text-xs transition shadow-lg flex items-center justify-center space-x-2 disabled:opacity-40"
-                >
-                  <FileText className="w-4 h-4" />
-                  <span>Invoice PDF</span>
-                </button>
-
-                {/* Button 2: MARK AS DISPATCHED */}
-                <button
-                  type="button"
-                  onClick={handleMarkAsDispatched}
-                  disabled={isSubmittingDispatch || !vehicleNumber.trim() || selectedBillIds.size === 0}
-                  className="flex-1 sm:flex-initial px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition shadow-lg shadow-emerald-950/50 flex items-center justify-center space-x-2 disabled:opacity-40"
-                >
-                  {isSubmittingDispatch ? (
-                    <>
-                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      <span>Updating Container & Dispatching...</span>
-                    </>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-950/80 text-slate-400 border-b border-slate-800 text-[11px] uppercase tracking-wider font-semibold">
+                    <th className="py-3 px-4">Container Alias</th>
+                    <th className="py-3 px-4">Loading Date</th>
+                    <th className="py-3 px-4">Port / ETA</th>
+                    <th className="py-3 px-4">Carrier Status</th>
+                    <th className="py-3 px-4 text-center">Packages</th>
+                    <th className="py-3 px-4">Weight / Volume</th>
+                    <th className="py-3 px-4 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {filteredEtaContainers.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-12 text-center text-slate-500">
+                        No in-transit containers found.
+                      </td>
+                    </tr>
                   ) : (
-                    <>
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>दिस माल इस डिस्पैच्ड (Mark as Dispatched)</span>
-                    </>
+                    filteredEtaContainers.map((c) => {
+                      const isExpanded = expandedContainer === c.container;
+                      const cargoList = containerCargo[c.container] || [];
+                      const isLoadingCargo = loadingCargo[c.container];
+
+                      return (
+                        <tr key={c.container} className="contents">
+                          <tr
+                            onClick={() => handleToggleContainerCargo(c.container)}
+                            className="hover:bg-slate-800/50 cursor-pointer transition"
+                          >
+                            <td className="py-3 px-4 font-black text-white flex items-center space-x-2">
+                              {isExpanded ? (
+                                <ChevronUp className="w-4 h-4 text-blue-400" />
+                              ) : (
+                                <ChevronDown className="w-4 h-4 text-slate-500" />
+                              )}
+                              <span className="text-blue-300 font-mono text-sm">{c.container}</span>
+                              {c.containerNumber && (
+                                <span className="text-[10px] text-slate-500 font-mono">({c.containerNumber})</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-slate-300">
+                              <div className="flex items-center space-x-1">
+                                <Calendar className="w-3.5 h-3.5 text-slate-500" />
+                                <span>{c.loadingDate || '—'}</span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 font-bold text-amber-400">
+                              <div className="flex items-center space-x-1">
+                                <Clock className="w-3.5 h-3.5 text-amber-500" />
+                                <span>{c.eta || 'Awaiting Port ETA'}</span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-blue-950 text-blue-300 border border-blue-800/60">
+                                {c.status || 'In Transit'}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-center font-bold text-purple-300 font-mono">
+                              {c.totalQuantity ? `${c.totalQuantity} CTN` : '—'}
+                            </td>
+                            <td className="py-3 px-4 text-slate-400 font-mono text-[11px]">
+                              {c.totalWeight || '—'} / {c.totalVolume || '—'}
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleToggleContainerCargo(c.container);
+                                }}
+                                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-blue-300 border border-slate-700 rounded-lg text-[11px] font-semibold"
+                              >
+                                {isExpanded ? 'Hide Cargo' : 'View Cargo'}
+                              </button>
+                            </td>
+                          </tr>
+
+                          {/* Expanded Container Cargo Items */}
+                          {isExpanded && (
+                            <tr>
+                              <td colSpan={7} className="bg-slate-950/90 p-4 border-y border-blue-900/40">
+                                <div className="space-y-3">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center space-x-2">
+                                      <Box className="w-4 h-4 text-blue-400" />
+                                      <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                                        Cargo inside Container {c.container}
+                                      </h4>
+                                    </div>
+                                    {isLoadingCargo && (
+                                      <div className="flex items-center space-x-2 text-xs text-blue-400">
+                                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                        <span>Lazy loading items...</span>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {!isLoadingCargo && cargoList.length === 0 ? (
+                                    <p className="text-xs text-slate-500 py-3 text-center">
+                                      No cargo items loaded in this container manifest yet.
+                                    </p>
+                                  ) : (
+                                    <div className="overflow-x-auto rounded-xl border border-slate-800">
+                                      <table className="w-full text-left text-xs bg-slate-900/60">
+                                        <thead>
+                                          <tr className="border-b border-slate-800 text-[10px] text-slate-400 uppercase">
+                                            <th className="py-2 px-3">Receipt #</th>
+                                            <th className="py-2 px-3">Marka</th>
+                                            <th className="py-2 px-3">Party / Client</th>
+                                            <th className="py-2 px-3">Commodity</th>
+                                            <th className="py-2 px-3 text-center">Cartons</th>
+                                            <th className="py-2 px-3">Weight / CBM</th>
+                                            <th className="py-2 px-3">Sales Status</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-800/60 font-sans">
+                                          {cargoList.map((cargo, idx) => (
+                                            <tr key={cargo._id || idx} className="hover:bg-slate-800/40">
+                                              <td className="py-2 px-3 font-mono font-bold text-blue-300">
+                                                {cargo.receipt}
+                                              </td>
+                                              <td className="py-2 px-3 font-black text-white">{cargo.mainMarka || '—'}</td>
+                                              <td className="py-2 px-3 text-slate-300">{cargo.party || '—'}</td>
+                                              <td className="py-2 px-3 text-slate-400">{cargo.commodity || '—'}</td>
+                                              <td className="py-2 px-3 text-center font-bold text-purple-300 font-mono">
+                                                {cargo.packages} CTN
+                                              </td>
+                                              <td className="py-2 px-3 font-mono text-[11px] text-slate-400">
+                                                {cargo.weight || '—'} / {cargo.volume || '—'}
+                                              </td>
+                                              <td className="py-2 px-3">
+                                                <span
+                                                  className={`px-2 py-0.5 text-[9px] font-bold rounded-full ${
+                                                    cargo.salesStatus === 'Available to Deliver'
+                                                      ? 'bg-emerald-950 text-emerald-300 border border-emerald-700'
+                                                      : cargo.salesStatus === 'Hold'
+                                                      ? 'bg-red-950 text-red-300 border border-red-700'
+                                                      : 'bg-slate-800 text-slate-300'
+                                                  }`}
+                                                >
+                                                  {cargo.salesStatus || 'Normal'}
+                                                </span>
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </tr>
+                      );
+                    })
                   )}
-                </button>
-              </div>
+                </tbody>
+              </table>
             </div>
           </div>
+        )}
 
-          {/* RIGHT 1 COLUMN: MULTIPLE DELIVERY ADDRESSES MANAGER FOR MARKA */}
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4 flex flex-col justify-between">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <div className="flex items-center space-x-2">
-                  <span className="p-1.5 bg-emerald-500/10 text-emerald-400 rounded-lg">
-                    <MapPin className="w-4 h-4" />
-                  </span>
-                  <div>
-                    <h2 className="text-sm font-black text-white uppercase tracking-wider">
-                      Step 4: डिलीवरी एड्रेस (Delivery Addresses)
-                    </h2>
-                    <p className="text-[11px] text-slate-400">
-                      मार्का के अंदर मल्टीपल एड्रेस जोड़ें, एडिट या डिलीट करें
-                    </p>
-                  </div>
+        {/* SECTION 2: DELIVERY (DELIVERED CONTAINERS & AVAILABLE TO DELIVER) */}
+        {activeTab === 'delivery' && (
+          <div className="space-y-4">
+            {/* Notification Alert Banner */}
+            <div className="bg-emerald-950/40 border border-emerald-800/50 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl">
+                  <CheckCircle2 className="w-5 h-5" />
                 </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingAddressId(null);
-                    setAddressForm({
-                      title: '',
-                      address: '',
-                      city: 'Delhi',
-                      state: 'Delhi',
-                      pincode: '',
-                      contactPerson: '',
-                      phone: '',
-                      isDefault: false,
-                    });
-                    setShowAddressModal(true);
-                  }}
-                  className="px-2.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-600/40 rounded-xl text-xs font-bold transition flex items-center space-x-1"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add Address</span>
-                </button>
+                <div>
+                  <h3 className="text-sm font-bold text-white">
+                    डिलीवरी सेक्शन (Delivery Section): Available to Deliver Only
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    केवल वही माल बिलिंग हेतु प्रोसेस किया जा सकता है जिसे सेल्स हेड द्वारा "Available to Deliver" मार्क किया गया है।
+                  </p>
+                </div>
               </div>
 
-              {/* Purchaser Details Info Card */}
-              {markaRecord ? (
-                <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 text-xs space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">
-                      Purchaser / Party
-                    </span>
-                    <span
-                      className={`text-[9px] font-black px-2 py-0.5 rounded-full ${
-                        markaRecord.registrationType === 'Unregistered'
-                          ? 'bg-amber-950 text-amber-400 border border-amber-800/40'
-                          : 'bg-emerald-950 text-emerald-400 border border-emerald-800/40'
-                      }`}
-                    >
-                      {markaRecord.registrationType === 'Unregistered' ? 'URP (Unregistered)' : 'Registered Party'}
-                    </span>
-                  </div>
-                  <div className="font-bold text-white text-sm">
-                    {markaRecord.purchaserName || markaRecord.marka}
-                  </div>
-                  {markaRecord.gstin && (
-                    <div className="text-[11px] text-slate-400 font-mono">
-                      GSTIN: <span className="text-slate-200">{markaRecord.gstin}</span>
-                    </div>
-                  )}
-                  <div className="text-[11px] text-slate-400">
-                    State: <span className="text-slate-200">{markaRecord.state || 'Delhi'}</span>
-                  </div>
-                </div>
-              ) : selectedMarka !== 'all' ? (
-                <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800 text-xs text-slate-400">
-                  Loading purchaser details for {selectedMarka}...
-                </div>
-              ) : (
-                <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800 text-xs text-slate-400">
-                  Select a Marka above to view and manage delivery addresses.
-                </div>
-              )}
-
-              {/* Address List */}
-              <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1 scrollbar-thin">
-                {isLoadingAddress ? (
-                  <div className="p-4 text-center text-xs text-slate-500">Loading addresses...</div>
-                ) : !markaRecord || !markaRecord.addresses || markaRecord.addresses.length === 0 ? (
-                  <div className="p-4 bg-slate-950/50 rounded-2xl border border-dashed border-slate-800 text-center text-xs text-slate-500 space-y-2">
-                    <MapPin className="w-6 h-6 text-slate-600 mx-auto" />
-                    <p>No delivery address added yet for this Marka.</p>
-                    <button
-                      type="button"
-                      onClick={() => setShowAddressModal(true)}
-                      className="px-3 py-1.5 bg-emerald-600 text-white rounded-xl text-xs font-bold"
-                    >
-                      + Add Delivery Address Now
-                    </button>
-                  </div>
-                ) : (
-                  markaRecord.addresses.map((addr) => {
-                    const isSelected = selectedAddressId === addr._id;
-                    return (
-                      <div
-                        key={addr._id}
-                        onClick={() => setSelectedAddressId(addr._id || '')}
-                        className={`p-3 rounded-2xl border cursor-pointer transition relative space-y-1 text-xs ${
-                          isSelected
-                            ? 'bg-emerald-950/30 border-emerald-500/60 shadow-lg'
-                            : 'bg-slate-950 border-slate-800 hover:border-slate-700'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
-                            <input
-                              type="radio"
-                              name="selectedAddress"
-                              checked={isSelected}
-                              onChange={() => setSelectedAddressId(addr._id || '')}
-                              className="text-emerald-500 focus:ring-emerald-500"
-                            />
-                            <span className="font-black text-white">{addr.title || 'Delivery Godown'}</span>
-                            {addr.isDefault && (
-                              <span className="text-[9px] px-1.5 py-0.2 bg-slate-800 text-slate-300 rounded font-bold">
-                                Default
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="flex items-center space-x-1" onClick={(e) => e.stopPropagation()}>
-                            <button
-                              type="button"
-                              onClick={() => openEditModal(addr)}
-                              className="p-1 hover:bg-slate-800 text-slate-400 hover:text-cyan-300 rounded"
-                              title="Edit Address"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteAddress(addr._id || '')}
-                              className="p-1 hover:bg-red-950/50 text-slate-400 hover:text-red-400 rounded"
-                              title="Delete Address"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-
-                        <p className="text-slate-300 pl-5 text-[11px] leading-relaxed">{addr.address}</p>
-                        <div className="pl-5 text-[10px] text-slate-500 flex flex-wrap gap-2">
-                          {addr.city && <span>City: {addr.city}</span>}
-                          {addr.state && <span>State: {addr.state}</span>}
-                          {addr.phone && <span>Ph: {addr.phone}</span>}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-
-            {/* Address Selection Preview Note */}
-            {activeAddress && (
-              <div className="p-2.5 bg-emerald-950/40 border border-emerald-800/40 rounded-xl text-[11px] text-emerald-300 flex items-center space-x-2">
-                <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-400" />
-                <span className="truncate">
-                  Destination: <strong>{activeAddress.title}</strong> ({activeAddress.city || 'Delhi'})
+              <div className="flex items-center space-x-2 text-xs">
+                <span className="px-2.5 py-1 bg-emerald-900/60 text-emerald-300 rounded-lg font-mono font-bold">
+                  {deliveryItems.filter((i) => i.salesStatus === 'Available to Deliver').length} Receipts Ready
                 </span>
               </div>
-            )}
-          </div>
-        </div>
-
-        {/* STEP 5: BILLS LIST & TRACKER TABLE */}
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <h2 className="text-base font-black text-white flex items-center space-x-2">
-                <span>Step 5: माल डिस्पैच लिस्ट (Bills & Delivery Tracker)</span>
-                {selectedContainer !== 'all' && (
-                  <span className="px-2 py-0.5 bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded-full text-xs font-bold">
-                    Container: {selectedContainer}
-                  </span>
-                )}
-                {selectedMarka !== 'all' && (
-                  <span className="px-2 py-0.5 bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded-full text-xs font-bold">
-                    Marka: {selectedMarka}
-                  </span>
-                )}
-              </h2>
-              <p className="text-xs text-slate-400">
-                Select bills to allot vehicle number, regenerate PDF, or confirm delivery.
-              </p>
             </div>
 
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={() => fetchData(selectedContainer)}
-                className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition"
-                title="Refresh bills"
-              >
-                <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-              </button>
-
-              <div className="flex bg-slate-950 border border-slate-800 rounded-xl p-1 text-xs font-semibold">
-                <button
-                  onClick={() => setStatusFilter('pending')}
-                  className={`px-3 py-1 rounded-lg transition ${
-                    statusFilter === 'pending'
-                      ? 'bg-emerald-500 text-slate-950 font-bold'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  Pending ({metrics.pending})
-                </button>
-                <button
-                  onClick={() => setStatusFilter('dispatched')}
-                  className={`px-3 py-1 rounded-lg transition ${
-                    statusFilter === 'dispatched'
-                      ? 'bg-emerald-500 text-slate-950 font-bold'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  Dispatched ({metrics.dispatched})
-                </button>
-                <button
-                  onClick={() => setStatusFilter('all')}
-                  className={`px-3 py-1 rounded-lg transition ${
-                    statusFilter === 'all'
-                      ? 'bg-emerald-500 text-slate-950 font-bold'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  All ({metrics.total})
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Search bar & Select All toggle */}
-          <div className="flex items-center space-x-3">
-            <div className="relative flex-1">
-              <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search Receipt, Marka, Container, Vehicle..."
-                className="w-full pl-10 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              />
-            </div>
-
-            <button
-              onClick={toggleSelectAllFiltered}
-              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl transition border border-slate-700 flex items-center space-x-1.5"
-            >
-              {selectedBillIds.size === filteredBills.length && filteredBills.length > 0 ? (
-                <>
-                  <CheckSquare className="w-4 h-4 text-emerald-400" />
-                  <span>Deselect All</span>
-                </>
-              ) : (
-                <>
-                  <Square className="w-4 h-4 text-slate-400" />
-                  <span>Select All ({filteredBills.length})</span>
-                </>
-              )}
-            </button>
-          </div>
-
-          {/* Table */}
-          <div className="overflow-x-auto rounded-2xl border border-slate-800">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead className="bg-slate-950 text-slate-400">
-                <tr>
-                  <th className="p-3.5 text-center w-10">Select</th>
-                  <th className="p-3.5">Receipt / Bill</th>
-                  <th className="p-3.5">Marka (मार्का)</th>
-                  <th className="p-3.5">Container</th>
-                  <th className="p-3.5">Packaging (Cartons)</th>
-                  <th className="p-3.5 text-center">Unit</th>
-                  <th className="p-3.5 text-right">Pcs</th>
-                  <th className="p-3.5 text-right">KG</th>
-                  <th className="p-3.5 text-right">Taxable (₹)</th>
-                  <th className="p-3.5 text-center">गाड़ी नंबर (Vehicle)</th>
-                  <th className="p-3.5 text-center">Delivery / Dispatch Info</th>
-                  <th className="p-3.5 text-center">PDF</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800 bg-slate-900/40">
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={12} className="p-8 text-center text-slate-500">
-                      <div className="inline-block w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mb-2" />
-                      <p>Loading cargo dispatch records...</p>
-                    </td>
-                  </tr>
-                ) : filteredBills.length === 0 ? (
-                  <tr>
-                    <td colSpan={12} className="p-8 text-center text-slate-500">
-                      No matching cargo bills found for the selected container and filters.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredBills.map((b) => {
-                    const isSelected = selectedBillIds.has(b._id);
-                    return (
-                      <tr
-                        key={b._id}
-                        onClick={() => toggleSelectBill(b._id)}
-                        className={`cursor-pointer transition ${
-                          isSelected ? 'bg-emerald-950/30' : 'hover:bg-slate-800/40'
-                        }`}
-                      >
-                        <td className="p-3.5 text-center" onClick={(e) => e.stopPropagation()}>
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => toggleSelectBill(b._id)}
-                            className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 bg-slate-900 border-slate-700 cursor-pointer"
-                          />
-                        </td>
-                        <td className="p-3.5">
-                          <div className="font-bold text-white">{b.receipt}</div>
-                          <div className="text-[10px] text-slate-500 font-mono">{b.billNumber}</div>
-                        </td>
-                        <td className="p-3.5">
-                          <span className="font-bold text-cyan-300">
-                            {b.mainMarka || b.subMarka || '—'}
-                          </span>
-                          {b.party && (
-                            <div className="text-[10px] text-slate-500 truncate max-w-[120px]">{b.party}</div>
-                          )}
-                        </td>
-                        <td className="p-3.5 text-slate-300 font-medium">{b.container || '—'}</td>
-                        <td className="p-3.5 text-purple-300 font-semibold">
-                          {b.dispatchedCartons ? (
-                            <span>
-                              {b.dispatchedCartons} / {b.totalCartons || b.dispatchedCartons} CTN
-                            </span>
-                          ) : (
-                            <span>{b.totalCartons || 0} CTN</span>
-                          )}
-                        </td>
-                        <td className="p-3.5 text-center">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
-                            {b.billingUnit || 'Pcs'}
-                          </span>
-                        </td>
-                        <td className="p-3.5 text-right text-purple-200 font-semibold">
-                          {Number(b.quantityPcs || 0).toLocaleString('en-IN')}
-                        </td>
-                        <td className="p-3.5 text-right text-cyan-300 font-semibold">
-                          {Number(b.quantityKg || 0).toLocaleString('en-IN')}
-                        </td>
-                        <td className="p-3.5 text-right text-emerald-400 font-semibold">
-                          ₹{Number(b.taxableValue || 0).toLocaleString('en-IN')}
-                        </td>
-                        <td className="p-3.5 text-center" onClick={(e) => e.stopPropagation()}>
-                          <div className="inline-flex items-center justify-center space-x-1">
-                            {b.vehicleNumber ? (
-                              <span className="px-2.5 py-1 bg-emerald-950 border border-emerald-700 text-emerald-300 rounded-lg font-black text-xs font-mono">
-                                {b.vehicleNumber}
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 bg-amber-950/40 border border-amber-800/40 text-amber-400 rounded text-[10px]">
-                                Pending Vehicle
-                              </span>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => handleOpenVehicleModal(b)}
-                              title="गाड़ी नंबर अपडेट करें (Edit Vehicle No)"
-                              className="p-1 hover:bg-slate-800 text-slate-400 hover:text-amber-300 rounded-lg transition"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </td>
-                        <td className="p-3.5 text-center">
-                          {b.isDispatched ? (
-                            <div>
-                              <span className="inline-flex items-center space-x-1 px-2 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-full text-[10px] font-black">
-                                <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                                <span>दिस माल इस डिस्पैच्ड</span>
-                              </span>
-                              <div className="text-[10px] text-slate-400 mt-0.5">
-                                {b.deliveryDate} {b.deliveryTime || ''}
-                              </div>
-                            </div>
-                          ) : (
-                            <span className="inline-flex items-center space-x-1 px-2 py-0.5 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full text-[10px] font-bold">
-                              <Clock className="w-3 h-3" />
-                              <span>Ready for Dispatch</span>
-                            </span>
-                          )}
-                        </td>
-                        <td className="p-3.5 text-center" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center justify-center space-x-1.5">
-                            {/* Print Both (Invoice + e-Way Bill) */}
-                            <button
-                              type="button"
-                              onClick={() => handleRegeneratePDF(b, 'both')}
-                              title="बिल और सरकारी ई-वे बिल दोनों एक साथ प्रिंट करें (Print Both Invoice & e-Way Bill)"
-                              className="p-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-lg transition shadow flex items-center space-x-1"
-                            >
-                              <Printer className="w-3.5 h-3.5" />
-                              <span className="hidden xl:inline text-[9px] font-black">BOTH</span>
-                            </button>
-
-                            {/* Print Actual Government e-Way Bill Standalone */}
-                            <button
-                              type="button"
-                              onClick={() => handleRegeneratePDF(b, 'eway')}
-                              title="सरकारी ई-वे बिल प्रिंट करें (Print Actual Government e-Way Bill PDF)"
-                              className="p-1.5 bg-slate-800 hover:bg-indigo-500/30 hover:text-indigo-300 text-slate-300 rounded-lg transition border border-slate-700"
-                            >
-                              <Truck className="w-3.5 h-3.5 text-indigo-400" />
-                            </button>
-
-                            {/* Regenerate Invoice PDF */}
-                            <button
-                              type="button"
-                              onClick={() => handleRegeneratePDF(b, 'bill')}
-                              title="Regenerate & Download Invoice PDF with Vehicle No."
-                              className="p-1.5 bg-slate-800 hover:bg-amber-500/20 hover:text-amber-300 text-slate-300 rounded-lg transition"
-                            >
-                              <Download className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
+            {/* Delivery Items Grid */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-950/80 text-slate-400 border-b border-slate-800 text-[11px] uppercase tracking-wider font-semibold">
+                      <th className="py-3 px-4">Receipt #</th>
+                      <th className="py-3 px-4">Marka</th>
+                      <th className="py-3 px-4">Container</th>
+                      <th className="py-3 px-4">Party</th>
+                      <th className="py-3 px-4">Commodity</th>
+                      <th className="py-3 px-4 text-center">Remaining CTN</th>
+                      <th className="py-3 px-4">Sales Status</th>
+                      <th className="py-3 px-4 text-right">Dispatch Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {filteredDeliveryItems.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="py-12 text-center text-slate-500">
+                          No receipts available for delivery.
                         </td>
                       </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </main>
+                    ) : (
+                      filteredDeliveryItems.map((r) => {
+                        const isAvailable = r.salesStatus === 'Available to Deliver';
+                        const isHold = r.salesStatus === 'Hold';
 
-      {/* ADD / EDIT DELIVERY ADDRESS MODAL */}
-      {showAddressModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div className="flex items-center space-x-2">
-                <span className="p-1.5 bg-emerald-500/10 text-emerald-400 rounded-lg">
-                  <MapPin className="w-4 h-4" />
-                </span>
-                <h3 className="text-sm font-black text-white uppercase tracking-wider">
-                  {editingAddressId ? 'Edit Delivery Address' : 'Add New Delivery Address'}
-                  {selectedMarka !== 'all' && (
-                    <span className="ml-2 text-cyan-400 font-normal">({selectedMarka})</span>
-                  )}
-                </h3>
+                        return (
+                          <tr
+                            key={r._id}
+                            className={`transition ${
+                              isAvailable
+                                ? 'hover:bg-emerald-950/20 bg-slate-900/90'
+                                : 'hover:bg-slate-800/40 opacity-70'
+                            }`}
+                          >
+                            <td className="py-3 px-4 font-mono font-bold text-white">
+                              {r.receipt}
+                            </td>
+                            <td className="py-3 px-4 font-black text-emerald-400 text-sm">
+                              {r.marka}
+                            </td>
+                            <td className="py-3 px-4 font-mono text-blue-300">
+                              {r.container}
+                            </td>
+                            <td className="py-3 px-4 text-slate-300">
+                              {r.party}
+                            </td>
+                            <td className="py-3 px-4 text-slate-400">
+                              {r.commodity || '—'}
+                            </td>
+                            <td className="py-3 px-4 text-center font-mono font-bold text-purple-300">
+                              {r.remainingCartons} / {r.totalCartons} CTN
+                            </td>
+                            <td className="py-3 px-4">
+                              <span
+                                className={`px-2.5 py-1 text-[10px] font-bold rounded-full ${
+                                  isAvailable
+                                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse'
+                                    : isHold
+                                    ? 'bg-red-500/20 text-red-300 border border-red-500/40'
+                                    : 'bg-slate-800 text-slate-400'
+                                }`}
+                              >
+                                {r.salesStatus}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              {isAvailable ? (
+                                <button
+                                  onClick={() => handleOpenDispatchModal(r)}
+                                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs shadow-lg shadow-emerald-600/30 transition transform hover:scale-105"
+                                >
+                                  <Truck className="w-3.5 h-3.5" />
+                                  <span>गाड़ी में लोड / बिलिंग</span>
+                                </button>
+                              ) : (
+                                <span className="text-[11px] text-slate-500 italic">
+                                  {isHold ? 'On Hold by Sales Head' : 'Awaiting Clearance'}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
               </div>
-              <button
-                onClick={() => setShowAddressModal(false)}
-                className="p-1 text-slate-400 hover:text-white rounded-lg"
-              >
-                <X className="w-4 h-4" />
-              </button>
+            </div>
+          </div>
+        )}
+
+        {/* SECTION 3: BILLS (GENERATED BILLS & DOWNLOAD PDF) */}
+        {activeTab === 'bills' && (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <FileText className="w-5 h-5 text-purple-400" />
+                <div>
+                  <h2 className="text-sm font-bold text-white uppercase tracking-wide">
+                    Section 3: Bills & Invoices Generated by Biller
+                  </h2>
+                  <p className="text-[11px] text-slate-400">
+                    Download and print official tax bills, e-way bill details, and vehicle delivery sheets
+                  </p>
+                </div>
+              </div>
+              <span className="text-xs text-purple-400 font-mono font-bold">
+                {filteredBills.length} Bills Total
+              </span>
             </div>
 
-            <form onSubmit={handleSaveAddress} className="space-y-3.5 text-xs">
-              {/* Registration Type & GSTIN */}
-              <div className="p-2.5 bg-slate-950/80 border border-slate-800 rounded-xl space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-bold text-slate-300">
-                    पार्टी रजिस्ट्रेशन (Registration Type)
-                  </label>
-                  <div className="flex bg-slate-900 border border-slate-700 rounded-lg p-0.5 text-[9px] font-bold">
-                    <button
-                      type="button"
-                      onClick={() => setAddrRegType('Registered')}
-                      className={`px-2 py-0.5 rounded transition ${
-                        addrRegType === 'Registered' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      Registered (GSTIN)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAddrRegType('Unregistered');
-                        setAddrGstin('');
-                      }}
-                      className={`px-2 py-0.5 rounded transition ${
-                        addrRegType === 'Unregistered' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      Unregistered (URP)
-                    </button>
-                  </div>
-                </div>
-
-                {addrRegType === 'Registered' ? (
-                  <div>
-                    <label className="text-[9px] font-bold text-emerald-400 block mb-1">
-                      15-Digit GSTIN Number (राज्य स्वतः सेट होगा)
-                    </label>
-                    <input
-                      type="text"
-                      value={addrGstin}
-                      onChange={(e) => {
-                        const upper = e.target.value.toUpperCase();
-                        setAddrGstin(upper);
-                        if (upper.length >= 2) {
-                          const stObj = getStateByGstinOrCode(upper);
-                          if (stObj) {
-                            setAddressForm({
-                              ...addressForm,
-                              state: stObj.name,
-                              stateCode: stObj.code,
-                            });
-                          }
-                        }
-                      }}
-                      placeholder="e.g. 07AAAAA0000A1Z5"
-                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-emerald-500/50 rounded-xl text-emerald-300 font-mono font-bold uppercase text-xs"
-                    />
-                  </div>
-                ) : (
-                  <p className="text-[10px] text-amber-400/90 italic">
-                    ℹ गैर-पंजीकृत पार्टी (URP) - कोई GSTIN दर्ज करने की आवश्यकता नहीं है।
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-slate-300 font-bold uppercase text-[10px]">
-                  Address Title / Godown Name *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={addressForm.title}
-                  onChange={(e) => setAddressForm({ ...addressForm, title: e.target.value })}
-                  placeholder="e.g. Main Godown / Branch 2 / Store 5"
-                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-semibold"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-slate-300 font-bold uppercase text-[10px]">Full Address *</label>
-                <textarea
-                  rows={2}
-                  required
-                  value={addressForm.address}
-                  onChange={(e) => setAddressForm({ ...addressForm, address: e.target.value })}
-                  placeholder="e.g. Plot No 42, Gali No 3, Mayapuri Industrial Area Phase 2"
-                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-slate-300 font-bold uppercase text-[10px]">City</label>
-                  <input
-                    type="text"
-                    value={addressForm.city}
-                    onChange={(e) => setAddressForm({ ...addressForm, city: e.target.value })}
-                    placeholder="Delhi"
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-slate-300 font-bold uppercase text-[10px]">State (राज्य)</label>
-                  <select
-                    value={addressForm.state}
-                    onChange={(e) => {
-                      const st = e.target.value;
-                      const code = getStateCodeByName(st) || addressForm.stateCode;
-                      setAddressForm({ ...addressForm, state: st, stateCode: code });
-                    }}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-xs"
-                  >
-                    {INDIAN_STATES.map((st) => (
-                      <option key={st.name} value={st.name}>
-                        {st.name} ({st.code})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-slate-300 font-bold uppercase text-[10px]">Pincode</label>
-                  <input
-                    type="text"
-                    value={addressForm.pincode}
-                    onChange={(e) => setAddressForm({ ...addressForm, pincode: e.target.value })}
-                    placeholder="110064"
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-slate-300 font-bold uppercase text-[10px]">Phone Number</label>
-                  <input
-                    type="text"
-                    value={addressForm.phone}
-                    onChange={(e) => setAddressForm({ ...addressForm, phone: e.target.value })}
-                    placeholder="+91 9876543210"
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-slate-300 font-bold uppercase text-[10px]">Contact Person</label>
-                <input
-                  type="text"
-                  value={addressForm.contactPerson}
-                  onChange={(e) => setAddressForm({ ...addressForm, contactPerson: e.target.value })}
-                  placeholder="e.g. Ramesh Kumar"
-                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
-                />
-              </div>
-
-              <label className="flex items-center space-x-2 pt-1 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={addressForm.isDefault}
-                  onChange={(e) => setAddressForm({ ...addressForm, isDefault: e.target.checked })}
-                  className="rounded text-emerald-500 focus:ring-emerald-500"
-                />
-                <span className="text-slate-300 text-[11px] font-semibold">
-                  Set as default delivery address for this Marka
-                </span>
-              </label>
-
-              <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowAddressModal(false)}
-                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSavingAddress}
-                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition flex items-center space-x-1.5 disabled:opacity-50"
-                >
-                  {isSavingAddress ? (
-                    <span>Saving...</span>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-950/80 text-slate-400 border-b border-slate-800 text-[11px] uppercase tracking-wider font-semibold">
+                    <th className="py-3 px-4">Bill #</th>
+                    <th className="py-3 px-4">Receipt #</th>
+                    <th className="py-3 px-4">Marka</th>
+                    <th className="py-3 px-4">Vehicle No (गाड़ी)</th>
+                    <th className="py-3 px-4">Delivery Address (Place)</th>
+                    <th className="py-3 px-4 text-center">Cartons</th>
+                    <th className="py-3 px-4 text-right">Amount (₹)</th>
+                    <th className="py-3 px-4 text-center">PDF Download</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {filteredBills.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-12 text-center text-slate-500">
+                        No bills generated yet.
+                      </td>
+                    </tr>
                   ) : (
-                    <span>{editingAddressId ? 'Update Address' : 'Save Address'}</span>
+                    filteredBills.map((b) => (
+                      <tr key={b._id} className="hover:bg-slate-800/40 transition">
+                        <td className="py-3 px-4 font-mono font-bold text-purple-300">
+                          {b.billNumber}
+                        </td>
+                        <td className="py-3 px-4 font-mono text-slate-300">{b.receipt}</td>
+                        <td className="py-3 px-4 font-black text-white">{b.mainMarka || '—'}</td>
+                        <td className="py-3 px-4 font-mono font-bold text-amber-400">
+                          {b.vehicleNumber || '—'}
+                        </td>
+                        <td className="py-3 px-4 text-slate-300 max-w-xs truncate" title={b.deliveryAddress}>
+                          {b.deliveryAddress || '—'}
+                        </td>
+                        <td className="py-3 px-4 text-center font-mono font-bold text-purple-300">
+                          {b.dispatchedCartons || b.totalCartons || '—'} CTN
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono font-bold text-emerald-400">
+                          ₹{b.totalAmount ? b.totalAmount.toLocaleString('en-IN') : '0'}
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <button
+                            onClick={() => {
+                              generateBillPDF({
+                                billNumber: b.billNumber,
+                                receipt: b.receipt,
+                                totalAmount: b.totalAmount,
+                                vehicleNumber: b.vehicleNumber,
+                                party: b.party,
+                                mainMarka: b.mainMarka,
+                                container: b.container,
+                                totalCartons: b.totalCartons,
+                                dispatchedCartons: b.dispatchedCartons,
+                                deliveryAddress: b.deliveryAddress,
+                              });
+                            }}
+                            className="inline-flex items-center space-x-1 px-2.5 py-1 bg-purple-600/30 hover:bg-purple-600 text-purple-200 hover:text-white rounded-lg font-semibold text-xs border border-purple-500/40 transition"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>PDF</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))
                   )}
-                </button>
-              </div>
-            </form>
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Quick Vehicle Edit Modal */}
-      {vehicleModalOpen && targetBillForVehicle && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl animate-in fade-in zoom-in-95">
+        {/* SECTION 4: DISPATCH REQUESTS (PENDING & COMPLETED) */}
+        {activeTab === 'requests' && (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Clock className="w-5 h-5 text-amber-400" />
+                <div>
+                  <h2 className="text-sm font-bold text-white uppercase tracking-wide">
+                    Live Dispatch Requests (डिस्पैच अनुरोध स्थिति)
+                  </h2>
+                  <p className="text-[11px] text-slate-400">
+                    Real-time status of dispatch requests initiated to the biller
+                  </p>
+                </div>
+              </div>
+              <span className="text-xs text-amber-400 font-mono font-bold">
+                {requests.length} Total Requests
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-950/80 text-slate-400 border-b border-slate-800 text-[11px] uppercase tracking-wider font-semibold">
+                    <th className="py-3 px-4">Time</th>
+                    <th className="py-3 px-4">Receipt #</th>
+                    <th className="py-3 px-4">Marka</th>
+                    <th className="py-3 px-4">Gaadi No (गाड़ी)</th>
+                    <th className="py-3 px-4 text-center">CTN</th>
+                    <th className="py-3 px-4">Place / Address</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4">Biller Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {requests.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-12 text-center text-slate-500">
+                        No dispatch requests initiated yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    requests.map((req) => (
+                      <tr key={req._id} className="hover:bg-slate-800/40">
+                        <td className="py-3 px-4 text-slate-400 font-mono text-[11px]">
+                          {new Date(req.initiatedAt).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </td>
+                        <td className="py-3 px-4 font-mono font-bold text-blue-300">{req.receipt}</td>
+                        <td className="py-3 px-4 font-black text-white">{req.marka || '—'}</td>
+                        <td className="py-3 px-4 font-mono font-bold text-amber-400">{req.vehicleNumber}</td>
+                        <td className="py-3 px-4 text-center font-bold text-purple-300 font-mono">
+                          {req.cartonCount} CTN
+                        </td>
+                        <td className="py-3 px-4 text-slate-300 max-w-xs truncate">{req.place}</td>
+                        <td className="py-3 px-4">
+                          <span
+                            className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${
+                              req.status === 'Pending'
+                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse'
+                                : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                            }`}
+                          >
+                            {req.status === 'Pending' ? 'Pending at Biller' : `Billed (${req.billNumber || 'Done'})`}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-slate-400 text-[11px]">
+                          {req.billerUsername ? `Processed by @${req.billerUsername}` : 'Awaiting Biller'}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* DISPATCH ACTION MODAL */}
+      {dispatchModalOpen && selectedReceipt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl space-y-4 p-6">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center space-x-2">
                 <Truck className="w-5 h-5 text-emerald-400" />
-                <h3 className="text-base font-bold text-white">गाड़ी नंबर अपडेट करें (Update Vehicle)</h3>
+                <h3 className="text-base font-bold text-white">
+                  गाड़ी लोड & बिलिंग फॉर्म (Initiate Dispatch)
+                </h3>
               </div>
               <button
-                type="button"
-                onClick={() => setVehicleModalOpen(false)}
-                className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white"
+                onClick={() => setDispatchModalOpen(false)}
+                className="p-1 rounded-full text-slate-400 hover:text-white"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800/80 text-xs space-y-1">
-              <div className="flex justify-between">
-                <span className="text-slate-400">Receipt No:</span>
-                <span className="font-bold text-emerald-400">{targetBillForVehicle.receipt}</span>
+            {/* Receipt Summary Info Card */}
+            <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <span className="text-slate-500">Receipt No:</span>{' '}
+                <strong className="text-blue-300 font-mono">{selectedReceipt.receipt}</strong>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Bill Number:</span>
-                <span className="font-bold text-white">{targetBillForVehicle.billNumber}</span>
+              <div>
+                <span className="text-slate-500">Marka:</span>{' '}
+                <strong className="text-emerald-400">{selectedReceipt.marka}</strong>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Marka / Party:</span>
-                <span className="font-bold text-slate-200">
-                  {targetBillForVehicle.mainMarka} / {targetBillForVehicle.party}
+              <div>
+                <span className="text-slate-500">Container:</span>{' '}
+                <strong className="text-slate-300">{selectedReceipt.container}</strong>
+              </div>
+              <div>
+                <span className="text-slate-500">Available CTN:</span>{' '}
+                <strong className="text-purple-300 font-mono">
+                  {selectedReceipt.remainingCartons} CTN
+                </strong>
+              </div>
+            </div>
+
+            {/* Input 1: Gaadi Number */}
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center space-x-1">
+                <span>1. गाड़ी नंबर (Vehicle / Gaadi Number)</span>
+                <span className="text-red-400">*</span>
+              </label>
+              <input
+                type="text"
+                value={vehicleNumber}
+                onChange={(e) => setVehicleNumber(e.target.value.toUpperCase())}
+                placeholder="e.g. DL 1AA 1234 / HR 26 B 9999"
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-mono font-bold text-amber-300 placeholder-slate-600 focus:outline-none focus:border-emerald-500 uppercase"
+              />
+            </div>
+
+            {/* Input 2: Carton Count */}
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center space-x-1">
+                <span>2. कार्टून संख्या (Carton Count to Dispatch)</span>
+                <span className="text-red-400">*</span>
+              </label>
+              <input
+                type="number"
+                value={cartonCount}
+                onChange={(e) => setCartonCount(e.target.value ? Number(e.target.value) : '')}
+                placeholder="Enter Cartons"
+                max={selectedReceipt.remainingCartons || selectedReceipt.totalCartons}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-mono font-bold text-purple-300 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            {/* Input 3: Place / Address */}
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center space-x-1">
+                <span>3. डिलीवरी का स्थान / पता (Place / Destination Address)</span>
+                <span className="text-red-400">*</span>
+              </label>
+              <textarea
+                value={placeAddress}
+                onChange={(e) => setPlaceAddress(e.target.value)}
+                placeholder="e.g. Gandhi Nagar, Delhi / Sadar Bazar, Delhi"
+                rows={2}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            {/* Remarks (Optional) */}
+            <div className="space-y-1">
+              <label className="text-[11px] text-slate-400">रिमार्क्स (Optional Notes)</label>
+              <input
+                type="text"
+                value={remarks}
+                onChange={(e) => setRemarks(e.target.value)}
+                placeholder="e.g. Driver phone, payment terms..."
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none"
+              />
+            </div>
+
+            {actionSuccessMsg && (
+              <div className="p-3 bg-emerald-950/60 border border-emerald-500 rounded-xl text-emerald-300 text-xs font-bold">
+                {actionSuccessMsg}
+              </div>
+            )}
+
+            {/* Action Buttons: 1) Initiate for Billing, 2) Self-Billing Option */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+              <button
+                onClick={handleInitiateBilling}
+                disabled={submitting}
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs shadow-lg shadow-emerald-600/30 transition flex items-center justify-center space-x-2"
+              >
+                <Send className="w-4 h-4" />
+                <span>बिलिंग के लिए भेजें (Send to Biller)</span>
+              </button>
+
+              <button
+                onClick={() => setSelfBillModalOpen(true)}
+                disabled={submitting}
+                className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-bold text-xs shadow-lg shadow-purple-600/30 transition flex items-center justify-center space-x-2"
+              >
+                <Zap className="w-4 h-4 text-amber-300" />
+                <span>खुद से बिलिंग बनाएँ (Self-Bill)</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SELF-BILLING MODAL */}
+      {selfBillModalOpen && selectedReceipt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-purple-500/50 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl space-y-4 p-6">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2 text-purple-400">
+                <Zap className="w-5 h-5 text-amber-300" />
+                <h3 className="text-base font-bold text-white">डिस्पैचर सेल्फ-बिलिंग (Self-Bill)</h3>
+              </div>
+              <button
+                onClick={() => setSelfBillModalOpen(false)}
+                className="p-1 rounded-full text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-300">
+              यह विकल्प डिस्पैचर को बिना बिलर की प्रतीक्षा किए तुरंत डायरेक्ट जीएसटी इनवॉइस जेनरेट करने की अनुमति देता है।
+            </p>
+
+            <div className="space-y-3 bg-slate-950 p-4 rounded-2xl border border-slate-800 text-xs">
+              <div>
+                <label className="text-slate-400 font-semibold block mb-1">
+                  Taxable Value (कर योग्य मूल्य ₹):
+                </label>
+                <input
+                  type="number"
+                  value={selfBillTaxable}
+                  onChange={(e) => setSelfBillTaxable(Number(e.target.value))}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="text-slate-400 font-semibold block mb-1">
+                  IGST Rate (%):
+                </label>
+                <select
+                  value={selfBillIgst}
+                  onChange={(e) => setSelfBillIgst(Number(e.target.value))}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono font-bold"
+                >
+                  <option value={18}>18% IGST</option>
+                  <option value={12}>12% IGST</option>
+                  <option value={5}>5% IGST</option>
+                  <option value={28}>28% IGST</option>
+                </select>
+              </div>
+
+              <div className="pt-2 border-t border-slate-800 flex justify-between font-bold text-sm">
+                <span className="text-slate-400">Grand Total:</span>
+                <span className="text-emerald-400 font-mono">
+                  ₹{(selfBillTaxable + (selfBillTaxable * selfBillIgst) / 100).toLocaleString('en-IN')}
                 </span>
               </div>
             </div>
 
-            <form onSubmit={handleSaveQuickVehicle} className="space-y-4">
-              <div className="space-y-1">
-                <label className="text-slate-300 font-bold uppercase text-[10px]">
-                  गाड़ी नंबर (Vehicle Number) *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={quickVehicleInput}
-                  onChange={(e) => setQuickVehicleInput(e.target.value.toUpperCase())}
-                  placeholder="e.g. DL 01 AB 1234"
-                  className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono font-bold tracking-wider uppercase text-sm"
-                  autoFocus
-                />
-              </div>
-
-              <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setVehicleModalOpen(false)}
-                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-sm"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSavingQuickVehicle}
-                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm transition flex items-center space-x-1.5 disabled:opacity-50"
-                >
-                  {isSavingQuickVehicle ? (
-                    <span>Saving...</span>
-                  ) : (
-                    <span>Save Vehicle No</span>
-                  )}
-                </button>
-              </div>
-            </form>
+            <button
+              onClick={handleSelfBill}
+              disabled={submitting}
+              className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-bold text-sm shadow-xl shadow-purple-600/30 transition flex items-center justify-center space-x-2"
+            >
+              <Zap className="w-4 h-4 text-amber-300" />
+              <span>तुरंत बिल तैयार करें & माल डिस्पैच करें</span>
+            </button>
           </div>
         </div>
       )}
 
       {/* Change Password Modal */}
-      <ChangePasswordModal
-        isOpen={showPasswordModal}
-        onClose={() => setShowPasswordModal(false)}
-        currentRole="dispatcher"
-      />
+      {showPasswordModal && (
+        <ChangePasswordModal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} />
+      )}
     </div>
   );
 }

@@ -55,6 +55,7 @@ import { inferHsnByItemName, findHsnSuggestions, MASTER_HSN_CATALOG } from '@/li
 import { translateToEnglish } from '@/lib/translate';
 import { generateInvoiceNumberFromReceipt } from '@/lib/invoiceUtils';
 import { autoDetectPincodeFromAddress, searchPincodes, extractPincodeFromAddress, PincodeEntry } from '@/lib/pincodeUtils';
+import { triggerNotificationAlert } from '@/lib/soundNotification';
 
 export type BillerTheme = 'dark' | 'light' | 'midnight' | 'emerald' | 'amber' | 'purple' | 'ocean' | 'crimson' | 'high-contrast-day';
 
@@ -176,7 +177,12 @@ const COMMON_COMMODITIES = [
 export default function BillerPortalPage() {
   const router = useRouter();
   const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'excel' | 'manual'>('excel');
+  const [activeTab, setActiveTab] = useState<'excel' | 'manual' | 'requests'>('excel');
+
+  // Pending Dispatch Requests from Dispatcher
+  const [pendingDispatchRequests, setPendingDispatchRequests] = useState<any[]>([]);
+  const [activeDispatchRequestId, setActiveDispatchRequestId] = useState<string | null>(null);
+  const prevPendingCountRef = useRef<number>(0);
 
   // Bills list state
   const [bills, setBills] = useState<BillItem[]>([]);
@@ -488,6 +494,48 @@ export default function BillerPortalPage() {
       setIsLoadingBills(false);
     }
   };
+
+  // Fetch Pending Dispatch Requests from Dispatcher
+  const fetchDispatchRequests = async () => {
+    try {
+      const res = await fetch('/api/dispatcher?section=requests&status=Pending');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.requests)) {
+        if (data.requests.length > prevPendingCountRef.current && prevPendingCountRef.current !== 0) {
+          const latest = data.requests[0];
+          triggerNotificationAlert({
+            title: '🚚 नया डिस्पैच अनुरोध आया है! (New Dispatch Request)',
+            body: `Receipt: ${latest?.receipt} | Gaadi: ${latest?.vehicleNumber} (${latest?.cartonCount} CTN)`,
+          });
+        }
+        prevPendingCountRef.current = data.requests.length;
+        setPendingDispatchRequests(data.requests);
+      }
+    } catch (e) {
+      // quiet
+    }
+  };
+
+  const handleInitiateBillingFromRequest = (req: any) => {
+    setActiveDispatchRequestId(req._id);
+    setReceiptNo(req.receipt || '');
+    setContainerAlias(req.container || '');
+    setFormVehicleNumber(req.vehicleNumber || '');
+    setTotalCartons(String(req.cartonCount || ''));
+    setPartyName(req.party || '');
+    setMainMarka(req.marka || '');
+    setCommodity(req.commodity || '');
+    setConsigneeAddress(req.place || '');
+    setPurchaserAddress(req.place || '');
+    setFormDestination(req.place || '');
+    setActiveTab('manual');
+  };
+
+  useEffect(() => {
+    fetchDispatchRequests();
+    const interval = setInterval(fetchDispatchRequests, 8000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     // Load persisted theme preference
@@ -2863,6 +2911,25 @@ export default function BillerPortalPage() {
       const createdBillRecord = (data.bills && data.bills[0]) || data.bill || { ...payload, _id: data._id || 'temp', totalAmount: finalTotalBillAmt };
       setJustCreatedBill(createdBillRecord);
 
+      if (activeDispatchRequestId) {
+        try {
+          await fetch('/api/dispatcher', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'mark_billed',
+              requestId: activeDispatchRequestId,
+              billId: createdBillRecord._id,
+              billNumber: createdBillRecord.billNumber || finalBillNumber,
+            }),
+          });
+          setActiveDispatchRequestId(null);
+          fetchDispatchRequests();
+        } catch (err) {
+          console.warn('Failed to mark dispatch request billed:', err);
+        }
+      }
+
       // Auto-save address for Marka
       if (currentMarka && finalPurchaser) {
         handleInstantSaveMarkaAddress().catch((err: any) => console.warn('Background marka save:', err));
@@ -3587,6 +3654,24 @@ export default function BillerPortalPage() {
                 <PlusCircle className="w-4 h-4" />
                 <span>सिंगल बिल एंट्री (Single Entry)</span>
               </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('requests')}
+                className={`flex items-center space-x-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition ${
+                  activeTab === 'requests'
+                    ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20'
+                    : 'bg-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                <Truck className="w-4 h-4 text-emerald-400" />
+                <span>पेंडिंग डिस्पैच अनुरोध (Pending Dispatches)</span>
+                {pendingDispatchRequests.length > 0 && (
+                  <span className="px-2 py-0.5 text-[10px] font-black rounded-full bg-emerald-500 text-slate-950 animate-pulse">
+                    {pendingDispatchRequests.length}
+                  </span>
+                )}
+              </button>
             </div>
 
             {activeTab === 'excel' && (
@@ -3735,6 +3820,80 @@ export default function BillerPortalPage() {
           )}
 
           {/* TAB 2: MANUAL SINGLE ENTRY */}
+          {activeTab === 'requests' && (
+            <div className="space-y-4">
+              <div className="p-4 bg-emerald-950/40 border border-emerald-800/50 rounded-2xl flex items-center justify-between text-xs text-emerald-200">
+                <div className="flex items-center space-x-2">
+                  <Truck className="w-5 h-5 text-emerald-400" />
+                  <div>
+                    <span className="font-bold">डिस्पैचर द्वारा भेजे गए पेंडिंग बिलिंग अनुरोध:</span>
+                    <p className="text-[11px] text-slate-400">
+                      'बिलिंग शुरू करें' पर क्लिक करते ही गाड़ी नंबर, कार्टून, पता व रसीद फॉर्म में स्वतः भर जाएंगे।
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={fetchDispatchRequests}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-emerald-300 rounded-xl font-bold border border-emerald-700/50 flex items-center space-x-1"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>रिफ्रेश</span>
+                </button>
+              </div>
+
+              {pendingDispatchRequests.length === 0 ? (
+                <div className="py-12 text-center text-slate-500 text-xs">
+                  कोई पेंडिंग डिस्पैच अनुरोध नहीं है।
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-2xl border border-slate-800">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-slate-950/80 text-slate-400 border-b border-slate-800 text-[11px] uppercase tracking-wider font-semibold">
+                        <th className="py-3 px-4">Time</th>
+                        <th className="py-3 px-4">Receipt #</th>
+                        <th className="py-3 px-4">Marka</th>
+                        <th className="py-3 px-4">Container</th>
+                        <th className="py-3 px-4">Gaadi No (गाड़ी)</th>
+                        <th className="py-3 px-4 text-center">CTN to Bill</th>
+                        <th className="py-3 px-4">Place / Address</th>
+                        <th className="py-3 px-4 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {pendingDispatchRequests.map((req) => (
+                        <tr key={req._id} className="hover:bg-slate-800/40">
+                          <td className="py-3 px-4 text-slate-400 font-mono text-[11px]">
+                            {new Date(req.initiatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </td>
+                          <td className="py-3 px-4 font-mono font-bold text-blue-300">{req.receipt}</td>
+                          <td className="py-3 px-4 font-black text-white">{req.marka || '—'}</td>
+                          <td className="py-3 px-4 font-mono text-slate-300">{req.container || '—'}</td>
+                          <td className="py-3 px-4 font-mono font-bold text-amber-400">{req.vehicleNumber}</td>
+                          <td className="py-3 px-4 text-center font-bold text-purple-300 font-mono">
+                            {req.cartonCount} CTN
+                          </td>
+                          <td className="py-3 px-4 text-slate-300 max-w-xs truncate">{req.place}</td>
+                          <td className="py-3 px-4 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleInitiateBillingFromRequest(req)}
+                              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs shadow-md transition transform hover:scale-105 inline-flex items-center space-x-1.5"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>बिलिंग शुरू करें (Initiate Billing)</span>
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
           {activeTab === 'manual' && (
             <form onSubmit={handleManualSubmit} className="space-y-6">
               {manualSuccessMsg && (

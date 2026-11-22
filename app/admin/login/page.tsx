@@ -21,7 +21,11 @@ export default function AdminLoginPage() {
       if (isMounted && sess.token && sess.role) {
         if (sess.role === 'sales_head' || sess.role === 'sales_person') {
           router.replace('/sales');
-        } else if (sess.role === 'dispatcher' || sess.role === 'staff') {
+        } else if (sess.role === 'dispatcher') {
+          router.replace('/dispatcher');
+        } else if (sess.role === 'biller') {
+          router.replace('/biller');
+        } else if (sess.role === 'staff') {
           router.replace('/admin/view');
         } else if (sess.role === 'developer') {
           router.replace('/admin/visitors');
