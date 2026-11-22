@@ -96,6 +96,9 @@ interface SellerItem {
 
 interface BillItem {
   _id: string;
+  isDownloaded?: boolean;
+  downloadedAt?: string | null;
+  downloadCount?: number;
   billNumber: string;
   receipt: string;
   hsnCode: string;
@@ -318,6 +321,16 @@ export default function BillerPortalPage() {
   const [lineQuantity, setLineQuantity] = useState('');
   const [lineUnit, setLineUnit] = useState('PCS');
   const [lineRate, setLineRate] = useState('');
+  const [lineAmount, setLineAmount] = useState<string>('');
+  const [shipmentTotalCbm, setShipmentTotalCbm] = useState<number>(0);
+  const [shipmentTotalCartons, setShipmentTotalCartons] = useState<number>(0);
+  const [downloadFilter, setDownloadFilter] = useState<'undownloaded' | 'downloaded' | 'all'>('undownloaded');
+  const [currentTime, setCurrentTime] = useState<number>(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(Date.now()), 3000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Marka Auto-Loaded Cargo Items & Base Quantities
   const [markaCargoItems, setMarkaCargoItems] = useState<MarkaCargoItem[]>([]);
@@ -516,19 +529,91 @@ export default function BillerPortalPage() {
     }
   };
 
-  const handleInitiateBillingFromRequest = (req: any) => {
+  const handleInitiateBillingFromRequest = async (req: any) => {
     setActiveDispatchRequestId(req._id);
-    setReceiptNo(req.receipt || '');
+    const rNo = (req.receipt || '').trim();
+    const ctnCount = String(req.cartonCount || '1');
+    const vehNo = (req.vehicleNumber || '').trim();
+    const dest = (req.place || '').trim();
+    const commodityName = (req.commodity || '').trim() || 'COMMERCIAL GOODS';
+
+    setReceiptNo(rNo);
+    setManualInvoiceNo(generateInvoiceNumberFromReceipt(rNo));
+    setFormBillNumber(rNo);
     setContainerAlias(req.container || '');
-    setFormVehicleNumber(req.vehicleNumber || '');
-    setTotalCartons(String(req.cartonCount || ''));
+    setSingleContainer(req.container || '');
+    setFormVehicleNumber(vehNo);
+    setTotalCartons(ctnCount);
+    setLineQuantity(ctnCount);
+    setLineUnit('CTN');
     setPartyName(req.party || '');
     setMainMarka(req.marka || '');
-    setCommodity(req.commodity || '');
-    setConsigneeAddress(req.place || '');
-    setPurchaserAddress(req.place || '');
-    setFormDestination(req.place || '');
+    setSingleSelectedMarka(req.marka || '');
+    setCommodity(commodityName);
+    setLineDescription(commodityName);
+    setSelectedCargoDropdown(commodityName);
+
+    // Seed markaCargoItems with this item description so dropdown immediately lists it
+    setMarkaCargoItems([
+      {
+        marka: req.marka || '',
+        description: commodityName,
+        hsnCode: lineHsn || '39269099',
+        pcs: (Number(ctnCount) || 1) * 10,
+        weightKg: 0,
+        cartons: Number(ctnCount) || 1,
+      },
+    ]);
+
+    if (dest) {
+      setFormDestination(dest);
+      setConsigneeAddress(dest);
+      setPurchaserAddress(dest);
+    }
     setActiveTab('manual');
+
+    // Automatically trigger comprehensive receipt lookup to prefill party GSTIN, directory address & CBM
+    if (rNo) {
+      await handleReceiptLookup(rNo, {
+        cartonCount: ctnCount,
+        vehicleNumber: vehNo,
+        destination: dest,
+        commodity: commodityName,
+      });
+    }
+
+    // Guarantee dispatcher values strictly prevail
+    setTotalCartons(ctnCount);
+    setLineQuantity(ctnCount);
+    setLineUnit('CTN');
+    if (vehNo) {
+      setFormVehicleNumber(vehNo);
+    }
+    if (dest) {
+      setFormDestination(dest);
+    }
+    if (commodityName) {
+      setCommodity(commodityName);
+      setLineDescription(commodityName);
+      setSelectedCargoDropdown(commodityName);
+    }
+
+    // Auto-fetch HSN if needed
+    try {
+      const hsnRes = await fetch(`/api/hsn?q=${encodeURIComponent(commodityName)}`);
+      if (hsnRes.ok) {
+        const hsnData = await hsnRes.json();
+        const code = hsnData.inferredHsn || hsnData.suggestions?.[0]?.hsnCode;
+        if (code) {
+          setHsnCode(code);
+          setLineHsn(code);
+        }
+      }
+    } catch {}
+
+    setLookupMessage(
+      `✓ डिस्पैच अनुरोध लोड हुआ: रसीद #${rNo} | वस्तु: ${commodityName} | गाड़ी ${vehNo || '—'} | ${ctnCount} कार्टन | गंतव्य: ${dest || '—'} | केवल दर (Rate) या कुल राशि दर्ज करके सीधे बिल जनरेट करें!`
+    );
   };
 
   useEffect(() => {
@@ -634,15 +719,130 @@ export default function BillerPortalPage() {
     }
   };
 
+  // Two-way reactive auto calculation between Rate, Amount, Quantity and Cartons
+  const handleLineQuantityChange = (val: string) => {
+    setLineQuantity(val);
+    if (lineUnit.toUpperCase() === 'CTN') {
+      setTotalCartons(val);
+    }
+    const q = parseFloat(val);
+    const r = parseFloat(lineRate);
+    const a = parseFloat(lineAmount);
+    if (!isNaN(q) && q > 0) {
+      if (!isNaN(r) && r > 0) {
+        const calcAmt = (q * r).toFixed(2);
+        setLineAmount(calcAmt);
+        setTaxableValue(calcAmt);
+      } else if (!isNaN(a) && a > 0) {
+        setLineRate((a / q).toFixed(2));
+      }
+    }
+  };
+
+  const handleLineRateChange = (val: string) => {
+    setLineRate(val);
+    const r = parseFloat(val);
+    const q = parseFloat(lineQuantity);
+    if (!isNaN(r) && r > 0 && !isNaN(q) && q > 0) {
+      const calcAmt = (q * r).toFixed(2);
+      setLineAmount(calcAmt);
+      setTaxableValue(calcAmt);
+    } else if (!val) {
+      setLineAmount('');
+    }
+  };
+
+  const handleLineAmountChange = (val: string) => {
+    setLineAmount(val);
+    setTaxableValue(val);
+    const a = parseFloat(val);
+    const q = parseFloat(lineQuantity);
+    if (!isNaN(a) && a > 0 && !isNaN(q) && q > 0) {
+      setLineRate((a / q).toFixed(2));
+    } else if (!val) {
+      setLineRate('');
+      setLineAmount('');
+    }
+  };
+
+  // Proportional CBM Calculation (strictly for biller reference, excluded from printed invoice/e-way bill)
+  const calculatedProportionalCbm = useMemo(() => {
+    if (!shipmentTotalCbm || shipmentTotalCbm <= 0) return null;
+    const baseCtn = shipmentTotalCartons > 0 ? shipmentTotalCartons : (parseFloat(totalCartons) || 0);
+    if (baseCtn <= 0) return null;
+
+    let enteredCtn = 0;
+    if (lineUnit.toUpperCase() === 'CTN') {
+      enteredCtn = parseFloat(lineQuantity) || 0;
+    } else if (lineUnit.toUpperCase() === 'PCS') {
+      const pcs = parseFloat(lineQuantity) || 0;
+      const basePcs = parseFloat(quantityPcs) || (baseCtn * 10);
+      enteredCtn = basePcs > 0 ? (pcs / basePcs) * baseCtn : 0;
+    } else if (lineUnit.toUpperCase() === 'KGS') {
+      const kg = parseFloat(lineQuantity) || 0;
+      const baseKg = parseFloat(quantityKg) || 0;
+      enteredCtn = baseKg > 0 ? (kg / baseKg) * baseCtn : 0;
+    }
+
+    if (enteredCtn <= 0) {
+      enteredCtn = parseFloat(totalCartons) || 0;
+    }
+
+    if (enteredCtn <= 0) return null;
+    const prop = (enteredCtn / baseCtn) * shipmentTotalCbm;
+    return Number(prop.toFixed(3));
+  }, [shipmentTotalCbm, shipmentTotalCartons, totalCartons, lineUnit, lineQuantity, quantityPcs, quantityKg]);
+
+  // 5-Minute Download Management Helpers
+  const isArchivedDownloaded = (b: any) => {
+    if (!b?.downloadedAt) return false;
+    const diff = currentTime - new Date(b.downloadedAt).getTime();
+    return diff >= 5 * 60 * 1000;
+  };
+
+  const getDownloadCountdown = (b: any) => {
+    if (!b?.downloadedAt) return null;
+    const diff = currentTime - new Date(b.downloadedAt).getTime();
+    if (diff >= 5 * 60 * 1000) return null;
+    const remainingSecs = Math.max(0, Math.ceil((5 * 60 * 1000 - diff) / 1000));
+    const mins = Math.floor(remainingSecs / 60);
+    const secs = String(remainingSecs % 60).padStart(2, '0');
+    return mins + ':' + secs;
+  };
+
+  const handleMarkBillDownloaded = async (billId: string) => {
+    if (!billId) return;
+    const nowIso = new Date().toISOString();
+    setBills((prev) =>
+      prev.map((b) =>
+        b._id === billId
+          ? { ...b, isDownloaded: true, downloadedAt: nowIso, downloadCount: (b.downloadCount || 0) + 1 }
+          : b
+      )
+    );
+    try {
+      await fetch('/api/billing', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: billId, action: 'mark_downloaded' }),
+      });
+    } catch (err) {
+      console.warn('Failed to persist download timestamp:', err);
+    }
+  };
+
   // Calculated manual and multi-item values
   const invoiceTaxableTotal = useMemo(() => {
     if (invoiceItems.length > 0) {
       return Number(invoiceItems.reduce((acc, it) => acc + (it.amount || 0), 0).toFixed(2));
     }
+    if (lineAmount && parseFloat(lineAmount) > 0) {
+      return Number(parseFloat(lineAmount).toFixed(2));
+    }
     const lineAmt = (parseFloat(lineQuantity) || 0) * (parseFloat(lineRate) || 0);
     if (lineAmt > 0) return Number(lineAmt.toFixed(2));
     return parseFloat(taxableValue) || 0;
-  }, [invoiceItems, lineQuantity, lineRate, taxableValue]);
+  }, [invoiceItems, lineQuantity, lineRate, lineAmount, taxableValue]);
 
   // Destination State Check: Outside Delhi vs Delhi local
   const isDeliveryInDelhi = useMemo(() => {
@@ -789,11 +989,17 @@ export default function BillerPortalPage() {
     setLineUnit(unit);
     const u = unit.toUpperCase();
     if (u === 'PCS') {
-      setLineQuantity(currentBasePcs > 0 ? String(currentBasePcs) : lineQuantity);
+      const q = currentBasePcs > 0 ? String(currentBasePcs) : (parseFloat(totalCartons) ? String(parseFloat(totalCartons) * 10) : lineQuantity);
+      setLineQuantity(q);
+      handleLineQuantityChange(q);
     } else if (u.includes('KG')) {
-      setLineQuantity(currentBaseKg > 0 ? String(currentBaseKg) : lineQuantity);
+      const q = currentBaseKg > 0 ? String(currentBaseKg) : lineQuantity;
+      setLineQuantity(q);
+      handleLineQuantityChange(q);
     } else if (u.includes('CTN') || u.includes('CARTON')) {
-      setLineQuantity(currentBaseCtn > 0 ? String(currentBaseCtn) : lineQuantity);
+      const q = totalCartons || (currentBaseCtn > 0 ? String(currentBaseCtn) : lineQuantity || '1');
+      setLineQuantity(q);
+      handleLineQuantityChange(q);
     }
   };
 
@@ -1434,7 +1640,15 @@ export default function BillerPortalPage() {
   };
 
   // Quick lookup when typing receipt
-  const handleReceiptLookup = async (rNo: string) => {
+  const handleReceiptLookup = async (
+    rNo: string,
+    overrides?: {
+      cartonCount?: string;
+      vehicleNumber?: string;
+      destination?: string;
+      commodity?: string;
+    }
+  ) => {
     const clean = rNo.trim();
     if (!clean || clean.length < 3) return;
     setManualInvoiceNo(generateInvoiceNumberFromReceipt(clean));
@@ -1451,14 +1665,82 @@ export default function BillerPortalPage() {
           setPartyName(af.party || '');
           setMainMarka(af.mainMarka || '');
           setSubMarka(af.subMarka || '');
-          setCommodity(af.commodity || '');
-          if (af.totalCartons || data.shipment?.quantity) {
-            setTotalCartons(String(af.totalCartons || data.shipment.quantity));
+          const itemDesc = overrides?.commodity || af.commodity || data.shipment?.commodity || data.shipment?.english || 'COMMERCIAL GOODS';
+          setCommodity(itemDesc);
+          setLineDescription(itemDesc);
+          setSelectedCargoDropdown(itemDesc);
+
+          const dbCtn = Number(af.totalCartons || data.shipment?.packages || data.shipment?.quantity) || 0;
+          setShipmentTotalCartons(dbCtn);
+
+          if (overrides?.cartonCount) {
+            setTotalCartons(overrides.cartonCount);
+            setLineQuantity(overrides.cartonCount);
+            setLineUnit('CTN');
+          } else if (dbCtn > 0) {
+            setTotalCartons(String(dbCtn));
+            if (!lineQuantity || lineQuantity === '0') {
+              setLineQuantity(String(dbCtn));
+              setLineUnit('CTN');
+            }
+          }
+
+          if (overrides?.vehicleNumber) {
+            setFormVehicleNumber(overrides.vehicleNumber);
+          }
+          if (overrides?.destination) {
+            setFormDestination(overrides.destination);
+          }
+
+          if (af.volume !== undefined) {
+            setShipmentTotalCbm(Number(af.volume) || 0);
           }
           if (af.quantityPcs && !quantityPcs) setQuantityPcs(String(af.quantityPcs));
           if (af.quantityKg && !quantityKg) setQuantityKg(String(af.quantityKg));
-          if (af.hsnCode && !hsnCode) setHsnCode(af.hsnCode);
           if (af.taxableValue && !taxableValue) setTaxableValue(String(af.taxableValue));
+
+          // Auto-fetch HSN Code for this commodity
+          let fetchedHsn = af.hsnCode || '';
+          if (!fetchedHsn && itemDesc) {
+            try {
+              const hsnRes = await fetch(`/api/hsn?q=${encodeURIComponent(itemDesc)}`);
+              if (hsnRes.ok) {
+                const hsnData = await hsnRes.json();
+                if (hsnData.inferredHsn) {
+                  fetchedHsn = hsnData.inferredHsn;
+                } else if (hsnData.suggestions && hsnData.suggestions.length > 0) {
+                  fetchedHsn = hsnData.suggestions[0].hsnCode;
+                }
+              }
+            } catch (err) {
+              console.warn('Auto HSN lookup note:', err);
+            }
+          }
+          if (!fetchedHsn) {
+            const inferred = inferHsnByItemName(itemDesc);
+            if (inferred) fetchedHsn = inferred.hsnCode;
+          }
+          if (!fetchedHsn) {
+            fetchedHsn = '39269099';
+          }
+          setHsnCode(fetchedHsn);
+          setLineHsn(fetchedHsn);
+
+          // Seed markaCargoItems with this item description so dropdown immediately lists it
+          setMarkaCargoItems((prev) => {
+            if (prev.some((it) => it.description.toLowerCase() === itemDesc.toLowerCase())) return prev;
+            return [
+              {
+                marka: af.mainMarka || af.subMarka || '',
+                description: itemDesc,
+                hsnCode: fetchedHsn,
+                pcs: Number(af.quantityPcs) || (dbCtn > 0 ? dbCtn * 10 : 0),
+                weightKg: Number(af.quantityKg) || 0,
+                cartons: overrides?.cartonCount ? Number(overrides.cartonCount) : dbCtn || 1,
+              },
+              ...prev,
+            ];
+          });
 
           // Sync cascade selector values
           if (af.container && !singleContainer) {
@@ -1792,9 +2074,14 @@ export default function BillerPortalPage() {
       alert('कृपया मान्य क्वांटिटी (Quantity) डालें');
       return;
     }
-    const r = parseFloat(lineRate) || 0;
+    let r = parseFloat(lineRate) || 0;
+    const a = parseFloat(lineAmount) || 0;
+    if (r <= 0 && a > 0 && qty > 0) {
+      r = Number((a / qty).toFixed(2));
+      setLineRate(String(r));
+    }
     if (r <= 0) {
-      alert('कृपया मान्य दर (Rate ₹) डालें');
+      alert('कृपया मान्य दर (Rate ₹) या कुल राशि (Total Value) डालें');
       return;
     }
 
@@ -1841,6 +2128,7 @@ export default function BillerPortalPage() {
     setLineDescription('');
     setLineQuantity('');
     setLineRate('');
+    setLineAmount('');
   };
 
   // Remove Item from Multi-Item Invoice Builder
@@ -2134,6 +2422,9 @@ export default function BillerPortalPage() {
       vehicleNumber: cleanVehNo || eWayModalBill.vehicleNumber,
     };
 
+    if (eWayModalBill?._id) {
+      handleMarkBillDownloaded(eWayModalBill._id);
+    }
     if (mode === 'both') {
       generateBothBillAndEWayPDF(updatedData, true);
     } else {
@@ -2748,27 +3039,33 @@ export default function BillerPortalPage() {
     let finalItems: FormLineItem[] = [...invoiceItems];
     if (finalItems.length === 0) {
       const curDesc = (lineDescription || commodity || 'COMMERCIAL GOODS').trim();
-      const curQty = parseFloat(lineQuantity) || parseFloat(quantityPcs) || parseFloat(quantityKg) || parseFloat(totalCartons) || 0;
-      const curRate = parseFloat(lineRate) || parseFloat(itemRate) || 0;
+      const curQty = parseFloat(lineQuantity) || parseFloat(totalCartons) || parseFloat(quantityPcs) || parseFloat(quantityKg) || 1;
+      let curRate = parseFloat(lineRate) || parseFloat(itemRate) || 0;
+      let curAmt = parseFloat(lineAmount) || parseFloat(taxableValue) || 0;
       const curHsn = (lineHsn || hsnCode || '39269099').trim();
-      const curUnit = (lineUnit || billingUnit || 'PCS').trim().toUpperCase();
+      const curUnit = (lineUnit || billingUnit || 'CTN').trim().toUpperCase();
 
-      if (curQty > 0) {
-        const curAmt = parseFloat(taxableValue) || Number((curQty * curRate).toFixed(2));
+      if (curAmt > 0 && curRate <= 0) {
+        curRate = Number((curAmt / curQty).toFixed(2));
+      } else if (curRate > 0 && curAmt <= 0) {
+        curAmt = Number((curQty * curRate).toFixed(2));
+      }
+
+      if (curAmt > 0 || curRate > 0) {
         finalItems.push({
           itemNo: 1,
           description: curDesc,
           hsnCode: curHsn,
           quantity: curQty,
           unit: curUnit,
-          rate: curRate,
-          amount: curAmt,
+          rate: curRate > 0 ? curRate : Number((curAmt / curQty).toFixed(2)),
+          amount: curAmt > 0 ? curAmt : Number((curQty * curRate).toFixed(2)),
         });
       }
     }
 
     if (finalItems.length === 0 && (!taxableValue || parseFloat(taxableValue) <= 0)) {
-      alert('कृपया कम से कम एक आइटम का नाम, क्वांटिटी (Quantity) और रेट (Rate) दर्ज करें।');
+      alert('कृपया दर (Rate) या कुल मूल्य (Total Amount) दर्ज करें ताकि बिल जनरेट किया जा सके।');
       return;
     }
 
@@ -3228,9 +3525,22 @@ export default function BillerPortalPage() {
     }
   };
 
+  // Counts for 5-minute Download Management
+  const undownloadedCount = useMemo(() => {
+    return bills.filter((b) => !isArchivedDownloaded(b)).length;
+  }, [bills, currentTime]);
+
+  const downloadedCount = useMemo(() => {
+    return bills.filter((b) => isArchivedDownloaded(b)).length;
+  }, [bills, currentTime]);
+
   // Filtered Bills
   const filteredBills = useMemo(() => {
     return bills.filter((b) => {
+      // 5-Minute Download Management
+      if (downloadFilter === 'undownloaded' && isArchivedDownloaded(b)) return false;
+      if (downloadFilter === 'downloaded' && !isArchivedDownloaded(b)) return false;
+
       if (statusFilter === 'pending' && b.isDispatched) return false;
       if (statusFilter === 'dispatched' && !b.isDispatched) return false;
 
@@ -3854,6 +4164,7 @@ export default function BillerPortalPage() {
                         <th className="py-3 px-4">Time</th>
                         <th className="py-3 px-4">Receipt #</th>
                         <th className="py-3 px-4">Marka</th>
+                        <th className="py-3 px-4">Item Name (वस्तु)</th>
                         <th className="py-3 px-4">Container</th>
                         <th className="py-3 px-4">Gaadi No (गाड़ी)</th>
                         <th className="py-3 px-4 text-center">CTN to Bill</th>
@@ -3863,12 +4174,20 @@ export default function BillerPortalPage() {
                     </thead>
                     <tbody className="divide-y divide-slate-800">
                       {pendingDispatchRequests.map((req) => (
-                        <tr key={req._id} className="hover:bg-slate-800/40">
+                        <tr
+                          key={req._id}
+                          onClick={() => handleInitiateBillingFromRequest(req)}
+                          className="hover:bg-slate-800/70 cursor-pointer transition group"
+                          title="क्लिक करके सिंगल बिलिंग मोड में यह अनुरोध खोलें (डेटा स्वतः भर जाएगा)"
+                        >
                           <td className="py-3 px-4 text-slate-400 font-mono text-[11px]">
                             {new Date(req.initiatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </td>
                           <td className="py-3 px-4 font-mono font-bold text-blue-300">{req.receipt}</td>
                           <td className="py-3 px-4 font-black text-white">{req.marka || '—'}</td>
+                          <td className="py-3 px-4 font-bold text-cyan-300 max-w-[140px] truncate" title={req.commodity || 'COMMERCIAL GOODS'}>
+                            {req.commodity || 'COMMERCIAL GOODS'}
+                          </td>
                           <td className="py-3 px-4 font-mono text-slate-300">{req.container || '—'}</td>
                           <td className="py-3 px-4 font-mono font-bold text-amber-400">{req.vehicleNumber}</td>
                           <td className="py-3 px-4 text-center font-bold text-purple-300 font-mono">
@@ -3878,7 +4197,10 @@ export default function BillerPortalPage() {
                           <td className="py-3 px-4 text-right">
                             <button
                               type="button"
-                              onClick={() => handleInitiateBillingFromRequest(req)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleInitiateBillingFromRequest(req);
+                              }}
                               className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs shadow-md transition transform hover:scale-105 inline-flex items-center space-x-1.5"
                             >
                               <Plus className="w-3.5 h-3.5" />
@@ -3896,6 +4218,63 @@ export default function BillerPortalPage() {
 
           {activeTab === 'manual' && (
             <form onSubmit={handleManualSubmit} className="space-y-6">
+              {/* ACTIVE DISPATCH REQUEST HIGHLIGHT BANNER */}
+              {activeDispatchRequestId && (
+                <div className="bg-gradient-to-r from-emerald-950/80 via-slate-900 to-indigo-950/80 border-2 border-emerald-500/70 p-4 rounded-3xl shadow-xl shadow-emerald-500/10">
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-emerald-500/30">
+                    <div className="flex items-center space-x-2">
+                      <span className="p-1.5 bg-emerald-500 text-slate-950 rounded-xl font-black text-xs flex items-center space-x-1">
+                        <Truck className="w-3.5 h-3.5" />
+                        <span>सक्रिय डिस्पैच अनुरोध (Active Dispatch Request)</span>
+                      </span>
+                      <span className="text-xs font-mono font-black text-amber-300">
+                        रसीद #{receiptNo}
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-[11px] font-bold text-emerald-300 bg-emerald-500/20 border border-emerald-500/40 px-2.5 py-0.5 rounded-full flex items-center space-x-1">
+                        <Check className="w-3 h-3" />
+                        <span>डेटा स्वतः भरा गया (Auto-Filled)</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setActiveDispatchRequestId(null)}
+                        className="text-[11px] text-slate-400 hover:text-red-400 underline font-semibold"
+                        title="डिस्पैच मोड बंद करें"
+                      >
+                        हटाएँ (Clear)
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-3">
+                    <div className="bg-slate-950/70 p-2.5 rounded-2xl border border-slate-800">
+                      <span className="text-[10px] text-slate-400 block font-semibold">वस्तु का नाम (Item Name):</span>
+                      <span className="font-black text-cyan-300 text-xs truncate block" title={lineDescription || commodity}>
+                        {lineDescription || commodity || 'COMMERCIAL GOODS'}
+                      </span>
+                    </div>
+                    <div className="bg-slate-950/70 p-2.5 rounded-2xl border border-slate-800">
+                      <span className="text-[10px] text-slate-400 block font-semibold">कार्टन (Cartons / CTN):</span>
+                      <span className="font-black text-purple-300 text-xs block">
+                        {totalCartons || lineQuantity || '1'} CTN
+                      </span>
+                    </div>
+                    <div className="bg-slate-950/70 p-2.5 rounded-2xl border border-slate-800">
+                      <span className="text-[10px] text-slate-400 block font-semibold">गाड़ी नंबर (Vehicle No):</span>
+                      <span className="font-black text-amber-300 text-xs block font-mono">
+                        {formVehicleNumber || '—'}
+                      </span>
+                    </div>
+                    <div className="bg-slate-950/70 p-2.5 rounded-2xl border border-slate-800">
+                      <span className="text-[10px] text-slate-400 block font-semibold">गंतव्य (Destination):</span>
+                      <span className="font-black text-emerald-300 text-xs truncate block" title={formDestination}>
+                        {formDestination || '—'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
               {manualSuccessMsg && (
                 <div className="p-4 rounded-2xl bg-emerald-950/70 border border-emerald-500/60 text-emerald-300 text-xs font-semibold flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg">
                   <div className="flex items-center space-x-2">
@@ -3933,7 +4312,7 @@ export default function BillerPortalPage() {
                               ...justCreatedBill,
                               eWayBillNo: justCreatedEWayNo || justCreatedBill.eWayBillNo,
                             };
-                            generateBothBillAndEWayPDF(billWithEway, true);
+                            generateBothBillAndEWayPDF(billWithEway, true); if (justCreatedBill?._id) handleMarkBillDownloaded(justCreatedBill._id);
                           }}
                           className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-xl text-xs transition flex items-center space-x-1.5 shadow-md shadow-emerald-950/40"
                           title="बिल और सरकारी ई-वे बिल दोनों एक साथ प्रिंट करें (Print Invoice + e-Way Bill Together in 1 PDF)"
@@ -3950,7 +4329,7 @@ export default function BillerPortalPage() {
                               ...justCreatedBill,
                               eWayBillNo: justCreatedEWayNo || justCreatedBill.eWayBillNo,
                             };
-                            generateEWayBillPDF(billWithEway, true);
+                            generateEWayBillPDF(billWithEway, true); if (justCreatedBill?._id) handleMarkBillDownloaded(justCreatedBill._id);
                           }}
                           className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs transition flex items-center space-x-1.5 shadow"
                           title="सरकारी ई-वे बिल प्रिंट करें (Print Actual Government e-Way Bill PDF)"
@@ -3962,7 +4341,7 @@ export default function BillerPortalPage() {
                         {/* Download E-Way JSON for Portal */}
                         <button
                           type="button"
-                          onClick={() => downloadEWayBillJson(justCreatedBill)}
+                          onClick={() => { downloadEWayBillJson(justCreatedBill); if (justCreatedBill?._id) handleMarkBillDownloaded(justCreatedBill._id); }}
                           className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold rounded-xl text-xs transition flex items-center space-x-1.5 border border-amber-500/40"
                           title="Download Government JSON file for E-Way Bill Portal upload"
                         >
@@ -3973,7 +4352,7 @@ export default function BillerPortalPage() {
                         {/* Download Invoice PDF Standalone */}
                         <button
                           type="button"
-                          onClick={() => generateBillPDF(justCreatedBill, true)}
+                          onClick={() => { generateBillPDF(justCreatedBill, true); if (justCreatedBill?._id) handleMarkBillDownloaded(justCreatedBill._id); }}
                           className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 font-bold rounded-xl text-xs transition flex items-center space-x-1.5 border border-slate-700"
                           title="Download PDF Bill"
                         >
@@ -4523,6 +4902,13 @@ export default function BillerPortalPage() {
                         className="w-full px-3 py-2 bg-slate-900 border border-cyan-500/50 rounded-xl text-xs font-bold text-cyan-300 focus:ring-2 focus:ring-cyan-500 outline-none"
                       >
                         <option value="">-- चूज़ करें आइटम (Choose Item from List) --</option>
+                        {selectedCargoDropdown &&
+                          !markaCargoItems.some((it) => it.description.toLowerCase() === selectedCargoDropdown.toLowerCase()) &&
+                          !COMMON_COMMODITIES.some((c) => c.name.toLowerCase() === selectedCargoDropdown.toLowerCase()) && (
+                            <option value={selectedCargoDropdown}>
+                              ★ {selectedCargoDropdown} (डिस्पैच अनुरोध से चयनित / Active Item)
+                            </option>
+                          )}
                         {markaCargoItems.length > 0 && (
                           <optgroup label="इस मार्का के तहत उपलब्ध आइटम्स (From Current Marka)">
                             {markaCargoItems.map((it, idx) => (
@@ -4550,6 +4936,7 @@ export default function BillerPortalPage() {
                           onChange={(e) => {
                             setLineDescription(e.target.value);
                             setCommodity(e.target.value);
+                            setSelectedCargoDropdown(e.target.value);
                           }}
                           placeholder="वस्तु का नाम बदलें / टाइप करें (Item Name - Type or Edit)"
                           className="w-full px-3 py-2 bg-slate-900 border border-amber-500/60 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 font-bold"
@@ -4582,13 +4969,13 @@ export default function BillerPortalPage() {
                     )}
                   </div>
 
-                  {/* 2. Item Configuration: HSN, Unit Selector, Quantity, Rate */}
+                  {/* 2. Item Configuration: HSN, Cartons, Unit Selector, Quantity, Rate, Total Amount */}
                   <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end bg-slate-950/40 p-3 rounded-xl border border-slate-800">
                     {/* HSN / SAC Code */}
-                    <div className="sm:col-span-3">
+                    <div className="sm:col-span-2">
                       <div className="flex items-center justify-between mb-1">
                         <label className="text-[11px] font-bold text-amber-300">
-                          HSN / SAC कोड *
+                          HSN / SAC *
                         </label>
                         <button
                           type="button"
@@ -4602,7 +4989,7 @@ export default function BillerPortalPage() {
                           title="आइटम के अनुसार HSN सर्च करें या सुझाव देखें"
                         >
                           <Search className="w-2.5 h-2.5" />
-                          <span>🔍 HSN सुझाव / सर्च</span>
+                          <span>सुझाव</span>
                         </button>
                       </div>
                       <input
@@ -4615,38 +5002,35 @@ export default function BillerPortalPage() {
                         placeholder="e.g. 39269099"
                         className="w-full px-3 py-2 bg-slate-900 border border-amber-500/50 rounded-xl text-xs text-amber-200 font-mono font-bold focus:outline-none focus:ring-2 focus:ring-amber-500"
                       />
-                      {/* Live HSN Suggestion Chips */}
-                      {lineDescription.trim() && (
-                        <div className="flex items-center space-x-1 overflow-x-auto pt-1.5 scrollbar-thin">
-                          <span className="text-[9px] text-amber-400 font-bold shrink-0">सुझाव:</span>
-                          {findHsnSuggestions(lineDescription).slice(0, 3).map((sug, sIdx) => (
-                            <button
-                              key={`sug-${sIdx}`}
-                              type="button"
-                              onClick={() => {
-                                setLineHsn(sug.hsnCode);
-                                setHsnCode(sug.hsnCode);
-                                if (sug.gstRate) setIgstRate(sug.gstRate);
-                              }}
-                              className={`px-1.5 py-0.5 rounded text-[9px] border font-mono transition shrink-0 ${
-                                lineHsn === sug.hsnCode
-                                  ? 'bg-amber-500 text-slate-950 font-bold border-amber-400'
-                                  : 'bg-slate-950 border-amber-500/30 text-amber-300 hover:bg-amber-500/20'
-                              }`}
-                              title={sug.description}
-                            >
-                              {sug.hsnCode} ({sug.gstRate}%)
-                            </button>
-                          ))}
-                        </div>
-                      )}
+                    </div>
+
+                    {/* Cartons (कुल कार्टून) */}
+                    <div className="sm:col-span-2">
+                      <label className="text-[11px] font-bold text-violet-300 flex items-center justify-between mb-1">
+                        <span>कुल कार्टन (CTN) *</span>
+                        <span className="text-[10px] text-violet-400 font-normal">डिस्पैच संख्या</span>
+                      </label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={totalCartons}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setTotalCartons(val);
+                          if (lineUnit.toUpperCase() === 'CTN') {
+                            handleLineQuantityChange(val);
+                          }
+                        }}
+                        placeholder="e.g. 3"
+                        className="w-full px-3 py-2 bg-slate-900 border border-violet-500/50 rounded-xl text-xs text-violet-200 font-bold focus:outline-none focus:ring-2 focus:ring-violet-500 font-mono"
+                      />
                     </div>
 
                     {/* Unit Selector Pills (PCS / KG / CTN) */}
-                    <div className="sm:col-span-3">
+                    <div className="sm:col-span-2">
                       <label className="text-[11px] font-bold text-slate-300 flex items-center justify-between mb-1">
                         <span>यूनिट (Unit) *</span>
-                        <span className="text-[10px] text-cyan-400">ऑटो-फिल मात्रा</span>
+                        <span className="text-[10px] text-cyan-400">मात्रा प्रकार</span>
                       </label>
                       <div className="grid grid-cols-3 gap-1">
                         {(['PCS', 'KGS', 'CTN'] as const).map((u) => (
@@ -4667,36 +5051,81 @@ export default function BillerPortalPage() {
                     </div>
 
                     {/* Quantity (Auto-filled on unit select, completely alterable) */}
-                    <div className="sm:col-span-3">
+                    <div className="sm:col-span-2">
                       <label className="text-[11px] font-bold text-purple-300 flex items-center justify-between mb-1">
                         <span>क्वांटिटी ({lineUnit}) *</span>
-                        <span className="text-[10px] text-purple-400 font-normal">बदल सकते हैं</span>
+                        <span className="text-[10px] text-purple-400 font-normal">मात्रा</span>
                       </label>
                       <input
                         type="number"
                         step="any"
                         value={lineQuantity}
-                        onChange={(e) => setLineQuantity(e.target.value)}
+                        onChange={(e) => handleLineQuantityChange(e.target.value)}
                         placeholder={`e.g. ${lineUnit === 'PCS' ? '1134' : '120'}`}
                         className="w-full px-3 py-2 bg-slate-900 border border-purple-500/50 rounded-xl text-xs text-purple-200 font-bold focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono"
                       />
                     </div>
 
-                    {/* Rate (₹ / Unit) */}
-                    <div className="sm:col-span-3">
+                    {/* Rate (₹ / Unit) - Two-Way Auto-Calculated */}
+                    <div className="sm:col-span-2">
                       <label className="text-[11px] font-bold text-sky-400 flex items-center justify-between mb-1">
                         <span>दर (Rate ₹ / {lineUnit}) *</span>
-                        <span className="text-[10px] text-sky-400 font-semibold">प्रति यूनिट</span>
+                        <span className="text-[10px] text-sky-400 font-semibold">Value ÷ Qty</span>
                       </label>
                       <input
                         type="number"
                         step="any"
                         value={lineRate}
-                        onChange={(e) => setLineRate(e.target.value)}
+                        onChange={(e) => handleLineRateChange(e.target.value)}
                         placeholder="e.g. 46.56"
                         className="w-full px-3 py-2 bg-slate-900 border border-sky-500/50 rounded-xl text-xs text-sky-300 font-black focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
                       />
                     </div>
+
+                    {/* Total Value / Amount (कुल राशि ₹) - Two-Way Auto-Calculated */}
+                    <div className="sm:col-span-2">
+                      <label className="text-[11px] font-bold text-emerald-400 flex items-center justify-between mb-1">
+                        <span>कुल मूल्य (Total ₹)</span>
+                        <span className="text-[10px] text-emerald-400 font-semibold">Qty × Rate</span>
+                      </label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={lineAmount}
+                        onChange={(e) => handleLineAmountChange(e.target.value)}
+                        placeholder="e.g. 52800"
+                        className="w-full px-3 py-2 bg-slate-900 border border-emerald-500/50 rounded-xl text-xs text-emerald-300 font-black focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+                      />
+                    </div>
+
+                    {/* Proportional CBM Reference Card (Reference Only - Excluded from Printed Bill) */}
+                    {(calculatedProportionalCbm !== null || shipmentTotalCbm > 0) && (
+                      <div className="sm:col-span-12 p-2.5 bg-gradient-to-r from-indigo-950/50 via-slate-900 to-indigo-950/50 border border-indigo-500/40 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <div className="flex items-center space-x-2 text-indigo-200">
+                          <Box className="w-4 h-4 text-indigo-400 shrink-0" />
+                          <div>
+                            <span className="font-bold text-indigo-300">📦 शिपमेंट CBM संदर्भ (Shipment CBM Reference):</span>
+                            {calculatedProportionalCbm !== null ? (
+                              <>
+                                <span className="ml-2 font-mono font-black text-white bg-indigo-900/80 px-2 py-0.5 rounded border border-indigo-600/60 shadow-sm">
+                                  {calculatedProportionalCbm} CBM
+                                </span>
+                                <span className="ml-2 text-[11px] text-slate-400">
+                                  (कुल शिपमेंट: {shipmentTotalCbm} CBM | {shipmentTotalCartons || totalCartons || '—'} कार्टून में से अनुपातिक)
+                                </span>
+                              </>
+                            ) : (
+                              <span className="ml-2 text-[11px] text-slate-300">
+                                कुल शिपमेंट: <strong className="text-white font-mono">{shipmentTotalCbm} CBM</strong> (क्वांटिटी डालने पर अनुपातिक CBM स्वतः दिखेगा)
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <span className="text-[10px] text-amber-300/90 bg-amber-950/60 px-2.5 py-0.5 rounded-full border border-amber-700/50 font-medium">
+                          ℹ️ केवल बिलर संदर्भ हेतु — अंतिम बिल/चालान में प्रिंट नहीं होगा
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* ITEM PROPORTIONATE (आइटम प्रोपोर्शनेट - ऑप्शनल मोड) */}
@@ -4912,7 +5341,7 @@ export default function BillerPortalPage() {
                     <button
                       type="button"
                       onClick={handleAddLineItem}
-                      disabled={!lineDescription.trim() || !lineQuantity || !lineRate}
+                      disabled={!lineDescription.trim() || !lineQuantity || (!lineRate && !lineAmount)}
                       className="px-5 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 font-black rounded-xl text-xs transition flex items-center justify-center space-x-1.5 shadow"
                     >
                       <Plus className="w-4 h-4" />
@@ -5618,6 +6047,47 @@ export default function BillerPortalPage() {
                 </select>
               </div>
 
+              {/* 5-Minute Download Management Filter Tabs */}
+              <div className="flex bg-slate-950 border border-slate-800 rounded-xl p-1 text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setDownloadFilter('undownloaded')}
+                  className={`px-3 py-1.5 rounded-lg transition flex items-center space-x-1.5 ${
+                    downloadFilter === 'undownloaded'
+                      ? 'bg-amber-500 text-slate-950 font-black shadow'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                  title="अनडाउनलोड बिल एवं 5 मिनट के अंदर डाउनलोड किए गए बिल"
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>📥 अनडाउनलोड बिल ({undownloadedCount})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDownloadFilter('downloaded')}
+                  className={`px-3 py-1.5 rounded-lg transition flex items-center space-x-1.5 ${
+                    downloadFilter === 'downloaded'
+                      ? 'bg-emerald-500 text-slate-950 font-black shadow'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                  title="डाउनलोड हुए 5+ मिनट हो चुके बिल (Archived Downloaded)"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>✅ डाउनलोड किए गए बिल ({downloadedCount})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDownloadFilter('all')}
+                  className={`px-3 py-1.5 rounded-lg transition ${
+                    downloadFilter === 'all'
+                      ? 'bg-slate-700 text-white font-bold'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <span>सभी ({bills.length})</span>
+                </button>
+              </div>
+
               <div className="flex bg-slate-950 border border-slate-800 rounded-xl p-1 text-xs font-semibold">
                 <button
                   onClick={() => setStatusFilter('all')}
@@ -5851,17 +6321,42 @@ export default function BillerPortalPage() {
                         </div>
                       </td>
                       <td className="p-3.5 text-center">
-                        {b.isDispatched ? (
-                          <span className="inline-flex items-center space-x-1 px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full text-[10px] font-bold">
-                            <CheckCircle2 className="w-3 h-3" />
-                            <span>Dispatched</span>
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center space-x-1 px-2 py-0.5 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full text-[10px] font-bold">
-                            <Clock className="w-3 h-3" />
-                            <span>Generated</span>
-                          </span>
-                        )}
+                        <div className="flex flex-col items-center space-y-1">
+                          {b.isDispatched ? (
+                            <span className="inline-flex items-center space-x-1 px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full text-[10px] font-bold">
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>Dispatched</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center space-x-1 px-2 py-0.5 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full text-[10px] font-bold">
+                              <Clock className="w-3 h-3" />
+                              <span>Generated</span>
+                            </span>
+                          )}
+
+                          {/* 5-Minute Download Status Chip with Live Countdown */}
+                          {isArchivedDownloaded(b) ? (
+                            <span
+                              className="inline-flex items-center space-x-1 px-1.5 py-0.5 bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded-full text-[9px] font-semibold"
+                              title={b.downloadedAt ? `डाउनलोड: ${new Date(b.downloadedAt).toLocaleString()}` : 'डाउनलोड पूर्ण'}
+                            >
+                              <CheckCircle2 className="w-2.5 h-2.5" />
+                              <span>डाउनलोड पूर्ण</span>
+                            </span>
+                          ) : b.downloadedAt ? (
+                            <span
+                              className="inline-flex items-center space-x-1 px-1.5 py-0.5 bg-purple-500/20 text-purple-300 border border-purple-500/40 rounded-full text-[9px] font-bold animate-pulse"
+                              title="5 मिनट में स्वतः 'डाउनलोड किए गए बिल' में जाएगा"
+                            >
+                              <Clock className="w-2.5 h-2.5 text-purple-400" />
+                              <span>⏳ {getDownloadCountdown(b)} में आर्काइव</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 bg-slate-800 text-slate-400 border border-slate-700/60 rounded-full text-[9px] font-medium">
+                              <span>📥 अनडाउनलोड</span>
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="p-3.5 text-center">
                         <div className="flex items-center justify-center space-x-1.5">
@@ -5900,7 +6395,10 @@ export default function BillerPortalPage() {
                           {/* Download Invoice PDF */}
                           <button
                             type="button"
-                            onClick={() => generateBillPDF({ ...b, theme: pdfTheme }, true)}
+                            onClick={() => {
+                              generateBillPDF({ ...b, theme: pdfTheme }, true);
+                              handleMarkBillDownloaded(b._id);
+                            }}
                             title="Download PDF Bill"
                             className="p-1.5 bg-slate-800 hover:bg-amber-500/20 hover:text-amber-400 text-slate-300 rounded-lg transition"
                           >
@@ -5910,7 +6408,10 @@ export default function BillerPortalPage() {
                           {/* Download E-Way JSON */}
                           <button
                             type="button"
-                            onClick={() => downloadEWayBillJson(b)}
+                            onClick={() => {
+                              downloadEWayBillJson(b);
+                              handleMarkBillDownloaded(b._id);
+                            }}
                             title="Download Government NIC E-Way Bill JSON (e-Way Bill Portal Upload)"
                             className="p-1.5 bg-slate-800 hover:bg-emerald-500/20 hover:text-emerald-400 text-slate-300 rounded-lg transition flex items-center space-x-1"
                           >

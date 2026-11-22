@@ -15,6 +15,7 @@ import {
   LogOut,
   FileSpreadsheet,
   Box,
+  Layers,
   Calendar,
   ChevronDown,
   ChevronUp,
@@ -23,6 +24,8 @@ import {
   Volume2,
   Send,
   Zap,
+  ShieldCheck,
+  Trash2,
 } from 'lucide-react';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
 import { generateBillPDF } from '@/lib/billPdf';
@@ -136,6 +139,22 @@ export default function DispatcherPortalPage() {
 
   // SECTION 2: Delivery & Available Receipts
   const [deliveryItems, setDeliveryItems] = useState<DeliveryReceipt[]>([]);
+  const [selectedDeliveryContainer, setSelectedDeliveryContainer] = useState<string>('');
+
+  // Day-End Delivery Status Modal State (Goods Received by Party)
+  const [dayEndModalOpen, setDayEndModalOpen] = useState(false);
+  const [dayEndReceipt, setDayEndReceipt] = useState<DeliveryReceipt | null>(null);
+  const [receivedType, setReceivedType] = useState<'full' | 'partial' | 'not_received'>('full');
+  const [receivedQuantity, setReceivedQuantity] = useState<number | ''>('');
+  const [dayEndRemarks, setDayEndRemarks] = useState('');
+  const [dayEndSubmitting, setDayEndSubmitting] = useState(false);
+  const [dayEndSuccessMsg, setDayEndSuccessMsg] = useState<string | null>(null);
+
+  // Container Close Modal State
+  const [containerCloseModalOpen, setContainerCloseModalOpen] = useState(false);
+  const [containerCloseReceipts, setContainerCloseReceipts] = useState<any[]>([]);
+  const [containerCloseSubmitting, setContainerCloseSubmitting] = useState(false);
+  const [containerCloseSuccessMsg, setContainerCloseSuccessMsg] = useState<string | null>(null);
 
   // Dispatch Action Modal State
   const [dispatchModalOpen, setDispatchModalOpen] = useState(false);
@@ -298,6 +317,32 @@ export default function DispatcherPortalPage() {
     }
   };
 
+  // Delete Dispatch Request (डिस्पैचर अपनी रिक्वेस्ट डिलीट कर सकता है)
+  const handleDeleteRequest = async (requestId: string) => {
+    if (!window.confirm('क्या आप वाकई इस डिस्पैच अनुरोध को डिलीट करना चाहते हैं? (Are you sure you want to delete this dispatch request?)')) {
+      return;
+    }
+    try {
+      const res = await fetch('/api/dispatcher', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'delete_request',
+          requestId,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setRequests((prev) => prev.filter((r) => r._id !== requestId));
+        alert('✓ डिस्पैच अनुरोध सफलतापूर्वक डिलीट कर दिया गया है।');
+      } else {
+        alert(data.error || 'डिस्पैच अनुरोध डिलीट करने में विफल।');
+      }
+    } catch (e: any) {
+      alert(e?.message || 'Error deleting request');
+    }
+  };
+
   // Submit Self-Billing (खुद से बिलिंग बनाएँ)
   const handleSelfBill = async () => {
     if (!selectedReceipt) return;
@@ -366,18 +411,185 @@ export default function DispatcherPortalPage() {
     );
   }, [etaContainers, searchQuery]);
 
+  // Distinct Containers in Delivery with Available Receipts count
+  const deliveryContainers = useMemo(() => {
+    const map = new Map<string, { container: string; count: number; availableCount: number }>();
+    deliveryItems.forEach((item) => {
+      const c = item.container?.trim();
+      if (c && c !== 'Unassigned') {
+        const existing = map.get(c) || { container: c, count: 0, availableCount: 0 };
+        existing.count += 1;
+        if (item.salesStatus === 'Available to Deliver') {
+          existing.availableCount += 1;
+        }
+        map.set(c, existing);
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => a.container.localeCompare(b.container));
+  }, [deliveryItems]);
+
+  // Delivery Items filtered strictly by Selected Container (Receipts do NOT auto-populate)
   const filteredDeliveryItems = useMemo(() => {
-    if (!searchQuery.trim()) return deliveryItems;
+    // If no container selected, strictly do NOT auto-populate receipts
+    if (!selectedDeliveryContainer) return [];
+
+    const containerItems = deliveryItems.filter(
+      (r) => r.container === selectedDeliveryContainer
+    );
+
+    if (!searchQuery.trim()) return containerItems;
     const q = searchQuery.toLowerCase();
-    return deliveryItems.filter(
+    return containerItems.filter(
       (r) =>
         r.receipt.toLowerCase().includes(q) ||
         r.marka.toLowerCase().includes(q) ||
-        r.container.toLowerCase().includes(q) ||
         r.party.toLowerCase().includes(q) ||
+        (r.commodity && r.commodity.toLowerCase().includes(q)) ||
         r.salesStatus.toLowerCase().includes(q)
     );
-  }, [deliveryItems, searchQuery]);
+  }, [deliveryItems, selectedDeliveryContainer, searchQuery]);
+
+  // Day-End Status Handlers
+  const handleOpenDayEndModal = (receipt: DeliveryReceipt) => {
+    setDayEndReceipt(receipt);
+    setReceivedType('full');
+    setReceivedQuantity(receipt.remainingCartons > 0 ? receipt.remainingCartons : receipt.totalCartons);
+    setDayEndRemarks('');
+    setDayEndSuccessMsg(null);
+    setDayEndModalOpen(true);
+  };
+
+  // Open Container Close & Stock Reconciliation Modal
+  const handleOpenContainerCloseModal = () => {
+    if (!selectedDeliveryContainer) {
+      alert('कृपया पहले कंटेनर चुनें।');
+      return;
+    }
+    setContainerCloseReceipts(
+      filteredDeliveryItems.map((r) => ({
+        receipt: r.receipt,
+        marka: r.marka,
+        party: r.party,
+        commodity: r.commodity || 'General Cargo',
+        totalCartons: r.totalCartons,
+        remainingCartons: r.remainingCartons,
+        stockDestination: 'party',
+        deliveryStatus: r.remainingCartons === 0 ? 'fully_delivered' : 'fully_delivered',
+        deliveredQuantity: r.remainingCartons > 0 ? r.remainingCartons : r.totalCartons,
+        goodsReceivedByParty: true,
+        remarks: '',
+      }))
+    );
+    setContainerCloseSuccessMsg(null);
+    setContainerCloseModalOpen(true);
+  };
+
+  const handleUpdateCloseReceiptItem = (index: number, field: string, value: any) => {
+    setContainerCloseReceipts((prev) => {
+      const copy = [...prev];
+      copy[index] = { ...copy[index], [field]: value };
+      return copy;
+    });
+  };
+
+  const handleSubmitContainerClose = async () => {
+    if (!selectedDeliveryContainer) return;
+    setContainerCloseSubmitting(true);
+    try {
+      const res = await fetch('/api/dispatcher', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'close_container_stock',
+          container: selectedDeliveryContainer,
+          receipts: containerCloseReceipts,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to close container');
+
+      triggerNotificationAlert({
+        title: '🔒 Container Closed & Stock Updated',
+        body: `Container ${selectedDeliveryContainer}: ${data.updatedCount} receipts updated`,
+      });
+
+      setContainerCloseSuccessMsg(data.message || 'कंटेनर सफलतापूर्वक क्लोज़ हो गया।');
+      setTimeout(() => {
+        setContainerCloseModalOpen(false);
+        fetchData();
+      }, 1400);
+    } catch (e: any) {
+      alert(e?.message || 'Error closing container');
+    } finally {
+      setContainerCloseSubmitting(false);
+    }
+  };
+
+  const handleSubmitDayEnd = async () => {
+    if (!dayEndReceipt) return;
+
+    if (receivedType === 'partial') {
+      const q = Number(receivedQuantity);
+      if (isNaN(q) || q <= 0) {
+        alert('कृपया प्राप्त कार्टून संख्या (Quantity Received) सही दर्ज करें।');
+        return;
+      }
+      const maxCtn = dayEndReceipt.remainingCartons > 0 ? dayEndReceipt.remainingCartons : dayEndReceipt.totalCartons;
+      if (q > maxCtn) {
+        alert(`प्राप्त कार्टून संख्या कुल शेष संख्या (${maxCtn} CTN) से अधिक नहीं हो सकती।`);
+        return;
+      }
+    }
+
+    setDayEndSubmitting(true);
+    try {
+      const res = await fetch('/api/dispatcher', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'mark_goods_received',
+          receipt: dayEndReceipt.receipt,
+          receivedType,
+          receivedQuantity: receivedType === 'partial' ? Number(receivedQuantity) : undefined,
+          remarks: dayEndRemarks.trim(),
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update day-end delivery status');
+
+      // Update local state immediately
+      setDeliveryItems((prev) =>
+        prev.map((item) => {
+          if (item.receipt === dayEndReceipt.receipt) {
+            return {
+              ...item,
+              remainingCartons: data.remainingQuantity ?? item.remainingCartons,
+              isDelivered: data.isDelivered ?? item.isDelivered,
+            };
+          }
+          return item;
+        })
+      );
+
+      triggerNotificationAlert({
+        title: '📦 Day-End Goods Received Updated',
+        body: `Receipt ${dayEndReceipt.receipt}: ${
+          receivedType === 'full' ? 'Full Delivered' : `${receivedQuantity} CTN Received`
+        }`,
+      });
+
+      setDayEndSuccessMsg(data.message || 'सफलतापूर्वक अपडेट हो गया।');
+      setTimeout(() => {
+        setDayEndModalOpen(false);
+        fetchData();
+      }, 1200);
+    } catch (e: any) {
+      alert(e?.message || 'Error updating status');
+    } finally {
+      setDayEndSubmitting(false);
+    }
+  };
 
   const filteredBills = useMemo(() => {
     if (!searchQuery.trim()) return bills;
@@ -737,120 +949,231 @@ export default function DispatcherPortalPage() {
         {/* SECTION 2: DELIVERY (DELIVERED CONTAINERS & AVAILABLE TO DELIVER) */}
         {activeTab === 'delivery' && (
           <div className="space-y-4">
-            {/* Notification Alert Banner */}
-            <div className="bg-emerald-950/40 border border-emerald-800/50 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl">
-                  <CheckCircle2 className="w-5 h-5" />
+            {/* 1. CONTAINER SELECTOR CARD (Receipts do NOT auto-populate; user must select a container first) */}
+            <div className="bg-slate-900 border border-emerald-500/40 rounded-2xl p-4 shadow-xl space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center space-x-3">
+                  <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl">
+                    <Layers className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+                      <span>कंटेनर नंबर चुनें (Select Container Number)</span>
+                      <span className="text-red-400 font-bold">*</span>
+                    </h3>
+                    <p className="text-[11px] text-slate-400">
+                      डिलीवरी रसीदें देखने के लिए पहले कंटेनर चुनें। रसीदें स्वतः पॉपुलेट नहीं होंगी।
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white">
-                    डिलीवरी सेक्शन (Delivery Section): Available to Deliver Only
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    केवल वही माल बिलिंग हेतु प्रोसेस किया जा सकता है जिसे सेल्स हेड द्वारा "Available to Deliver" मार्क किया गया है।
-                  </p>
-                </div>
+
+                {selectedDeliveryContainer && (
+                  <button
+                    onClick={() => setSelectedDeliveryContainer('')}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium border border-slate-700 transition"
+                  >
+                    कंटेनर बदलें (Change Container)
+                  </button>
+                )}
               </div>
 
-              <div className="flex items-center space-x-2 text-xs">
-                <span className="px-2.5 py-1 bg-emerald-900/60 text-emerald-300 rounded-lg font-mono font-bold">
-                  {deliveryItems.filter((i) => i.salesStatus === 'Available to Deliver').length} Receipts Ready
-                </span>
-              </div>
+              {/* Container Dropdown */}
+              <select
+                value={selectedDeliveryContainer}
+                onChange={(e) => setSelectedDeliveryContainer(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm font-mono font-bold text-emerald-300 focus:outline-none focus:border-emerald-500"
+              >
+                <option value="">-- कृपया कंटेनर नंबर चुनें (Select Container Number) --</option>
+                {deliveryContainers.map((c) => (
+                  <option key={c.container} value={c.container}>
+                    📦 {c.container} — ({c.availableCount} Available to Deliver / {c.count} Total Receipts)
+                  </option>
+                ))}
+              </select>
+
+              {/* Fast-Pick Pills for Quick One-Click Selection */}
+              {deliveryContainers.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <span className="text-[10px] text-slate-400 font-semibold uppercase">
+                    क्विक पिक (Quick Select):
+                  </span>
+                  {deliveryContainers.map((c) => (
+                    <button
+                      key={c.container}
+                      type="button"
+                      onClick={() => setSelectedDeliveryContainer(c.container)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold border transition ${
+                        selectedDeliveryContainer === c.container
+                          ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-md'
+                          : 'bg-slate-800/80 text-emerald-400 border-slate-700 hover:bg-slate-800'
+                      }`}
+                    >
+                      {c.container} ({c.availableCount})
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {/* Delivery Items Grid */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-slate-950/80 text-slate-400 border-b border-slate-800 text-[11px] uppercase tracking-wider font-semibold">
-                      <th className="py-3 px-4">Receipt #</th>
-                      <th className="py-3 px-4">Marka</th>
-                      <th className="py-3 px-4">Container</th>
-                      <th className="py-3 px-4">Party</th>
-                      <th className="py-3 px-4">Commodity</th>
-                      <th className="py-3 px-4 text-center">Remaining CTN</th>
-                      <th className="py-3 px-4">Sales Status</th>
-                      <th className="py-3 px-4 text-right">Dispatch Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800">
-                    {filteredDeliveryItems.length === 0 ? (
-                      <tr>
-                        <td colSpan={8} className="py-12 text-center text-slate-500">
-                          No receipts available for delivery.
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredDeliveryItems.map((r) => {
-                        const isAvailable = r.salesStatus === 'Available to Deliver';
-                        const isHold = r.salesStatus === 'Hold';
+            {/* 2. STATE A: NO CONTAINER SELECTED -> SHOW PROMPT (DO NOT AUTO-POPULATE) */}
+            {!selectedDeliveryContainer ? (
+              <div className="bg-slate-900/60 border border-dashed border-slate-800 rounded-3xl p-12 text-center space-y-3">
+                <div className="w-16 h-16 mx-auto bg-emerald-500/10 text-emerald-400 rounded-2xl flex items-center justify-center">
+                  <Truck className="w-8 h-8" />
+                </div>
+                <h3 className="text-base font-bold text-white">
+                  कंटेनर नंबर का चयन करें (Please Select a Container)
+                </h3>
+                <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+                  Delivery सेक्शन (Available to Deliver) में रसीदें और माल देखने के लिए कृपया पहले ऊपर दिए गए मेनू से कंटेनर नंबर चुनें।
+                </p>
+                <div className="pt-2 text-[11px] text-slate-500 italic">
+                  (Receipt details will appear immediately upon selecting a container)
+                </div>
+              </div>
+            ) : (
+              /* 3. STATE B: CONTAINER SELECTED -> SHOW CONTAINER RECEIPTS (NOT TO REQUEST BILL) */
+              <div className="space-y-4 animate-in fade-in duration-200">
+                {/* Selected Container Summary Header */}
+                <div className="bg-emerald-950/40 border border-emerald-800/50 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div className="flex items-center space-x-3">
+                    <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl">
+                      <CheckCircle2 className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+                        <span>चयनित कंटेनर (Selected Container):</span>
+                        <span className="font-mono text-emerald-400">{selectedDeliveryContainer}</span>
+                      </h3>
+                      <p className="text-xs text-slate-400">
+                        दिन के अंत में माल प्राप्ति (Full या Not Full) स्थिति यहाँ से मार्क करें।
+                      </p>
+                    </div>
+                  </div>
 
-                        return (
-                          <tr
-                            key={r._id}
-                            className={`transition ${
-                              isAvailable
-                                ? 'hover:bg-emerald-950/20 bg-slate-900/90'
-                                : 'hover:bg-slate-800/40 opacity-70'
-                            }`}
-                          >
-                            <td className="py-3 px-4 font-mono font-bold text-white">
-                              {r.receipt}
-                            </td>
-                            <td className="py-3 px-4 font-black text-emerald-400 text-sm">
-                              {r.marka}
-                            </td>
-                            <td className="py-3 px-4 font-mono text-blue-300">
-                              {r.container}
-                            </td>
-                            <td className="py-3 px-4 text-slate-300">
-                              {r.party}
-                            </td>
-                            <td className="py-3 px-4 text-slate-400">
-                              {r.commodity || '—'}
-                            </td>
-                            <td className="py-3 px-4 text-center font-mono font-bold text-purple-300">
-                              {r.remainingCartons} / {r.totalCartons} CTN
-                            </td>
-                            <td className="py-3 px-4">
-                              <span
-                                className={`px-2.5 py-1 text-[10px] font-bold rounded-full ${
-                                  isAvailable
-                                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse'
-                                    : isHold
-                                    ? 'bg-red-500/20 text-red-300 border border-red-500/40'
-                                    : 'bg-slate-800 text-slate-400'
-                                }`}
-                              >
-                                {r.salesStatus}
-                              </span>
-                            </td>
-                            <td className="py-3 px-4 text-right">
-                              {isAvailable ? (
-                                <button
-                                  onClick={() => handleOpenDispatchModal(r)}
-                                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs shadow-lg shadow-emerald-600/30 transition transform hover:scale-105"
-                                >
-                                  <Truck className="w-3.5 h-3.5" />
-                                  <span>गाड़ी में लोड / बिलिंग</span>
-                                </button>
-                              ) : (
-                                <span className="text-[11px] text-slate-500 italic">
-                                  {isHold ? 'On Hold by Sales Head' : 'Awaiting Clearance'}
-                                </span>
-                              )}
+                  <div className="flex items-center space-x-2 text-xs">
+                    <span className="px-2.5 py-1 bg-emerald-900/60 text-emerald-300 rounded-lg font-mono font-bold">
+                      {filteredDeliveryItems.length} Receipts
+                    </span>
+                    <span className="px-2.5 py-1 bg-purple-900/60 text-purple-300 rounded-lg font-mono font-bold">
+                      {filteredDeliveryItems.reduce(
+                        (sum, r) => sum + (r.remainingCartons > 0 ? r.remainingCartons : r.totalCartons || 0),
+                        0
+                      )}{' '}
+                      CTN Available
+                    </span>
+                  </div>
+                </div>
+
+                {/* Delivery Items Grid */}
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-slate-950/80 text-slate-400 border-b border-slate-800 text-[11px] uppercase tracking-wider font-semibold">
+                          <th className="py-3 px-4">Receipt #</th>
+                          <th className="py-3 px-4">Marka</th>
+                          <th className="py-3 px-4">Container</th>
+                          <th className="py-3 px-4">Party</th>
+                          <th className="py-3 px-4">Commodity</th>
+                          <th className="py-3 px-4 text-center">Remaining CTN</th>
+                          <th className="py-3 px-4">Sales Status</th>
+                          <th className="py-3 px-4 text-right">दिन का अंत स्थिति (Goods Received)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800">
+                        {filteredDeliveryItems.length === 0 ? (
+                          <tr>
+                            <td colSpan={8} className="py-12 text-center text-slate-500">
+                              इस कंटेनर में कोई रसीद डिलीवरी हेतु उपलब्ध नहीं है।
                             </td>
                           </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
+                        ) : (
+                          filteredDeliveryItems.map((r) => {
+                            const isAvailable = r.salesStatus === 'Available to Deliver';
+                            const isHold = r.salesStatus === 'Hold';
+                            const isFullyDelivered = r.isDelivered || r.remainingCartons === 0;
+
+                            return (
+                              <tr
+                                key={r._id}
+                                className={`transition ${
+                                  isFullyDelivered
+                                    ? 'bg-slate-950/40 opacity-60'
+                                    : isAvailable
+                                    ? 'hover:bg-emerald-950/20 bg-slate-900/90'
+                                    : 'hover:bg-slate-800/40 opacity-75'
+                                }`}
+                              >
+                                <td className="py-3 px-4 font-mono font-bold text-white">
+                                  <div className="flex items-center space-x-1.5">
+                                    <span className="text-blue-300 font-mono font-bold text-sm">
+                                      {r.receipt}
+                                    </span>
+                                  </div>
+                                  {r.phone && (
+                                    <span className="text-[10px] text-slate-400 block font-mono">
+                                      📞 {r.phone}
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4 font-black text-emerald-400 text-sm">
+                                  {r.marka}
+                                </td>
+                                <td className="py-3 px-4 font-mono text-slate-300">
+                                  {r.container}
+                                </td>
+                                <td className="py-3 px-4 text-slate-200 font-medium">
+                                  {r.party}
+                                </td>
+                                <td className="py-3 px-4 text-slate-400">
+                                  {r.commodity || '—'}
+                                </td>
+                                <td className="py-3 px-4 text-center font-mono font-bold text-purple-300">
+                                  {r.remainingCartons} / {r.totalCartons} CTN
+                                </td>
+                                <td className="py-3 px-4">
+                                  <span
+                                    className={`px-2.5 py-1 text-[10px] font-bold rounded-full ${
+                                      isFullyDelivered
+                                        ? 'bg-slate-800 text-slate-400 border border-slate-700'
+                                        : isAvailable
+                                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse'
+                                        : isHold
+                                        ? 'bg-red-500/20 text-red-300 border border-red-500/40'
+                                        : 'bg-slate-800 text-slate-400'
+                                    }`}
+                                  >
+                                    {isFullyDelivered ? 'Delivered' : r.salesStatus}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4 text-right">
+                                  {isFullyDelivered ? (
+                                    <span className="inline-flex items-center space-x-1 text-emerald-400 text-xs font-bold bg-emerald-950/60 border border-emerald-800/60 px-2.5 py-1 rounded-lg">
+                                      <CheckCircle2 className="w-3.5 h-3.5" />
+                                      <span>पूरा प्राप्त (Full)</span>
+                                    </span>
+                                  ) : (
+                                    <button
+                                      onClick={() => handleOpenDayEndModal(r)}
+                                      className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold text-xs shadow-md shadow-blue-600/30 transition transform hover:scale-105"
+                                      title="दिन के अंत में माल प्राप्ति स्थिति दर्ज करें (Full / Partial)"
+                                    >
+                                      <CheckCircle2 className="w-3.5 h-3.5" />
+                                      <span>माल प्राप्ति पुष्टि</span>
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
 
@@ -973,17 +1296,19 @@ export default function DispatcherPortalPage() {
                     <th className="py-3 px-4">Time</th>
                     <th className="py-3 px-4">Receipt #</th>
                     <th className="py-3 px-4">Marka</th>
+                    <th className="py-3 px-4">Item / Commodity</th>
                     <th className="py-3 px-4">Gaadi No (गाड़ी)</th>
                     <th className="py-3 px-4 text-center">CTN</th>
                     <th className="py-3 px-4">Place / Address</th>
                     <th className="py-3 px-4">Status</th>
                     <th className="py-3 px-4">Biller Action</th>
+                    <th className="py-3 px-4 text-right">एक्शन (Action)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
                   {requests.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="py-12 text-center text-slate-500">
+                      <td colSpan={10} className="py-12 text-center text-slate-500">
                         No dispatch requests initiated yet.
                       </td>
                     </tr>
@@ -998,6 +1323,9 @@ export default function DispatcherPortalPage() {
                         </td>
                         <td className="py-3 px-4 font-mono font-bold text-blue-300">{req.receipt}</td>
                         <td className="py-3 px-4 font-black text-white">{req.marka || '—'}</td>
+                        <td className="py-3 px-4 font-bold text-cyan-300 max-w-[150px] truncate" title={req.commodity || 'COMMERCIAL GOODS'}>
+                          {req.commodity || 'COMMERCIAL GOODS'}
+                        </td>
                         <td className="py-3 px-4 font-mono font-bold text-amber-400">{req.vehicleNumber}</td>
                         <td className="py-3 px-4 text-center font-bold text-purple-300 font-mono">
                           {req.cartonCount} CTN
@@ -1017,6 +1345,21 @@ export default function DispatcherPortalPage() {
                         <td className="py-3 px-4 text-slate-400 text-[11px]">
                           {req.billerUsername ? `Processed by @${req.billerUsername}` : 'Awaiting Biller'}
                         </td>
+                        <td className="py-3 px-4 text-right">
+                          {req.status === 'Pending' ? (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteRequest(req._id)}
+                              className="px-2.5 py-1 bg-red-500/20 hover:bg-red-500 text-red-300 hover:text-white rounded-lg font-bold text-[11px] border border-red-500/40 transition flex items-center space-x-1 ml-auto"
+                              title="इस पेंडिंग डिस्पैच रिक्वेस्ट को डिलीट करें"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              <span>डिलीट</span>
+                            </button>
+                          ) : (
+                            <span className="text-[10px] text-slate-500">—</span>
+                          )}
+                        </td>
                       </tr>
                     ))
                   )}
@@ -1026,6 +1369,365 @@ export default function DispatcherPortalPage() {
           </div>
         )}
       </main>
+
+            {/* CONTAINER CLOSE & STOCK RECONCILIATION MODAL */}
+      {containerCloseModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-3 sm:p-5 overflow-y-auto">
+          <div className="bg-slate-900 border border-amber-500/50 rounded-3xl w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/80">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 bg-amber-500/20 text-amber-400 rounded-2xl">
+                  <ShieldCheck className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center space-x-2">
+                    <span>🔒 कंटेनर क्लोज़ व स्टॉक रीकंसाइलेशन</span>
+                    <span className="font-mono text-amber-400">({selectedDeliveryContainer})</span>
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    क्लोज़ करते समय प्रत्येक स्टॉक को अपडेट करें कि वह वेयरहाउस में गया या सीधा पार्टी के पास गया।
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setContainerCloseModalOpen(false)}
+                className="p-2 rounded-full text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body - Items List */}
+            <div className="p-5 overflow-y-auto space-y-4 flex-1">
+              {containerCloseSuccessMsg && (
+                <div className="p-3.5 bg-emerald-950/70 border border-emerald-500 rounded-2xl text-emerald-300 text-xs font-bold animate-in fade-in">
+                  {containerCloseSuccessMsg}
+                </div>
+              )}
+
+              <div className="space-y-3">
+                {containerCloseReceipts.map((item, idx) => (
+                  <div
+                    key={item.receipt}
+                    className="p-4 bg-slate-950 border border-slate-800 rounded-2xl space-y-3 text-xs"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-850 pb-2.5 gap-2">
+                      <div className="flex items-center space-x-3">
+                        <span className="px-2.5 py-1 bg-blue-500/20 text-blue-300 font-mono font-bold rounded-lg text-sm">
+                          {item.receipt}
+                        </span>
+                        <span className="font-black text-emerald-400 text-sm">{item.marka}</span>
+                        <span className="text-slate-300 font-medium">{item.party}</span>
+                      </div>
+                      <div className="text-right text-[11px] font-mono text-purple-300">
+                        कुल/शेष: <strong>{item.remainingCartons} / {item.totalCartons} CTN</strong>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      {/* Destination: Party vs Warehouse */}
+                      <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 space-y-1.5">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                          1. माल कहाँ गया? (Destination)
+                        </label>
+                        <div className="flex items-center space-x-3">
+                          <label className="flex items-center space-x-1.5 cursor-pointer">
+                            <input
+                              type="radio"
+                              name={'dest-' + idx}
+                              checked={item.stockDestination === 'party'}
+                              onChange={() => handleUpdateCloseReceiptItem(idx, 'stockDestination', 'party')}
+                              className="text-emerald-500 focus:ring-0"
+                            />
+                            <span className="text-xs font-semibold text-emerald-300">सीधा पार्टी (Direct Party)</span>
+                          </label>
+                          <label className="flex items-center space-x-1.5 cursor-pointer">
+                            <input
+                              type="radio"
+                              name={'dest-' + idx}
+                              checked={item.stockDestination === 'warehouse'}
+                              onChange={() => handleUpdateCloseReceiptItem(idx, 'stockDestination', 'warehouse')}
+                              className="text-blue-500 focus:ring-0"
+                            />
+                            <span className="text-xs font-semibold text-blue-300">वेयरहाउस (Warehouse)</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Delivery Status: Fully vs Partly vs Undelivered */}
+                      <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 space-y-1.5">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                          2. डिलीवरी स्थिति (Delivery Status)
+                        </label>
+                        <select
+                          value={item.deliveryStatus}
+                          onChange={(e) => handleUpdateCloseReceiptItem(idx, 'deliveryStatus', e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-semibold outline-none focus:border-amber-500"
+                        >
+                          <option value="fully_delivered">🟢 Fully Delivered (पूर्ण प्राप्त)</option>
+                          <option value="partly_delivered">🟡 Partly Delivered (आंशिक प्राप्त)</option>
+                          <option value="undelivered">⚪ Undelivered (अनडिलीवर / शेष)</option>
+                        </select>
+                      </div>
+
+                      {/* Goods Received Confirmation Tag */}
+                      <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 space-y-1.5">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                          3. पार्टी माल प्राप्ति (Goods Received)
+                        </label>
+                        <label className="flex items-center space-x-2 cursor-pointer pt-0.5">
+                          <input
+                            type="checkbox"
+                            checked={item.goodsReceivedByParty}
+                            onChange={(e) => handleUpdateCloseReceiptItem(idx, 'goodsReceivedByParty', e.target.checked)}
+                            className="rounded text-emerald-500 focus:ring-0 w-4 h-4"
+                          />
+                          <span className={item.goodsReceivedByParty ? 'text-emerald-400 font-bold text-xs' : 'text-slate-400 text-xs'}>
+                            {item.goodsReceivedByParty ? '✓ Goods Received by Party' : 'Goods Received Not by Party'}
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* If Partly Delivered: Quantity Input Required */}
+                    {item.deliveryStatus === 'partly_delivered' && (
+                      <div className="p-2.5 bg-amber-950/30 border border-amber-500/40 rounded-xl flex items-center justify-between gap-3 animate-in fade-in">
+                        <span className="text-[11px] font-bold text-amber-300">
+                          👉 प्राप्त कार्टून संख्या दर्ज करें (Enter Delivered Cartons):
+                        </span>
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="number"
+                            min={1}
+                            max={item.remainingCartons > 0 ? item.remainingCartons : item.totalCartons}
+                            value={item.deliveredQuantity}
+                            onChange={(e) => handleUpdateCloseReceiptItem(idx, 'deliveredQuantity', e.target.value ? Number(e.target.value) : '')}
+                            className="w-28 px-2.5 py-1 bg-slate-950 border border-amber-500/60 rounded-lg text-amber-200 font-mono font-bold text-xs outline-none"
+                            placeholder="Cartons"
+                          />
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            शेष: {Math.max(0, (item.remainingCartons > 0 ? item.remainingCartons : item.totalCartons) - Number(item.deliveredQuantity || 0))} CTN
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-5 border-t border-slate-800 bg-slate-950/80 flex items-center justify-end space-x-3">
+              <button
+                type="button"
+                onClick={() => setContainerCloseModalOpen(false)}
+                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-xs border border-slate-700 transition"
+              >
+                रद्द करें (Cancel)
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmitContainerClose}
+                disabled={containerCloseSubmitting}
+                className="px-5 py-2.5 bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white rounded-xl font-bold text-xs shadow-lg shadow-rose-900/40 flex items-center space-x-2 transition transform active:scale-95"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>{containerCloseSubmitting ? 'क्लोज़ हो रहा है...' : 'कंटेनर क्लोज़ व स्टॉक अपडेट करें'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DAY-END GOODS RECEIVED MODAL */}
+      {dayEndModalOpen && dayEndReceipt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-blue-500/50 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl space-y-4 p-6">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="p-2 bg-blue-500/20 text-blue-400 rounded-xl">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">
+                    दिन का अंत: माल प्राप्ति पुष्टि (Day-End Goods Received)
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    पार्टी को माल प्राप्त हुआ या नहीं व मात्रा दर्ज करें
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setDayEndModalOpen(false)}
+                className="p-1 rounded-full text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Receipt Summary Info Card */}
+            <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <span className="text-slate-500">Receipt No:</span>{' '}
+                <strong className="text-blue-300 font-mono">{dayEndReceipt.receipt}</strong>
+              </div>
+              <div>
+                <span className="text-slate-500">Marka:</span>{' '}
+                <strong className="text-emerald-400">{dayEndReceipt.marka}</strong>
+              </div>
+              <div>
+                <span className="text-slate-500">Party:</span>{' '}
+                <strong className="text-slate-200">{dayEndReceipt.party}</strong>
+              </div>
+              <div>
+                <span className="text-slate-500">Available CTN:</span>{' '}
+                <strong className="text-purple-300 font-mono">
+                  {dayEndReceipt.remainingCartons > 0 ? dayEndReceipt.remainingCartons : dayEndReceipt.totalCartons} CTN
+                </strong>
+              </div>
+            </div>
+
+            {/* Selection: Full vs Partial */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
+                माल प्राप्ति की स्थिति चुनें (Select Received Status):
+              </label>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {/* Full Option */}
+                <label
+                  onClick={() => setReceivedType('full')}
+                  className={`flex items-start space-x-3 p-3 rounded-2xl border cursor-pointer transition ${
+                    receivedType === 'full'
+                      ? 'bg-emerald-950/50 border-emerald-500 text-white shadow-md'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800/60'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="receivedType"
+                    checked={receivedType === 'full'}
+                    onChange={() => setReceivedType('full')}
+                    className="mt-1 text-emerald-500 focus:ring-0"
+                  />
+                  <div>
+                    <span className="text-xs font-bold block text-emerald-300">
+                      🟢 पूरा माल प्राप्त (Full Received)
+                    </span>
+                    <span className="text-[11px] text-slate-400 block mt-0.5">
+                      पार्टी को सभी कार्टून पूर्णतः प्राप्त हो गए (0 शेष)
+                    </span>
+                  </div>
+                </label>
+
+                {/* Partial Option */}
+                <label
+                  onClick={() => setReceivedType('partial')}
+                  className={`flex items-start space-x-3 p-3 rounded-2xl border cursor-pointer transition ${
+                    receivedType === 'partial'
+                      ? 'bg-amber-950/50 border-amber-500 text-white shadow-md'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800/60'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="receivedType"
+                    checked={receivedType === 'partial'}
+                    onChange={() => setReceivedType('partial')}
+                    className="mt-1 text-amber-500 focus:ring-0"
+                  />
+                  <div>
+                    <span className="text-xs font-bold block text-amber-300">
+                      🟡 अधूरा / आंशिक (Not Full / Partial)
+                    </span>
+                    <span className="text-[11px] text-slate-400 block mt-0.5">
+                      पार्टी को कुछ ही कार्टून मिले (मात्रा दर्ज करें)
+                    </span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* If Partial: Enter Quantity */}
+            {receivedType === 'partial' && (
+              <div className="p-3.5 bg-amber-950/20 border border-amber-500/40 rounded-2xl space-y-2 animate-in fade-in duration-150">
+                <label className="text-xs font-bold text-amber-300 uppercase tracking-wider flex items-center justify-between">
+                  <span>प्राप्त कार्टून संख्या दर्ज करें (Enter Quantity Received):</span>
+                  <span className="text-[11px] font-mono font-normal text-slate-400">
+                    Max: {dayEndReceipt.remainingCartons > 0 ? dayEndReceipt.remainingCartons : dayEndReceipt.totalCartons} CTN
+                  </span>
+                </label>
+                <input
+                  type="number"
+                  value={receivedQuantity}
+                  onChange={(e) => setReceivedQuantity(e.target.value ? Number(e.target.value) : '')}
+                  placeholder="e.g. 5"
+                  min={1}
+                  max={dayEndReceipt.remainingCartons > 0 ? dayEndReceipt.remainingCartons : dayEndReceipt.totalCartons}
+                  className="w-full bg-slate-950 border border-amber-500/60 rounded-xl px-3.5 py-2.5 text-base font-mono font-bold text-amber-300 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                />
+                {Number(receivedQuantity) > 0 && (
+                  <div className="text-[11px] text-slate-300 flex items-center justify-between font-mono bg-slate-950 p-2 rounded-lg">
+                    <span>
+                      प्राप्त (Received): <strong className="text-amber-400">{receivedQuantity} CTN</strong>
+                    </span>
+                    <span>
+                      शेष (Remaining):{' '}
+                      <strong className="text-purple-400">
+                        {Math.max(
+                          0,
+                          (dayEndReceipt.remainingCartons > 0
+                            ? dayEndReceipt.remainingCartons
+                            : dayEndReceipt.totalCartons) - Number(receivedQuantity)
+                        )}{' '}
+                        CTN
+                      </strong>
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Remarks */}
+            <div className="space-y-1">
+              <label className="text-[11px] text-slate-400">रिमार्क्स (Optional Remarks / Notes):</label>
+              <textarea
+                value={dayEndRemarks}
+                onChange={(e) => setDayEndRemarks(e.target.value)}
+                placeholder="e.g. बाकी माल कल डिलीवरी होगा, पार्टी की दुकान बंद थी..."
+                rows={2}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+
+            {dayEndSuccessMsg && (
+              <div className="p-3 bg-emerald-950/60 border border-emerald-500 rounded-xl text-emerald-300 text-xs font-bold animate-in fade-in">
+                {dayEndSuccessMsg}
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex items-center space-x-2.5 pt-2">
+              <button
+                onClick={handleSubmitDayEnd}
+                disabled={dayEndSubmitting}
+                className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 text-white rounded-xl font-bold text-xs shadow-lg shadow-blue-600/30 transition flex items-center justify-center space-x-2"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>{dayEndSubmitting ? 'सेव हो रहा है...' : 'स्थिति सेव करें (Save Delivery Status)'}</span>
+              </button>
+              <button
+                onClick={() => setDayEndModalOpen(false)}
+                className="px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold text-xs border border-slate-700 transition"
+              >
+                रद्द करें (Cancel)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* DISPATCH ACTION MODAL */}
       {dispatchModalOpen && selectedReceipt && (

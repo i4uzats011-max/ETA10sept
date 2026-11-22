@@ -1,5 +1,9 @@
 'use client';
 
+import { Capacitor } from '@capacitor/core';
+import { LocalNotifications } from '@capacitor/local-notifications';
+import { Geolocation } from '@capacitor/geolocation';
+
 export type NotificationTone = 'chime' | 'bell' | 'digital' | 'whistle' | 'marimba';
 
 export const NOTIFICATION_TONES: { id: NotificationTone; name: string; description: string }[] = [
@@ -113,33 +117,102 @@ function playSweep(
   osc.stop(startTime + duration);
 }
 
+let isListenerRegistered = false;
+
 /**
- * Triggers interactive inter-user notification with audio chime, haptic vibration, and on-screen toast
+ * Initializes Android notification channel and tap action listener
+ * so clicking the notification in the phone's notification drawer brings the app to the front and navigates
  */
-export function triggerNotificationAlert(opts: {
+export async function initNotificationListeners(): Promise<void> {
+  if (typeof window === 'undefined' || isListenerRegistered) return;
+  isListenerRegistered = true;
+
+  if (Capacitor.isNativePlatform()) {
+    try {
+      // 1. Create High-Priority Notification Channel for Android
+      await LocalNotifications.createChannel({
+        id: 'cargo_alerts',
+        name: 'Cargo & Logistics Urgent Alerts',
+        description: 'Instant notification alerts for Dispatch, Billing, and Live Field Tracking',
+        importance: 5, // MAX importance - pops up as heads-up banner on phone
+        visibility: 1, // VISIBILITY_PUBLIC
+        vibration: true,
+        lights: true,
+        lightColor: '#10b981',
+      });
+
+      // 2. Register tap listener: when user clicks notification in status bar, open app & redirect
+      await LocalNotifications.addListener('localNotificationActionPerformed', (notificationAction) => {
+        const actionUrl = notificationAction.notification.extra?.actionUrl;
+        if (actionUrl && typeof window !== 'undefined') {
+          if (window.location.pathname !== actionUrl) {
+            window.location.href = actionUrl;
+          }
+        }
+      });
+    } catch (e) {
+      console.warn('Notification channel & listener init note:', e);
+    }
+  }
+}
+
+/**
+ * Triggers interactive inter-user notification with audio chime, haptic vibration,
+ * native mobile system notification, and on-screen toast
+ */
+export async function triggerNotificationAlert(opts: {
   title: string;
   body: string;
   tone?: NotificationTone;
   actionUrl?: string;
 }) {
-  // 1. Play sound chime
+  // 1. Play sound chime & haptic vibration
   playNotificationSound(opts.tone);
 
-  // 2. Browser native desktop / mobile notification if permitted
-  if (typeof window !== 'undefined' && 'Notification' in window) {
+  // 2. Mobile App Native Notification (Capacitor LocalNotifications)
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const perm = await LocalNotifications.checkPermissions();
+      if (perm.display === 'granted') {
+        await initNotificationListeners();
+        await LocalNotifications.schedule({
+          notifications: [
+            {
+              title: opts.title,
+              body: opts.body,
+              id: Math.floor(Date.now() % 100000),
+              schedule: { at: new Date(Date.now() + 100) },
+              channelId: 'cargo_alerts',
+              smallIcon: 'ic_launcher',
+              extra: { actionUrl: opts.actionUrl || '/' },
+            },
+          ],
+        });
+      }
+    } catch (e) {
+      console.warn('Native notification schedule note:', e);
+    }
+  } else if (typeof window !== 'undefined' && 'Notification' in window) {
+    // 3. Desktop / Browser notification fallback
     if (Notification.permission === 'granted') {
       try {
-        new Notification(opts.title, {
+        const notif = new Notification(opts.title, {
           body: opts.body,
           icon: '/images/hero-ship.svg',
         });
+        notif.onclick = () => {
+          window.focus();
+          if (opts.actionUrl) {
+            window.location.href = opts.actionUrl;
+          }
+        };
       } catch (e) {
         // Fallback for sandboxed webviews
       }
     }
   }
 
-  // 3. Dispatch in-app event for toast banner
+  // 4. Dispatch in-app event for UI toast banner
   if (typeof window !== 'undefined') {
     window.dispatchEvent(
       new CustomEvent('cargo:notification', {
@@ -156,9 +229,53 @@ export function triggerNotificationAlert(opts: {
 }
 
 /**
- * Automatically prompts user on startup for:
- * 1. Location permission (Native GPS / Browser)
- * 2. Notification permission
+ * Checks current permission status for Notification and Location
+ */
+export async function checkAppPermissionsStatus(): Promise<{
+  location: boolean;
+  notification: boolean;
+}> {
+  let location = false;
+  let notification = false;
+
+  if (typeof window === 'undefined') {
+    return { location: false, notification: false };
+  }
+
+  // 1. Check Capacitor Native Permissions
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const locPerm = await Geolocation.checkPermissions();
+      location = locPerm.location === 'granted';
+    } catch {}
+
+    try {
+      const notifPerm = await LocalNotifications.checkPermissions();
+      notification = notifPerm.display === 'granted';
+    } catch {}
+
+    return { location, notification };
+  }
+
+  // 2. Check Browser Permissions
+  if ('Notification' in window) {
+    notification = Notification.permission === 'granted';
+  }
+
+  if ('permissions' in navigator && navigator.permissions?.query) {
+    try {
+      const locStatus = await navigator.permissions.query({ name: 'geolocation' as PermissionName });
+      location = locStatus.state === 'granted';
+    } catch {}
+  }
+
+  return { location, notification };
+}
+
+/**
+ * Automatically prompts user on app installation/startup for:
+ * 1. Location permission (Capacitor Geolocation / GPS)
+ * 2. Notification permission (Capacitor LocalNotifications / Browser)
  */
 export async function requestAppStartupPermissions(): Promise<{
   location: boolean;
@@ -171,7 +288,39 @@ export async function requestAppStartupPermissions(): Promise<{
     return { location: false, notification: false };
   }
 
-  // 1. Request Notification Permission
+  // 1. Handle Native Capacitor Platform
+  if (Capacitor.isNativePlatform()) {
+    // Request Notification permission
+    try {
+      const notifCheck = await LocalNotifications.checkPermissions();
+      if (notifCheck.display !== 'granted') {
+        const notifReq = await LocalNotifications.requestPermissions();
+        notificationGranted = notifReq.display === 'granted';
+      } else {
+        notificationGranted = true;
+      }
+    } catch (err) {
+      console.warn('Native notification permission note:', err);
+    }
+
+    // Request Location permission
+    try {
+      const locCheck = await Geolocation.checkPermissions();
+      if (locCheck.location !== 'granted') {
+        const locReq = await Geolocation.requestPermissions();
+        locationGranted = locReq.location === 'granted';
+      } else {
+        locationGranted = true;
+      }
+    } catch (err) {
+      console.warn('Native location permission note:', err);
+    }
+
+    return { location: locationGranted, notification: notificationGranted };
+  }
+
+  // 2. Handle Web Browser Platform
+  // Request Notification Permission
   if ('Notification' in window) {
     try {
       if (Notification.permission === 'default') {
@@ -185,7 +334,7 @@ export async function requestAppStartupPermissions(): Promise<{
     }
   }
 
-  // 2. Request Location Permission via Geolocation
+  // Request Location Permission via Geolocation
   if ('geolocation' in navigator) {
     try {
       await new Promise<void>((resolve) => {

@@ -17,6 +17,11 @@
 	},
 	"plugins": {
 		"Geolocation": {},
-		"Preferences": {}
+		"Preferences": {},
+		"LocalNotifications": {
+			"smallIcon": "ic_launcher",
+			"iconColor": "#10b981",
+			"sound": "beep.wav"
+		}
 	}
 }

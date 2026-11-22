@@ -101,6 +101,71 @@ export async function POST(req: NextRequest) {
   }
 }
 
+// PATCH: Edit message within 24 hours of sending (WhatsApp style)
+export async function PATCH(req: NextRequest) {
+  if (!isSalesPersonOrHeadAuthenticated(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const currentUser = getAuthenticatedUser(req);
+
+  try {
+    await connectToDatabase();
+    const body = await req.json();
+    const { id, message } = body;
+
+    if (!id) {
+      return NextResponse.json({ error: 'Message ID is required' }, { status: 400 });
+    }
+    if (!message || typeof message !== 'string' || !message.trim()) {
+      return NextResponse.json({ error: 'Updated message content is required' }, { status: 400 });
+    }
+
+    const msg = await SalesMessage.findById(id);
+    if (!msg) {
+      return NextResponse.json({ error: 'Message not found' }, { status: 404 });
+    }
+
+    if (msg.isDeleted) {
+      return NextResponse.json({ error: 'Cannot edit a deleted message' }, { status: 400 });
+    }
+
+    // Permission check: only original sender, sales_head, or admin can edit
+    const isSender = msg.senderUsername.toLowerCase() === currentUser.username.toLowerCase();
+    const isHeadOrAdmin = ['sales_head', 'admin', 'developer'].includes(currentUser.role);
+    if (!isSender && !isHeadOrAdmin) {
+      return NextResponse.json({ error: 'You are not authorized to edit this message' }, { status: 403 });
+    }
+
+    // 24-Hour window verification
+    const msgAgeMs = Date.now() - new Date(msg.createdAt).getTime();
+    const maxAgeMs = 24 * 60 * 60 * 1000;
+    if (msgAgeMs > maxAgeMs) {
+      return NextResponse.json(
+        { error: 'Messages can only be edited within 24 hours of being sent.' },
+        { status: 400 }
+      );
+    }
+
+    if (!msg.originalMessage) {
+      msg.originalMessage = msg.message;
+    }
+    msg.message = message.trim();
+    msg.isEdited = true;
+    msg.editedBy = currentUser.name || currentUser.username;
+    msg.editedAt = new Date();
+    await msg.save();
+
+    return NextResponse.json({
+      success: true,
+      message: msg,
+    });
+  } catch (error: any) {
+    console.error('Error editing message:', error);
+    return NextResponse.json({ error: error?.message || 'Server error' }, { status: 500 });
+  }
+}
+
 // DELETE: Delete a message within 24 hours of sending (WhatsApp style)
 export async function DELETE(req: NextRequest) {
   if (!isSalesPersonOrHeadAuthenticated(req)) {

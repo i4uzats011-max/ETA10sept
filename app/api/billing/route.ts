@@ -667,7 +667,7 @@ export async function PATCH(req: NextRequest) {
   try {
     await connectToDatabase();
     const body = await req.json();
-    const { id, billIds, vehicleNumber, destination, deliveryAddress, deliveryAddressTitle, deliveryPhone, isDispatched } = body;
+    const { id, billIds, vehicleNumber, destination, deliveryAddress, deliveryAddressTitle, deliveryPhone, isDispatched, action, markDownloaded } = body;
 
     const idsToUpdate: string[] = [];
     if (id) idsToUpdate.push(id);
@@ -675,6 +675,22 @@ export async function PATCH(req: NextRequest) {
 
     if (idsToUpdate.length === 0) {
       return NextResponse.json({ error: 'Bill ID or billIds array is required' }, { status: 400 });
+    }
+
+    if (action === 'mark_downloaded' || markDownloaded) {
+      const now = new Date();
+      await Bill.updateMany(
+        { _id: { $in: idsToUpdate } },
+        {
+          $set: { isDownloaded: true, downloadedAt: now },
+          $inc: { downloadCount: 1 },
+        }
+      );
+      return NextResponse.json({
+        success: true,
+        message: 'Marked bills as downloaded',
+        downloadedAt: now,
+      });
     }
 
     const updateData: any = {

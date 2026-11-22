@@ -146,15 +146,32 @@ export async function GET(req: NextRequest) {
 
     // 4. Lookup by specific Receipt
     if (receipt) {
+      const cleanReceiptEscaped = receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const shipment = await Shipment.findOne({
-        receipt: new RegExp(`^${receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        receipt: new RegExp(`^${cleanReceiptEscaped}$`, 'i'),
       }).lean();
 
       const existingBill = await Bill.findOne({
-        receipt: new RegExp(`^${receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        receipt: new RegExp(`^${cleanReceiptEscaped}$`, 'i'),
       }).lean();
 
-      if (!shipment && !existingBill) {
+      let whReceipt: any = null;
+      try {
+        const WarehouseReceipt = (await import('@/models/WarehouseReceipt')).default;
+        whReceipt = await WarehouseReceipt.findOne({
+          receipt: new RegExp(`^${cleanReceiptEscaped}$`, 'i'),
+        }).lean();
+      } catch {}
+
+      let dispReq: any = null;
+      try {
+        const DispatchRequest = (await import('@/models/DispatchRequest')).default;
+        dispReq = await DispatchRequest.findOne({
+          receipt: new RegExp(`^${cleanReceiptEscaped}$`, 'i'),
+        }).sort({ createdAt: -1 }).lean();
+      } catch {}
+
+      if (!shipment && !existingBill && !whReceipt && !dispReq) {
         return NextResponse.json({ found: false, message: 'Receipt not found in database' }, { status: 404 });
       }
 
@@ -163,6 +180,9 @@ export async function GET(req: NextRequest) {
         (shipment as any)?.subMarka ||
         (existingBill as any)?.mainMarka ||
         (existingBill as any)?.subMarka ||
+        (whReceipt as any)?.mainMarka ||
+        (whReceipt as any)?.subMarka ||
+        (dispReq as any)?.marka ||
         '';
 
       let markaAddress: any = null;
@@ -172,32 +192,49 @@ export async function GET(req: NextRequest) {
         }).lean();
       }
 
-      const cartonsNum = Number((shipment as any)?.quantity) || (existingBill as any)?.totalCartons || 0;
-      const weightNum = Number((shipment as any)?.weight) || (existingBill as any)?.quantityKg || 0;
+      const cartonsNum =
+        Number((dispReq as any)?.cartonCount) ||
+        Number((shipment as any)?.packages) ||
+        Number((shipment as any)?.quantity) ||
+        (existingBill as any)?.totalCartons ||
+        Number(whReceipt?.quantity) ||
+        Number(whReceipt?.remainingQuantity) ||
+        1;
+      const totalVolumeNum = parseFloat(String((shipment as any)?.volume || whReceipt?.volume || 0)) || 0;
+      const weightNum = Number((shipment as any)?.weight) || (existingBill as any)?.quantityKg || Number(whReceipt?.weight) || 0;
 
       return NextResponse.json({
         found: true,
         shipment: shipment || null,
         existingBill: existingBill || null,
+        warehouseReceipt: whReceipt || null,
+        dispatchRequest: dispReq || null,
         markaAddress: markaAddress || null,
         autoFill: {
-          receipt: (shipment as any)?.receipt || (existingBill as any)?.receipt || receipt,
-          container: (shipment as any)?.container || (existingBill as any)?.container || '',
+          receipt: (shipment as any)?.receipt || (existingBill as any)?.receipt || (whReceipt as any)?.receipt || receipt,
+          container: (shipment as any)?.container || (existingBill as any)?.container || (whReceipt as any)?.container || (dispReq as any)?.container || '',
           containerNumber: (shipment as any)?.containerNumber || (existingBill as any)?.containerNumber || '',
-          party: (shipment as any)?.party || (existingBill as any)?.party || '',
-          mainMarka: (shipment as any)?.mainMarka || (existingBill as any)?.mainMarka || '',
-          subMarka: (shipment as any)?.subMarka || (existingBill as any)?.subMarka || '',
+          party: (shipment as any)?.party || (existingBill as any)?.party || (whReceipt as any)?.party || (dispReq as any)?.party || '',
+          mainMarka: (shipment as any)?.mainMarka || (existingBill as any)?.mainMarka || (whReceipt as any)?.mainMarka || (dispReq as any)?.marka || '',
+          subMarka: (shipment as any)?.subMarka || (existingBill as any)?.subMarka || (whReceipt as any)?.subMarka || '',
           commodity:
-            (shipment as any)?.commodity || (shipment as any)?.english || (existingBill as any)?.commodity || 'Commercial Cargo',
+            (dispReq as any)?.commodity ||
+            (shipment as any)?.commodity ||
+            (shipment as any)?.english ||
+            (whReceipt as any)?.commodity ||
+            (existingBill as any)?.commodity ||
+            'COMMERCIAL GOODS',
           totalCartons: cartonsNum,
+          volume: totalVolumeNum,
           quantityPcs: (existingBill as any)?.quantityPcs || (cartonsNum > 0 ? cartonsNum * 10 : 0),
           quantityKg: weightNum,
           hsnCode: (existingBill as any)?.hsnCode || '',
           igst: (existingBill as any)?.igst || 18,
-          billingUnit: (existingBill as any)?.billingUnit || 'Pcs',
+          billingUnit: (existingBill as any)?.billingUnit || 'CTN',
           taxableValue: (existingBill as any)?.taxableValue || 0,
-          warehouse: (shipment as any)?.warehouse || (existingBill as any)?.warehouse || '',
-          vehicleNumber: (existingBill as any)?.vehicleNumber || '',
+          warehouse: (shipment as any)?.warehouse || (existingBill as any)?.warehouse || (whReceipt as any)?.warehouse || '',
+          vehicleNumber: (dispReq as any)?.vehicleNumber || (existingBill as any)?.vehicleNumber || '',
+          destination: (dispReq as any)?.place || '',
           isDispatched: Boolean((existingBill as any)?.isDispatched),
 
           // Purchaser details from Marka Directory or existing bill
@@ -221,4 +258,3 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: error?.message || 'Lookup failed' }, { status: 500 });
   }
 }
-

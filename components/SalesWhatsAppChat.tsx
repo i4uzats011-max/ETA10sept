@@ -15,6 +15,7 @@ import {
   Shield,
   Briefcase,
   Trash2,
+  Edit3,
 } from 'lucide-react';
 
 export interface SalesWhatsAppChatProps {
@@ -44,6 +45,9 @@ export default function SalesWhatsAppChat({
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState<string>('');
+  const [savingEdit, setSavingEdit] = useState<boolean>(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const QUICK_CHIPS = [
@@ -120,6 +124,42 @@ export default function SalesWhatsAppChat({
       console.error('Failed to send message:', e);
     } finally {
       setSending(false);
+    }
+  };
+
+  const handleStartEdit = (msg: any) => {
+    setEditingMessageId(msg._id);
+    setEditingText(msg.message);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMessageId(null);
+    setEditingText('');
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingMessageId || !editingText.trim()) return;
+    setSavingEdit(true);
+    try {
+      const res = await fetch('/api/sales/messages', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: editingMessageId, message: editingText.trim() }),
+      });
+      const data = await res.json();
+      if (data.success && data.message) {
+        setMessages((prev) =>
+          prev.map((m) => (m._id === editingMessageId ? { ...m, ...data.message } : m))
+        );
+        setEditingMessageId(null);
+        setEditingText('');
+      } else {
+        alert(data.error || 'Failed to edit message');
+      }
+    } catch (e: any) {
+      alert(e?.message || 'Error updating message');
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -257,6 +297,11 @@ export default function SalesWhatsAppChat({
                     ) : (
                       <div className="whitespace-pre-wrap break-words leading-relaxed text-[12px]">
                         {msg.message}
+                        {msg.isEdited && !isDeleted && (
+                          <span className="text-[9px] text-slate-400 font-normal italic ml-1.5 select-none">
+                            (Edited)
+                          </span>
+                        )}
                       </div>
                     )}
 
@@ -265,13 +310,22 @@ export default function SalesWhatsAppChat({
                       <span>{timeStr}</span>
                       {isMe && !isDeleted && <CheckCheck className="w-3.5 h-3.5 text-blue-500" />}
                       {canDelete && !isDeleted && (
-                        <button
-                          onClick={() => handleDeleteMessage(msg._id)}
-                          title="Delete message (Allowed within 24 hours)"
-                          className="opacity-0 group-hover:opacity-100 hover:text-red-600 transition-opacity p-0.5 ml-1"
-                        >
-                          <Trash2 className="w-3 h-3 text-slate-400 hover:text-red-500" />
-                        </button>
+                        <div className="flex items-center space-x-0.5 opacity-0 group-hover:opacity-100 transition-opacity ml-1">
+                          <button
+                            onClick={() => handleStartEdit(msg)}
+                            title="Edit message (Allowed within 24 hours)"
+                            className="p-0.5 hover:text-emerald-600"
+                          >
+                            <Edit3 className="w-3 h-3 text-slate-400 hover:text-emerald-600" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteMessage(msg._id)}
+                            title="Delete message (Allowed within 24 hours)"
+                            className="p-0.5 hover:text-red-600"
+                          >
+                            <Trash2 className="w-3 h-3 text-slate-400 hover:text-red-500" />
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -295,32 +349,57 @@ export default function SalesWhatsAppChat({
           ))}
         </div>
 
+        {/* Edit Message Banner */}
+        {editingMessageId && (
+          <div className="bg-emerald-50 px-3.5 py-1.5 border-t border-emerald-200 flex items-center justify-between text-xs text-emerald-900 shadow-inner">
+            <div className="flex items-center space-x-1.5">
+              <Edit3 className="w-3.5 h-3.5 text-emerald-600" />
+              <span className="font-bold text-[11px]">संदेश एडिट करें (Editing Message)</span>
+            </div>
+            <button
+              type="button"
+              onClick={handleCancelEdit}
+              className="text-[11px] text-slate-500 hover:text-slate-800 underline font-semibold"
+            >
+              रद्द करें (Cancel)
+            </button>
+          </div>
+        )}
+
         {/* Input Bar */}
         <div className="bg-[#f0f2f5] p-3 border-t border-slate-300 flex items-center space-x-2">
           <input
             type="text"
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
+            value={editingMessageId ? editingText : inputText}
+            onChange={(e) => editingMessageId ? setEditingText(e.target.value) : setInputText(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
-                handleSendMessage();
+                if (editingMessageId) {
+                  handleSaveEdit();
+                } else {
+                  handleSendMessage();
+                }
               }
             }}
-            placeholder="Type a message (WhatsApp style)..."
+            placeholder={editingMessageId ? "Edit message content..." : "Type a message (WhatsApp style)..."}
             className="flex-1 bg-white border border-slate-300 rounded-full px-4 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#075E54] focus:border-transparent text-slate-800"
           />
           <button
-            onClick={() => handleSendMessage()}
-            disabled={!inputText.trim() || sending}
+            onClick={() => editingMessageId ? handleSaveEdit() : handleSendMessage()}
+            disabled={editingMessageId ? (!editingText.trim() || savingEdit) : (!inputText.trim() || sending)}
             className={`w-9 h-9 rounded-full flex items-center justify-center text-white transition ${
-              inputText.trim() && !sending
+              (editingMessageId ? (editingText.trim() && !savingEdit) : (inputText.trim() && !sending))
                 ? 'bg-[#075E54] hover:bg-[#128C7E] shadow'
                 : 'bg-slate-400 cursor-not-allowed'
             }`}
-            title="Send"
+            title={editingMessageId ? "Save Edit" : "Send"}
           >
-            <Send className="w-4 h-4" />
+            {editingMessageId ? (
+              <Check className="w-4 h-4" />
+            ) : (
+              <Send className="w-4 h-4" />
+            )}
           </button>
         </div>
       </div>

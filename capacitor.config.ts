@@ -24,6 +24,11 @@ const config: CapacitorConfig = {
     Preferences: {
       // Persistent single sign-on login session
     },
+    LocalNotifications: {
+      smallIcon: 'ic_launcher',
+      iconColor: '#10b981',
+      sound: 'beep.wav',
+    },
   },
 };
 

@@ -2,6 +2,8 @@
 
 import { Preferences } from '@capacitor/preferences';
 import { Geolocation } from '@capacitor/geolocation';
+import { LocalNotifications } from '@capacitor/local-notifications';
+import { Capacitor } from '@capacitor/core';
 
 const AUTH_TOKEN_KEY = 'CARGO_AUTH_PERSISTENT_TOKEN';
 const USER_ROLE_KEY = 'CARGO_AUTH_USER_ROLE';
@@ -92,6 +94,54 @@ export async function clearMobileSession() {
   } catch (err) {
     console.warn('Error clearing preferences:', err);
   }
+}
+
+/**
+ * Request both Notification & Location permissions for the mobile app
+ */
+export async function requestMobileAppPermissions(): Promise<{
+  location: boolean;
+  notification: boolean;
+}> {
+  let location = false;
+  let notification = false;
+
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const locRes = await Geolocation.requestPermissions();
+      location = locRes.location === 'granted';
+    } catch (e) {
+      console.warn('Location request note:', e);
+    }
+
+    try {
+      const notifRes = await LocalNotifications.requestPermissions();
+      notification = notifRes.display === 'granted';
+    } catch (e) {
+      console.warn('Notification request note:', e);
+    }
+  } else {
+    // Web browser fallback
+    if ('Notification' in window) {
+      try {
+        const res = await Notification.requestPermission();
+        notification = res === 'granted';
+      } catch {}
+    }
+    if ('geolocation' in navigator) {
+      try {
+        await new Promise<void>((resolve) => {
+          navigator.geolocation.getCurrentPosition(
+            () => { location = true; resolve(); },
+            () => { resolve(); },
+            { timeout: 5000, enableHighAccuracy: false }
+          );
+        });
+      } catch {}
+    }
+  }
+
+  return { location, notification };
 }
 
 /**

@@ -98,6 +98,9 @@ export interface IBill extends Document {
 
   // Extra Invoice Metadata
   eWayBillNo?: string;
+  isDownloaded?: boolean;
+  downloadedAt?: Date | null;
+  downloadCount?: number;
   deliveryNote?: string;
   modeOfPayment?: string;
   referenceNo?: string;
@@ -222,6 +225,9 @@ const BillSchema = new Schema<IBill>(
 
     // Extra Invoice Metadata
     eWayBillNo: { type: String, default: '', trim: true },
+    isDownloaded: { type: Boolean, default: false },
+    downloadedAt: { type: Date, default: null },
+    downloadCount: { type: Number, default: 0 },
     deliveryNote: { type: String, default: '', trim: true },
     modeOfPayment: { type: String, default: '', trim: true },
     referenceNo: { type: String, default: '', trim: true },
