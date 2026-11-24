@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
     }
 
     let rawReceipts: any[] = [];
-    let containerInfoMap: Map<string, { container: string; containerNumber?: string; loadingDate?: string }> = new Map();
+    let containerInfoMap: Map<string, { container: string; containerNumber?: string; loadingDate?: string; eta?: string }> = new Map();
 
     if (mode === 'container') {
       // 1. Multi-container lookup
@@ -314,6 +314,13 @@ export async function PATCH(req: NextRequest) {
     const now = new Date();
 
     if (rate !== undefined) {
+      // STRICT POLICY: Only Sales Head and Developer Admin have permission to set or edit Rate
+      if (currentUser.role !== 'sales_head' && currentUser.role !== 'developer') {
+        return NextResponse.json(
+          { error: 'रेट (Rate) निर्धारित या बदलने का अधिकार केवल सेल्स हेड (Sales Head) को है।' },
+          { status: 403 }
+        );
+      }
       const cleanRate = String(rate).trim();
       updates.salesRate = cleanRate;
       updates.rate = cleanRate;

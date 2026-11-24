@@ -1293,7 +1293,7 @@ export default function SalesPortalPage() {
                         </th>
                         <th className="py-2.5 px-3 border-r border-emerald-800 text-right">CTN</th>
                         <th className="py-2.5 px-3 border-r border-emerald-800 bg-[#0d452b] min-w-[110px]">
-                          Rate (दर) ✏️
+                          Rate (दर) {isSalesHeadOrDev ? '✏️' : '🔒'}
                         </th>
                         <th className="py-2.5 px-3 border-r border-emerald-800 bg-[#0d452b] min-w-[140px]">
                           Sales Person 👤
@@ -1469,9 +1469,12 @@ export default function SalesPortalPage() {
                                   )}
                                 </div>
                               ) : (
-                                <span className="font-semibold text-emerald-800">
-                                  {row.rate || <span className="text-slate-400 italic">Unassigned</span>}
-                                </span>
+                                <div className="flex items-center justify-between px-1">
+                                  <span className="font-bold text-emerald-800">
+                                    {row.rate || <span className="text-slate-400 italic font-normal">Unassigned</span>}
+                                  </span>
+                                  <Lock className="w-3 h-3 text-slate-400 shrink-0 ml-1" title="रेट (Rate) निर्धारित या बदलने का अधिकार केवल सेल्स हेड को है" />
+                                </div>
                               )}
                             </td>
 
