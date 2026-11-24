@@ -46,7 +46,7 @@ export default function SalesDiscrepancyModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!remarks.trim()) {
-      setErrorMsg('कृपया कारण (Remarks) लिखें कि डेटा एंट्री में क्या गलत है।');
+      setErrorMsg('Please enter the reason for the discrepancy in remarks.');
       return;
     }
 
@@ -91,7 +91,7 @@ export default function SalesDiscrepancyModal({
           <div className="flex items-center space-x-2">
             <AlertTriangle className="w-5 h-5 text-amber-100" />
             <h3 className="font-bold text-sm tracking-wide">
-              Data Entry Wrong (डेटा एंट्री गलत रिपोर्ट करें)
+              Report Wrong Entry
             </h3>
           </div>
           <button
@@ -108,9 +108,9 @@ export default function SalesDiscrepancyModal({
           <div className="bg-amber-50 border-l-4 border-amber-500 p-3 rounded text-xs text-amber-900 flex items-start space-x-2">
             <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
             <div>
-              <p className="font-semibold">डेटा सुरक्षा नियम (Data Integrity Rule):</p>
+              <p className="font-semibold">Data Integrity Rule:</p>
               <p className="mt-0.5 text-amber-800">
-                सेल्स हेड या टीम मास्टर डेटाबेस सीधे एडिट नहीं कर सकते। आपकी यह रिक्वेस्ट एडमिन एवं वेयरहाउस कीपर के टास्क/मैसेज में जाएगी। एडमिन के अप्रूवल के बाद ही डेटाबेस में वैल्यू अपडेट होगी।
+                Master warehouse records cannot be directly edited. Your request will be sent to the Admin and Warehouse team for review. Values will update once approved.
               </p>
             </div>
           </div>
@@ -143,7 +143,7 @@ export default function SalesDiscrepancyModal({
           {existing?.hasDiscrepancy && (
             <div className="p-2.5 rounded bg-blue-50 border border-blue-200 text-xs text-blue-900 flex items-center justify-between">
               <span>
-                स्थिति: <strong>{existing.status || 'Pending'}</strong> (Reported by: {existing.reportedBy})
+                Status: <strong>{existing.status || 'Pending'}</strong> (Reported by: {existing.reportedBy})
               </span>
               {existing.status === 'Approved' ? (
                 <span className="text-emerald-700 font-bold flex items-center space-x-1">
@@ -161,7 +161,7 @@ export default function SalesDiscrepancyModal({
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Actual CBM (सही CBM)
+                Actual CBM
               </label>
               <input
                 type="text"
@@ -174,7 +174,7 @@ export default function SalesDiscrepancyModal({
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Actual Wt (सही वजन KG)
+                Actual Weight (KG)
               </label>
               <input
                 type="text"
@@ -187,7 +187,7 @@ export default function SalesDiscrepancyModal({
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Actual CTN (कार्टन)
+                Actual Cartons (CTN)
               </label>
               <input
                 type="number"
@@ -202,13 +202,13 @@ export default function SalesDiscrepancyModal({
           {/* Discrepancy Reason / Remarks */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Discrepancy Details / Remarks (कारण व विवरण) *
+              Discrepancy Details / Remarks *
             </label>
             <textarea
               rows={3}
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
-              placeholder="उदाहरण: पार्टी ने पैकिंग लिस्ट भेजी है जिसमें 1.8 CBM है, वेयरहाउस में 2.4 CBM गलत चढ़ गया है। कृपया री-मेजर करें।"
+              placeholder="e.g. Packing list from supplier specifies 1.8 CBM, warehouse recorded 2.4 CBM. Please re-measure."
               className="w-full px-3 py-2 text-xs border border-slate-300 rounded focus:ring-2 focus:ring-amber-500 focus:outline-none"
               required
             />

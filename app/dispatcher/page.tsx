@@ -293,19 +293,19 @@ export default function DispatcherPortalPage() {
     setDispatchModalOpen(true);
   };
 
-  // Submit "Initiate for Billing" (बिलिंग के लिए भेजें)
+  // Submit "Initiate for Billing"
   const handleInitiateBilling = async () => {
     if (!selectedReceipt) return;
     if (!vehicleNumber.trim()) {
-      alert('कृपया गाड़ी नंबर (Gaadi Number) दर्ज करें।');
+      alert('Please enter Vehicle Number.');
       return;
     }
     if (!cartonCount || Number(cartonCount) <= 0) {
-      alert('कृपया सही कार्टून संख्या (Carton Count) दर्ज करें।');
+      alert('Please enter a valid Carton Count.');
       return;
     }
     if (!placeAddress.trim()) {
-      alert('कृपया डिलीवरी का स्थान / पता (Place / Address) दर्ज करें।');
+      alert('Please enter delivery Place / Address.');
       return;
     }
 
@@ -339,7 +339,7 @@ export default function DispatcherPortalPage() {
         body: `Receipt ${selectedReceipt.receipt} -> Gaadi: ${vehicleNumber.trim().toUpperCase()} (${cartonCount} CTN)`,
       });
 
-      setActionSuccessMsg(`✓ सफलता! रसीद ${selectedReceipt.receipt} हेतु बिलिंग अनुरोध बिलर को भेज दिया गया है।`);
+      setActionSuccessMsg(`✓ Success! Billing request for Receipt #${selectedReceipt.receipt} has been sent to Biller.`);
       setTimeout(() => {
         setDispatchModalOpen(false);
         fetchData();
@@ -352,9 +352,9 @@ export default function DispatcherPortalPage() {
     }
   };
 
-  // Delete Dispatch Request (डिस्पैचर अपनी रिक्वेस्ट डिलीट कर सकता है)
+  // Delete Dispatch Request
   const handleDeleteRequest = async (requestId: string) => {
-    if (!window.confirm('क्या आप वाकई इस डिस्पैच अनुरोध को डिलीट करना चाहते हैं? (Are you sure you want to delete this dispatch request?)')) {
+    if (!window.confirm('Are you sure you want to delete this dispatch request?')) {
       return;
     }
     try {
@@ -369,28 +369,28 @@ export default function DispatcherPortalPage() {
       const data = await res.json();
       if (data.success) {
         setRequests((prev) => prev.filter((r) => r._id !== requestId));
-        alert('✓ डिस्पैच अनुरोध सफलतापूर्वक डिलीट कर दिया गया है।');
+        alert('✓ Dispatch request deleted successfully.');
       } else {
-        alert(data.error || 'डिस्पैच अनुरोध डिलीट करने में विफल।');
+        alert(data.error || 'Failed to delete dispatch request.');
       }
     } catch (e: any) {
       alert(e?.message || 'Error deleting request');
     }
   };
 
-  // Submit Self-Billing (खुद से बिलिंग बनाएँ)
+  // Submit Self-Billing
   const handleSelfBill = async () => {
     if (!selectedReceipt) return;
     if (!vehicleNumber.trim()) {
-      alert('गाड़ी नंबर दर्ज करना अनिवार्य है।');
+      alert('Vehicle Number is required.');
       return;
     }
     if (!cartonCount || Number(cartonCount) <= 0) {
-      alert('कार्टून संख्या दर्ज करें।');
+      alert('Please enter carton count.');
       return;
     }
     if (!placeAddress.trim()) {
-      alert('डिलीवरी स्थान / पता दर्ज करें।');
+      alert('Please enter delivery place / address.');
       return;
     }
 
@@ -422,7 +422,7 @@ export default function DispatcherPortalPage() {
         body: `Bill #${data.bill?.billNumber} generated for ${selectedReceipt.receipt}`,
       });
 
-      alert(`✓ बिल सफलतापूर्वक तैयार हो गया है! बिल नंबर: ${data.bill?.billNumber}`);
+      alert(`✓ Bill generated successfully! Bill Number: ${data.bill?.billNumber}`);
       setSelfBillModalOpen(false);
       setDispatchModalOpen(false);
       fetchData();
@@ -514,7 +514,7 @@ export default function DispatcherPortalPage() {
     );
   }, [deliveryItems, selectedGoodsContainer, selectedDeliveryContainer, searchQuery]);
 
-  // Warehouse Stock Items (माल जो partly sent हुआ या warehouse में रखा गया)
+  // Warehouse Stock Items (Stock partly sent or kept in warehouse)
   const warehouseStockItems = useMemo(() => {
     const list = deliveryItems.filter(
       (r) =>
@@ -557,12 +557,12 @@ export default function DispatcherPortalPage() {
     if (unloadStatusChoice === 'partly_sent') {
       const q = Number(unloadSentQuantity);
       if (isNaN(q) || q <= 0) {
-        alert('कृपया भेजे गए कार्टून संख्या (Quantity Sent) सही दर्ज करें।');
+        alert('Please enter a valid Sent Carton Quantity.');
         return;
       }
       const totalMax = unloadReceipt.totalCartons || unloadReceipt.remainingCartons || 0;
       if (q > totalMax) {
-        alert(`भेजी गई कार्टून संख्या कुल कार्टून (${totalMax} CTN) से अधिक नहीं हो सकती।`);
+        alert(`Sent cartons cannot exceed total cartons (${totalMax} CTN).`);
         return;
       }
     }
@@ -621,7 +621,7 @@ export default function DispatcherPortalPage() {
         }`,
       });
 
-      setUnloadSuccessMsg(data.message || 'सफलतापूर्वक अपडेट हो गया।');
+      setUnloadSuccessMsg(data.message || 'Updated successfully.');
       setTimeout(() => {
         setUnloadModalOpen(false);
         fetchData();
@@ -646,7 +646,7 @@ export default function DispatcherPortalPage() {
   // Open Container Close & Stock Reconciliation Modal
   const handleOpenContainerCloseModal = () => {
     if (!selectedDeliveryContainer) {
-      alert('कृपया पहले कंटेनर चुनें।');
+      alert('Please select a container first.');
       return;
     }
     setContainerCloseReceipts(
@@ -697,7 +697,7 @@ export default function DispatcherPortalPage() {
         body: `Container ${selectedDeliveryContainer}: ${data.updatedCount} receipts updated`,
       });
 
-      setContainerCloseSuccessMsg(data.message || 'कंटेनर सफलतापूर्वक क्लोज़ हो गया।');
+      setContainerCloseSuccessMsg(data.message || 'Container closed successfully.');
       setTimeout(() => {
         setContainerCloseModalOpen(false);
         fetchData();
@@ -715,12 +715,12 @@ export default function DispatcherPortalPage() {
     if (receivedType === 'partial') {
       const q = Number(receivedQuantity);
       if (isNaN(q) || q <= 0) {
-        alert('कृपया प्राप्त कार्टून संख्या (Quantity Received) सही दर्ज करें।');
+        alert('Please enter a valid Received Carton Quantity.');
         return;
       }
       const maxCtn = dayEndReceipt.remainingCartons > 0 ? dayEndReceipt.remainingCartons : dayEndReceipt.totalCartons;
       if (q > maxCtn) {
-        alert(`प्राप्त कार्टून संख्या कुल शेष संख्या (${maxCtn} CTN) से अधिक नहीं हो सकती।`);
+        alert(`Received cartons cannot exceed remaining cartons (${maxCtn} CTN).`);
         return;
       }
     }
@@ -771,7 +771,7 @@ export default function DispatcherPortalPage() {
         }`,
       });
 
-      setDayEndSuccessMsg(data.message || 'सफलतापूर्वक अपडेट हो गया।');
+      setDayEndSuccessMsg(data.message || 'Updated successfully.');
       setTimeout(() => {
         setDayEndModalOpen(false);
         fetchData();
@@ -819,7 +819,7 @@ export default function DispatcherPortalPage() {
               <div className="flex items-center space-x-2">
                 <span className="font-black text-sm sm:text-base text-white tracking-tight">US INTERNATIONAL</span>
                 <span className="px-2 py-0.5 text-[9px] sm:text-[10px] font-black uppercase tracking-wider bg-emerald-500 text-slate-950 rounded-full">
-                  Dispatcher Portal (डिस्पैचर)
+                  Dispatcher Portal
                 </span>
               </div>
               <p className="text-[10px] sm:text-xs text-slate-400 hidden sm:block">
@@ -888,7 +888,7 @@ export default function DispatcherPortalPage() {
             }`}
           >
             <Truck className="w-4 h-4" />
-            <span>1. डिस्पैच एवं बिलिंग (Dispatch)</span>
+            <span>1. Dispatch & Billing</span>
             <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-emerald-500/20 text-emerald-300">
               {deliveryItems.filter((d) => d.salesStatus === 'Available to Deliver' && !d.isHold).length}
             </span>
@@ -903,7 +903,7 @@ export default function DispatcherPortalPage() {
             }`}
           >
             <Boxes className="w-4 h-4 text-cyan-400" />
-            <span>2. कंटेनर अनलोडिंग (Unload: 4 Statuses)</span>
+            <span>2. Container Unloading</span>
             <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-cyan-500/20 text-cyan-300">
               {deliveryItems.filter((d) => d.unloadStatus).length} / {deliveryItems.length}
             </span>
@@ -918,7 +918,7 @@ export default function DispatcherPortalPage() {
             }`}
           >
             <Warehouse className="w-4 h-4 text-purple-400" />
-            <span>3. गोदाम स्टॉक (Warehouse Stock)</span>
+            <span>3. Warehouse Stock</span>
             <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-purple-500/20 text-purple-300">
               {deliveryItems.reduce((sum, r) => sum + (r.warehouseQuantity || 0), 0)} CTN
             </span>
@@ -933,7 +933,7 @@ export default function DispatcherPortalPage() {
             }`}
           >
             <Clock className="w-4 h-4" />
-            <span>4. पेंडिंग अनुरोध (Requests)</span>
+            <span>4. Pending Requests</span>
             <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-amber-500/20 text-amber-300">
               {requests.filter((r) => r.status === 'Pending').length}
             </span>
@@ -948,7 +948,7 @@ export default function DispatcherPortalPage() {
             }`}
           >
             <FileText className="w-4 h-4" />
-            <span>5. बिलिंग इनवॉइस (Bills)</span>
+            <span>5. Billing Invoices</span>
             <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-indigo-500/20 text-indigo-300">
               {bills.length}
             </span>
@@ -963,7 +963,7 @@ export default function DispatcherPortalPage() {
             }`}
           >
             <Ship className="w-4 h-4" />
-            <span>6. कंटेनर ETA (In-Transit)</span>
+            <span>6. Container ETA</span>
             <span className="px-1.5 py-0.5 text-[10px] font-black rounded-full bg-blue-500/20 text-blue-300">
               {etaContainers.length}
             </span>
@@ -973,7 +973,7 @@ export default function DispatcherPortalPage() {
 
       {/* Main Container */}
       <main className="max-w-7xl mx-auto px-3 sm:px-6 py-6 space-y-5 flex-1 w-full">
-        {/* KPI Dashboard Quick Metrics Banner (उच्च गुणवत्ता सारांश आँकड़े) */}
+        {/* KPI Dashboard Quick Metrics Banner */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 shadow-md flex items-center space-x-3">
             <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-xl">
@@ -1012,7 +1012,7 @@ export default function DispatcherPortalPage() {
               <PackageCheck className="w-4 h-4" />
             </div>
             <div>
-              <span className="text-[10px] text-slate-400 block uppercase font-semibold">Partly Sent (आंशिक)</span>
+              <span className="text-[10px] text-slate-400 block uppercase font-semibold">Partly Sent</span>
               <strong className="text-sm sm:text-base font-mono font-bold text-amber-300">
                 {deliveryItems.filter((r) => r.unloadStatus === 'partly_sent').length}
               </strong>
@@ -1264,11 +1264,11 @@ export default function DispatcherPortalPage() {
                   </div>
                   <div>
                     <h3 className="text-sm font-bold text-white flex items-center space-x-2">
-                      <span>कंटेनर नंबर खोजें व चुनें (Search & Select Container)</span>
+                      <span>Search & Select Container</span>
                       <span className="text-red-400 font-bold">*</span>
                     </h3>
                     <p className="text-[11px] text-slate-400">
-                      एडमिन द्वारा डिलीवर मार्क किए गए कंटेनर यहाँ दिखते हैं। कंटेनर टाइप करके या ड्रॉपडाउन से चुनें।
+                      Containers marked as Delivered by Admin appear here. Select or search container.
                     </p>
                   </div>
                 </div>
@@ -1282,7 +1282,7 @@ export default function DispatcherPortalPage() {
                     className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium border border-slate-700 transition flex items-center space-x-1"
                   >
                     <X className="w-3.5 h-3.5" />
-                    <span>कंटेनर बदलें (Change Container)</span>
+                    <span>Change Container</span>
                   </button>
                 )}
               </div>
@@ -1296,7 +1296,7 @@ export default function DispatcherPortalPage() {
                     type="text"
                     value={containerSearchInput}
                     onChange={(e) => setContainerSearchInput(e.target.value)}
-                    placeholder="🔍 कंटेनर नंबर टाइप करें (Type container #, e.g. USSI-271)..."
+                    placeholder="🔍 Type container # (e.g. USSI-271)..."
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                   />
                   {containerSearchInput && (
@@ -1320,7 +1320,7 @@ export default function DispatcherPortalPage() {
                   className="w-full bg-slate-950 border border-emerald-500/50 rounded-xl px-4 py-2.5 text-xs font-mono font-bold text-emerald-300 focus:outline-none focus:border-emerald-500"
                 >
                   <option value="">
-                    -- कृपया कंटेनर नंबर चुनें ({matchingDeliveryContainers.length} कंटेनर उपलब्ध) --
+                    -- Select Container ({matchingDeliveryContainers.length} containers available) --
                   </option>
                   {matchingDeliveryContainers.map((c) => (
                     <option key={c.container} value={c.container}>
@@ -1332,7 +1332,7 @@ export default function DispatcherPortalPage() {
 
               {containerSearchInput && matchingDeliveryContainers.length === 0 && (
                 <p className="text-xs text-amber-400 pt-1">
-                  ⚠️ "{containerSearchInput}" नाम से कोई डिलीवर कंटेनर नहीं मिला।
+                  ⚠️ No delivered container found matching "{containerSearchInput}".
                 </p>
               )}
             </div>
@@ -1344,10 +1344,10 @@ export default function DispatcherPortalPage() {
                   <Truck className="w-8 h-8" />
                 </div>
                 <h3 className="text-base font-bold text-white">
-                  कंटेनर नंबर का चयन करें (Please Select a Container)
+                  Please Select a Container
                 </h3>
                 <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-                  डिलीवरी और बिलिंग हेतु रसीदें देखने के लिए ऊपर दिए गए सर्च बॉक्स या मेनू से कंटेनर नंबर चुनें।
+                  Select a container number above to view receipts for delivery and billing.
                 </p>
                 <div className="pt-2 text-[11px] text-slate-500 italic">
                   (Type container number in the box above to filter and select)
@@ -1364,11 +1364,11 @@ export default function DispatcherPortalPage() {
                     </div>
                     <div>
                       <h3 className="text-sm font-bold text-white flex items-center space-x-2">
-                        <span>चयनित कंटेनर (Selected Container):</span>
+                        <span>Selected Container:</span>
                         <span className="font-mono text-emerald-400">{selectedDeliveryContainer}</span>
                       </h3>
                       <p className="text-xs text-slate-400">
-                        गाड़ी लोड करें और बिलिंग हेतु बिलर को अनुरोध भेजें। होल्ड माल का डिस्पैच स्वतः लॉक रहेगा।
+                        Load vehicle and submit billing request to Biller. Held cargo is automatically locked.
                       </p>
                     </div>
                   </div>
@@ -1408,14 +1408,14 @@ export default function DispatcherPortalPage() {
                           <th className="py-3 px-4">Commodity</th>
                           <th className="py-3 px-4 text-center">Remaining CTN</th>
                           <th className="py-3 px-4">Sales / Hold Status</th>
-                          <th className="py-3 px-4 text-right">एक्शन (Action)</th>
+                          <th className="py-3 px-4 text-right">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800">
                         {filteredDeliveryItems.length === 0 ? (
                           <tr>
                             <td colSpan={8} className="py-12 text-center text-slate-500">
-                              इस कंटेनर में कोई रसीद डिलीवरी हेतु उपलब्ध नहीं है।
+                              No receipts available for delivery in this container.
                             </td>
                           </tr>
                         ) : (
@@ -1469,11 +1469,11 @@ export default function DispatcherPortalPage() {
                                     <div className="space-y-1">
                                       <span className="inline-flex items-center space-x-1 px-2.5 py-1 text-[11px] font-black rounded-lg bg-red-950 text-red-300 border border-red-700 shadow-sm">
                                         <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
-                                        <span>⛔ HOLD (होल्ड पर है)</span>
+                                        <span>⛔ HOLD</span>
                                       </span>
                                       {r.holdReason && (
                                         <span className="block text-[10px] text-red-400 font-medium max-w-[150px] truncate" title={r.holdReason}>
-                                          कारण: {r.holdReason}
+                                          Reason: {r.holdReason}
                                         </span>
                                       )}
                                     </div>
@@ -1496,24 +1496,24 @@ export default function DispatcherPortalPage() {
                                     <button
                                       disabled
                                       className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-red-950/70 border border-red-800 text-red-400 rounded-xl font-bold text-xs cursor-not-allowed opacity-80"
-                                      title={r.holdReason ? `होल्ड कारण: ${r.holdReason}` : 'यह माल होल्ड पर है। डिस्पैच नहीं हो सकता।'}
+                                      title={r.holdReason ? `Hold Reason: ${r.holdReason}` : 'This cargo is on hold. Cannot dispatch.'}
                                     >
                                       <Lock className="w-3.5 h-3.5 text-red-400" />
-                                      <span>⛔ होल्ड (Locked)</span>
+                                      <span>⛔ Hold (Locked)</span>
                                     </button>
                                   ) : isFullyDelivered ? (
                                     <span className="inline-flex items-center space-x-1 text-slate-400 text-xs font-semibold px-2.5 py-1">
-                                      <span>✓ डिस्पैच पूर्ण</span>
+                                      <span>✓ Dispatched</span>
                                     </span>
                                   ) : (
                                     <div className="flex items-center justify-end space-x-2">
                                       <button
                                         onClick={() => handleOpenDispatchModal(r)}
                                         className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 rounded-xl font-black text-xs shadow-md shadow-emerald-600/30 transition transform hover:scale-105"
-                                        title="गाड़ी नंबर व पता डालकर बिलर को रिक्वेस्ट भेजें"
+                                        title="Enter vehicle number & address to send billing request"
                                       >
                                         <Truck className="w-3.5 h-3.5" />
-                                        <span>🚚 बिलिंग अनुरोध भेजें</span>
+                                        <span>🚚 Send Billing Request</span>
                                       </button>
                                       <button
                                         onClick={() => {
@@ -1521,9 +1521,9 @@ export default function DispatcherPortalPage() {
                                           setSelfBillModalOpen(true);
                                         }}
                                         className="px-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-medium text-xs border border-slate-700 transition"
-                                        title="सीधे बिलिंग तैयार करें"
+                                        title="Create Direct Billing"
                                       >
-                                        स्वयं बिल
+                                        Self Bill
                                       </button>
                                     </div>
                                   )}
@@ -1553,11 +1553,11 @@ export default function DispatcherPortalPage() {
                   </div>
                   <div>
                     <h3 className="text-sm font-bold text-white flex items-center space-x-2">
-                      <span>कंटेनर अनलोडिंग व माल सत्यापन (Unload & Verify: 4 Statuses)</span>
+                      <span>Container Unloading & Physical Verification</span>
                       <span className="text-cyan-400 font-bold">*</span>
                     </h3>
                     <p className="text-[11px] text-slate-400">
-                      कंटेनर खोलने पर माल का भौतिक सत्यापन करें: Fully Sent, Partly Sent (बाकी वेयरहाउस में), Not In Container, या Stored in Warehouse।
+                      Verify cargo physical status upon container opening: Fully Sent, Partly Sent, Not In Container, or Stored in Warehouse.
                     </p>
                   </div>
                 </div>
@@ -1571,7 +1571,7 @@ export default function DispatcherPortalPage() {
                     className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-medium border border-slate-700 transition flex items-center space-x-1"
                   >
                     <X className="w-3.5 h-3.5" />
-                    <span>कंटेनर बदलें (Change Container)</span>
+                    <span>Change Container</span>
                   </button>
                 )}
               </div>
@@ -1584,7 +1584,7 @@ export default function DispatcherPortalPage() {
                     type="text"
                     value={goodsContainerSearchInput}
                     onChange={(e) => setGoodsContainerSearchInput(e.target.value)}
-                    placeholder="🔍 कंटेनर नंबर टाइप करें (Type container #, e.g. USSI-271)..."
+                    placeholder="🔍 Type container # (e.g. USSI-271)..."
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
                   />
                   {goodsContainerSearchInput && (
@@ -1607,11 +1607,11 @@ export default function DispatcherPortalPage() {
                   className="w-full bg-slate-950 border border-cyan-500/50 rounded-xl px-4 py-2.5 text-xs font-mono font-bold text-cyan-300 focus:outline-none focus:border-cyan-500"
                 >
                   <option value="">
-                    -- कृपया कंटेनर नंबर चुनें ({matchingGoodsContainers.length} कंटेनर उपलब्ध) --
+                    -- Select Container ({matchingGoodsContainers.length} containers available) --
                   </option>
                   {matchingGoodsContainers.map((c) => (
                     <option key={c.container} value={c.container}>
-                      📦 {c.container} — ({c.count} रसीदें)
+                      📦 {c.container} — ({c.count} receipts)
                     </option>
                   ))}
                 </select>
@@ -1625,10 +1625,10 @@ export default function DispatcherPortalPage() {
                   <Boxes className="w-8 h-8" />
                 </div>
                 <h3 className="text-base font-bold text-white">
-                  कंटेनर नंबर का चयन करें (Please Select a Container)
+                  Please Select a Container
                 </h3>
                 <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-                  कंटेनर अनलोडिंग और 4-स्टेटस भौतिक सत्यापन (Fully Sent, Partly Sent, Not In Container, Stored in Warehouse) हेतु ऊपर से कंटेनर चुनें।
+                  Select a container above for unloading and physical 4-status verification.
                 </p>
               </div>
             ) : (
@@ -1642,11 +1642,11 @@ export default function DispatcherPortalPage() {
                     </div>
                     <div>
                       <h3 className="text-sm font-bold text-white flex items-center space-x-2">
-                        <span>कंटेनर अनलोडिंग सत्यापन:</span>
+                        <span>Container Unload Verification:</span>
                         <span className="font-mono text-cyan-400">{selectedGoodsContainer}</span>
                       </h3>
                       <p className="text-xs text-slate-400">
-                        प्रत्येक रसीद का भौतिक मिलान करें। आंशिक भेजा गया माल शेष वेयरहाउस में दर्ज होगा।
+                        Verify each receipt physically. Partial shipments will record balance in warehouse stock.
                       </p>
                     </div>
                   </div>
@@ -1680,16 +1680,16 @@ export default function DispatcherPortalPage() {
                           <th className="py-3 px-4">Marka</th>
                           <th className="py-3 px-4">Party</th>
                           <th className="py-3 px-4">Commodity</th>
-                          <th className="py-3 px-4 text-center">अपेक्षित कार्टून</th>
-                          <th className="py-3 px-4">अनलोड व डिस्पैच सत्यापन स्थिति</th>
-                          <th className="py-3 px-4 text-right">एक्शन (Action)</th>
+                          <th className="py-3 px-4 text-center">Expected Cartons</th>
+                          <th className="py-3 px-4">Unload & Dispatch Status</th>
+                          <th className="py-3 px-4 text-right">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800">
                         {filteredGoodsItems.length === 0 ? (
                           <tr>
                             <td colSpan={7} className="py-12 text-center text-slate-500">
-                              इस कंटेनर में कोई रसीद नहीं मिली।
+                              No receipts found in this container.
                             </td>
                           </tr>
                         ) : (
@@ -1723,42 +1723,42 @@ export default function DispatcherPortalPage() {
                                   {unStatus === 'fully_sent' ? (
                                     <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-950 text-emerald-300 border border-emerald-700">
                                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                                      <span>🟢 Fully Sent (पूर्णतः भेजा गया - {r.totalCartons} CTN)</span>
+                                      <span>🟢 Fully Sent ({r.totalCartons} CTN)</span>
                                     </span>
                                   ) : unStatus === 'partly_sent' ? (
                                     <div className="space-y-1">
                                       <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 text-xs font-bold rounded-lg bg-amber-950 text-amber-300 border border-amber-700">
                                         <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
-                                        <span>🟡 Partly Sent ({r.sentQuantity} CTN भेजा)</span>
+                                        <span>🟡 Partly Sent ({r.sentQuantity} CTN Sent)</span>
                                       </span>
                                       <span className="block text-[11px] text-purple-300 font-mono bg-purple-950/60 border border-purple-800/60 px-2 py-0.5 rounded-md">
-                                        🏢 वेयरहाउस स्टॉक: <strong>{r.warehouseQuantity ?? Math.max(0, r.totalCartons - (r.sentQuantity || 0))} CTN</strong>
+                                        🏢 Warehouse Stock: <strong>{r.warehouseQuantity ?? Math.max(0, r.totalCartons - (r.sentQuantity || 0))} CTN</strong>
                                       </span>
                                     </div>
                                   ) : unStatus === 'not_in_container' ? (
                                     <div className="space-y-0.5">
                                       <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 text-xs font-bold rounded-lg bg-rose-950 text-rose-300 border border-rose-700 animate-pulse">
                                         <PackageX className="w-3.5 h-3.5 text-rose-400" />
-                                        <span>🔴 Not In Container (कंटेनर में नहीं मिला)</span>
+                                        <span>🔴 Not In Container</span>
                                       </span>
                                       <span className="block text-[10px] text-rose-400">
-                                        ⚠️ मैनिफ़ेस्ट में था पर अनलोडिंग में भौतिक रूप से नहीं निकला
+                                        ⚠️ Was on manifest but not physically found in container
                                       </span>
                                     </div>
                                   ) : unStatus === 'stored_in_warehouse' ? (
                                     <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 text-xs font-bold rounded-lg bg-purple-950 text-purple-300 border border-purple-700">
                                       <Warehouse className="w-3.5 h-3.5 text-purple-400" />
-                                      <span>🏢 Stored in Warehouse ({r.warehouseQuantity || r.totalCartons} CTN वेयरहाउस में जमा)</span>
+                                      <span>🏢 Stored in Warehouse ({r.warehouseQuantity || r.totalCartons} CTN)</span>
                                     </span>
                                   ) : (
                                     <span className="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-800 text-slate-400 inline-flex items-center space-x-1">
                                       <Clock className="w-3 h-3" />
-                                      <span>⏳ Unverified (सत्यापन लंबित)</span>
+                                      <span>⏳ Unverified</span>
                                     </span>
                                   )}
                                   {r.unloadRemarks && (
                                     <span className="block text-[10px] text-slate-400 mt-1 max-w-[200px] truncate" title={r.unloadRemarks}>
-                                      रिमार्क्स: {r.unloadRemarks}
+                                      Remarks: {r.unloadRemarks}
                                     </span>
                                   )}
                                 </td>
@@ -1766,10 +1766,10 @@ export default function DispatcherPortalPage() {
                                   <button
                                     onClick={() => handleOpenUnloadModal(r)}
                                     className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl font-bold text-xs shadow-md shadow-cyan-600/30 transition transform hover:scale-105"
-                                    title="कंटेनर अनलोडिंग सत्यापन दर्ज करें (Fully Sent, Partly Sent, Not In Container, Stored in Warehouse)"
+                                    title="Record container unload verification (Fully Sent, Partly Sent, Not In Container, Stored in Warehouse)"
                                   >
                                     <PackageCheck className="w-3.5 h-3.5" />
-                                    <span>सत्यापन दर्ज करें</span>
+                                    <span>Record Verification</span>
                                   </button>
                                 </td>
                               </tr>
@@ -1785,7 +1785,7 @@ export default function DispatcherPortalPage() {
           </div>
         )}
 
-        {/* SECTION 3: WAREHOUSE STOCK (गोदाम स्टॉक - AVAILABLE TO DISPATCH FROM WAREHOUSE) */}
+        {/* SECTION 3: WAREHOUSE STOCK */} 
         {activeTab === 'warehouse_stock' && (
           <div className="space-y-4 animate-in fade-in duration-200">
             {/* Warehouse Stock Header Card */}
@@ -1796,10 +1796,10 @@ export default function DispatcherPortalPage() {
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-white flex items-center space-x-2">
-                    <span>गोदाम स्टॉक (Indian Warehouse Stock - Ready to Dispatch)</span>
+                    <span>Indian Warehouse Stock (Ready to Dispatch)</span>
                   </h3>
                   <p className="text-xs text-slate-300">
-                    कंटेनर अनलोडिंग के दौरान Partly Sent माल का शेष हिस्सा व वेयरहाउस में जमा माल यहाँ दिखेगा।
+                    Remaining stock from container unloads and stored warehouse cargo appears here.
                   </p>
                 </div>
               </div>
@@ -1829,19 +1829,19 @@ export default function DispatcherPortalPage() {
                       <th className="py-3 px-4">Container</th>
                       <th className="py-3 px-4">Party</th>
                       <th className="py-3 px-4">Commodity</th>
-                      <th className="py-3 px-4 text-center">मूल कुल CTN</th>
+                      <th className="py-3 px-4 text-center">Original Total CTN</th>
                       <th className="py-3 px-4 text-center bg-purple-950/40 text-purple-300">
-                        गोदाम में उपलब्ध स्टॉक
+                        Available Stock in Warehouse
                       </th>
-                      <th className="py-3 px-4">अनलोड स्थिति</th>
-                      <th className="py-3 px-4 text-right">एक्शन (Action)</th>
+                      <th className="py-3 px-4">Unload Status</th>
+                      <th className="py-3 px-4 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
                     {warehouseStockItems.length === 0 ? (
                       <tr>
                         <td colSpan={9} className="py-12 text-center text-slate-500">
-                          गोदाम में वर्तमान में कोई शेष स्टॉक नहीं है। सभी माल पूर्णतः भेजा जा चुका है।
+                          No remaining warehouse stock. All cargo has been dispatched.
                         </td>
                       </tr>
                     ) : (
@@ -1884,13 +1884,13 @@ export default function DispatcherPortalPage() {
                                 <Warehouse className="w-3 h-3 text-purple-400" />
                                 <span>
                                   {r.unloadStatus === 'partly_sent'
-                                    ? `Partly Sent (${r.sentQuantity} भेजा / ${availableWhStock} स्टॉक)`
+                                    ? `Partly Sent (${r.sentQuantity} Sent / ${availableWhStock} Stock)`
                                     : 'Stored in Warehouse'}
                                 </span>
                               </span>
                               {r.unloadRemarks && (
                                 <span className="block text-[10px] text-slate-400 mt-0.5 truncate max-w-[160px]" title={r.unloadRemarks}>
-                                  नोट: {r.unloadRemarks}
+                                  Note: {r.unloadRemarks}
                                 </span>
                               )}
                             </td>
@@ -1899,10 +1899,10 @@ export default function DispatcherPortalPage() {
                                 <button
                                   disabled
                                   className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-red-950/70 border border-red-800 text-red-400 rounded-xl font-bold text-xs cursor-not-allowed opacity-80"
-                                  title="यह माल होल्ड पर है।"
+                                  title="This cargo is on hold."
                                 >
                                   <Lock className="w-3.5 h-3.5" />
-                                  <span>⛔ होल्ड</span>
+                                  <span>⛔ Hold</span>
                                 </button>
                               ) : (
                                 <button
@@ -1914,10 +1914,10 @@ export default function DispatcherPortalPage() {
                                     })
                                   }
                                   className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 rounded-xl font-black text-xs shadow-md shadow-emerald-600/30 transition transform hover:scale-105"
-                                  title="गोदाम से गाड़ी लोड करें और बिलर को अनुरोध भेजें"
+                                  title="Load vehicle from warehouse and send request to biller"
                                 >
                                   <Truck className="w-3.5 h-3.5" />
-                                  <span>🚚 बिलिंग अनुरोध भेजें</span>
+                                  <span>🚚 Send Billing Request</span>
                                 </button>
                               )}
                             </td>
@@ -1959,7 +1959,7 @@ export default function DispatcherPortalPage() {
                     <th className="py-3 px-4">Bill #</th>
                     <th className="py-3 px-4">Receipt #</th>
                     <th className="py-3 px-4">Marka</th>
-                    <th className="py-3 px-4">Vehicle No (गाड़ी)</th>
+                    <th className="py-3 px-4">Vehicle No</th>
                     <th className="py-3 px-4">Delivery Address (Place)</th>
                     <th className="py-3 px-4 text-center">Cartons</th>
                     <th className="py-3 px-4 text-right">Amount (₹)</th>
@@ -2032,7 +2032,7 @@ export default function DispatcherPortalPage() {
                 <Clock className="w-5 h-5 text-amber-400" />
                 <div>
                   <h2 className="text-sm font-bold text-white uppercase tracking-wide">
-                    Live Dispatch Requests (डिस्पैच अनुरोध स्थिति)
+                    Live Dispatch Requests
                   </h2>
                   <p className="text-[11px] text-slate-400">
                     Real-time status of dispatch requests initiated to the biller
@@ -2053,12 +2053,12 @@ export default function DispatcherPortalPage() {
                     <th className="py-3 px-4">Container / No.</th>
                     <th className="py-3 px-4">Marka</th>
                     <th className="py-3 px-4">Item / Commodity</th>
-                    <th className="py-3 px-4">Gaadi No (गाड़ी)</th>
+                    <th className="py-3 px-4">Vehicle No</th>
                     <th className="py-3 px-4 text-center">CTN</th>
                     <th className="py-3 px-4">Place / Address</th>
                     <th className="py-3 px-4">Status</th>
                     <th className="py-3 px-4">Biller Action</th>
-                    <th className="py-3 px-4 text-right">एक्शन (Action)</th>
+                    <th className="py-3 px-4 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
@@ -2112,10 +2112,10 @@ export default function DispatcherPortalPage() {
                             type="button"
                             onClick={() => handleDeleteRequest(req._id)}
                             className="px-2.5 py-1 bg-red-500/20 hover:bg-red-500 text-red-300 hover:text-white rounded-lg font-bold text-[11px] border border-red-500/40 transition flex items-center space-x-1 ml-auto"
-                            title="इस डिस्पैच अनुरोध को डिलीट करें"
+                            title="Delete this dispatch request"
                           >
                             <Trash2 className="w-3 h-3" />
-                            <span>डिलीट</span>
+                            <span>Delete</span>
                           </button>
                         </td>
                       </tr>
@@ -2140,11 +2140,11 @@ export default function DispatcherPortalPage() {
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-white flex items-center space-x-2">
-                    <span>🔒 कंटेनर क्लोज़ व स्टॉक रीकंसाइलेशन</span>
+                    <span>🔒 Container Close & Stock Reconciliation</span>
                     <span className="font-mono text-amber-400">({selectedDeliveryContainer})</span>
                   </h3>
                   <p className="text-xs text-slate-400">
-                    क्लोज़ करते समय प्रत्येक स्टॉक को अपडेट करें कि वह वेयरहाउस में गया या सीधा पार्टी के पास गया।
+                    Update each receipt stock destination (Warehouse or Direct Party) before closing.
                   </p>
                 </div>
               </div>
@@ -2180,7 +2180,7 @@ export default function DispatcherPortalPage() {
                         <span className="text-slate-300 font-medium">{item.party}</span>
                       </div>
                       <div className="text-right text-[11px] font-mono text-purple-300">
-                        कुल/शेष: <strong>{item.remainingCartons} / {item.totalCartons} CTN</strong>
+                        Total/Balance: <strong>{item.remainingCartons} / {item.totalCartons} CTN</strong>
                       </div>
                     </div>
 
@@ -2188,7 +2188,7 @@ export default function DispatcherPortalPage() {
                       {/* Destination: Party vs Warehouse */}
                       <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 space-y-1.5">
                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                          1. माल कहाँ गया? (Destination)
+                          1. Cargo Destination
                         </label>
                         <div className="flex items-center space-x-3">
                           <label className="flex items-center space-x-1.5 cursor-pointer">
@@ -2199,7 +2199,7 @@ export default function DispatcherPortalPage() {
                               onChange={() => handleUpdateCloseReceiptItem(idx, 'stockDestination', 'party')}
                               className="text-emerald-500 focus:ring-0"
                             />
-                            <span className="text-xs font-semibold text-emerald-300">सीधा पार्टी (Direct Party)</span>
+                            <span className="text-xs font-semibold text-emerald-300">Direct Party</span>
                           </label>
                           <label className="flex items-center space-x-1.5 cursor-pointer">
                             <input
@@ -2209,7 +2209,7 @@ export default function DispatcherPortalPage() {
                               onChange={() => handleUpdateCloseReceiptItem(idx, 'stockDestination', 'warehouse')}
                               className="text-blue-500 focus:ring-0"
                             />
-                            <span className="text-xs font-semibold text-blue-300">वेयरहाउस (Warehouse)</span>
+                            <span className="text-xs font-semibold text-blue-300">Warehouse</span>
                           </label>
                         </div>
                       </div>
@@ -2217,23 +2217,23 @@ export default function DispatcherPortalPage() {
                       {/* Delivery Status: Fully vs Partly vs Undelivered */}
                       <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 space-y-1.5">
                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                          2. डिलीवरी स्थिति (Delivery Status)
+                          2. Delivery Status
                         </label>
                         <select
                           value={item.deliveryStatus}
                           onChange={(e) => handleUpdateCloseReceiptItem(idx, 'deliveryStatus', e.target.value)}
                           className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-semibold outline-none focus:border-amber-500"
                         >
-                          <option value="fully_delivered">🟢 Fully Delivered (पूर्ण प्राप्त)</option>
-                          <option value="partly_delivered">🟡 Partly Delivered (आंशिक प्राप्त)</option>
-                          <option value="undelivered">⚪ Undelivered (अनडिलीवर / शेष)</option>
+                          <option value="fully_delivered">🟢 Fully Delivered</option>
+                          <option value="partly_delivered">🟡 Partly Delivered</option>
+                          <option value="undelivered">⚪ Undelivered</option>
                         </select>
                       </div>
 
                       {/* Goods Received Confirmation Tag */}
                       <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 space-y-1.5">
                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                          3. पार्टी माल प्राप्ति (Goods Received)
+                          3. Party Goods Received
                         </label>
                         <label className="flex items-center space-x-2 cursor-pointer pt-0.5">
                           <input
@@ -2253,7 +2253,7 @@ export default function DispatcherPortalPage() {
                     {item.deliveryStatus === 'partly_delivered' && (
                       <div className="p-2.5 bg-amber-950/30 border border-amber-500/40 rounded-xl flex items-center justify-between gap-3 animate-in fade-in">
                         <span className="text-[11px] font-bold text-amber-300">
-                          👉 प्राप्त कार्टून संख्या दर्ज करें (Enter Delivered Cartons):
+                          👉 Enter Delivered Cartons:
                         </span>
                         <div className="flex items-center space-x-2">
                           <input
@@ -2266,7 +2266,7 @@ export default function DispatcherPortalPage() {
                             placeholder="Cartons"
                           />
                           <span className="text-[10px] text-slate-400 font-mono">
-                            शेष: {Math.max(0, (item.remainingCartons > 0 ? item.remainingCartons : item.totalCartons) - Number(item.deliveredQuantity || 0))} CTN
+                            Balance: {Math.max(0, (item.remainingCartons > 0 ? item.remainingCartons : item.totalCartons) - Number(item.deliveredQuantity || 0))} CTN
                           </span>
                         </div>
                       </div>
@@ -2283,7 +2283,7 @@ export default function DispatcherPortalPage() {
                 onClick={() => setContainerCloseModalOpen(false)}
                 className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-xs border border-slate-700 transition"
               >
-                रद्द करें (Cancel)
+                Cancel
               </button>
               <button
                 type="button"
@@ -2292,7 +2292,7 @@ export default function DispatcherPortalPage() {
                 className="px-5 py-2.5 bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white rounded-xl font-bold text-xs shadow-lg shadow-rose-900/40 flex items-center space-x-2 transition transform active:scale-95"
               >
                 <ShieldCheck className="w-4 h-4" />
-                <span>{containerCloseSubmitting ? 'क्लोज़ हो रहा है...' : 'कंटेनर क्लोज़ व स्टॉक अपडेट करें'}</span>
+                <span>{containerCloseSubmitting ? 'Closing...' : 'Close Container & Update Stock'}</span>
               </button>
             </div>
           </div>
@@ -2310,10 +2310,10 @@ export default function DispatcherPortalPage() {
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-white">
-                    दिन का अंत: माल प्राप्ति पुष्टि (Day-End Goods Received)
+                    Day-End Goods Received Confirmation
                   </h3>
                   <p className="text-[11px] text-slate-400">
-                    पार्टी को माल प्राप्त हुआ या नहीं व मात्रा दर्ज करें
+                    Confirm whether party received the goods and enter quantity
                   </p>
                 </div>
               </div>
@@ -2350,7 +2350,7 @@ export default function DispatcherPortalPage() {
             {/* Selection: Full vs Partial */}
             <div className="space-y-2">
               <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
-                माल प्राप्ति की स्थिति चुनें (Select Received Status):
+                Select Received Status:
               </label>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
@@ -2372,10 +2372,10 @@ export default function DispatcherPortalPage() {
                   />
                   <div>
                     <span className="text-xs font-bold block text-emerald-300">
-                      🟢 पूरा प्राप्त (Full)
+                      🟢 Full Received
                     </span>
                     <span className="text-[11px] text-slate-400 block mt-0.5">
-                      सभी कार्टून पूर्णतः प्राप्त (0 शेष)
+                      All cartons fully received (0 remaining)
                     </span>
                   </div>
                 </label>
@@ -2398,10 +2398,10 @@ export default function DispatcherPortalPage() {
                   />
                   <div>
                     <span className="text-xs font-bold block text-amber-300">
-                      🟡 आंशिक प्राप्त (Partial)
+                      🟡 Partial Received
                     </span>
                     <span className="text-[11px] text-slate-400 block mt-0.5">
-                      कुछ कार्टून प्राप्त (मात्रा दर्ज करें)
+                      Some cartons received (Enter quantity)
                     </span>
                   </div>
                 </label>
@@ -2424,10 +2424,10 @@ export default function DispatcherPortalPage() {
                   />
                   <div>
                     <span className="text-xs font-bold block text-red-300">
-                      🔴 प्राप्त नहीं हुआ (None)
+                      🔴 Not Received
                     </span>
                     <span className="text-[11px] text-slate-400 block mt-0.5">
-                      पार्टी को माल अभी तक नहीं मिला
+                      Party has not received goods yet
                     </span>
                   </div>
                 </label>
@@ -2438,7 +2438,7 @@ export default function DispatcherPortalPage() {
             {receivedType === 'partial' && (
               <div className="p-3.5 bg-amber-950/20 border border-amber-500/40 rounded-2xl space-y-2 animate-in fade-in duration-150">
                 <label className="text-xs font-bold text-amber-300 uppercase tracking-wider flex items-center justify-between">
-                  <span>प्राप्त कार्टून संख्या दर्ज करें (Enter Quantity Received):</span>
+                  <span>Enter Quantity Received:</span>
                   <span className="text-[11px] font-mono font-normal text-slate-400">
                     Max: {dayEndReceipt.remainingCartons > 0 ? dayEndReceipt.remainingCartons : dayEndReceipt.totalCartons} CTN
                   </span>
@@ -2455,10 +2455,10 @@ export default function DispatcherPortalPage() {
                 {Number(receivedQuantity) > 0 && (
                   <div className="text-[11px] text-slate-300 flex items-center justify-between font-mono bg-slate-950 p-2 rounded-lg">
                     <span>
-                      प्राप्त (Received): <strong className="text-amber-400">{receivedQuantity} CTN</strong>
+                      Received: <strong className="text-amber-400">{receivedQuantity} CTN</strong>
                     </span>
                     <span>
-                      शेष (Remaining):{' '}
+                      Remaining:{' '}
                       <strong className="text-purple-400">
                         {Math.max(
                           0,
@@ -2476,11 +2476,11 @@ export default function DispatcherPortalPage() {
 
             {/* Remarks */}
             <div className="space-y-1">
-              <label className="text-[11px] text-slate-400">रिमार्क्स (Optional Remarks / Notes):</label>
+              <label className="text-[11px] text-slate-400">Remarks (Optional Notes):</label>
               <textarea
                 value={dayEndRemarks}
                 onChange={(e) => setDayEndRemarks(e.target.value)}
-                placeholder="e.g. बाकी माल कल डिलीवरी होगा, पार्टी की दुकान बंद थी..."
+                placeholder="e.g. Remaining cargo delivery tomorrow, party shop closed..."
                 rows={2}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-blue-500"
               />
@@ -2500,13 +2500,13 @@ export default function DispatcherPortalPage() {
                 className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 text-white rounded-xl font-bold text-xs shadow-lg shadow-blue-600/30 transition flex items-center justify-center space-x-2"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                <span>{dayEndSubmitting ? 'सेव हो रहा है...' : 'स्थिति सेव करें (Save Delivery Status)'}</span>
+                <span>{dayEndSubmitting ? 'Saving...' : 'Save Delivery Status'}</span>
               </button>
               <button
                 onClick={() => setDayEndModalOpen(false)}
                 className="px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold text-xs border border-slate-700 transition"
               >
-                रद्द करें (Cancel)
+                Cancel
               </button>
             </div>
           </div>
@@ -2523,10 +2523,10 @@ export default function DispatcherPortalPage() {
                 <Boxes className="w-6 h-6 text-emerald-400" />
                 <div>
                   <h3 className="text-base font-bold text-white">
-                    कंटेनर अनलोडिंग एवं भौतिक सत्यापन (Unload Verification)
+                    Container Unload & Physical Verification
                   </h3>
                   <p className="text-[11px] text-slate-400">
-                    कंटेनर खोलने पर माल की वास्तविक प्राप्ति स्थिति दर्ज करें
+                    Record actual physical arrival status upon container opening
                   </p>
                 </div>
               </div>
@@ -2569,7 +2569,7 @@ export default function DispatcherPortalPage() {
             {/* Selection: 4 Statuses */}
             <div className="space-y-2">
               <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
-                वास्तविक स्थिति चुनें (Select Real Physical Status):
+                Select Real Physical Status:
               </label>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -2592,10 +2592,10 @@ export default function DispatcherPortalPage() {
                   <div>
                     <span className="text-xs font-bold block text-emerald-300 flex items-center space-x-1">
                       <PackageCheck className="w-3.5 h-3.5" />
-                      <span>🟢 Fully Sent (पूर्णतः भेजा)</span>
+                      <span>🟢 Fully Sent</span>
                     </span>
                     <span className="text-[11px] text-slate-400 block mt-0.5">
-                      सभी {unloadReceipt.totalCartons} कार्टून सीधे पार्टी को रवाना
+                      All {unloadReceipt.totalCartons} cartons dispatched directly to party
                     </span>
                   </div>
                 </label>
@@ -2619,10 +2619,10 @@ export default function DispatcherPortalPage() {
                   <div>
                     <span className="text-xs font-bold block text-amber-300 flex items-center space-x-1">
                       <Truck className="w-3.5 h-3.5" />
-                      <span>🟡 Partly Sent (आंशिक भेजा)</span>
+                      <span>🟡 Partly Sent</span>
                     </span>
                     <span className="text-[11px] text-slate-400 block mt-0.5">
-                      कुछ कार्टून पार्टी को, बाकी गोदाम स्टॉक में
+                      Some cartons sent to party, balance kept in warehouse stock
                     </span>
                   </div>
                 </label>
@@ -2649,7 +2649,7 @@ export default function DispatcherPortalPage() {
                       <span>🔴 Not In Container</span>
                     </span>
                     <span className="text-[11px] text-slate-400 block mt-0.5">
-                      कंटेनर में माल नहीं मिला (शॉर्टेज / Missing)
+                      Cargo not found in container (Shortage / Missing)
                     </span>
                   </div>
                 </label>
@@ -2676,7 +2676,7 @@ export default function DispatcherPortalPage() {
                       <span>🏢 Stored in Warehouse</span>
                     </span>
                     <span className="text-[11px] text-slate-400 block mt-0.5">
-                      पूरा माल भारतीय गोदाम स्टॉक में जमा
+                      Full cargo stored into Indian warehouse stock
                     </span>
                   </div>
                 </label>
@@ -2688,7 +2688,7 @@ export default function DispatcherPortalPage() {
               <div className="p-3.5 bg-amber-950/25 border border-amber-500/50 rounded-2xl space-y-2.5 animate-in fade-in duration-150">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-amber-300 uppercase tracking-wider">
-                    पार्टी को भेजे गए कार्टून दर्ज करें (Sent Quantity):
+                    Enter Quantity Sent to Party:
                   </label>
                   <span className="text-[11px] font-mono font-semibold text-slate-400">
                     Max: {unloadReceipt.totalCartons} CTN
@@ -2698,7 +2698,7 @@ export default function DispatcherPortalPage() {
                   type="number"
                   value={unloadSentQuantity}
                   onChange={(e) => setUnloadSentQuantity(e.target.value ? Number(e.target.value) : '')}
-                  placeholder={`1 से ${unloadReceipt.totalCartons} के बीच कार्टून दर्ज करें`}
+                  placeholder={`Enter cartons between 1 and ${unloadReceipt.totalCartons}`}
                   min={1}
                   max={unloadReceipt.totalCartons}
                   className="w-full bg-slate-950 border border-amber-500/60 rounded-xl px-3.5 py-2.5 text-base font-mono font-bold text-amber-300 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
@@ -2706,10 +2706,10 @@ export default function DispatcherPortalPage() {
                 {Number(unloadSentQuantity) > 0 && (
                   <div className="grid grid-cols-2 gap-2 text-xs font-mono bg-slate-950/80 p-2.5 rounded-xl border border-slate-800">
                     <div className="text-amber-400">
-                      🚚 पार्टी को रवाना: <strong>{unloadSentQuantity} CTN</strong>
+                      🚚 Dispatched to Party: <strong>{unloadSentQuantity} CTN</strong>
                     </div>
                     <div className="text-purple-400 text-right">
-                      🏢 गोदाम स्टॉक में जमा:{' '}
+                      🏢 Stored in Warehouse:{' '}
                       <strong className="text-emerald-400">
                         {Math.max(0, unloadReceipt.totalCartons - Number(unloadSentQuantity))} CTN
                       </strong>
@@ -2724,18 +2724,18 @@ export default function DispatcherPortalPage() {
               <div className="p-3 bg-red-950/30 border border-red-500/40 rounded-2xl flex items-start space-x-2 text-xs text-red-300">
                 <ShieldAlert className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
                 <span>
-                  सावधानी: यह रसीद &quot;Not In Container (Shortage)&quot; चिह्नित होगी और एडमिन/चाइना वेयरहाउस को सूचित किया जाएगा कि यह माल कंटेनर में नहीं मिला।
+                  Warning: This receipt will be marked as &quot;Not In Container (Shortage)&quot; and recorded as missing from container.
                 </span>
               </div>
             )}
 
             {/* Remarks */}
             <div className="space-y-1">
-              <label className="text-[11px] text-slate-400">रिमार्क्स (Optional Remarks / Notes):</label>
+              <label className="text-[11px] text-slate-400">Remarks (Optional Notes):</label>
               <textarea
                 value={unloadRemarks}
                 onChange={(e) => setUnloadRemarks(e.target.value)}
-                placeholder="e.g. 5 कार्टून डैमेज थे, बाकी माल सही सलामत गोदाम में रखा गया..."
+                placeholder="e.g. 5 cartons damaged, remaining cargo safely placed in warehouse..."
                 rows={2}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500"
               />
@@ -2755,13 +2755,13 @@ export default function DispatcherPortalPage() {
                 className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 text-slate-950 rounded-xl font-black text-xs shadow-lg shadow-emerald-600/30 transition flex items-center justify-center space-x-2"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                <span>{unloadSubmitting ? 'सहेज रहे हैं...' : 'स्थिति सहेजें (Save Unload Status)'}</span>
+                <span>{unloadSubmitting ? 'Saving...' : 'Save Unload Status'}</span>
               </button>
               <button
                 onClick={() => setUnloadModalOpen(false)}
                 className="px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold text-xs border border-slate-700 transition"
               >
-                रद्द करें (Cancel)
+                Cancel
               </button>
             </div>
           </div>
@@ -2776,7 +2776,7 @@ export default function DispatcherPortalPage() {
               <div className="flex items-center space-x-2">
                 <Truck className="w-5 h-5 text-emerald-400" />
                 <h3 className="text-base font-bold text-white">
-                  गाड़ी लोड & बिलिंग फॉर्म (Initiate Dispatch)
+                  Vehicle Loading & Billing Form
                 </h3>
               </div>
               <button
@@ -2807,7 +2807,7 @@ export default function DispatcherPortalPage() {
                 </strong>
               </div>
               <div>
-                <span className="text-slate-500">Item (वस्तु):</span>{' '}
+                <span className="text-slate-500">Item:</span>{' '}
                 <strong className="text-cyan-300 truncate block">{selectedReceipt.commodity || 'Goods'}</strong>
               </div>
               <div>
@@ -2821,7 +2821,7 @@ export default function DispatcherPortalPage() {
             {/* Input 1: Gaadi Number */}
             <div className="space-y-1">
               <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center space-x-1">
-                <span>1. गाड़ी नंबर (Vehicle / Gaadi Number)</span>
+                <span>1. Vehicle Number</span>
                 <span className="text-red-400">*</span>
               </label>
               <input
@@ -2836,7 +2836,7 @@ export default function DispatcherPortalPage() {
             {/* Input 2: Carton Count */}
             <div className="space-y-1">
               <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center space-x-1">
-                <span>2. कार्टून संख्या (Carton Count to Dispatch)</span>
+                <span>2. Carton Count to Dispatch</span>
                 <span className="text-red-400">*</span>
               </label>
               <input
@@ -2852,7 +2852,7 @@ export default function DispatcherPortalPage() {
             {/* Input 3: Place / Address */}
             <div className="space-y-1">
               <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center space-x-1">
-                <span>3. डिलीवरी का स्थान / पता (Place / Destination Address)</span>
+                <span>3. Delivery Place / Address</span>
                 <span className="text-red-400">*</span>
               </label>
               <textarea
@@ -2866,7 +2866,7 @@ export default function DispatcherPortalPage() {
 
             {/* Remarks (Optional) */}
             <div className="space-y-1">
-              <label className="text-[11px] text-slate-400">रिमार्क्स (Optional Notes)</label>
+              <label className="text-[11px] text-slate-400">Remarks (Optional Notes)</label>
               <input
                 type="text"
                 value={remarks}
@@ -2890,7 +2890,7 @@ export default function DispatcherPortalPage() {
                 className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs shadow-lg shadow-emerald-600/30 transition flex items-center justify-center space-x-2"
               >
                 <Send className="w-4 h-4" />
-                <span>बिलिंग के लिए भेजें (Send to Biller)</span>
+                <span>Send to Biller</span>
               </button>
 
               <button
@@ -2899,7 +2899,7 @@ export default function DispatcherPortalPage() {
                 className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-bold text-xs shadow-lg shadow-purple-600/30 transition flex items-center justify-center space-x-2"
               >
                 <Zap className="w-4 h-4 text-amber-300" />
-                <span>खुद से बिलिंग बनाएँ (Self-Bill)</span>
+                <span>Self-Bill</span>
               </button>
             </div>
           </div>
@@ -2913,7 +2913,7 @@ export default function DispatcherPortalPage() {
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center space-x-2 text-purple-400">
                 <Zap className="w-5 h-5 text-amber-300" />
-                <h3 className="text-base font-bold text-white">डिस्पैचर सेल्फ-बिलिंग (Self-Bill)</h3>
+                <h3 className="text-base font-bold text-white">Dispatcher Self-Billing</h3>
               </div>
               <button
                 onClick={() => setSelfBillModalOpen(false)}
@@ -2924,13 +2924,13 @@ export default function DispatcherPortalPage() {
             </div>
 
             <p className="text-xs text-slate-300">
-              यह विकल्प डिस्पैचर को बिना बिलर की प्रतीक्षा किए तुरंत डायरेक्ट जीएसटी इनवॉइस जेनरेट करने की अनुमति देता है।
+              This option allows Dispatcher to generate direct GST invoices immediately.
             </p>
 
             <div className="space-y-3 bg-slate-950 p-4 rounded-2xl border border-slate-800 text-xs">
               <div>
                 <label className="text-slate-400 font-semibold block mb-1">
-                  Taxable Value (कर योग्य मूल्य ₹):
+                  Taxable Value (₹):
                 </label>
                 <input
                   type="number"
@@ -2970,7 +2970,7 @@ export default function DispatcherPortalPage() {
               className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-bold text-sm shadow-xl shadow-purple-600/30 transition flex items-center justify-center space-x-2"
             >
               <Zap className="w-4 h-4 text-amber-300" />
-              <span>तुरंत बिल तैयार करें & माल डिस्पैच करें</span>
+              <span>Generate Bill & Dispatch Cargo</span>
             </button>
           </div>
         </div>

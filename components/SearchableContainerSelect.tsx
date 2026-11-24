@@ -81,7 +81,7 @@ export default function SearchableContainerSelect({
     <div className="relative" ref={containerRef}>
       <div className="flex items-center justify-between mb-1">
         <label className="text-[11px] font-bold text-slate-700">
-          Select Container(s) / Loading Plan (सर्च व मल्टी-सेलेक्ट) *
+          Select Container(s) / Loading Plan (Multi-Select) *
         </label>
         {selectedContainers.length > 0 && (
           <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded font-mono">

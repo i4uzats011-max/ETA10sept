@@ -175,11 +175,11 @@ export default function AdminLoginPage() {
               <span>Read-Only Cargo View</span>
             </div>
             <div className="bg-slate-950 border border-amber-800/40 rounded-xl p-2.5 text-slate-400">
-              <span className="font-bold text-amber-400 block mb-0.5">Biller (बिलर)</span>
+              <span className="font-bold text-amber-400 block mb-0.5">Biller</span>
               <span>HSN, IGST, Pcs, KG & Billing</span>
             </div>
             <div className="bg-slate-950 border border-emerald-800/40 rounded-xl p-2.5 text-slate-400">
-              <span className="font-bold text-emerald-400 block mb-0.5">Dispatcher (डिस्पैचर)</span>
+              <span className="font-bold text-emerald-400 block mb-0.5">Dispatcher</span>
               <span>Vehicle No & Dispatch Delivery</span>
             </div>
             <Link

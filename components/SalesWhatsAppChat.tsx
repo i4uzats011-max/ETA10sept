@@ -354,14 +354,14 @@ export default function SalesWhatsAppChat({
           <div className="bg-emerald-50 px-3.5 py-1.5 border-t border-emerald-200 flex items-center justify-between text-xs text-emerald-900 shadow-inner">
             <div className="flex items-center space-x-1.5">
               <Edit3 className="w-3.5 h-3.5 text-emerald-600" />
-              <span className="font-bold text-[11px]">संदेश एडिट करें (Editing Message)</span>
+              <span className="font-bold text-[11px]">Editing Message</span>
             </div>
             <button
               type="button"
               onClick={handleCancelEdit}
               className="text-[11px] text-slate-500 hover:text-slate-800 underline font-semibold"
             >
-              रद्द करें (Cancel)
+              Cancel
             </button>
           </div>
         )}

@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     const cleanVehicle = String(vehicleNumber || '').trim();
     if (!cleanVehicle) {
       return NextResponse.json(
-        { error: 'Vehicle number (गाड़ी नंबर) is required to dispatch goods.' },
+        { error: 'Vehicle number is required to dispatch goods.' },
         { status: 400 }
       );
     }
@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
       if (deliveryAddressTitle) bill.deliveryAddressTitle = deliveryAddressTitle;
       if (deliveryPhone) bill.deliveryPhone = deliveryPhone;
       bill.dispatchedBy = 'dispatcher';
-      bill.dispatchRemarks = remarks || 'Dispatched via vehicle (माल डिस्पैच्ड)';
+      bill.dispatchRemarks = remarks || 'Dispatched via vehicle';
 
       if (typeof dispatchedCartons === 'number' && dispatchedCartons > 0) {
         if (billsToDispatch.length === 1) {

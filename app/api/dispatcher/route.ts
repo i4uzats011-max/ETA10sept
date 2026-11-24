@@ -248,7 +248,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { action } = body;
 
-    // ACTION: INITIATE FOR BILLING (बिलिंग के लिए भेजें)
+    // ACTION: INITIATE FOR BILLING (Initiate for billing)
     if (action === 'initiate_billing') {
       const {
         receipt,
@@ -283,7 +283,7 @@ export async function POST(req: NextRequest) {
       if (isHold) {
         const reason = (wrCheck as any)?.holdReason || (shCheck as any)?.holdReason || 'Put on hold by Sales/Admin';
         return NextResponse.json(
-          { error: `यह माल होल्ड पर है (${reason})। होल्ड माल का डिस्पैच या बिलिंग नहीं की जा सकती।` },
+          { error: `This cargo is on hold (${reason}). Held cargo cannot be dispatched or billed.` },
           { status: 400 }
         );
       }
@@ -346,7 +346,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ACTION: SELF BILL (Dispatcher creates billing directly - खुद से बिलिंग बनाएँ)
+    // ACTION: SELF BILL (Dispatcher creates billing directly)
     if (action === 'self_bill') {
       const {
         receipt,
@@ -375,7 +375,7 @@ export async function POST(req: NextRequest) {
       if (isHoldSelf) {
         const reason = (wrCheckSelf as any)?.holdReason || (shCheckSelf as any)?.holdReason || 'Put on hold by Sales/Admin';
         return NextResponse.json(
-          { error: `यह माल होल्ड पर है (${reason})। होल्ड माल का डिस्पैच या बिलिंग नहीं की जा सकती।` },
+          { error: `This cargo is on hold (${reason}). Held cargo cannot be dispatched or billed.` },
           { status: 400 }
         );
       }
@@ -486,7 +486,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ACTION: DELETE DISPATCH REQUEST (डिस्पैचर अपनी रिक्वेस्ट डिलीट कर सकता है)
+    // ACTION: DELETE DISPATCH REQUEST (Dispatcher can delete request)
     if (action === 'delete_request') {
       const { requestId } = body;
       if (!requestId) {
@@ -502,11 +502,11 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: 'डिस्पैच अनुरोध सफलतापूर्वक डिलीट कर दिया गया है। (Dispatch request deleted successfully.)',
+        message: 'Dispatch request deleted successfully.',
       });
     }
 
-    // ACTION: MARK CONTAINER UNLOAD STATUS (कंटेनर अनलोडिंग स्थिति: Not In Container, Partly Sent, Fully Sent, Stored in Warehouse)
+    // ACTION: MARK CONTAINER UNLOAD STATUS (Container unload status: Not In Container, Partly Sent, Fully Sent, Stored in Warehouse)
     if (action === 'mark_unload_status') {
       const {
         receipt,
@@ -549,7 +549,7 @@ export async function POST(req: NextRequest) {
         sent = Number(sentQuantity) || 0;
         if (sent <= 0 || sent > totalQty) {
           return NextResponse.json(
-            { error: `भेजे गए कार्टून 1 से ${totalQty} के बीच होने चाहिए।` },
+            { error: `Sent cartons must be between 1 and ${totalQty}.` },
             { status: 400 }
           );
         }
@@ -625,12 +625,12 @@ export async function POST(req: NextRequest) {
         success: true,
         message:
           unloadStatus === 'fully_sent'
-            ? `✓ रसीद ${wr.receipt}: पूरा माल (${sent} CTN) भेजा गया।`
+            ? `✓ Receipt #${wr.receipt}: Full cargo (${sent} CTN) dispatched.`
             : unloadStatus === 'partly_sent'
-            ? `✓ रसीद ${wr.receipt}: ${sent} CTN भेजा गया, शेष ${inWarehouse} CTN वेयरहाउस में जमा।`
+            ? `✓ Receipt #${wr.receipt}: ${sent} CTN dispatched, remaining ${inWarehouse} CTN stored in warehouse.`
             : unloadStatus === 'not_in_container'
-            ? `⚠️ रसीद ${wr.receipt}: कंटेनर में नहीं मिला (Shortage दर्ज कर ली गई है)।`
-            : `✓ रसीद ${wr.receipt}: पूरा माल (${inWarehouse} CTN) वेयरहाउस में जमा।`,
+            ? `⚠️ Receipt #${wr.receipt}: Not found in container (Shortage recorded).`
+            : `✓ Receipt #${wr.receipt}: Full cargo (${inWarehouse} CTN) stored in warehouse.`,
         unloadStatus,
         sentQuantity: sent,
         warehouseQuantity: inWarehouse,
@@ -639,7 +639,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ACTION: MARK GOODS RECEIVED BY PARTY (दिन के अंत में माल प्राप्ति स्थिति - Full / Not Full / Partial)
+    // ACTION: MARK GOODS RECEIVED BY PARTY (End of day goods receipt status - Full / Not Full / Partial)
     if (action === 'mark_goods_received') {
       const {
         receipt,
@@ -730,10 +730,10 @@ export async function POST(req: NextRequest) {
         success: true,
         message:
           receivedType === 'full'
-            ? `✓ रसीद ${wr.receipt} को पूर्ण प्राप्त (Full Delivered) मार्क कर दिया गया है।`
+            ? `✓ Receipt #${wr.receipt} marked as Full Delivered.`
             : receivedType === 'partial'
-            ? `✓ रसीद ${wr.receipt} को आंशिक प्राप्त (${Number(receivedQuantity)} CTN) मार्क किया गया। शेष: ${newRemaining} CTN`
-            : `✓ रसीद ${wr.receipt} की माल प्राप्ति स्थिति अपडेट कर दी गई।`,
+            ? `✓ Receipt #${wr.receipt} marked as Partially Received (${Number(receivedQuantity)} CTN). Remaining: ${newRemaining} CTN`
+            : `✓ Receipt #${wr.receipt} goods received status updated.`,
         receipt: wr.receipt,
         remainingQuantity: newRemaining,
         isDelivered,
@@ -741,7 +741,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ACTION: CLOSE CONTAINER & UPDATE STOCK (कंटेनर क्लोज़ व स्टॉक रीकंसाइलेशन)
+    // ACTION: CLOSE CONTAINER & UPDATE STOCK (Container close and stock reconciliation)
     if (action === 'close_container_stock') {
       const { container, containerNumber, receipts } = body;
       if (!container && !containerNumber) {
@@ -844,7 +844,7 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: `✓ कंटेनर ${cleanContainer} सफलतापूर्वक क्लोज़ हो गया और सभी स्टॉक अपडेट हो गए।`,
+        message: `✓ Container ${cleanContainer} closed successfully and all stocks updated.`,
         updatedCount: updatedReceiptResults.length,
         receipts: updatedReceiptResults,
       });
@@ -879,7 +879,7 @@ export async function DELETE(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: 'डिस्पैच अनुरोध सफलतापूर्वक डिलीट कर दिया गया है। (Dispatch request deleted successfully.)',
+      message: 'Dispatch request deleted successfully.',
     });
   } catch (error: any) {
     console.error('Error in Dispatcher API DELETE:', error);

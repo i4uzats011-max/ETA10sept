@@ -219,28 +219,28 @@ export default function UserManager() {
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-purple-500/10 text-purple-400 border border-purple-500/30">
             <Briefcase className="w-3.5 h-3.5" />
-            Sales Head (सेल्स हेड)
+            Sales Head
           </span>
         );
       case 'sales_person':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-teal-500/10 text-teal-400 border border-teal-500/30">
             <TrendingUp className="w-3.5 h-3.5" />
-            Sales Person (सेल्स टीम)
+            Sales Person
           </span>
         );
       case 'biller':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/10 text-amber-400 border border-amber-500/30">
             <FileText className="w-3.5 h-3.5" />
-            Biller (बिलर)
+            Biller
           </span>
         );
       case 'dispatcher':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
             <Truck className="w-3.5 h-3.5" />
-            Dispatcher (डिस्पैचर)
+            Dispatcher
           </span>
         );
       case 'staff':
@@ -661,8 +661,8 @@ export default function UserManager() {
             <option value="all">All Roles</option>
             <option value="developer">Developer Admin</option>
             <option value="admin">Super Admin</option>
-            <option value="sales_head">Sales Head (सेल्स हेड)</option>
-            <option value="sales_person">Sales Person (सेल्स टीम)</option>
+            <option value="sales_head">Sales Head</option>
+            <option value="sales_person">Sales Person</option>
             <option value="biller">Biller</option>
             <option value="dispatcher">Dispatcher</option>
             <option value="staff">Staff / Employee</option>
@@ -959,28 +959,28 @@ export default function UserManager() {
                     },
                     {
                       role: 'sales_head' as UserRole,
-                      title: 'Sales Head (सेल्स हेड)',
+                      title: 'Sales Head',
                       desc: 'Set Rates, Manage Sales Team & Release/Hold',
                       color: 'border-purple-800/80 bg-purple-950/20 text-purple-300',
                       icon: <Briefcase className="w-4 h-4 text-purple-400" />,
                     },
                     {
                       role: 'sales_person' as UserRole,
-                      title: 'Sales Person (सेल्स टीम)',
+                      title: 'Sales Person',
                       desc: 'View Assigned Receipts, Customer Rates & Chat',
                       color: 'border-teal-800/80 bg-teal-950/20 text-teal-300',
                       icon: <TrendingUp className="w-4 h-4 text-teal-400" />,
                     },
                     {
                       role: 'biller' as UserRole,
-                      title: 'Biller (बिलर)',
+                      title: 'Biller',
                       desc: 'HSN, IGST, Pcs, KG & Bill generation',
                       color: 'border-amber-800/80 bg-amber-950/20 text-amber-300',
                       icon: <FileText className="w-4 h-4 text-amber-400" />,
                     },
                     {
                       role: 'dispatcher' as UserRole,
-                      title: 'Dispatcher (डिस्पैचर)',
+                      title: 'Dispatcher',
                       desc: 'Vehicle No & Mark Goods Dispatched',
                       color: 'border-emerald-800/80 bg-emerald-950/20 text-emerald-300',
                       icon: <Truck className="w-4 h-4 text-emerald-400" />,
@@ -1106,10 +1106,10 @@ export default function UserManager() {
                   {[
                     { role: 'developer' as UserRole, title: 'Developer Admin', icon: <Terminal className="w-4 h-4 text-cyan-400" /> },
                     { role: 'admin' as UserRole, title: 'Super Admin', icon: <Shield className="w-4 h-4 text-red-400" /> },
-                    { role: 'sales_head' as UserRole, title: 'Sales Head (सेल्स हेड)', icon: <Briefcase className="w-4 h-4 text-purple-400" /> },
-                    { role: 'sales_person' as UserRole, title: 'Sales Person (सेल्स टीम)', icon: <TrendingUp className="w-4 h-4 text-teal-400" /> },
-                    { role: 'biller' as UserRole, title: 'Biller (बिलर)', icon: <FileText className="w-4 h-4 text-amber-400" /> },
-                    { role: 'dispatcher' as UserRole, title: 'Dispatcher (डिस्पैचर)', icon: <Truck className="w-4 h-4 text-emerald-400" /> },
+                    { role: 'sales_head' as UserRole, title: 'Sales Head', icon: <Briefcase className="w-4 h-4 text-purple-400" /> },
+                    { role: 'sales_person' as UserRole, title: 'Sales Person', icon: <TrendingUp className="w-4 h-4 text-teal-400" /> },
+                    { role: 'biller' as UserRole, title: 'Biller', icon: <FileText className="w-4 h-4 text-amber-400" /> },
+                    { role: 'dispatcher' as UserRole, title: 'Dispatcher', icon: <Truck className="w-4 h-4 text-emerald-400" /> },
                     { role: 'staff' as UserRole, title: 'Staff / Employee', icon: <Users className="w-4 h-4 text-blue-400" /> },
                   ].map((r) => {
                     const isSelected = editRole === r.role;

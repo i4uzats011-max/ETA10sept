@@ -50,7 +50,7 @@ export default function SalesHoldModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (status === 'Hold' && !holdReason.trim()) {
-      setErrorMsg('कृपया होल्ड पर डालने का कारण (Hold Reason) अवश्य दर्ज करें।');
+      setErrorMsg('Please enter a hold reason.');
       return;
     }
 
@@ -115,7 +115,7 @@ export default function SalesHoldModal({
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-2">
-              Select Cargo Status (स्थिति चुनें):
+              Select Cargo Status:
             </label>
             <div className="grid grid-cols-3 gap-2">
               {/* Normal */}
@@ -130,7 +130,7 @@ export default function SalesHoldModal({
               >
                 <RotateCcw className="w-4 h-4 text-blue-600" />
                 <span>Normal</span>
-                <span className="text-[10px] font-normal text-slate-500">डिस्कशन जारी</span>
+                <span className="text-[10px] font-normal text-slate-500">In Discussion</span>
               </button>
 
               {/* Available to Deliver */}
@@ -145,7 +145,7 @@ export default function SalesHoldModal({
               >
                 <Truck className="w-4 h-4 text-emerald-600" />
                 <span>Available</span>
-                <span className="text-[10px] font-normal text-slate-500">डिलीवरी की अनुमति</span>
+                <span className="text-[10px] font-normal text-slate-500">Ready for Delivery</span>
               </button>
 
               {/* Hold */}
@@ -160,7 +160,7 @@ export default function SalesHoldModal({
               >
                 <PauseCircle className="w-4 h-4 text-rose-600" />
                 <span>HOLD</span>
-                <span className="text-[10px] font-normal text-slate-500">माल रोकें</span>
+                <span className="text-[10px] font-normal text-slate-500">Hold Cargo</span>
               </button>
             </div>
           </div>
@@ -169,13 +169,13 @@ export default function SalesHoldModal({
           {status === 'Hold' && (
             <div className="space-y-2 pt-1">
               <label className="block text-xs font-semibold text-rose-800">
-                Hold Reason (रोकने का कारण दर्ज करें) *
+                Hold Reason *
               </label>
               <textarea
                 rows={2}
                 value={holdReason}
                 onChange={(e) => setHoldReason(e.target.value)}
-                placeholder="उदाहरण: पेमेंट पेंडिंग, रेट फाइनल नहीं हुआ, आदि..."
+                placeholder="e.g. Payment pending, rate dispute, etc..."
                 className="w-full px-3 py-2 text-xs border border-rose-300 rounded focus:ring-2 focus:ring-rose-500 focus:outline-none bg-rose-50/30"
                 required
               />

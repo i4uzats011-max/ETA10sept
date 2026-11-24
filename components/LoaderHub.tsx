@@ -2667,11 +2667,11 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
         if (data.requiresActualConfirmation) {
           const mismatchCount = data.totalMismatches || data.detectedMismatches?.length || 0;
           confirmMsg =
-            `⚠️ एक्चुअल लोडिंग क्वांटिटी कन्फर्मेशन (Loading Sheet Actual Quantities)\n\n` +
-            `अपलोड की गई लोडिंग शीट में ${mismatchCount} रसीदों में कार्टन, CBM या वेट वेयरहाउस रिसीव्ड स्टॉक से भिन्न है।\n\n` +
-            `क्या आप लोडिंग शीट की एक्चुअल क्वांटिटी (CTN, CBM, Weight) को कंटेनर में लोड करना चाहते हैं?\n` +
-            `सारे मिसमैच सेल्स हेड की 'एक्सेप्शन रिपोर्ट' (Mismatch Tab) में स्वतः दर्ज हो जाएंगे।\n\n` +
-            `आगे बढ़ने और एक्चुअल क्वांटिटी लोड करने के लिए OK दबाएं।`;
+            `⚠️ Loading Sheet Actual Quantities Confirmation\n\n` +
+            `The uploaded loading sheet has ${mismatchCount} receipt(s) with carton, CBM, or weight differences from warehouse stock.\n\n` +
+            `Do you want to load the actual quantities (CTN, CBM, Weight) into the container?\n` +
+            `All mismatches will be automatically recorded in the Sales Head Exception Report.\n\n` +
+            `Click OK to proceed and load actual quantities.`;
         } else {
           const splitCount = data.splitWarnings?.length || 0;
           confirmMsg =
@@ -3815,7 +3815,7 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
             }`}
           >
             <MessageSquare className="w-4 h-4" />
-            <span>4. Party Messages (पार्टी सूचना / WhatsApp)</span>
+            <span>4. Party Messages (Notifications / WhatsApp)</span>
           </button>
         </div>
 
@@ -5303,7 +5303,7 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
               {/* Goods / Item Name for this Loading Plan */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                  Item / Commodity Name in Loading Plan (कंटेनर में माल का नाम)
+                  Item / Commodity Name in Loading Plan
                 </label>
                 <input
                   type="text"
@@ -8055,7 +8055,7 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
                   </div>
                   <div>
                     <h3 className="text-base font-black tracking-tight text-white">
-                      Adjust Godown Stock (माल जोड़ें या घटाएं)
+                      Adjust Warehouse Stock
                     </h3>
                     <span className="text-xs text-indigo-200 font-medium">
                       Receipt #{addStockReceipt.receipt} &bull; Warehouse: {addStockReceipt.warehouse}
@@ -8108,7 +8108,7 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
                   <div className="space-y-0.5">
                     <p className="font-bold">Add (+) or Less (-) Stock in CTN, KG, CBM</p>
                     <p className="text-[11px] text-blue-800">
-                      माल <strong>बढ़ाने</strong> के लिए सीधा नंबर डालें (उदा. <code className="bg-blue-100 px-1 rounded font-bold">2</code>, <code className="bg-blue-100 px-1 rounded font-bold">10</code>, <code className="bg-blue-100 px-1 rounded font-bold">0.5</code>) और <strong>घटाने</strong> के लिए माइनस लगाएं (उदा. <code className="bg-blue-100 px-1 rounded font-bold">-2</code>, <code className="bg-blue-100 px-1 rounded font-bold">-10</code>, <code className="bg-blue-100 px-1 rounded font-bold">-0.5</code>)।
+                      Enter positive numbers to <strong>increase</strong> stock (e.g. <code className="bg-blue-100 px-1 rounded font-bold">2</code>, <code className="bg-blue-100 px-1 rounded font-bold">10</code>, <code className="bg-blue-100 px-1 rounded font-bold">0.5</code>) or negative numbers to <strong>reduce</strong> stock (e.g. <code className="bg-blue-100 px-1 rounded font-bold">-2</code>, <code className="bg-blue-100 px-1 rounded font-bold">-10</code>, <code className="bg-blue-100 px-1 rounded font-bold">-0.5</code>).
                     </p>
                   </div>
                 </div>
@@ -8298,7 +8298,7 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
                     ) : (
                       <>
                         <Check className="w-3.5 h-3.5" />
-                        <span>Confirm &amp; Update Stock (स्टॉक अपडेट करें)</span>
+                        <span>Confirm &amp; Update Stock</span>
                       </>
                     )}
                   </button>
@@ -9206,7 +9206,7 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
                                         className="inline-flex items-center space-x-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs transition shadow-xs"
                                       >
                                         <Plus className="w-3.5 h-3.5" />
-                                        <span>+ Add Found Stock (गोदाम में मिला माल जोड़ें)</span>
+                                        <span>+ Add Found Stock</span>
                                       </button>
                                     </div>
                                   );
@@ -9350,7 +9350,7 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
                   {/* Item / Commodity Name for this Container Plan */}
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                      Item / Commodity Name in Container Plan (माल का नाम)
+                      Item / Commodity Name in Container Plan
                     </label>
                     <input
                       type="text"
@@ -9870,7 +9870,7 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
                   <ArrowRightLeft className="w-4 h-4 text-emerald-200" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-black">Transfer Goods (सामान ट्रांसफर करें)</h3>
+                  <h3 className="text-sm font-black">Transfer Goods</h3>
                   <p className="text-[11px] text-emerald-200">Move cargo receipts between China warehouses</p>
                 </div>
               </div>
@@ -9924,7 +9924,7 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
               {/* Source Warehouse */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                  Source Warehouse (कहाँ से ट्रांसफर करना है) *
+                  Source Warehouse *
                 </label>
                 <select
                   value={transferFromWarehouse}
@@ -9946,7 +9946,7 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
               {/* Destination Warehouse */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                  Destination Warehouse (कहाँ पहुँचाना है) *
+                  Destination Warehouse *
                 </label>
                 <select
                   value={transferToWarehouse}

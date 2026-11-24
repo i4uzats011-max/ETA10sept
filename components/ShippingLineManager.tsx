@@ -281,7 +281,7 @@ export default function ShippingLineManager({ onLinesUpdated, readOnly = false }
             <div>
               <div className="flex items-center space-x-2.5">
                 <h2 className="text-xl font-black text-slate-900 tracking-tight">
-                  Shipping Line Companies (शिपिंग लाइन कंपनी प्रबंधन)
+                  Shipping Line Companies
                 </h2>
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-indigo-100 text-indigo-800 border border-indigo-200">
                   Carrier Directory

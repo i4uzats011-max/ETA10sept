@@ -317,7 +317,7 @@ export async function PATCH(req: NextRequest) {
       // STRICT POLICY: Only Sales Head and Developer Admin have permission to set or edit Rate
       if (currentUser.role !== 'sales_head' && currentUser.role !== 'developer') {
         return NextResponse.json(
-          { error: 'रेट (Rate) निर्धारित या बदलने का अधिकार केवल सेल्स हेड (Sales Head) को है।' },
+          { error: 'Only Sales Head has permission to set or update rates.' },
           { status: 403 }
         );
       }

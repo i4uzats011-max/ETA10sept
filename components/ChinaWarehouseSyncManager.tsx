@@ -516,7 +516,7 @@ export default function ChinaWarehouseSyncManager() {
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-amber-600" />
               <h3 className="text-lg font-bold text-slate-900">
-                Mismatch Dropdown List (मिसमैच लिस्ट)
+                Mismatch Dropdown List
               </h3>
               <span className="text-xs bg-slate-100 text-slate-700 font-semibold px-2 py-0.5 rounded-full">
                 {mismatches.length} records

@@ -208,7 +208,7 @@ export default function BulkContainerUpdateModal({
             <div>
               <div className="flex items-center space-x-2">
                 <h3 className="text-lg sm:text-xl font-black tracking-tight">
-                  Bulk Container Excel Update (एक्सेल द्वारा बल्क अपडेट)
+                  Bulk Container Excel Update
                 </h3>
                 <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 px-2 py-0.5 rounded-full">
                   Two-Step Workflow
@@ -236,7 +236,7 @@ export default function BulkContainerUpdateModal({
             <Clock className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
             <div className="text-xs text-amber-950 space-y-1">
               <p className="font-black text-[13px] text-amber-900">
-                🎯 Date Change Focus (डेट चेंज ऑटो-डिटेक्शन व टेक्स्ट फाइल):
+                🎯 Date Change Focus (Date Auto-Detection & Text Log):
               </p>
               <p>
                 If <strong>ANY</strong> container has its <strong>Port Date (rawEta)</strong> or{' '}
@@ -257,7 +257,7 @@ export default function BulkContainerUpdateModal({
                 <div>
                   <div className="flex items-center space-x-2">
                     <h4 className="text-sm font-black text-slate-900">
-                      Download Undelivered Containers Template (अन-डिलीवर्ड कंटेनर एक्सेल)
+                      Download Undelivered Containers Template
                     </h4>
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
                       Undelivered Only
@@ -354,7 +354,7 @@ export default function BulkContainerUpdateModal({
               </div>
               <div>
                 <h4 className="text-sm font-black text-slate-900">
-                  Upload Updated Excel File (अपडेटेड फाइल अपलोड करें)
+                  Upload Updated Excel File
                 </h4>
                 <p className="text-xs text-slate-500">
                   Fill new values in the blank columns (ETA Date, Port Date, Port Name, Remarks) and upload.
@@ -425,7 +425,7 @@ export default function BulkContainerUpdateModal({
                   ) : (
                     <>
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>Upload & Apply Updates (अपडेट लागू करें)</span>
+                      <span>Upload & Apply Updates</span>
                     </>
                   )}
                 </button>

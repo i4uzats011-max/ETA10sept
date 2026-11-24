@@ -481,14 +481,14 @@ export default function VisitorLogsPage() {
 
       {/* Main Content Area */}
       <main className="max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-5 flex-1">
-        {/* Developer Master Portal Access Bar (डेवलपर सारे लॉगिन एक्सेस देख व खोल सकता है) */}
+        {/* Developer Master Portal Access Bar (Developer can access all portals) */}
         <div className="bg-slate-900/90 border border-cyan-500/30 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-3 shadow-lg">
           <div className="flex items-center space-x-2 text-xs">
             <span className="font-mono font-bold text-cyan-400 uppercase tracking-wider flex items-center space-x-1.5">
               <Terminal className="w-3.5 h-3.5 text-cyan-400" />
               <span>Developer All-Login Access:</span>
             </span>
-            <span className="text-slate-400 hidden md:inline">(डेवलपर सभी पोर्टल्स व लॉगिन एक्सेस सीधे खोल सकता है)</span>
+            <span className="text-slate-400 hidden md:inline">(Direct access to all system portals)</span>
           </div>
           <div className="flex flex-wrap items-center gap-1.5 text-xs">
             <Link

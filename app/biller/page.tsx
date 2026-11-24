@@ -525,7 +525,7 @@ export default function BillerPortalPage() {
         if (data.requests.length > prevPendingCountRef.current && prevPendingCountRef.current !== 0) {
           const latest = data.requests[0];
           triggerNotificationAlert({
-            title: '🚚 नया डिस्पैच अनुरोध आया है! (New Dispatch Request)',
+            title: '🚚 New Dispatch Request Received!',
             body: `Receipt: ${latest?.receipt} | Gaadi: ${latest?.vehicleNumber} (${latest?.cartonCount} CTN)`,
           });
         }
@@ -552,7 +552,7 @@ export default function BillerPortalPage() {
     const contName = (req.container || '').trim();
     const mName = (req.marka || '').trim();
 
-    // Rule: Receipt No is Bill No (रसीद नंबर ही बिल नंबर है)
+    // Rule: Receipt No is Bill No
     setReceiptNo(rNo);
     setManualInvoiceNo(rNo);
     setFormBillNumber(rNo);
@@ -680,7 +680,7 @@ export default function BillerPortalPage() {
     }, 150);
 
     setLookupMessage(
-      `✓ डिस्पैच अनुरोध लोड हुआ: रसीद #${rNo} (Bill No: #${rNo}) | कंटेनर: ${contName || '—'} | मार्का: ${mName || '—'} | वस्तु: ${commodityName} | गाड़ी: ${vehNo || '—'} | ${ctnCount} CTN | गंतव्य: ${dest || '—'}`
+      `✓ Dispatch request loaded: Receipt #${rNo} (Bill No: #${rNo}) | Container: ${contName || '—'} | Marka: ${mName || '—'} | Item: ${commodityName} | Vehicle: ${vehNo || '—'} | ${ctnCount} CTN | Destination: ${dest || '—'}`
     );
   };
 
@@ -861,7 +861,7 @@ export default function BillerPortalPage() {
     return Number(prop.toFixed(3));
   }, [shipmentTotalCbm, shipmentTotalCartons, totalCartons, lineUnit, lineQuantity, quantityPcs, quantityKg]);
 
-  // 1-Hour Auto-Delete Management Helpers (बिल डाउनलोड होने के 1 घंटे बाद स्वतः डिलीट)
+  // 1-Hour Auto-Delete Management Helpers (Auto-deletes 1 hour after download)
   const ONE_HOUR_MS = 60 * 60 * 1000;
 
   const isArchivedDownloaded = (b: any) => {
@@ -1340,7 +1340,7 @@ export default function BillerPortalPage() {
             `✓ Container [${contToUse || 'All'}] & Marka [${cleanMarka}]: Item "${first.description}" and Quantity (${first.cartons} CTN / ${first.weightKg} KG / ${first.pcs} PCS) automatically reflected!`
           );
         } else {
-          setLookupMessage(`Marka [${cleanMarka}] के लिए कार्गो लोड हुआ।`);
+          setLookupMessage(`Cargo loaded for Marka [${cleanMarka}].`);
         }
       }
     } catch (err) {
@@ -1370,7 +1370,7 @@ export default function BillerPortalPage() {
       setSingleAvailableReceipts([]);
       setCurrentMarkaAddresses([]);
       setSelectedDeliveryAddressId('');
-      setLookupMessage('कोई मार्का सेलेक्ट नहीं है।');
+      setLookupMessage('No Marka selected.');
       return;
     }
 
@@ -1450,7 +1450,7 @@ export default function BillerPortalPage() {
       }
 
       setLookupMessage(
-        `✓ ${nextList.length} मार्का सेलेक्ट किए गए [${nextList.join(', ')}] | कुल ${combinedItems.length} कार्गो आइटम लोड हुए।`
+        `✓ ${nextList.length} Markas selected [${nextList.join(', ')}] | Total ${combinedItems.length} cargo items loaded.`
       );
     } catch (err) {
       console.error('Multi-marka error:', err);
@@ -1580,7 +1580,7 @@ export default function BillerPortalPage() {
   const handleApplyProportionate = () => {
     const res = calculateProportionate();
     if (res.targetQty <= 0) {
-      alert('कृपया मान्य डिस्पैच संख्या दर्ज करें ताकि प्रोपोर्शनेट मान निकाला जा सके।');
+      alert('Please enter a valid dispatch quantity to calculate proportionate values.');
       return;
     }
 
@@ -1590,7 +1590,7 @@ export default function BillerPortalPage() {
     if (res.pcs > 0) setQuantityPcs(String(res.pcs));
 
     setManualSuccessMsg(
-      `✓ प्रोपोर्शनेट वैल्यू लागू हो गई: ${res.ctn} कार्टन | ${res.kg} KG | ${res.pcs} PCS -> इनवॉइस क्वांटिटी: ${res.targetQty} ${lineUnit}`
+      `✓ Proportionate values applied: ${res.ctn} CTN | ${res.kg} KG | ${res.pcs} PCS -> Invoice Quantity: ${res.targetQty} ${lineUnit}`
     );
     setTimeout(() => setManualSuccessMsg(null), 4500);
   };
@@ -1613,7 +1613,7 @@ export default function BillerPortalPage() {
 
     const threshold = isDelhi ? 100000 : 50000;
 
-    // Check same date ("या बिल का डेट अलग हो तो ये वॉर्निंग न दिखाए")
+    // Check same date (Skip warning if bill date is different)
     const todayDateStr = targetBillDate || new Date().toISOString().split('T')[0];
 
     const matchingBillsOnSameDate = bills.filter((b) => {
@@ -1634,15 +1634,15 @@ export default function BillerPortalPage() {
 
     if (cumulativeTotal > threshold) {
       const msg =
-        `⚠️ गाड़ी दैनिक लिमिट चेतावनी (Vehicle Cumulative Limit Warning):\n\n` +
-        `गाड़ी नंबर: ${vehicleNo.trim().toUpperCase()}\n` +
-        `दिनांक (Date): ${todayDateStr}\n` +
-        `इस गाड़ी में आज पहले से अलॉट बिल: ${matchingBillsOnSameDate.length} बिल (कुल राशि: ₹${existingVehicleTotal.toLocaleString('en-IN')})\n` +
-        `वर्तमान बिल राशि: ₹${newBillAmount.toLocaleString('en-IN')}\n` +
-        `गाड़ी में कुल संचयी माल (Cumulative Total): ₹${cumulativeTotal.toLocaleString('en-IN')}\n\n` +
-        `यह राशि बिना E-Way Bill की निर्धारित सीमा (₹${threshold.toLocaleString('en-IN')} - ${isDelhi ? 'Intra-Delhi' : 'Inter-State'}) से अधिक है!\n\n` +
-        `क्या आप वाकई इस गाड़ी में बिना E-Way Bill के यह बिल प्रोसेस करना चाहते हैं?\n` +
-        `'OK' दबाकर पुष्टि (Confirm) करें, अथवा 'Cancel' करके पहले E-Way Bill No. दर्ज करें।`;
+        `⚠️ Vehicle Cumulative Limit Warning:\n\n` +
+        `Vehicle No: ${vehicleNo.trim().toUpperCase()}\n` +
+        `Date: ${todayDateStr}\n` +
+        `Bills previously assigned to this vehicle today: ${matchingBillsOnSameDate.length} bills (Total Amount: ₹${existingVehicleTotal.toLocaleString('en-IN')})\n` +
+        `Current Bill Amount: ₹${newBillAmount.toLocaleString('en-IN')}\n` +
+        `Cumulative Total on Vehicle: ₹${cumulativeTotal.toLocaleString('en-IN')}\n\n` +
+        `This amount exceeds the mandatory threshold without E-Way Bill (₹${threshold.toLocaleString('en-IN')} - ${isDelhi ? 'Intra-Delhi' : 'Inter-State'})!\n\n` +
+        `Are you sure you want to process this bill without an E-Way Bill?\n` +
+        `Click 'OK' to confirm, or 'Cancel' to enter E-Way Bill No. first.`;
       return { requiresConfirm: true, message: msg };
     }
 
@@ -1983,11 +1983,11 @@ export default function BillerPortalPage() {
     e.preventDefault();
     const currentMarka = (mainMarka || subMarka || singleSelectedMarka).trim();
     if (!currentMarka) {
-      alert('कृपया पहले एक मार्का (Marka) चुनें जिसके लिए पता सेव करना है।');
+      alert('Please select a Marka first to save the address.');
       return;
     }
     if (!newLocAddress.trim()) {
-      alert('कृपया पूरा डिलीवरी पता (Address) दर्ज करें।');
+      alert('Please enter complete Delivery Address.');
       return;
     }
 
@@ -2047,7 +2047,7 @@ export default function BillerPortalPage() {
       setNewLocPhone('');
       setNewLocRegType('Registered');
       setNewLocGstin('');
-      alert(`मार्का '${currentMarka}' के लिए नया सेंडिंग लोकेशन सेव हो गया!`);
+      alert(`New sending location saved for Marka '${currentMarka}'!`);
     } catch (err: any) {
       alert(err.message || 'Error saving location');
     } finally {
@@ -2057,7 +2057,7 @@ export default function BillerPortalPage() {
 
   // Delete a specific location from a Marka
   const handleDeleteLocation = async (marka: string, addressId: string) => {
-    if (!confirm('क्या आप वाकई इस सहेजे गए पते को हटाना चाहते हैं?')) return;
+    if (!confirm('Are you sure you want to delete this saved address?')) return;
     setIsDeletingLocationId(addressId);
     try {
       const res = await fetch(`/api/marka-addresses?marka=${encodeURIComponent(marka)}&addressId=${encodeURIComponent(addressId)}`, {
@@ -2067,7 +2067,7 @@ export default function BillerPortalPage() {
       if (!res.ok) throw new Error(data.error || 'Failed to delete address');
 
       await fetchMarkaDeliveryLocations(marka);
-      setMarkaSaveSuccess('✓ पता सफलतापूर्वक हटा दिया गया!');
+      setMarkaSaveSuccess('✓ Address deleted successfully!');
       setTimeout(() => setMarkaSaveSuccess(null), 3000);
     } catch (err: any) {
       alert(err.message || 'Error deleting address');
@@ -2128,7 +2128,7 @@ export default function BillerPortalPage() {
       setConsigneeState(payload.state);
       setConsigneeStateCode(getStateCode(payload.state) || '07');
       if (payload.phone) setPurchaserPhone(payload.phone);
-      setMarkaSaveSuccess('✓ पता सफलतापूर्वक अपडेट हो गया!');
+      setMarkaSaveSuccess('✓ Address updated successfully!');
       setTimeout(() => setMarkaSaveSuccess(null), 3000);
     } catch (err: any) {
       alert(err.message || 'Error updating address');
@@ -2138,12 +2138,12 @@ export default function BillerPortalPage() {
   // Add Item to Multi-Item Invoice Builder
   const handleAddLineItem = () => {
     if (!lineDescription.trim()) {
-      alert('कृपया आइटम का नाम / विवरण (Item Description) डालें');
+      alert('Please enter Item Description.');
       return;
     }
     const qty = parseFloat(lineQuantity) || 0;
     if (qty <= 0) {
-      alert('कृपया मान्य क्वांटिटी (Quantity) डालें');
+      alert('Please enter a valid Quantity.');
       return;
     }
     let r = parseFloat(lineRate) || 0;
@@ -2153,13 +2153,13 @@ export default function BillerPortalPage() {
       setLineRate(String(r));
     }
     if (r <= 0) {
-      alert('कृपया मान्य दर (Rate ₹) या कुल राशि (Total Value) डालें');
+      alert('Please enter a valid Rate or Total Value.');
       return;
     }
 
     const finalHsn = (lineHsn || hsnCode || '').trim();
     if (!finalHsn || finalHsn.length < 4 || !/^\d+$/.test(finalHsn)) {
-      alert('कृपया एक मान्य HSN / SAC कोड (कम से कम 4 से 8 अंक) अवश्य दर्ज करें। GST नियमानुसार HSN कोड अनिवार्य (Mandatory) है।');
+      alert('Please enter a valid HSN / SAC code (4 to 8 digits). HSN code is mandatory per GST rules.');
       return;
     }
 
@@ -2319,17 +2319,17 @@ export default function BillerPortalPage() {
     if (!billToEdit) return;
 
     if (!editBillData.purchaserName.trim()) {
-      alert('कृपया पार्टी / कंसाइनी का नाम (Party Legal Name) दर्ज करें।');
+      alert('Please enter Party / Consignee Legal Name.');
       return;
     }
 
     if (!editBillData.consigneeAddress.trim()) {
-      alert('कृपया डिलीवरी का पता (Delivery Address) दर्ज करें।');
+      alert('Please enter Delivery Address.');
       return;
     }
 
     if (editBillData.items.length === 0) {
-      alert('कम से कम एक आइटम होना अनिवार्य है।');
+      alert('At least one item is required.');
       return;
     }
 
@@ -2337,7 +2337,7 @@ export default function BillerPortalPage() {
       const itHsn = (it.hsnCode || '').trim();
       if (!itHsn || itHsn.length < 4 || !/^\d+$/.test(itHsn)) {
         alert(
-          `HSN / SAC कोड अनिवार्य (Mandatory) है!\n\nआइटम "${it.description || 'Item'}" के लिए मान्य 4 से 8 अंकों का HSN कोड अवश्य दर्ज करें।`
+          `HSN / SAC code is mandatory!\n\nPlease enter a valid 4 to 8 digit HSN code for item "${it.description || 'Item'}".`
         );
         return;
       }
@@ -2357,13 +2357,13 @@ export default function BillerPortalPage() {
 
     if (isDelhi && grandTotal > 100000 && !editBillData.eWayBillNo.trim()) {
       alert(
-        `⚠️ ई-वे बिल अनिवार्य है!\n\nदिल्ली के भीतर (Intra-Delhi) कुल राशि ₹${grandTotal.toLocaleString('en-IN')} (सीमा ₹1,00,000 से अधिक) होने पर E-Way Bill Number अनिवार्य है।\n\nकृपया E-Way Bill No. भरें।`
+        `⚠️ E-Way Bill is mandatory!\n\nIntra-Delhi bills exceeding ₹1,00,000 (Current: ₹${grandTotal.toLocaleString('en-IN')}) require an E-Way Bill Number.\n\nPlease enter E-Way Bill No.`
       );
       return;
     }
     if (!isDelhi && grandTotal > 50000 && !editBillData.eWayBillNo.trim()) {
       alert(
-        `⚠️ ई-वे बिल अनिवार्य है!\n\nआउटसाइड दिल्ली (Inter-State) के लिए कुल राशि ₹${grandTotal.toLocaleString('en-IN')} (सीमा ₹50,000 से अधिक) होने पर E-Way Bill Number अनिवार्य है।\n\nकृपया E-Way Bill No. भरें।`
+        `⚠️ E-Way Bill is mandatory!\n\nInter-State bills exceeding ₹50,000 (Current: ₹${grandTotal.toLocaleString('en-IN')}) require an E-Way Bill Number.\n\nPlease enter E-Way Bill No.`
       );
       return;
     }
@@ -2436,7 +2436,7 @@ export default function BillerPortalPage() {
       setBillToEdit(null);
 
       generateBillPDF({ ...updatedBill, theme: pdfTheme }, true);
-      alert('✓ बिल सफलतापूर्वक अपडेट (संशोधित) कर दिया गया है और नया PDF डाउनलोड हो गया है!');
+      alert('✓ Bill updated successfully and new PDF downloaded!');
     } catch (err: any) {
       alert(err.message || 'Error updating bill');
     } finally {
@@ -2595,7 +2595,7 @@ export default function BillerPortalPage() {
   const handleBulkUpdateVehicle = async () => {
     if (selectedBillIds.size === 0) return;
     if (!bulkVehicleInput.trim()) {
-      alert('कृपया गाड़ी नंबर (Vehicle Number) दर्ज करें।');
+      alert('Please enter Vehicle Number.');
       return;
     }
 
@@ -2637,7 +2637,7 @@ export default function BillerPortalPage() {
       );
       setSelectedBillIds(new Set());
       setBulkVehicleInput('');
-      alert(`सफलता! ${updatedCount} बिलों में गाड़ी नंबर '${bulkVehicleInput.trim()}' अपडेट हो गया है।`);
+      alert(`Success! Updated vehicle number '${bulkVehicleInput.trim()}' on ${updatedCount} bills.`);
     } catch (err: any) {
       alert(err.message || 'Error in bulk update');
     } finally {
@@ -3017,7 +3017,7 @@ export default function BillerPortalPage() {
   // Download Specific Container's Manifest in Excel (User's workflow requirement: Select container -> download Excel -> update & re-upload)
   const handleDownloadContainerExcel = async () => {
     if (!selectedDownloadContainer) {
-      alert('कृपया पहले कंटेनर नंबर सेलेक्ट करें।');
+      alert('Please select a container number first.');
       return;
     }
 
@@ -3029,7 +3029,7 @@ export default function BillerPortalPage() {
       const rows = data.manifestRows || [];
 
       if (rows.length === 0) {
-        alert(`कंटेनर '${selectedDownloadContainer}' में कोई शिपमेंट रिकॉर्ड नहीं मिला।`);
+        alert(`No shipment records found in container '${selectedDownloadContainer}'.`);
         return;
       }
 
@@ -3089,7 +3089,7 @@ export default function BillerPortalPage() {
         { 'Step': '6. Upload to Generate', 'Details': 'Upload this updated Excel back in Biller Portal to generate all bills without vehicle numbers!' },
       ];
       const wsHelp = XLSX.utils.json_to_sheet(instructions);
-      XLSX.utils.book_append_sheet(wb, wsHelp, 'Instructions_गाइड');
+      XLSX.utils.book_append_sheet(wb, wsHelp, 'Instructions_Guide');
 
       const safeName = selectedDownloadContainer.replace(/[^a-zA-Z0-9_-]/g, '_');
       XLSX.writeFile(wb, `Container_${safeName}_Billing_Manifest.xlsx`);
@@ -3137,7 +3137,7 @@ export default function BillerPortalPage() {
     }
 
     if (finalItems.length === 0 && (!taxableValue || parseFloat(taxableValue) <= 0)) {
-      alert('कृपया दर (Rate) या कुल मूल्य (Total Amount) दर्ज करें ताकि बिल जनरेट किया जा सके।');
+      alert('Please enter Rate or Total Amount to generate bill.');
       return;
     }
 
@@ -3146,7 +3146,7 @@ export default function BillerPortalPage() {
       const itHsn = (it.hsnCode || '').trim();
       if (!itHsn || itHsn.length < 4 || !/^\d+$/.test(itHsn)) {
         alert(
-          `HSN / SAC कोड अनिवार्य (Mandatory) है!\n\nआइटम "${it.description || 'Item'}" के लिए मान्य 4 से 8 अंकों का HSN कोड अवश्य दर्ज करें।`
+          `HSN / SAC code is mandatory!\n\nPlease enter a valid 4 to 8 digit HSN code for item "${it.description || 'Item'}".`
         );
         return;
       }
@@ -3172,13 +3172,13 @@ export default function BillerPortalPage() {
     if (finalTotalBillAmt > eWayThreshold && !formEWayBillNo.trim()) {
       alert(
         isDestDelhi
-          ? `ई-वे बिल (E-Way Bill) अनिवार्य है!\n\nदिल्ली के अंदर (Intra-State) कुल बिल राशि ₹1,00,000 से अधिक होने पर E-Way Bill Number अनिवार्य है।\nवर्तमान बिल राशि: ₹${finalTotalBillAmt.toLocaleString('en-IN')}\n\nकृपया Step 2 में E-Way Bill No. दर्ज करें।`
-          : `ई-वे बिल (E-Way Bill) अनिवार्य है!\n\nदिल्ली से बाहर (Inter-State) कुल बिल राशि ₹50,000 से अधिक होने पर E-Way Bill Number अनिवार्य है।\nवर्तमान बिल राशि: ₹${finalTotalBillAmt.toLocaleString('en-IN')}\n\nकृपया Step 2 में E-Way Bill No. दर्ज करें।`
+          ? `E-Way Bill is mandatory!\n\nIntra-State bills exceeding ₹1,00,000 require an E-Way Bill Number.\nCurrent Bill Amount: ₹${finalTotalBillAmt.toLocaleString('en-IN')}\n\nPlease enter E-Way Bill No. in Step 2.`
+          : `E-Way Bill is mandatory!\n\nInter-State bills exceeding ₹50,000 require an E-Way Bill Number.\nCurrent Bill Amount: ₹${finalTotalBillAmt.toLocaleString('en-IN')}\n\nPlease enter E-Way Bill No. in Step 2.`
       );
       return;
     }
 
-    // 4b. Vehicle Cumulative Limit Rule (एक गाड़ी में ₹1,00,000 दिल्ली में और ₹50,000 बाहर - Same Date)
+    // 4b. Vehicle Cumulative Limit Rule (₹1,00,000 Intra-Delhi, ₹50,000 Inter-State per vehicle on same date)
     if (formVehicleNumber.trim()) {
       const vehCheck = checkVehicleCumulativeLimit(
         formVehicleNumber,
@@ -3322,8 +3322,8 @@ export default function BillerPortalPage() {
 
       setManualSuccessMsg(
         autoDownloadOnGenerate
-          ? `✓ बिल सफलतापूर्वक बन गया और डाउनलोड हो गया! Bill No #${finalBillNumber} (Receipt #${finalReceiptNo}) — 1 घंटे बाद स्वतः डिलीट होगा`
-          : `✓ बिल सफलतापूर्वक बन गया! Bill No #${finalBillNumber} (Receipt #${finalReceiptNo})`
+          ? `✓ Bill generated and downloaded successfully! Bill No #${finalBillNumber} (Receipt #${finalReceiptNo}) — Auto-deletes in 1 hour`
+          : `✓ Bill generated successfully! Bill No #${finalBillNumber} (Receipt #${finalReceiptNo})`
       );
       // Reset form
       setReceiptNo('');
@@ -3707,7 +3707,7 @@ export default function BillerPortalPage() {
               <div className="flex items-center space-x-1.5 sm:space-x-2">
                 <span className="font-black text-sm sm:text-base text-white tracking-tight">US INTERNATIONAL</span>
                 <span className="px-2 py-0.5 text-[9px] sm:text-[10px] font-black uppercase tracking-wider bg-amber-500 text-slate-950 rounded-full">
-                  Biller Portal (बिलर)
+                  Biller Portal
                 </span>
               </div>
               <p className="text-[10px] sm:text-xs text-slate-400 hidden sm:block">Container Selection, Excel Download, Billing Units (Pcs/KG/CTN) & Bills</p>
@@ -3720,7 +3720,7 @@ export default function BillerPortalPage() {
               type="button"
               onClick={toggleDayNightMode}
               className="flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-slate-700 text-xs font-bold transition shadow-sm"
-              title="Toggle Day Mode / Night Mode (डे / नाईट मोड स्विच करें)"
+              title="Toggle Day Mode / Night Mode"
             >
               {currentTheme === 'light' || currentTheme === 'high-contrast-day' ? (
                 <>
@@ -3742,10 +3742,10 @@ export default function BillerPortalPage() {
                 value={currentTheme}
                 onChange={(e) => handleThemeChange(e.target.value as any)}
                 className="bg-transparent text-xs font-bold text-slate-200 outline-none cursor-pointer pr-1"
-                title="Select Billing System Theme (डार्क, लाइट व अन्य थीम)"
+                title="Select Billing System Theme"
               >
-                <option value="dark" className="bg-slate-900 text-white">🌙 Dark (डार्क)</option>
-                <option value="light" className="bg-white text-slate-900">☀️ Light (लाइट)</option>
+                <option value="dark" className="bg-slate-900 text-white">🌙 Dark</option>
+                <option value="light" className="bg-white text-slate-900">☀️ Light</option>
                 <option value="midnight" className="bg-slate-950 text-cyan-300">🌌 Midnight</option>
                 <option value="emerald" className="bg-slate-950 text-emerald-300">🌲 Emerald</option>
                 <option value="amber" className="bg-slate-950 text-amber-300">🌅 Amber</option>
@@ -3800,10 +3800,10 @@ export default function BillerPortalPage() {
               </div>
               <div>
                 <div className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center space-x-1.5">
-                  <span>कंटेनर डेटा डाउनलोड करें (Container Billing Workflow)</span>
+                  <span>Download Container Billing Data</span>
                 </div>
                 <h2 className="text-sm font-black text-white">
-                  कंटेनर चुनें, उसका डेटा एक्सेल में डाउनलोड करें, HSN/Tax भरकर वापस अपलोड करें
+                  Select container, download Excel template, fill HSN/Tax, and re-upload
                 </h2>
               </div>
             </div>
@@ -3815,7 +3815,7 @@ export default function BillerPortalPage() {
                   list="biller-containers-list"
                   value={selectedDownloadContainer}
                   onChange={(e) => setSelectedDownloadContainer(e.target.value)}
-                  placeholder="कंटेनर नं. टाइप करें (e.g. 208, USSI-139)"
+                  placeholder="Type container # (e.g. 208, USSI-139)"
                   className="w-48 sm:w-56 px-3.5 py-2.5 rounded-xl bg-slate-950 border border-amber-500/50 text-xs font-black text-amber-300 placeholder-slate-500 focus:ring-2 focus:ring-amber-500 outline-none uppercase"
                 />
                 <datalist id="biller-containers-list">
@@ -3872,15 +3872,15 @@ export default function BillerPortalPage() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] text-slate-400 pt-1 border-t border-slate-800">
             <div className="flex items-center space-x-1.5">
               <span className="w-4 h-4 rounded-full bg-amber-500/20 text-amber-400 font-bold flex items-center justify-center text-[10px]">1</span>
-              <span>कंटेनर सेलेक्ट करें (जैसे USSI-139 / 208)</span>
+              <span>Select Container (e.g. USSI-139 / 208)</span>
             </div>
             <div className="flex items-center space-x-1.5">
               <span className="w-4 h-4 rounded-full bg-amber-500/20 text-amber-400 font-bold flex items-center justify-center text-[10px]">2</span>
-              <span>एक्सेल में HSN, IGST, Unit (Pcs/KG/CTN) व Taxable भरें</span>
+              <span>Fill HSN, IGST, Unit (Pcs/KG/CTN) & Taxable in Excel</span>
             </div>
             <div className="flex items-center space-x-1.5">
               <span className="w-4 h-4 rounded-full bg-amber-500/20 text-amber-400 font-bold flex items-center justify-center text-[10px]">3</span>
-              <span>अपडेटेड एक्सेल नीचे अपलोड करें — तुरंत सारे बिल जनरेट!</span>
+              <span>Upload updated Excel below — generate all bills instantly!</span>
             </div>
           </div>
         </div>
@@ -3894,7 +3894,7 @@ export default function BillerPortalPage() {
             <div>
               <div className="flex items-center space-x-2">
                 <span className="text-xs font-bold uppercase tracking-wider text-sky-400">
-                  Billing Company / Seller (सेलर पार्टी - इनवॉइस हेडर)
+                  Billing Company / Seller (Invoice Header)
                 </span>
                 {currentSeller?.isDefault && (
                   <span className="text-[10px] bg-sky-500/20 text-sky-300 font-bold px-2 py-0.5 rounded-full border border-sky-500/30">
@@ -3983,7 +3983,7 @@ export default function BillerPortalPage() {
               title="Manage saved Party Names, GSTIN, and Addresses for each Marka"
             >
               <Building2 className="w-3.5 h-3.5" />
-              <span>मार्का व पार्टी डायरेक्टरी (Marka &amp; Party Directory)</span>
+              <span>Marka &amp; Party Directory</span>
             </button>
           </div>
         </div>
@@ -4051,7 +4051,7 @@ export default function BillerPortalPage() {
                 }`}
               >
                 <FileSpreadsheet className="w-4 h-4" />
-                <span>एक्सेल बल्क बिलिंग (Excel Bulk Upload)</span>
+                <span>Excel Bulk Upload</span>
               </button>
 
               <button
@@ -4063,7 +4063,7 @@ export default function BillerPortalPage() {
                 }`}
               >
                 <PlusCircle className="w-4 h-4" />
-                <span>सिंगल बिल एंट्री (Single Entry)</span>
+                <span>Single Bill Entry</span>
               </button>
 
               <button
@@ -4076,7 +4076,7 @@ export default function BillerPortalPage() {
                 }`}
               >
                 <Truck className="w-4 h-4 text-emerald-400" />
-                <span>पेंडिंग डिस्पैच अनुरोध (Pending Dispatches)</span>
+                <span>Pending Dispatch Requests</span>
                 {pendingDispatchRequests.length > 0 && (
                   <span className="px-2 py-0.5 text-[10px] font-black rounded-full bg-emerald-500 text-slate-950 animate-pulse">
                     {pendingDispatchRequests.length}
@@ -4179,7 +4179,7 @@ export default function BillerPortalPage() {
                       ) : (
                         <>
                           <Check className="w-4 h-4" />
-                          <span>Generate All {excelRows.length} Bills in Bulk (सारे बिल जनरेट करें)</span>
+                          <span>Generate All {excelRows.length} Bills in Bulk</span>
                         </>
                       )}
                     </button>
@@ -4237,9 +4237,9 @@ export default function BillerPortalPage() {
                 <div className="flex items-center space-x-2">
                   <Truck className="w-5 h-5 text-emerald-400" />
                   <div>
-                    <span className="font-bold">डिस्पैचर द्वारा भेजे गए पेंडिंग बिलिंग अनुरोध:</span>
+                    <span className="font-bold">Pending Dispatch Requests from Dispatcher:</span>
                     <p className="text-[11px] text-slate-400">
-                      'बिलिंग शुरू करें' पर क्लिक करते ही गाड़ी नंबर, कार्टून, पता व रसीद फॉर्म में स्वतः भर जाएंगे।
+                      Click 'Initiate Billing' to auto-fill vehicle number, cartons, address, and receipt.
                     </p>
                   </div>
                 </div>
@@ -4249,13 +4249,13 @@ export default function BillerPortalPage() {
                   className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-emerald-300 rounded-xl font-bold border border-emerald-700/50 flex items-center space-x-1"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
-                  <span>रिफ्रेश</span>
+                  <span>Refresh</span>
                 </button>
               </div>
 
               {pendingDispatchRequests.length === 0 ? (
                 <div className="py-12 text-center text-slate-500 text-xs">
-                  कोई पेंडिंग डिस्पैच अनुरोध नहीं है।
+                  No pending dispatch requests.
                 </div>
               ) : (
                 <div className="overflow-x-auto rounded-2xl border border-slate-800">
@@ -4265,9 +4265,9 @@ export default function BillerPortalPage() {
                         <th className="py-3 px-4">Time</th>
                         <th className="py-3 px-4">Receipt #</th>
                         <th className="py-3 px-4">Marka</th>
-                        <th className="py-3 px-4">Item Name (वस्तु)</th>
+                        <th className="py-3 px-4">Item Name</th>
                         <th className="py-3 px-4">Container</th>
-                        <th className="py-3 px-4">Gaadi No (गाड़ी)</th>
+                        <th className="py-3 px-4">Vehicle No</th>
                         <th className="py-3 px-4 text-center">CTN to Bill</th>
                         <th className="py-3 px-4">Place / Address</th>
                         <th className="py-3 px-4 text-right">Action</th>
@@ -4279,7 +4279,7 @@ export default function BillerPortalPage() {
                           key={req._id}
                           onClick={() => handleInitiateBillingFromRequest(req)}
                           className="hover:bg-slate-800/70 cursor-pointer transition group"
-                          title="क्लिक करके सिंगल बिलिंग मोड में यह अनुरोध खोलें (डेटा स्वतः भर जाएगा)"
+                          title="Open this request in single billing mode (auto-fills data)"
                         >
                           <td className="py-3 px-4 text-slate-400 font-mono text-[11px]">
                             {new Date(req.initiatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -4311,13 +4311,13 @@ export default function BillerPortalPage() {
                                 className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs shadow-md transition transform hover:scale-105 inline-flex items-center space-x-1"
                               >
                                 <Plus className="w-3.5 h-3.5" />
-                                <span>बिलिंग शुरू करें (Initiate Billing)</span>
+                                <span>Initiate Billing</span>
                               </button>
                               <button
                                 type="button"
                                 onClick={async (e) => {
                                   e.stopPropagation();
-                                  if (!window.confirm('क्या आप इस डिस्पैच अनुरोध को पेंडिंग सूची से हटाना / डिलीट करना चाहते हैं?')) return;
+                                  if (!window.confirm('Are you sure you want to delete this dispatch request?')) return;
                                   try {
                                     const res = await fetch('/api/dispatcher', {
                                       method: 'POST',
@@ -4331,7 +4331,7 @@ export default function BillerPortalPage() {
                                   } catch (err) {}
                                 }}
                                 className="p-1.5 bg-red-500/20 hover:bg-red-500 text-red-300 hover:text-white rounded-xl font-bold text-xs transition"
-                                title="अनुरोध डिलीट / रिजेक्ट करें"
+                                title="Delete / Reject Request"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -4355,49 +4355,49 @@ export default function BillerPortalPage() {
                     <div className="flex items-center space-x-2">
                       <span className="p-1.5 bg-emerald-500 text-slate-950 rounded-xl font-black text-xs flex items-center space-x-1">
                         <Truck className="w-3.5 h-3.5" />
-                        <span>सक्रिय डिस्पैच अनुरोध (Active Dispatch Request)</span>
+                        <span>Active Dispatch Request</span>
                       </span>
                       <span className="text-xs font-mono font-black text-amber-300">
-                        रसीद #{receiptNo}
+                        Receipt #{receiptNo}
                       </span>
                     </div>
                     <div className="flex items-center space-x-2">
                       <span className="text-[11px] font-bold text-emerald-300 bg-emerald-500/20 border border-emerald-500/40 px-2.5 py-0.5 rounded-full flex items-center space-x-1">
                         <Check className="w-3 h-3" />
-                        <span>डेटा स्वतः भरा गया (Auto-Filled)</span>
+                        <span>Auto-Filled</span>
                       </span>
                       <button
                         type="button"
                         onClick={() => setActiveDispatchRequestId(null)}
                         className="text-[11px] text-slate-400 hover:text-red-400 underline font-semibold"
-                        title="डिस्पैच मोड बंद करें"
+                        title="Close Dispatch Mode"
                       >
-                        हटाएँ (Clear)
+                        Clear
                       </button>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-3">
                     <div className="bg-slate-950/70 p-2.5 rounded-2xl border border-slate-800">
-                      <span className="text-[10px] text-slate-400 block font-semibold">वस्तु का नाम (Item Name):</span>
+                      <span className="text-[10px] text-slate-400 block font-semibold">Item Name:</span>
                       <span className="font-black text-cyan-300 text-xs truncate block" title={lineDescription || commodity}>
                         {lineDescription || commodity || 'COMMERCIAL GOODS'}
                       </span>
                     </div>
                     <div className="bg-slate-950/70 p-2.5 rounded-2xl border border-slate-800">
-                      <span className="text-[10px] text-slate-400 block font-semibold">कार्टन (Cartons / CTN):</span>
+                      <span className="text-[10px] text-slate-400 block font-semibold">Cartons (CTN):</span>
                       <span className="font-black text-purple-300 text-xs block">
                         {totalCartons || lineQuantity || '1'} CTN
                       </span>
                     </div>
                     <div className="bg-slate-950/70 p-2.5 rounded-2xl border border-slate-800">
-                      <span className="text-[10px] text-slate-400 block font-semibold">गाड़ी नंबर (Vehicle No):</span>
+                      <span className="text-[10px] text-slate-400 block font-semibold">Vehicle No:</span>
                       <span className="font-black text-amber-300 text-xs block font-mono">
                         {formVehicleNumber || '—'}
                       </span>
                     </div>
                     <div className="bg-slate-950/70 p-2.5 rounded-2xl border border-slate-800">
-                      <span className="text-[10px] text-slate-400 block font-semibold">गंतव्य (Destination):</span>
+                      <span className="text-[10px] text-slate-400 block font-semibold">Destination:</span>
                       <span className="font-black text-emerald-300 text-xs truncate block" title={formDestination}>
                         {formDestination || '—'}
                       </span>
@@ -4445,7 +4445,7 @@ export default function BillerPortalPage() {
                             generateBothBillAndEWayPDF(billWithEway, true); if (justCreatedBill?._id) handleMarkBillDownloaded(justCreatedBill._id);
                           }}
                           className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-xl text-xs transition flex items-center space-x-1.5 shadow-md shadow-emerald-950/40"
-                          title="बिल और सरकारी ई-वे बिल दोनों एक साथ प्रिंट करें (Print Invoice + e-Way Bill Together in 1 PDF)"
+                          title="Print Invoice + Government e-Way Bill Together in 1 PDF"
                         >
                           <Printer className="w-3.5 h-3.5" />
                           <span>🖨️ Print Both (Bill + e-Way)</span>
@@ -4462,7 +4462,7 @@ export default function BillerPortalPage() {
                             generateEWayBillPDF(billWithEway, true); if (justCreatedBill?._id) handleMarkBillDownloaded(justCreatedBill._id);
                           }}
                           className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs transition flex items-center space-x-1.5 shadow"
-                          title="सरकारी ई-वे बिल प्रिंट करें (Print Actual Government e-Way Bill PDF)"
+                          title="Print Government e-Way Bill PDF"
                         >
                           <Truck className="w-3.5 h-3.5" />
                           <span>e-Way Bill</span>
@@ -4515,10 +4515,10 @@ export default function BillerPortalPage() {
                     </div>
                     <div>
                       <div className="text-xs font-black uppercase tracking-wider text-amber-400">
-                        Step 1: Select Cargo from Manifest (कार्गो चुनें: Container ➔ Marka ➔ Receipt)
+                        Step 1: Select Cargo from Manifest (Container ➔ Marka ➔ Receipt)
                       </div>
                       <p className="text-[11px] text-slate-400">
-                        कंटेनर चुनें, फिर मार्का चुनें — रिसीट और कार्गो डिटेल्स अपने-आप भर जाएंगी
+                        Select container, then select marka — receipt and cargo details auto-fill
                       </p>
                     </div>
                   </div>
@@ -4537,7 +4537,7 @@ export default function BillerPortalPage() {
                   {/* Container Selector */}
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
-                      <span>1. Container (कंटेनर नंबर)</span>
+                      <span>1. Container Number</span>
                       {singleContainer && (
                         <span className="text-[10px] text-amber-400 font-mono">Selected: {singleContainer}</span>
                       )}
@@ -4595,7 +4595,7 @@ export default function BillerPortalPage() {
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
                       <label className="text-xs font-bold text-slate-300 flex items-center space-x-1.5">
-                        <span>2. Marka (मार्का चुनें) *</span>
+                        <span>2. Select Marka *</span>
                         {selectedMarkas.length > 1 && (
                           <span className="px-1.5 py-0.2 bg-cyan-500/20 border border-cyan-400/50 text-cyan-300 font-bold rounded text-[10px]">
                             {selectedMarkas.length} Multi-Selected
@@ -4627,7 +4627,7 @@ export default function BillerPortalPage() {
                       disabled={isLoadingCascade}
                       className="w-full px-3 py-2 bg-slate-900 border border-cyan-500/50 rounded-xl text-xs font-bold text-cyan-300 focus:ring-2 focus:ring-cyan-500 outline-none"
                     >
-                      <option value="">-- मार्का चुनें (Choose Marka) --</option>
+                      <option value="">-- Choose Marka --</option>
                       {singleAvailableMarkas.map((m: any, idx: number) => {
                         const mName = typeof m === 'string' ? m : m.marka;
                         const countText = m.count ? ` (${m.count} shipments, ${m.totalCartons || 0} CTN)` : '';
@@ -4644,10 +4644,10 @@ export default function BillerPortalPage() {
                     {singleAvailableMarkas.length > 0 && (
                       <div className="pt-1">
                         <div className="text-[10px] text-slate-400 font-semibold mb-1 flex items-center justify-between">
-                          <span>उपलब्ध मार्का (Quick Select):</span>
+                          <span>Available Marka:</span>
                           {singleSelectedMarka && (
                             <span className="text-[10px] text-cyan-400 font-mono font-bold">
-                              चयनित: {singleSelectedMarka}
+                              Selected: {singleSelectedMarka}
                             </span>
                           )}
                         </div>
@@ -4679,7 +4679,7 @@ export default function BillerPortalPage() {
                   {/* Receipt Selector */}
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
-                      <span>3. Receipt No. (रिसीट नंबर) *</span>
+                      <span>3. Receipt Number *</span>
                       {isLookingUp && (
                         <span className="text-[10px] text-amber-400 animate-pulse">Looking up...</span>
                       )}
@@ -4729,7 +4729,7 @@ export default function BillerPortalPage() {
                     <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
                       <span className="flex items-center space-x-1.5">
                         <FileText className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>4. Invoice No. (इनवॉइस नंबर) *</span>
+                        <span>4. Invoice Number *</span>
                       </span>
                       {receiptNo && (
                         <button
@@ -4757,11 +4757,11 @@ export default function BillerPortalPage() {
                         setManualInvoiceNo(e.target.value);
                         setFormBillNumber(e.target.value);
                       }}
-                      placeholder="Receipt आधार पर इनवॉइस नंबर (अंतिम 2 या 3 अंक रैंडम)"
+                      placeholder="Receipt based invoice number (with random suffix digits)"
                       className="w-full px-3 py-2 bg-slate-900 border border-emerald-600/50 rounded-xl text-xs font-bold text-emerald-300 placeholder-slate-500 focus:ring-2 focus:ring-emerald-500 outline-none font-mono"
                     />
                     <p className="text-[10px] text-slate-500">
-                      Receipt as invoice no. with last 2 or 3 digits random (receipt से इनवॉइस नं., अंतिम 2/3 अंक रैंडम)
+                      Receipt as invoice number with last 2 or 3 digits random
                     </p>
                   </div>
                 </div>
@@ -4784,7 +4784,7 @@ export default function BillerPortalPage() {
                       />
                       <span className="flex items-center space-x-1.5">
                         <FileText className="w-3.5 h-3.5 text-cyan-400" />
-                        <span>ई-वे बिल हेतु अलग इनवॉइस नंबर (Provide Separate Invoice No. for E-Way Bill)</span>
+                        <span>Provide Separate Invoice No. for E-Way Bill</span>
                       </span>
                     </label>
                     {isEWayBillRequired ? (
@@ -4802,7 +4802,7 @@ export default function BillerPortalPage() {
                     <div className="mt-2.5 pt-2 border-t border-slate-800 space-y-1.5">
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] font-bold text-amber-200">
-                          Tax Invoice No. (ई-वे बिल के लिए अलग टैक्स इनवॉइस नंबर):
+                          Tax Invoice No. (Separate invoice number for E-Way Bill):
                         </span>
                         <span className="text-[10px] text-slate-400">e.g. NI/26-27/349 (Max 16 chars)</span>
                       </div>
@@ -4814,7 +4814,7 @@ export default function BillerPortalPage() {
                         className="w-full px-3 py-2 bg-slate-950 border border-amber-400/80 rounded-xl text-xs font-bold text-amber-300 uppercase placeholder-slate-500 focus:ring-2 focus:ring-amber-400 outline-none font-mono tracking-wider"
                       />
                       <p className="text-[10px] text-emerald-400">
-                        ✓ यह अलग इनवॉइस नंबर सीधे E-Way Bill JSON में &apos;docNo&apos; के रूप में जाएगा।
+                        ✓ This separate invoice number will be used directly as &apos;docNo&apos; in E-Way Bill.
                       </p>
                     </div>
                   )}
@@ -4843,7 +4843,7 @@ export default function BillerPortalPage() {
                 )}
               </div>
 
-              {/* STEP 2: BILLING CONFIGURATION & LINE ITEMS (बिलिंग कॉन्फ़िगरेशन व वस्तुएं) */}
+              {/* STEP 2: BILLING CONFIGURATION & LINE ITEMS */}
               <div className="bg-slate-950/80 border border-slate-800 rounded-3xl p-5 space-y-4 shadow-xl">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
                   <div className="flex items-center space-x-2.5">
@@ -4852,10 +4852,10 @@ export default function BillerPortalPage() {
                     </div>
                     <div>
                       <div className="text-xs font-black uppercase tracking-wider text-sky-400">
-                        Step 2: Billing Details & Items (बिलिंग डिटेल्स & वस्तुएं)
+                        Step 2: Billing Details & Items
                       </div>
                       <p className="text-[11px] text-slate-400">
-                        रेफरेंस इनवॉइस फॉर्मेट: सेलर, गाड़ी नंबर, ई-वे बिल और वस्तुएं (Item, HSN, Unit, Quantity, Rate)
+                        Invoice details: Seller, Vehicle No, E-Way Bill, and Line Items (HSN, Unit, Qty, Rate)
                       </p>
                     </div>
                   </div>
@@ -4885,7 +4885,7 @@ export default function BillerPortalPage() {
                   {/* Seller Party */}
                   <div className="space-y-1.5 sm:col-span-1">
                     <label className="text-xs font-bold text-sky-300 flex items-center justify-between">
-                      <span>1. Seller Entity (सेलर पार्टी) *</span>
+                      <span>1. Seller Entity *</span>
                       {currentSeller?.gstin && (
                         <span className="text-[10px] text-slate-400 font-mono">{currentSeller.gstin}</span>
                       )}
@@ -4913,14 +4913,14 @@ export default function BillerPortalPage() {
                     </div>
                   </div>
 
-                  {/* Vehicle Number (गाड़ी नंबर - Biller or Dispatcher) */}
+                  {/* Vehicle Number (Biller or Dispatcher) */}
                   <div className="space-y-1.5 sm:col-span-1">
                     <label className="text-xs font-bold text-emerald-400 flex items-center justify-between">
                       <span className="flex items-center space-x-1">
                         <Truck className="w-3.5 h-3.5" />
-                        <span>2. गाड़ी नंबर (Vehicle No.)</span>
+                        <span>2. Vehicle No.</span>
                       </span>
-                      <span className="text-[10px] text-slate-400">बिलर / डिस्पैचर</span>
+                      <span className="text-[10px] text-slate-400">Biller / Dispatcher</span>
                     </label>
                     <input
                       type="text"
@@ -4934,7 +4934,7 @@ export default function BillerPortalPage() {
                   {/* Destination */}
                   <div className="space-y-1.5 sm:col-span-1">
                     <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
-                      <span>3. Destination (गंतव्य)</span>
+                      <span>3. Destination</span>
                       <span className="text-[10px] text-slate-400">Delivery City</span>
                     </label>
                     <input
@@ -4976,13 +4976,13 @@ export default function BillerPortalPage() {
                     <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0" />
                     <div>
                       <strong className="block text-red-300 font-black">
-                        ⚠️ ई-वे बिल अनिवार्य है (E-Way Bill Number Required)
+                        ⚠️ E-Way Bill Number Required
                       </strong>
                       <span>
                         {isDeliveryInDelhi
-                          ? `दिल्ली के भीतर कुल बिल राशि ₹${calculatedTotalAmt.toLocaleString('en-IN')} (सीमा ₹1,00,000 से अधिक) है।`
-                          : `आउटसाइड दिल्ली (${consigneeState || 'Other State'}) के लिए कुल बिल राशि ₹${calculatedTotalAmt.toLocaleString('en-IN')} (सीमा ₹50,000 से अधिक) है।`
-                        } कृपया ऊपर दिए गए बॉक्स में वैध E-Way Bill No. दर्ज करें, तभी बिल जेनरेट होगा।
+                          ? `Intra-Delhi bill amount is ₹${calculatedTotalAmt.toLocaleString('en-IN')} (exceeds ₹1,00,000 limit).`
+                          : `Inter-State (${consigneeState || 'Other State'}) bill amount is ₹${calculatedTotalAmt.toLocaleString('en-IN')} (exceeds ₹50,000 limit).`
+                        } Please enter a valid E-Way Bill No. above to generate the bill.
                       </span>
                     </div>
                   </div>
@@ -4995,10 +4995,10 @@ export default function BillerPortalPage() {
                       <ListPlus className="w-5 h-5 text-amber-400" />
                       <div>
                         <div className="text-xs font-black text-amber-300 uppercase tracking-wider">
-                          Invoice Items Builder (आइटम चुनें, HSN, PCS/KG क्वांटिटी व दर)
+                          Invoice Items Builder (Item, HSN, Unit, Quantity & Rate)
                         </div>
                         <p className="text-[11px] text-slate-400">
-                          मार्का से ऑटो-लोड हुआ आइटम चुनें या बदलें, HSN ऑल्टर करें, PCS/KG क्वांटिटी चुनें व दर भरें
+                          Select auto-loaded item from Marka, alter HSN, choose PCS/KG unit, and enter rate
                         </p>
                       </div>
                     </div>
@@ -5014,9 +5014,9 @@ export default function BillerPortalPage() {
                   <div className="space-y-1.5 bg-slate-950/60 p-3 rounded-xl border border-slate-800">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
                       <label className="text-[11px] font-bold text-slate-300 flex items-center space-x-1.5">
-                        <span className="text-amber-400">आइटम नेम चूज़ करें (Choose Item Name) *</span>
+                        <span className="text-amber-400">Choose Item Name *</span>
                         <span className="text-[10px] text-slate-500 font-normal">
-                          (चूज़ करने के बाद नीचे टेक्स्ट बॉक्स में बदल भी सकते हैं)
+                          (Can also edit directly in the text box below)
                         </span>
                       </label>
                       {markaCargoItems.length > 0 && (
@@ -5033,16 +5033,16 @@ export default function BillerPortalPage() {
                         onChange={(e) => handleChooseCargoItem(e.target.value)}
                         className="w-full px-3 py-2 bg-slate-900 border border-cyan-500/50 rounded-xl text-xs font-bold text-cyan-300 focus:ring-2 focus:ring-cyan-500 outline-none"
                       >
-                        <option value="">-- चूज़ करें आइटम (Choose Item from List) --</option>
+                        <option value="">-- Choose Item from List --</option>
                         {selectedCargoDropdown &&
                           !markaCargoItems.some((it) => it.description.toLowerCase() === selectedCargoDropdown.toLowerCase()) &&
                           !COMMON_COMMODITIES.some((c) => c.name.toLowerCase() === selectedCargoDropdown.toLowerCase()) && (
                             <option value={selectedCargoDropdown}>
-                              ★ {selectedCargoDropdown} (डिस्पैच अनुरोध से चयनित / Active Item)
+                              ★ {selectedCargoDropdown} (From Dispatch Request / Active Item)
                             </option>
                           )}
                         {markaCargoItems.length > 0 && (
-                          <optgroup label="इस मार्का के तहत उपलब्ध आइटम्स (From Current Marka)">
+                          <optgroup label="Items from Current Marka">
                             {markaCargoItems.map((it, idx) => (
                               <option key={idx} value={it.description}>
                                 {it.description} ({it.pcs} PCS / {it.weightKg} KG / {it.cartons} CTN)
@@ -5050,7 +5050,7 @@ export default function BillerPortalPage() {
                             ))}
                           </optgroup>
                         )}
-                        <optgroup label="स्टैंडर्ड कैटलॉग आइटम्स (Standard Invoice Items)">
+                        <optgroup label="Standard Catalog Items">
                           {COMMON_COMMODITIES.map((c, idx) => (
                             <option key={`comm-${idx}`} value={c.name}>
                               {c.name} (HSN: {c.hsn})
@@ -5070,7 +5070,7 @@ export default function BillerPortalPage() {
                             setCommodity(e.target.value);
                             setSelectedCargoDropdown(e.target.value);
                           }}
-                          placeholder="वस्तु का नाम बदलें / टाइप करें (Item Name - Type or Edit)"
+                          placeholder="Item Name (Type or Edit)"
                           className="w-full px-3 py-2 bg-slate-900 border border-amber-500/60 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 font-bold"
                         />
                         <span className="absolute right-2.5 top-2 text-[9px] text-amber-400 font-bold bg-amber-500/10 px-1 py-0.5 rounded pointer-events-none">
@@ -5118,10 +5118,10 @@ export default function BillerPortalPage() {
                             })
                           }
                           className="px-1.5 py-0.5 bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 rounded text-[9px] font-black transition flex items-center space-x-1"
-                          title="आइटम के अनुसार HSN सर्च करें या सुझाव देखें"
+                          title="Search HSN suggestions for item"
                         >
                           <Search className="w-2.5 h-2.5" />
-                          <span>सुझाव</span>
+                          <span>Suggestions</span>
                         </button>
                       </div>
                       <input
@@ -5136,11 +5136,11 @@ export default function BillerPortalPage() {
                       />
                     </div>
 
-                    {/* Cartons (कुल कार्टून) */}
+                    {/* Cartons */}
                     <div className="sm:col-span-2">
                       <label className="text-[11px] font-bold text-violet-300 flex items-center justify-between mb-1">
-                        <span>कुल कार्टन (CTN) *</span>
-                        <span className="text-[10px] text-violet-400 font-normal">डिस्पैच संख्या</span>
+                        <span>Total Cartons (CTN) *</span>
+                        <span className="text-[10px] text-violet-400 font-normal">Dispatch Count</span>
                       </label>
                       <input
                         type="number"
@@ -5161,8 +5161,8 @@ export default function BillerPortalPage() {
                     {/* Unit Selector Pills (PCS / KG / CTN) */}
                     <div className="sm:col-span-2">
                       <label className="text-[11px] font-bold text-slate-300 flex items-center justify-between mb-1">
-                        <span>यूनिट (Unit) *</span>
-                        <span className="text-[10px] text-cyan-400">मात्रा प्रकार</span>
+                        <span>Unit *</span>
+                        <span className="text-[10px] text-cyan-400">Unit Type</span>
                       </label>
                       <div className="grid grid-cols-3 gap-1">
                         {(['PCS', 'KGS', 'CTN'] as const).map((u) => (
@@ -5185,8 +5185,8 @@ export default function BillerPortalPage() {
                     {/* Quantity (Auto-filled on unit select, completely alterable) */}
                     <div className="sm:col-span-2">
                       <label className="text-[11px] font-bold text-purple-300 flex items-center justify-between mb-1">
-                        <span>क्वांटिटी ({lineUnit}) *</span>
-                        <span className="text-[10px] text-purple-400 font-normal">मात्रा</span>
+                        <span>Quantity ({lineUnit}) *</span>
+                        <span className="text-[10px] text-purple-400 font-normal">Count</span>
                       </label>
                       <input
                         type="number"
@@ -5201,7 +5201,7 @@ export default function BillerPortalPage() {
                     {/* Rate (₹ / Unit) - Two-Way Auto-Calculated */}
                     <div className="sm:col-span-2">
                       <label className="text-[11px] font-bold text-sky-400 flex items-center justify-between mb-1">
-                        <span>दर (Rate ₹ / {lineUnit}) *</span>
+                        <span>Rate (₹ / {lineUnit}) *</span>
                         <span className="text-[10px] text-sky-400 font-semibold">Value ÷ Qty</span>
                       </label>
                       <input
@@ -5214,10 +5214,10 @@ export default function BillerPortalPage() {
                       />
                     </div>
 
-                    {/* Total Value / Amount (कुल राशि ₹) - Two-Way Auto-Calculated */}
+                    {/* Total Value / Amount - Two-Way Auto-Calculated */}
                     <div className="sm:col-span-2">
                       <label className="text-[11px] font-bold text-emerald-400 flex items-center justify-between mb-1">
-                        <span>कुल मूल्य (Total ₹)</span>
+                        <span>Total Value (₹)</span>
                         <span className="text-[10px] text-emerald-400 font-semibold">Qty × Rate</span>
                       </label>
                       <input
@@ -5236,31 +5236,31 @@ export default function BillerPortalPage() {
                         <div className="flex items-center space-x-2 text-indigo-200">
                           <Box className="w-4 h-4 text-indigo-400 shrink-0" />
                           <div>
-                            <span className="font-bold text-indigo-300">📦 शिपमेंट CBM संदर्भ (Shipment CBM Reference):</span>
+                            <span className="font-bold text-indigo-300">📦 Shipment CBM Reference:</span>
                             {calculatedProportionalCbm !== null ? (
                               <>
                                 <span className="ml-2 font-mono font-black text-white bg-indigo-900/80 px-2 py-0.5 rounded border border-indigo-600/60 shadow-sm">
                                   {calculatedProportionalCbm} CBM
                                 </span>
                                 <span className="ml-2 text-[11px] text-slate-400">
-                                  (कुल शिपमेंट: {shipmentTotalCbm} CBM | {shipmentTotalCartons || totalCartons || '—'} कार्टून में से अनुपातिक)
+                                  (Total Shipment: {shipmentTotalCbm} CBM | Proportional from {shipmentTotalCartons || totalCartons || '—'} cartons)
                                 </span>
                               </>
                             ) : (
                               <span className="ml-2 text-[11px] text-slate-300">
-                                कुल शिपमेंट: <strong className="text-white font-mono">{shipmentTotalCbm} CBM</strong> (क्वांटिटी डालने पर अनुपातिक CBM स्वतः दिखेगा)
+                                Total Shipment: <strong className="text-white font-mono">{shipmentTotalCbm} CBM</strong> (Proportional CBM calculates automatically)
                               </span>
                             )}
                           </div>
                         </div>
                         <span className="text-[10px] text-amber-300/90 bg-amber-950/60 px-2.5 py-0.5 rounded-full border border-amber-700/50 font-medium">
-                          ℹ️ केवल बिलर संदर्भ हेतु — अंतिम बिल/चालान में प्रिंट नहीं होगा
+                          ℹ️ For biller reference only — will not print on final invoice
                         </span>
                       </div>
                     )}
                   </div>
 
-                  {/* ITEM PROPORTIONATE (आइटम प्रोपोर्शनेट - ऑप्शनल मोड) */}
+                  {/* ITEM PROPORTIONATE (Optional Mode) */}
                   <div className="pt-1">
                     <div className="flex items-center justify-between">
                       <button
@@ -5281,15 +5281,15 @@ export default function BillerPortalPage() {
                         }`}
                       >
                         <Scale className="w-3.5 h-3.5" />
-                        <span>⚖️ {isProportionateEnabled ? 'आइटम प्रोपोर्शनेट सक्रिय (ON)' : 'आइटम प्रोपोर्शनेट करें (Item Proportionate)'}</span>
+                        <span>⚖️ {isProportionateEnabled ? 'Item Proportionate (Active)' : 'Item Proportionate'}</span>
                         <span className="text-[10px] px-1.5 py-0.2 rounded font-mono bg-black/30">
-                          {isProportionateEnabled ? 'क्लिक करके बंद करें' : 'वैकल्पिक / Optional'}
+                          {isProportionateEnabled ? 'Click to Disable' : 'Optional'}
                         </span>
                       </button>
 
                       {isProportionateEnabled && (
                         <span className="text-[11px] text-amber-300 font-bold hidden sm:inline-block">
-                          कार्टन, वजन या पीसेस के आधार पर स्वचालित अनुपात गणना
+                          Automatic ratio calculation based on cartons, weight or pieces
                         </span>
                       )}
                     </div>
@@ -5301,22 +5301,22 @@ export default function BillerPortalPage() {
                           <div className="flex items-center space-x-2">
                             <Calculator className="w-4 h-4 text-amber-400" />
                             <span className="text-xs font-black text-amber-300">
-                              आइटम प्रोपोर्शनेट कैलकुलेटर (Item Proportionate Calculator)
+                              Item Proportionate Calculator
                             </span>
                           </div>
                           <span className="text-[10px] text-slate-400">
-                            प्राइमरी यूनिट: <strong className="text-cyan-300 font-bold font-mono">{lineUnit}</strong>
+                            Primary Unit: <strong className="text-cyan-300 font-bold font-mono">{lineUnit}</strong>
                           </span>
                         </div>
 
                         {/* Base Totals of the Cargo / Marka */}
                         <div>
                           <span className="text-[10px] font-bold text-slate-400 block mb-1">
-                            1. माल का कुल बेस स्टॉक (Base Cargo Quantities):
+                            1. Base Cargo Quantities:
                           </span>
                           <div className="grid grid-cols-3 gap-2">
                             <div className="bg-slate-950 p-2 rounded-xl border border-slate-800">
-                              <label className="text-[10px] text-slate-400 block">कुल कार्टन (Total CTN)</label>
+                              <label className="text-[10px] text-slate-400 block">Total Cartons (CTN)</label>
                               <input
                                 type="number"
                                 step="any"
@@ -5327,7 +5327,7 @@ export default function BillerPortalPage() {
                               />
                             </div>
                             <div className="bg-slate-950 p-2 rounded-xl border border-slate-800">
-                              <label className="text-[10px] text-slate-400 block">कुल वजन (Total KG)</label>
+                              <label className="text-[10px] text-slate-400 block">Total Weight (KG)</label>
                               <input
                                 type="number"
                                 step="any"
@@ -5338,7 +5338,7 @@ export default function BillerPortalPage() {
                               />
                             </div>
                             <div className="bg-slate-950 p-2 rounded-xl border border-slate-800">
-                              <label className="text-[10px] text-slate-400 block">कुल पीसेस (Total PCS)</label>
+                              <label className="text-[10px] text-slate-400 block">Total Pieces (PCS)</label>
                               <input
                                 type="number"
                                 step="any"
@@ -5354,7 +5354,7 @@ export default function BillerPortalPage() {
                         {/* Selection of Basis: By Cartons, By Pieces, By Weight */}
                         <div>
                           <span className="text-[10px] font-bold text-slate-400 block mb-1">
-                            2. किस आधार पर डिस्पैच कर रहे हैं? (Select Dispatch Basis):
+                            2. Select Dispatch Basis:
                           </span>
                           <div className="grid grid-cols-3 gap-2">
                             <button
@@ -5366,7 +5366,7 @@ export default function BillerPortalPage() {
                                   : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
                               }`}
                             >
-                              <span>📦 कार्टन अनुसार</span>
+                              <span>📦 By Cartons</span>
                             </button>
                             <button
                               type="button"
@@ -5377,7 +5377,7 @@ export default function BillerPortalPage() {
                                   : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
                               }`}
                             >
-                              <span>⚖️ वजन (KG) अनुसार</span>
+                              <span>⚖️ By Weight (KG)</span>
                             </button>
                             <button
                               type="button"
@@ -5388,7 +5388,7 @@ export default function BillerPortalPage() {
                                   : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
                               }`}
                             >
-                              <span>🔢 पीसेस (PCS) अनुसार</span>
+                              <span>🔢 By Pieces (PCS)</span>
                             </button>
                           </div>
                         </div>
@@ -5398,10 +5398,10 @@ export default function BillerPortalPage() {
                           <div className="sm:col-span-5">
                             <label className="text-[10px] font-bold text-amber-300 block mb-1">
                               {propBasis === 'cartons'
-                                ? '👉 भेजे जाने वाले कार्टन (Enter Cartons sending):'
+                                ? '👉 Cartons sending:'
                                 : propBasis === 'weight'
-                                ? '👉 भेजा जाने वाला वजन KG (Enter Weight KG sending):'
-                                : '👉 भेजे जाने वाले पीसेस (Enter Pieces sending):'}
+                                ? '👉 Weight KG sending:'
+                                : '👉 Pieces sending:'}
                             </label>
                             <input
                               type="number"
@@ -5420,26 +5420,26 @@ export default function BillerPortalPage() {
                             return (
                               <div className="sm:col-span-7 bg-slate-950/90 border border-emerald-500/40 p-2.5 rounded-xl text-xs space-y-1">
                                 <div className="flex items-center justify-between text-[11px]">
-                                  <span className="text-slate-400">प्रोपोर्शनेट अनुपात:</span>
+                                  <span className="text-slate-400">Proportionate Ratio:</span>
                                   <strong className="text-emerald-400 font-mono">{pctStr}% of Total Cargo</strong>
                                 </div>
                                 <div className="grid grid-cols-3 gap-1 text-[11px] pt-0.5 border-t border-slate-800 font-mono">
                                   <div>
-                                    <span className="text-slate-500 block text-[9px]">कार्टन:</span>
+                                    <span className="text-slate-500 block text-[9px]">Cartons:</span>
                                     <strong className="text-cyan-300">{calc.ctn} CTN</strong>
                                   </div>
                                   <div>
-                                    <span className="text-slate-500 block text-[9px]">वजन:</span>
+                                    <span className="text-slate-500 block text-[9px]">Weight:</span>
                                     <strong className="text-cyan-300">{calc.kg} KG</strong>
                                   </div>
                                   <div>
-                                    <span className="text-slate-500 block text-[9px]">पीसेस:</span>
+                                    <span className="text-slate-500 block text-[9px]">Pieces:</span>
                                     <strong className="text-cyan-300">{calc.pcs} PCS</strong>
                                   </div>
                                 </div>
                                 <div className="flex items-center justify-between pt-1 border-t border-slate-800/80">
                                   <span className="text-amber-300 font-bold text-[11px]">
-                                    इनवॉइस मात्रा ({lineUnit}): <strong className="text-white font-mono text-sm">{calc.targetQty} {lineUnit}</strong>
+                                    Invoice Quantity ({lineUnit}): <strong className="text-white font-mono text-sm">{calc.targetQty} {lineUnit}</strong>
                                   </span>
                                   <button
                                     type="button"
@@ -5447,7 +5447,7 @@ export default function BillerPortalPage() {
                                     disabled={calc.targetQty <= 0}
                                     className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-black rounded-lg text-xs transition shadow flex items-center space-x-1"
                                   >
-                                    <span>✓ लागू करें (Apply)</span>
+                                    <span>✓ Apply</span>
                                   </button>
                                 </div>
                               </div>
@@ -5477,7 +5477,7 @@ export default function BillerPortalPage() {
                       className="px-5 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 font-black rounded-xl text-xs transition flex items-center justify-center space-x-1.5 shadow"
                     >
                       <Plus className="w-4 h-4" />
-                      <span>+ Add Item to Invoice (आइटम जोड़ें)</span>
+                      <span>+ Add Item to Invoice</span>
                     </button>
                   </div>
 
@@ -5529,7 +5529,7 @@ export default function BillerPortalPage() {
                         <tfoot className="bg-slate-950 text-slate-200 border-t border-slate-800">
                           <tr>
                             <td colSpan={6} className="p-2.5 text-right font-black text-slate-400">
-                              Total Taxable Subtotal (कुल योग):
+                              Total Taxable Subtotal:
                             </td>
                             <td className="p-2.5 text-right font-black text-emerald-400 text-sm font-mono">
                               ₹
@@ -5556,10 +5556,10 @@ export default function BillerPortalPage() {
                     </div>
                     <div>
                       <div className="text-xs font-black text-violet-300 uppercase tracking-wider">
-                        Step 3: Consignee & Buyer Details (कंसाइनी व बायर पार्टी विवरण)
+                        Step 3: Consignee & Buyer Details
                       </div>
                       <p className="text-[11px] text-slate-400">
-                        डिलीवरी (Ship to) और बिलिंग (Bill to) पार्टी नाम व पते का चयन करें या नया जोड़ें
+                        Select or add Delivery (Ship to) and Billing (Bill to) party names and addresses
                       </p>
                     </div>
                   </div>
@@ -5577,7 +5577,7 @@ export default function BillerPortalPage() {
                         }`}
                       >
                         <MapPin className="w-3.5 h-3.5" />
-                        <span>📍 सहेजा पता चुनें (Select Address)</span>
+                        <span>📍 Select Saved Address</span>
                         {currentMarkaAddresses.length > 0 && (
                           <span className="ml-1 px-1.5 py-0.2 bg-white/20 text-white rounded-full text-[10px]">
                             {currentMarkaAddresses.length}
@@ -5594,7 +5594,7 @@ export default function BillerPortalPage() {
                         }`}
                       >
                         <Plus className="w-3.5 h-3.5" />
-                        <span>➕ नया पता व पार्टी जोड़ें (Add Address)</span>
+                        <span>➕ Add New Address & Party</span>
                       </button>
                     </div>
 
@@ -5603,10 +5603,10 @@ export default function BillerPortalPage() {
                       type="button"
                       onClick={handlePrefillRandomData}
                       className="px-3.5 py-2 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white rounded-xl text-xs font-black transition flex items-center space-x-1.5 shadow-lg shadow-amber-950/40 border border-amber-500/50 animate-pulse hover:animate-none"
-                      title="ऑटो-फ़िल: रैंडम कंपनी का नाम और पता भरें (Prefill random company name & address)"
+                      title="Prefill random company name & address"
                     >
                       <RefreshCw className="w-3.5 h-3.5" />
-                      <span>⚡ Prefill (ऑटो-फ़िल)</span>
+                      <span>⚡ Prefill</span>
                     </button>
                   </div>
                 </div>
@@ -5617,7 +5617,7 @@ export default function BillerPortalPage() {
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                       <div className="text-xs font-black text-sky-400 flex items-center space-x-1.5 uppercase tracking-wide">
                         <Truck className="w-3.5 h-3.5" />
-                        <span>सहेजे गए पते (Saved Sending Locations) — मार्का: [{mainMarka || subMarka || singleSelectedMarka || 'Marka'}]</span>
+                        <span>Saved Sending Locations — Marka: [{mainMarka || subMarka || singleSelectedMarka || 'Marka'}]</span>
                       </div>
                       <button
                         type="button"
@@ -5625,7 +5625,7 @@ export default function BillerPortalPage() {
                         className="px-3 py-1 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white rounded-xl text-xs font-bold transition flex items-center space-x-1 border border-emerald-500/30 self-start sm:self-auto"
                       >
                         <Plus className="w-3.5 h-3.5" />
-                        <span>+ नया पता व पार्टी जोड़ें (Add New)</span>
+                        <span>+ Add New Address & Party</span>
                       </button>
                     </div>
 
@@ -5651,7 +5651,7 @@ export default function BillerPortalPage() {
                                   <div className="flex items-center space-x-1 shrink-0">
                                     {isSelected && (
                                       <span className="px-2 py-0.5 bg-cyan-400 text-slate-950 font-black rounded text-[10px] uppercase">
-                                        ✓ चयनित
+                                        ✓ Selected
                                       </span>
                                     )}
                                     <button
@@ -5661,10 +5661,10 @@ export default function BillerPortalPage() {
                                         handleOpenEditLocation(mainMarka || subMarka || singleSelectedMarka, addr);
                                       }}
                                       className="px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 font-bold rounded text-[10px] transition flex items-center space-x-1 border border-amber-500/30"
-                                      title="एड्रेस एडिट करें"
+                                      title="Edit Address"
                                     >
                                       <Edit3 className="w-2.5 h-2.5" />
-                                      <span>एडिट</span>
+                                      <span>Edit</span>
                                     </button>
                                     <button
                                       type="button"
@@ -5674,10 +5674,10 @@ export default function BillerPortalPage() {
                                         handleDeleteLocation(mainMarka || subMarka || singleSelectedMarka, addr._id);
                                       }}
                                       className="px-2 py-0.5 bg-red-500/20 hover:bg-red-500 text-red-300 hover:text-white font-bold rounded text-[10px] transition flex items-center space-x-1 border border-red-500/30"
-                                      title="एड्रेस डिलीट करें"
+                                      title="Delete Address"
                                     >
                                       <Trash2 className="w-2.5 h-2.5" />
-                                      <span>हटाएं</span>
+                                      <span>Delete</span>
                                     </button>
                                   </div>
                                 </div>
@@ -5701,7 +5701,7 @@ export default function BillerPortalPage() {
                                   }`}
                                 >
                                   <Check className="w-3.5 h-3.5" />
-                                  <span>{isSelected ? '✓ यह पता चुना हुआ है (Selected)' : 'इस पते पर भेजें (Select)'}</span>
+                                  <span>{isSelected ? '✓ Selected Address' : 'Select This Address'}</span>
                                 </button>
                               </div>
                             </div>
@@ -5713,10 +5713,10 @@ export default function BillerPortalPage() {
                         <MapPin className="w-8 h-8 text-slate-500 mx-auto" />
                         <div>
                           <p className="text-xs font-bold text-slate-300">
-                            इस मार्का [{mainMarka || subMarka || singleSelectedMarka || 'Marka'}] के लिए कोई सहेजा हुआ पता नहीं मिला।
+                            No saved address found for Marka [{mainMarka || subMarka || singleSelectedMarka || 'Marka'}].
                           </p>
                           <p className="text-[11px] text-slate-400 mt-0.5">
-                            कृपया नया पता और पार्टी नाम जोड़ने के लिए नीचे दिए गए बटन पर क्लिक करें।
+                            Click the button below to add a new address and party name.
                           </p>
                         </div>
                         <button
@@ -5725,7 +5725,7 @@ export default function BillerPortalPage() {
                           className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition inline-flex items-center space-x-1.5 shadow"
                         >
                           <Plus className="w-4 h-4" />
-                          <span>➕ नया पता व पार्टी जोड़ें (Add Address & Party Now)</span>
+                          <span>➕ Add Address & Party Now</span>
                         </button>
                       </div>
                     )}
@@ -5740,10 +5740,10 @@ export default function BillerPortalPage() {
                       <div>
                         <div className="text-xs font-black text-emerald-400 flex items-center space-x-1.5 uppercase tracking-wide">
                           <Plus className="w-4 h-4" />
-                          <span>नया पता व पार्टी जोड़ें (Add New Address & Party) — [{mainMarka || subMarka || singleSelectedMarka || 'Marka'}]</span>
+                          <span>Add New Address & Party — [{mainMarka || subMarka || singleSelectedMarka || 'Marka'}]</span>
                         </div>
                         <p className="text-[11px] text-slate-400 mt-0.5">
-                          पंजीकरण प्रकार (Registered या Unregistered) चुनें और पार्टी व पता दर्ज करें
+                          Select registration type (Registered or Unregistered) and enter party details
                         </p>
                       </div>
 
@@ -5781,7 +5781,7 @@ export default function BillerPortalPage() {
                       {registrationType === 'Registered' && (
                         <div>
                           <label className="text-xs text-emerald-400 font-bold block mb-1">
-                            Consignee GSTIN (15-digit GST) * (राज्य स्वतः सेट होगा)
+                            Consignee GSTIN (15-digit GST) * (State auto-detects)
                           </label>
                           <input
                             type="text"
@@ -5796,7 +5796,7 @@ export default function BillerPortalPage() {
 
                       <div className={registrationType === 'Registered' ? 'sm:col-span-1' : 'sm:col-span-2'}>
                         <label className="text-xs text-slate-300 font-bold block mb-1">
-                          Consignee / Party Legal Name (पार्टी का नाम) *
+                          Consignee / Party Legal Name *
                         </label>
                         <input
                           type="text"
@@ -5810,7 +5810,7 @@ export default function BillerPortalPage() {
 
                       <div>
                         <label className="text-xs text-slate-300 font-bold block mb-1">
-                          Phone / Mobile (फ़ोन नंबर)
+                          Phone / Mobile Number
                         </label>
                         <input
                           type="text"
@@ -5825,7 +5825,7 @@ export default function BillerPortalPage() {
                     {registrationType === 'Unregistered' && (
                       <div className="p-2.5 bg-amber-950/30 border border-amber-500/30 rounded-xl text-[11px] text-amber-300 flex items-center space-x-2">
                         <UserCheck className="w-4 h-4 text-amber-400 shrink-0" />
-                        <span>यह पार्टी गैर-पंजीकृत (URP) के रूप में चुनी गई है। इसके लिए GSTIN अनिवार्य नहीं है।</span>
+                        <span>This party is selected as Unregistered (URP). GSTIN is not required.</span>
                       </div>
                     )}
 
@@ -5833,7 +5833,7 @@ export default function BillerPortalPage() {
                       <div className="sm:col-span-2">
                         <div className="flex items-center justify-between mb-1">
                           <label className="text-xs text-slate-300 font-bold">
-                            Delivery / Shipping Address (पूरा पता) *
+                            Delivery / Shipping Address *
                           </label>
                           <button
                             type="button"
@@ -5844,10 +5844,10 @@ export default function BillerPortalPage() {
                               setShowPinSearchModal(true);
                             }}
                             className="text-[11px] text-sky-400 hover:text-sky-300 font-bold flex items-center space-x-1 transition"
-                            title="पते से पिन कोड खोजें (Search PIN Code by locality / city)"
+                            title="Search PIN Code by locality / city"
                           >
                             <Search className="w-3 h-3" />
-                            <span>पिन कोड खोजें (Search PIN)</span>
+                            <span>Search PIN</span>
                           </button>
                         </div>
                         <input
@@ -5888,7 +5888,7 @@ export default function BillerPortalPage() {
 
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <label className="text-xs text-slate-300 font-bold block mb-1">State (राज्य)</label>
+                          <label className="text-xs text-slate-300 font-bold block mb-1">State</label>
                           <select
                             value={consigneeState}
                             onChange={(e) => handleConsigneeStateChange(e.target.value)}
@@ -5902,7 +5902,7 @@ export default function BillerPortalPage() {
                           </select>
                         </div>
                         <div>
-                          <label className="text-xs text-slate-300 font-bold block mb-1">State Code (ऑटो)</label>
+                          <label className="text-xs text-slate-300 font-bold block mb-1">State Code (Auto)</label>
                           <input
                             type="text"
                             value={consigneeStateCode}
@@ -5919,10 +5919,10 @@ export default function BillerPortalPage() {
                       <div className="text-xs text-emerald-300">
                         <span className="font-bold flex items-center space-x-1.5">
                           <Save className="w-4 h-4 text-emerald-400" />
-                          <span>पार्टी नाम और पता दोनों इस मार्का में एक साथ सेव होंगे:</span>
+                          <span>Party name and address will save together to this Marka:</span>
                         </span>
                         <p className="text-[11px] text-slate-300 mt-0.5">
-                          मार्का: <strong className="text-white font-mono">{mainMarka || subMarka || singleSelectedMarka || 'Marka'}</strong> | पार्टी: <strong className="text-white">{purchaserName || '—'}</strong>
+                          Marka: <strong className="text-white font-mono">{mainMarka || subMarka || singleSelectedMarka || 'Marka'}</strong> | Party: <strong className="text-white">{purchaserName || '—'}</strong>
                         </p>
                       </div>
 
@@ -5932,7 +5932,7 @@ export default function BillerPortalPage() {
                           onClick={() => setAddressMode('select')}
                           className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold transition"
                         >
-                          रद्द करें (Cancel)
+                          Cancel
                         </button>
 
                         <button
@@ -5942,7 +5942,7 @@ export default function BillerPortalPage() {
                           className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-xl text-xs font-black transition flex items-center space-x-1.5 shadow-lg shadow-emerald-950/60"
                         >
                           <Save className="w-3.5 h-3.5" />
-                          <span>{isSavingMarkaDirect ? 'सेव हो रहा है...' : '💾 Save Party & Address to Marka'}</span>
+                          <span>{isSavingMarkaDirect ? 'Saving...' : '💾 Save Party & Address to Marka'}</span>
                         </button>
                       </div>
                     </div>
@@ -5956,7 +5956,7 @@ export default function BillerPortalPage() {
                   <div className="flex items-center space-x-2 text-xs text-slate-400">
                     <MapPin className="w-4 h-4 text-amber-400 shrink-0" />
                     <span>
-                      मार्का: <strong className="text-white font-mono">{mainMarka || subMarka || singleSelectedMarka || 'कोई मार्का नहीं चुना'}</strong> | पार्टी: <strong className="text-white">{purchaserName || '—'}</strong>
+                      Marka: <strong className="text-white font-mono">{mainMarka || subMarka || singleSelectedMarka || 'No Marka Selected'}</strong> | Party: <strong className="text-white">{purchaserName || '—'}</strong>
                     </span>
                   </div>
 
@@ -5968,7 +5968,7 @@ export default function BillerPortalPage() {
                       className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow"
                     >
                       {isSavingMarkaDirect ? (
-                        <span>सेव हो रहा है...</span>
+                        <span>Saving...</span>
                       ) : (
                         <>
                           <Save className="w-3.5 h-3.5" />
@@ -6003,11 +6003,11 @@ export default function BillerPortalPage() {
                     <div>
                       <span>
                         {isDeliveryInDelhi
-                          ? `⚠️ ई-वे बिल आवश्यक: दिल्ली के अंदर कुल बिल राशि ₹1,00,000 से अधिक (वर्तमान: ₹${calculatedTotalAmt.toLocaleString('en-IN')}) होने पर E-Way Bill Number दर्ज करना अनिवार्य है!`
-                          : `⚠️ ई-वे बिल आवश्यक: दिल्ली से बाहर (Inter-State) कुल बिल राशि ₹50,000 से अधिक (वर्तमान: ₹${calculatedTotalAmt.toLocaleString('en-IN')}) होने पर E-Way Bill Number दर्ज करना अनिवार्य है!`}
+                          ? `⚠️ E-Way Bill Required: Intra-Delhi bills exceeding ₹1,00,000 (Current: ₹${calculatedTotalAmt.toLocaleString('en-IN')}) require an E-Way Bill Number!`
+                          : `⚠️ E-Way Bill Required: Inter-State bills exceeding ₹50,000 (Current: ₹${calculatedTotalAmt.toLocaleString('en-IN')}) require an E-Way Bill Number!`}
                       </span>
                       <p className="text-[11px] text-rose-400/90 font-normal mt-0.5">
-                        कृपया Step 2 में E-Way Bill No. भरें ताकि बिल जनरेट हो सके।
+                        Please enter E-Way Bill No. in Step 2 to generate the bill.
                       </p>
                     </div>
                   </div>
@@ -6118,7 +6118,7 @@ export default function BillerPortalPage() {
                           ? 'bg-emerald-950/70 border-emerald-500/80 text-emerald-300 shadow-sm'
                           : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200'
                       }`}
-                      title="चेक रहने पर बिल जनरेट होते ही तुरंत PDF डाउनलोड हो जाएगा"
+                      title="When checked, PDF downloads immediately after bill generation"
                     >
                       <input
                         type="checkbox"
@@ -6134,7 +6134,7 @@ export default function BillerPortalPage() {
                       />
                       <span className="flex items-center space-x-1.5 text-xs font-bold select-none">
                         <Download className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>बिल के साथ स्वतः डाउनलोड (Auto-Download)</span>
+                        <span>Auto-Download PDF</span>
                       </span>
                     </label>
 
@@ -6151,12 +6151,12 @@ export default function BillerPortalPage() {
                       ) : formVehicleNumber.trim() ? (
                         <>
                           <Truck className="w-4 h-4" />
-                          <span>Generate Tax Invoice (गाड़ी नं: {formVehicleNumber.trim()})</span>
+                          <span>Generate Tax Invoice (Vehicle: {formVehicleNumber.trim()})</span>
                         </>
                       ) : (
                         <>
                           <Check className="w-4 h-4" />
-                          <span>Generate Tax Invoice (गाड़ी नं. बाद में डिस्पैचर द्वारा डाला जाएगा)</span>
+                          <span>Generate Tax Invoice (Vehicle to be added by Dispatcher)</span>
                         </>
                       )}
                     </button>
@@ -6172,7 +6172,7 @@ export default function BillerPortalPage() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h2 className="text-base font-black text-white">
-                Generated Bills List (सारे जनरेटेड बिल्स)
+                Generated Bills List
               </h2>
               <p className="text-xs text-slate-400">
                 All bills generated with Seller and Purchaser details. Download PDF anytime to verify.
@@ -6196,7 +6196,7 @@ export default function BillerPortalPage() {
                   value={pdfTheme}
                   onChange={(e) => handlePdfThemeChange(e.target.value as any)}
                   className="bg-transparent text-xs font-bold text-slate-200 outline-none cursor-pointer"
-                  title="Select Tax Invoice PDF Theme (क्लासिक, नेवी, एमराल्ड, क्रिमसन)"
+                  title="Select Tax Invoice PDF Theme"
                 >
                   <option value="classic" className="bg-slate-900 text-white">Classic B&W</option>
                   <option value="navy" className="bg-slate-900 text-cyan-300">Corporate Navy</option>
@@ -6216,10 +6216,10 @@ export default function BillerPortalPage() {
                       ? 'bg-amber-500 text-slate-950 font-black shadow'
                       : 'text-slate-400 hover:text-white'
                   }`}
-                  title="अनडाउनलोड बिल (Not downloaded yet)"
+                  title="Bills not downloaded yet"
                 >
                   <Clock className="w-3.5 h-3.5" />
-                  <span>📥 अनडाउनलोड बिल ({undownloadedCount})</span>
+                  <span>📥 Undownloaded Bills ({undownloadedCount})</span>
                 </button>
                 <button
                   type="button"
@@ -6229,10 +6229,10 @@ export default function BillerPortalPage() {
                       ? 'bg-emerald-500 text-slate-950 font-black shadow'
                       : 'text-slate-400 hover:text-white'
                   }`}
-                  title="डाउनलोड किए गए बिल (1 घंटे के अंदर स्वतः डिलीट हो जाएँगे)"
+                  title="Downloaded bills (Auto-delete within 1 hour)"
                 >
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>✅ डाउनलोड किए गए ({downloadedCount})</span>
+                  <span>✅ Downloaded ({downloadedCount})</span>
                 </button>
                 <button
                   type="button"
@@ -6243,7 +6243,7 @@ export default function BillerPortalPage() {
                       : 'text-slate-400 hover:text-white'
                   }`}
                 >
-                  <span>सभी ({bills.length})</span>
+                  <span>All ({bills.length})</span>
                 </button>
               </div>
 
@@ -6294,7 +6294,7 @@ export default function BillerPortalPage() {
               <div className="flex items-center space-x-2 text-xs font-bold text-amber-300">
                 <CheckSquare className="w-4 h-4 text-amber-400 shrink-0" />
                 <span>
-                  {selectedBillIds.size} {selectedBillIds.size === 1 ? 'Bill' : 'Bills'} Selected for Batch Vehicle Update (गाड़ी नंबर अपडेट)
+                  {selectedBillIds.size} {selectedBillIds.size === 1 ? 'Bill' : 'Bills'} Selected for Batch Vehicle Update
                 </span>
               </div>
               <div className="flex items-center space-x-2">
@@ -6302,7 +6302,7 @@ export default function BillerPortalPage() {
                   type="text"
                   value={bulkVehicleInput}
                   onChange={(e) => setBulkVehicleInput(e.target.value.toUpperCase())}
-                  placeholder="गाड़ी नंबर (e.g. HR 55 AU 1234)"
+                  placeholder="Vehicle No (e.g. HR 55 AU 1234)"
                   className="px-3.5 py-1.5 bg-slate-950 border border-amber-500/60 rounded-xl text-xs font-black text-amber-300 uppercase placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 w-full sm:w-60 font-mono"
                 />
                 <button
@@ -6361,7 +6361,7 @@ export default function BillerPortalPage() {
                   <th className="p-3.5 text-right">KG</th>
                   <th className="p-3.5 text-right">Taxable (₹)</th>
                   <th className="p-3.5 text-right">Total (₹)</th>
-                  <th className="p-3.5 text-center">गाड़ी नंबर</th>
+                  <th className="p-3.5 text-center">Vehicle No</th>
                   <th className="p-3.5 text-center">Status</th>
                   <th className="p-3.5 text-center">Actions</th>
                 </tr>
@@ -6397,7 +6397,7 @@ export default function BillerPortalPage() {
                         {b.eWayBillNo ? (
                           <div
                             onClick={() => handleOpenEWayPrintModal(b, 'both')}
-                            title="ई-वे बिल नंबर (प्रिंट करने के लिए क्लिक करें)"
+                            title="E-Way Bill Number (Click to print)"
                             className="inline-flex items-center space-x-1 text-[9px] font-mono font-bold text-amber-300 hover:text-amber-200 bg-amber-950/60 border border-amber-800/60 rounded px-1.5 py-0.5 mt-0.5 cursor-pointer"
                           >
                             <Truck className="w-2.5 h-2.5 text-amber-400" />
@@ -6408,7 +6408,7 @@ export default function BillerPortalPage() {
                             type="button"
                             onClick={() => handleOpenEWayPrintModal(b, 'both')}
                             className="text-[9px] text-amber-400/80 hover:text-amber-300 underline block mt-0.5"
-                            title="ई-वे बिल नंबर दर्ज करें और प्रिंट करें"
+                            title="Enter E-Way Bill Number and print"
                           >
                             + e-Way No.
                           </button>
@@ -6466,13 +6466,13 @@ export default function BillerPortalPage() {
                             </span>
                           ) : (
                             <span className="px-2 py-0.5 bg-amber-950/50 border border-amber-800/60 text-amber-400 rounded text-[11px]">
-                              Pending (बाकी)
+                              Pending
                             </span>
                           )}
                           <button
                             type="button"
                             onClick={() => handleOpenVehicleModal(b)}
-                            title="गाड़ी नंबर अपडेट करें (Edit Vehicle No)"
+                            title="Edit Vehicle Number"
                             className="p-1 hover:bg-slate-800 text-slate-400 hover:text-amber-300 rounded-lg transition"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
@@ -6497,14 +6497,14 @@ export default function BillerPortalPage() {
                           {b.downloadedAt ? (
                             <span
                               className="inline-flex items-center space-x-1 px-2 py-0.5 bg-purple-500/20 text-purple-300 border border-purple-500/40 rounded-full text-[10px] font-bold animate-pulse"
-                              title={`डाउनलोड समय: ${new Date(b.downloadedAt).toLocaleTimeString()} | डाउनलोड के 1 घंटे बाद बिल स्वतः डिलीट हो जाएगा`}
+                              title={`Downloaded at: ${new Date(b.downloadedAt).toLocaleTimeString()} | Auto-deletes 1 hour after download`}
                             >
                               <Clock className="w-3 h-3 text-purple-400" />
-                              <span>⏳ {getDownloadCountdown(b) || '0m 0s'} में डिलीट</span>
+                              <span>⏳ Deletes in {getDownloadCountdown(b) || '0m 0s'}</span>
                             </span>
                           ) : (
                             <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 bg-slate-800 text-slate-400 border border-slate-700/60 rounded-full text-[9px] font-medium">
-                              <span>📥 अनडाउनलोड</span>
+                              <span>📥 Undownloaded</span>
                             </span>
                           )}
                         </div>
@@ -6515,7 +6515,7 @@ export default function BillerPortalPage() {
                           <button
                             type="button"
                             onClick={() => handleOpenEWayPrintModal(b, 'both')}
-                            title="बिल और सरकारी ई-वे बिल दोनों एक साथ प्रिंट करें (Print Both: Invoice + e-Way Bill in 1 PDF)"
+                            title="Print Both: Invoice + e-Way Bill in 1 PDF"
                             className="p-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-lg transition shadow flex items-center space-x-1"
                           >
                             <Printer className="w-3.5 h-3.5" />
@@ -6526,7 +6526,7 @@ export default function BillerPortalPage() {
                           <button
                             type="button"
                             onClick={() => handleOpenEWayPrintModal(b, 'eway')}
-                            title="सरकारी ई-वे बिल प्रिंट करें (Print Actual Government e-Way Bill PDF)"
+                            title="Print Government e-Way Bill PDF"
                             className="p-1.5 bg-slate-800 hover:bg-indigo-500/30 hover:text-indigo-300 text-slate-300 rounded-lg transition flex items-center space-x-1 border border-slate-700"
                           >
                             <Truck className="w-3.5 h-3.5 text-indigo-400" />
@@ -6537,7 +6537,7 @@ export default function BillerPortalPage() {
                           <button
                             type="button"
                             onClick={() => handleOpenEditBillModal(b)}
-                            title="बिल की जानकारी बदलें / एडिट करें (Edit Bill)"
+                            title="Edit Bill Information"
                             className="p-1.5 bg-slate-800 hover:bg-cyan-500/20 hover:text-cyan-400 text-slate-300 rounded-lg transition"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
@@ -6598,7 +6598,7 @@ export default function BillerPortalPage() {
               <div className="flex items-center space-x-2">
                 <Building2 className="w-5 h-5 text-sky-400" />
                 <h3 className="text-sm font-black text-white">
-                  {editingSellerId ? 'Edit Seller Party (सेलर पार्टी संपादित करें)' : 'Add New Seller Party (सेलर पार्टी जोड़ें)'}
+                  {editingSellerId ? 'Edit Seller Party' : 'Add New Seller Party'}
                 </h3>
               </div>
               <button
@@ -6642,7 +6642,7 @@ export default function BillerPortalPage() {
                 </div>
                 <div>
                   <label className="text-[11px] font-bold text-slate-300 block mb-1">
-                    Mobile Number (मोबाइल नं.)
+                    Mobile Number
                   </label>
                   <input
                     type="text"
@@ -6656,7 +6656,7 @@ export default function BillerPortalPage() {
 
               <div>
                 <label className="text-[11px] font-bold text-slate-300 block mb-1">
-                  Email ID (ईमेल आईडी)
+                  Email ID
                 </label>
                 <input
                   type="email"
@@ -6768,7 +6768,7 @@ export default function BillerPortalPage() {
         </div>
       )}
 
-      {/* MODAL: MARKA ADDRESS DIRECTORY (मार्का एड्रेस डायरेक्टरी) */}
+      {/* MODAL: MARKA ADDRESS DIRECTORY */}
       {showMarkaModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-4xl w-full p-6 space-y-4 shadow-2xl max-h-[92vh] flex flex-col">
@@ -6782,11 +6782,11 @@ export default function BillerPortalPage() {
                   <h3 className="text-base font-black text-white flex items-center space-x-2">
                     <span>Marka &amp; Party Directory</span>
                     <span className="text-xs font-normal text-amber-400 bg-amber-950/50 border border-amber-800/40 px-2 py-0.5 rounded-full">
-                      मार्का व पार्टी डायरेक्टरी
+                      Marka & Party Directory
                     </span>
                   </h3>
                   <p className="text-xs text-slate-400">
-                    प्रत्येक मार्का (Marka) के अनुसार पार्टी का नाम (Party Name), GSTIN और डिलीवरी पता सेव करें ताकि बिलिंग तुरंत हो सके।
+                    Save party legal name, GSTIN, and delivery address by Marka for rapid billing.
                   </p>
                 </div>
               </div>
@@ -6931,7 +6931,7 @@ export default function BillerPortalPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="text-[11px] font-bold text-amber-300 block mb-1">
-                        Marka Code (मार्का) *
+                        Marka Code *
                       </label>
                       <input
                         type="text"
@@ -6978,7 +6978,7 @@ export default function BillerPortalPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="text-[11px] font-bold text-amber-300 block mb-1">
-                        Party / Consignee Legal Name (पार्टी का नाम) *
+                        Party / Consignee Legal Name *
                       </label>
                       <input
                         type="text"
@@ -6992,7 +6992,7 @@ export default function BillerPortalPage() {
 
                     <div>
                       <label className="text-[11px] font-bold text-slate-300 block mb-1">
-                        GSTIN {dirRegistrationType === 'Registered' ? '*' : '(Optional)'} (राज्य स्वतः सेट होगा)
+                        GSTIN {dirRegistrationType === 'Registered' ? '*' : '(Optional)'} (State auto-detects)
                       </label>
                       <input
                         type="text"
@@ -7059,7 +7059,7 @@ export default function BillerPortalPage() {
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="text-[11px] font-bold text-slate-300 block mb-1">State (राज्य)</label>
+                      <label className="text-[11px] font-bold text-slate-300 block mb-1">State</label>
                       <select
                         value={dirState}
                         onChange={(e) => {
@@ -7078,7 +7078,7 @@ export default function BillerPortalPage() {
                       </select>
                     </div>
                     <div>
-                      <label className="text-[11px] font-bold text-slate-300 block mb-1">State Code (ऑटो)</label>
+                      <label className="text-[11px] font-bold text-slate-300 block mb-1">State Code (Auto)</label>
                       <input
                         type="text"
                         value={dirStateCode}
@@ -7099,7 +7099,7 @@ export default function BillerPortalPage() {
                         className="rounded bg-slate-900 border-slate-700 text-amber-500 focus:ring-amber-500"
                       />
                       <span className="text-xs font-bold text-slate-300">
-                        Buyer (Bill to) is identical to Consignee (Ship to) / सेम खरीदार
+                        Buyer (Bill to) is identical to Consignee (Ship to)
                       </span>
                     </label>
 
@@ -7117,7 +7117,7 @@ export default function BillerPortalPage() {
                             />
                           </div>
                           <div>
-                            <label className="text-[10px] font-bold text-slate-300 block mb-1">Buyer GSTIN (राज्य स्वतः सेट होगा)</label>
+                            <label className="text-[10px] font-bold text-slate-300 block mb-1">Buyer GSTIN (State auto-detects)</label>
                             <input
                               type="text"
                               value={dirBuyerGstin}
@@ -7151,7 +7151,7 @@ export default function BillerPortalPage() {
 
                         <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <label className="text-[10px] font-bold text-slate-300 block mb-1">Buyer State (राज्य)</label>
+                            <label className="text-[10px] font-bold text-slate-300 block mb-1">Buyer State</label>
                             <select
                               value={dirBuyerState}
                               onChange={(e) => {
@@ -7170,7 +7170,7 @@ export default function BillerPortalPage() {
                             </select>
                           </div>
                           <div>
-                            <label className="text-[10px] font-bold text-slate-300 block mb-1">Buyer State Code (ऑटो)</label>
+                            <label className="text-[10px] font-bold text-slate-300 block mb-1">Buyer State Code (Auto)</label>
                             <input
                               type="text"
                               value={dirBuyerStateCode}
@@ -7224,7 +7224,7 @@ export default function BillerPortalPage() {
                 <Truck className="w-5 h-5 text-amber-400" />
                 <div>
                   <h3 className="text-sm font-black text-white">
-                    गाड़ी नंबर अपडेट करें (Update Vehicle No)
+                    Update Vehicle Number
                   </h3>
                   <p className="text-[11px] text-slate-400">
                     Receipt #{targetBillForVehicle.receipt} | Bill: {targetBillForVehicle.billNumber}
@@ -7245,7 +7245,7 @@ export default function BillerPortalPage() {
             <form onSubmit={handleSaveQuickVehicle} className="space-y-3.5 text-xs">
               <div>
                 <label className="text-[11px] font-bold text-slate-300 block mb-1">
-                  गाड़ी नंबर (Vehicle Number) *
+                  Vehicle Number *
                 </label>
                 <input
                   type="text"
@@ -7259,7 +7259,7 @@ export default function BillerPortalPage() {
 
               <div>
                 <label className="text-[11px] font-bold text-slate-300 block mb-1">
-                  गंतव्य / Destination (Optional)
+                  Destination (Optional)
                 </label>
                 <input
                   type="text"
@@ -7303,10 +7303,10 @@ export default function BillerPortalPage() {
                 <MapPin className="w-5 h-5 text-cyan-400" />
                 <div>
                   <h3 className="text-sm font-black text-white">
-                    नया सेंडिंग पता जोड़ें (Add Sending Location)
+                    Add New Sending Location
                   </h3>
                   <p className="text-[11px] text-cyan-300">
-                    मार्का: <strong>{mainMarka || subMarka || singleSelectedMarka}</strong>
+                    Marka: <strong>{mainMarka || subMarka || singleSelectedMarka}</strong>
                   </p>
                 </div>
               </div>
@@ -7323,7 +7323,7 @@ export default function BillerPortalPage() {
               <div className="p-2.5 bg-slate-950/80 border border-slate-800 rounded-xl space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-[11px] font-bold text-slate-300">
-                    पार्टी रजिस्ट्रेशन (Registration Type) *
+                    Registration Type *
                   </label>
                   <div className="flex bg-slate-900 border border-slate-700 rounded-lg p-0.5 text-[10px]">
                     <button
@@ -7353,7 +7353,7 @@ export default function BillerPortalPage() {
                 {newLocRegType === 'Registered' ? (
                   <div>
                     <label className="text-[10px] font-bold text-emerald-400 block mb-1">
-                      15-Digit GSTIN Number * (राज्य कोड स्वतः पहचानेगा)
+                      15-Digit GSTIN Number * (State auto-detects)
                     </label>
                     <input
                       type="text"
@@ -7376,14 +7376,14 @@ export default function BillerPortalPage() {
                   </div>
                 ) : (
                   <p className="text-[10px] text-amber-400/90 italic">
-                    ℹ गैर-पंजीकृत पार्टी (URP) - कोई GSTIN दर्ज करने की आवश्यकता नहीं है।
+                    ℹ Unregistered Party (URP) - No GSTIN required.
                   </p>
                 )}
               </div>
 
               <div>
                 <label className="text-[11px] font-bold text-slate-300 block mb-1">
-                  लोकेशन का नाम / पहचान (e.g. Godown 1, Factory Agra) *
+                  Location Title / Identifier (e.g. Godown 1, Factory Agra) *
                 </label>
                 <input
                   type="text"
@@ -7397,7 +7397,7 @@ export default function BillerPortalPage() {
 
               <div>
                 <label className="text-[11px] font-bold text-slate-300 block mb-1">
-                  पूरा डिलीवरी पता (Full Address) *
+                  Complete Delivery Address *
                 </label>
                 <textarea
                   required
@@ -7411,7 +7411,7 @@ export default function BillerPortalPage() {
 
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
-                  <label className="text-[11px] font-bold text-slate-300 block mb-1">City / शहर</label>
+                  <label className="text-[11px] font-bold text-slate-300 block mb-1">City</label>
                   <input
                     type="text"
                     value={newLocCity}
@@ -7434,7 +7434,7 @@ export default function BillerPortalPage() {
 
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
-                  <label className="text-[11px] font-bold text-slate-300 block mb-1">State (राज्य)</label>
+                  <label className="text-[11px] font-bold text-slate-300 block mb-1">State</label>
                   <select
                     value={newLocState}
                     onChange={(e) => {
@@ -7453,7 +7453,7 @@ export default function BillerPortalPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-[11px] font-bold text-slate-300 block mb-1">State Code (ऑटोमैटिक)</label>
+                  <label className="text-[11px] font-bold text-slate-300 block mb-1">State Code (Auto)</label>
                   <input
                     type="text"
                     value={newLocStateCode}
@@ -7517,10 +7517,10 @@ export default function BillerPortalPage() {
                 <Edit3 className="w-5 h-5 text-amber-400" />
                 <div>
                   <h3 className="text-sm font-black text-white">
-                    पता एडिट करें (Edit Sending Location)
+                    Edit Sending Location
                   </h3>
                   <p className="text-[11px] text-amber-300">
-                    मार्का: <strong>{editingLocationData.marka}</strong>
+                    Marka: <strong>{editingLocationData.marka}</strong>
                   </p>
                 </div>
               </div>
@@ -7538,7 +7538,7 @@ export default function BillerPortalPage() {
             <form onSubmit={handleSaveEditedLocation} className="space-y-3 text-xs">
               <div>
                 <label className="text-[11px] font-bold text-slate-300 block mb-1">
-                  लोकेशन का नाम / पहचान (e.g. Godown 1, Shop 2) *
+                  Location Title / Identifier (e.g. Godown 1, Shop 2) *
                 </label>
                 <input
                   type="text"
@@ -7554,7 +7554,7 @@ export default function BillerPortalPage() {
 
               <div>
                 <label className="text-[11px] font-bold text-slate-300 block mb-1">
-                  पूरा डिलीवरी पता (Full Address) *
+                  Complete Delivery Address *
                 </label>
                 <textarea
                   required
@@ -7570,7 +7570,7 @@ export default function BillerPortalPage() {
 
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
-                  <label className="text-[11px] font-bold text-slate-300 block mb-1">City / शहर</label>
+                  <label className="text-[11px] font-bold text-slate-300 block mb-1">City</label>
                   <input
                     type="text"
                     value={editingLocationData.city}
@@ -7597,7 +7597,7 @@ export default function BillerPortalPage() {
 
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
-                  <label className="text-[11px] font-bold text-slate-300 block mb-1">State (राज्य)</label>
+                  <label className="text-[11px] font-bold text-slate-300 block mb-1">State</label>
                   <select
                     value={editingLocationData.state}
                     onChange={(e) => {
@@ -7619,7 +7619,7 @@ export default function BillerPortalPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-[11px] font-bold text-slate-300 block mb-1">State Code (ऑटोमैटिक)</label>
+                  <label className="text-[11px] font-bold text-slate-300 block mb-1">State Code (Auto)</label>
                   <input
                     type="text"
                     value={editingLocationData.stateCode}
@@ -7691,10 +7691,10 @@ export default function BillerPortalPage() {
                 <Search className="w-5 h-5 text-amber-400" />
                 <div>
                   <h3 className="text-sm font-black text-white">
-                    HSN कोड खोजें व सुझाव चुनें (Search & Suggest HSN)
+                    Search & Suggest HSN Code
                   </h3>
                   <p className="text-[10px] text-slate-400">
-                    आइटम के नाम या कीवर्ड से HSN ढूँढें। चुनने पर वह इस आइटम के साथ हमेशा के लिए लिंक हो जाएगा।
+                    Find HSN by item description or keyword. Selecting will link it to this item.
                   </p>
                 </div>
               </div>
@@ -7718,7 +7718,7 @@ export default function BillerPortalPage() {
                   setHsnSearchQuery(val);
                   handleSearchHsn(val);
                 }}
-                placeholder="उदा. Baby bottle, Teether, Toy, Footwear, Bag, 39269099..."
+                placeholder="e.g. Baby bottle, Teether, Toy, Footwear, Bag, 39269099..."
                 className="w-full pl-9 pr-4 py-2.5 bg-slate-950 border border-amber-500/50 rounded-2xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
               />
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
@@ -7728,11 +7728,11 @@ export default function BillerPortalPage() {
             <div className="max-h-72 overflow-y-auto space-y-1.5 pr-1 scrollbar-thin">
               {isLoadingHsn ? (
                 <div className="py-8 text-center text-xs text-slate-400 animate-pulse">
-                  खोज रहे हैं... (Searching HSN Directory)...
+                  Searching HSN Directory...
                 </div>
               ) : hsnSearchResults.length === 0 ? (
                 <div className="py-8 text-center text-xs text-slate-400">
-                  कोई सुझाव नहीं मिला। आप मैन्युअली HSN टाइप करके सेव कर सकते हैं।
+                  No suggestions found. You can type HSN manually and save.
                 </div>
               ) : (
                 hsnSearchResults.map((s, idx) => (
@@ -7749,7 +7749,7 @@ export default function BillerPortalPage() {
                         <span className="font-bold text-white text-xs">{s.itemName}</span>
                         {s.isUserSaved && (
                           <span className="text-[9px] px-1.5 py-0.2 bg-emerald-500/20 text-emerald-300 rounded font-bold">
-                            ★ आपका लिंक्ड
+                            ★ Your Linked
                           </span>
                         )}
                       </div>
@@ -7764,7 +7764,7 @@ export default function BillerPortalPage() {
                         type="button"
                         className="px-2.5 py-1 bg-amber-500 group-hover:bg-amber-400 text-slate-950 font-black text-[10px] rounded-lg transition"
                       >
-                        चुनें & लिंक करें
+                        Select & Link
                       </button>
                     </div>
                   </div>
@@ -7773,20 +7773,20 @@ export default function BillerPortalPage() {
             </div>
 
             <div className="flex items-center justify-between pt-2 border-t border-slate-800 text-[10px] text-slate-400">
-              <span>सुझाव: एक बार चुनने पर अगली बार यह HSN स्वतः लोड होगा।</span>
+              <span>Tip: Once selected, this HSN will automatically load next time.</span>
               <button
                 type="button"
                 onClick={() => setShowHsnSearchModal(false)}
                 className="px-3 py-1 bg-slate-800 text-slate-300 hover:text-white rounded-lg font-bold"
               >
-                बंद करें
+                Close
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL: PIN CODE SEARCH & AUTO-DETECTION (पिन कोड सर्च व डिटेक्शन) */}
+      {/* MODAL: PIN CODE SEARCH & AUTO-DETECTION */}
       {showPinSearchModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-xl w-full p-5 space-y-3.5 shadow-2xl">
@@ -7795,10 +7795,10 @@ export default function BillerPortalPage() {
                 <MapPin className="w-5 h-5 text-sky-400" />
                 <div>
                   <h3 className="text-sm font-black text-white">
-                    पिन कोड खोजें व ऑटो-डिटेक्ट करें (Search & Detect PIN Code)
+                    Search & Detect PIN Code
                   </h3>
                   <p className="text-[10px] text-slate-400">
-                    एड्रेस, शहर या इलाके के नाम से 6-अंकों का पिन कोड ढूँढें और राज्य ऑटो-सेट करें।
+                    Find 6-digit PIN code by address, city or locality and auto-set state.
                   </p>
                 </div>
               </div>
@@ -7822,7 +7822,7 @@ export default function BillerPortalPage() {
                   setPinSearchQuery(val);
                   handleSearchPincodes(val);
                 }}
-                placeholder="उदा. Badli, Bawana, Kundli, Bhiwandi, Surat, Chandni Chowk, 110042..."
+                placeholder="e.g. Badli, Bawana, Kundli, Bhiwandi, Surat, Chandni Chowk, 110042..."
                 className="w-full pl-9 pr-4 py-2.5 bg-slate-950 border border-sky-500/50 rounded-2xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 font-medium"
               />
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
@@ -7854,7 +7854,7 @@ export default function BillerPortalPage() {
               {isSearchingPin ? (
                 <div className="py-8 text-center text-xs text-slate-400 flex items-center justify-center space-x-2">
                   <RefreshCw className="w-4 h-4 animate-spin text-sky-400" />
-                  <span>पिन कोड खोजा जा रहा है...</span>
+                  <span>Searching PIN code...</span>
                 </div>
               ) : pinSearchResults.length > 0 ? (
                 pinSearchResults.map((item, idx) => (
@@ -7881,32 +7881,32 @@ export default function BillerPortalPage() {
                       type="button"
                       className="px-2.5 py-1 bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 font-bold rounded-xl text-[10px] transition shrink-0"
                     >
-                      + चुनें (Select)
+                      + Select
                     </button>
                   </div>
                 ))
               ) : (
                 <div className="py-8 text-center text-xs text-slate-400">
-                  कोई पिन कोड नहीं मिला। ऊपर नाम बदल कर खोजें।
+                  No PIN code found. Try searching with different locality name.
                 </div>
               )}
             </div>
 
             <div className="flex items-center justify-between pt-2 border-t border-slate-800 text-[10px] text-slate-400">
-              <span>सुझाव: पिन कोड चुनने पर राज्य व कोड अपने आप सेट हो जाते हैं।</span>
+              <span>Tip: Selecting a PIN code automatically sets the state and state code.</span>
               <button
                 type="button"
                 onClick={() => setShowPinSearchModal(false)}
                 className="px-3 py-1 bg-slate-800 text-slate-300 hover:text-white rounded-lg font-bold"
               >
-                बंद करें
+                Close
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL: EDIT BILL (बिल की जानकारी बदलें / संशोधित करें) */}
+      {/* MODAL: EDIT BILL */}
       {editBillModalOpen && billToEdit && (
         <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-4xl w-full p-5 sm:p-6 space-y-4 shadow-2xl my-auto">
@@ -7915,15 +7915,15 @@ export default function BillerPortalPage() {
                 <Edit3 className="w-5 h-5 text-cyan-400" />
                 <div>
                   <h3 className="text-sm sm:text-base font-black text-white flex items-center space-x-2">
-                    <span>बिल एडिट / संशोधन करें (Edit Invoice Bill)</span>
+                    <span>Edit Invoice Bill</span>
                     <span className="font-mono text-cyan-400 text-xs px-2 py-0.5 bg-cyan-950 rounded border border-cyan-800">
                       {editBillData.billNumber}
                     </span>
                   </h3>
                   <p className="text-[11px] text-slate-400">
-                    रसीद: <span className="font-mono text-slate-300">{billToEdit.receipt}</span> | 
-                    कंटेनर: <span className="font-mono text-slate-300">{billToEdit.container || 'N/A'}</span> | 
-                    मार्का: <span className="font-mono text-cyan-300">{billToEdit.mainMarka || 'N/A'}</span>
+                    Receipt: <span className="font-mono text-slate-300">{billToEdit.receipt}</span> | 
+                    Container: <span className="font-mono text-slate-300">{billToEdit.container || 'N/A'}</span> | 
+                    Marka: <span className="font-mono text-cyan-300">{billToEdit.mainMarka || 'N/A'}</span>
                   </p>
                 </div>
               </div>
@@ -7944,7 +7944,7 @@ export default function BillerPortalPage() {
               <div className="p-3.5 bg-slate-950/70 border border-slate-800 rounded-2xl space-y-3">
                 <div className="text-[11px] font-black text-slate-300 uppercase tracking-wider flex items-center space-x-1.5">
                   <Truck className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>1. इनवॉइस व वाहन ट्रांसपोर्ट विवरण (Invoice & Transport Details)</span>
+                  <span>1. Invoice & Transport Details</span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
@@ -7982,7 +7982,7 @@ export default function BillerPortalPage() {
 
                   <div>
                     <label className="text-[10px] font-bold text-emerald-400 block mb-1">
-                      गाड़ी नंबर (Vehicle No.)
+                      Vehicle No.
                     </label>
                     <input
                       type="text"
@@ -8026,7 +8026,7 @@ export default function BillerPortalPage() {
                 <div className="flex items-center justify-between">
                   <div className="text-[11px] font-black text-sky-400 uppercase tracking-wider flex items-center space-x-1.5">
                     <Building2 className="w-3.5 h-3.5" />
-                    <span>2. Consignee / Shipped To (जिसके पते पर माल भेजा जा रहा है)</span>
+                    <span>2. Consignee / Shipped To</span>
                   </div>
 
                   {/* Registered vs Unregistered toggle */}
@@ -8078,7 +8078,7 @@ export default function BillerPortalPage() {
 
                   <div>
                     <label className="text-[10px] font-bold text-emerald-400 block mb-1">
-                      Consignee GSTIN {editBillData.purchaserRegistrationType === 'Registered' ? '*' : '(URP)'} (राज्य स्वतः सेट होगा)
+                      Consignee GSTIN {editBillData.purchaserRegistrationType === 'Registered' ? '*' : '(URP)'} (State auto-detects)
                     </label>
                     <input
                       type="text"
@@ -8142,7 +8142,7 @@ export default function BillerPortalPage() {
 
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-[10px] font-bold text-slate-300 block mb-1">State (राज्य)</label>
+                      <label className="text-[10px] font-bold text-slate-300 block mb-1">State</label>
                       <select
                         value={editBillData.consigneeState}
                         onChange={(e) => {
@@ -8177,7 +8177,7 @@ export default function BillerPortalPage() {
                 <div className="flex items-center justify-between">
                   <div className="text-[11px] font-black text-amber-400 uppercase tracking-wider flex items-center space-x-1.5">
                     <Building2 className="w-3.5 h-3.5" />
-                    <span>3. Buyer / Billed To (जिसके नाम इनवॉइस बनेगा)</span>
+                    <span>3. Buyer / Billed To</span>
                   </div>
 
                   <label className="flex items-center space-x-2 cursor-pointer bg-slate-900 border border-slate-700 px-2.5 py-1 rounded-lg">
@@ -8188,7 +8188,7 @@ export default function BillerPortalPage() {
                       className="rounded bg-slate-950 border-slate-700 text-amber-500 focus:ring-amber-500"
                     />
                     <span className="text-[10px] font-bold text-slate-300">
-                      Same as Consignee / सेम खरीदार
+                      Same as Consignee
                     </span>
                   </label>
                 </div>
@@ -8206,7 +8206,7 @@ export default function BillerPortalPage() {
                         />
                       </div>
                       <div>
-                        <label className="text-[10px] font-bold text-slate-300 block mb-1">Buyer GSTIN (राज्य स्वतः सेट होगा)</label>
+                        <label className="text-[10px] font-bold text-slate-300 block mb-1">Buyer GSTIN (State auto-detects)</label>
                         <input
                           type="text"
                           value={editBillData.buyerGstin}
@@ -8277,7 +8277,7 @@ export default function BillerPortalPage() {
                 <div className="flex items-center justify-between">
                   <div className="text-[11px] font-black text-amber-300 uppercase tracking-wider flex items-center space-x-1.5">
                     <ListPlus className="w-3.5 h-3.5 text-amber-400" />
-                    <span>4. इनवॉइस वस्तुएं (Invoice Items: HSN, Unit, Quantity, Rate)</span>
+                    <span>4. Invoice Items (HSN, Unit, Quantity, Rate)</span>
                   </div>
 
                   <button
@@ -8336,7 +8336,7 @@ export default function BillerPortalPage() {
                                   })
                                 }
                                 className="px-1.5 py-1.5 bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-slate-950 rounded-lg text-[10px] font-bold transition shrink-0"
-                                title="HSN सुझाव / सर्च"
+                                title="HSN Suggestions / Search"
                               >
                                 🔍
                               </button>
@@ -8382,7 +8382,7 @@ export default function BillerPortalPage() {
                                 type="button"
                                 onClick={() => handleEditBillRemoveItem(idx)}
                                 className="p-1 text-slate-500 hover:text-red-400 rounded transition"
-                                title="हटाएं"
+                                title="Remove"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -8413,15 +8413,15 @@ export default function BillerPortalPage() {
                     <div className="flex flex-col sm:flex-row items-end sm:items-center justify-between gap-3 pt-2 border-t border-slate-800 text-xs">
                       <div className="flex items-center space-x-2">
                         <span className="text-slate-400 text-[11px]">
-                          कुल आइटम्स: <strong className="text-white font-mono">{editBillData.items.length}</strong>
+                          Total Items: <strong className="text-white font-mono">{editBillData.items.length}</strong>
                         </span>
                         {isEditDelhi ? (
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-950/80 border border-sky-500/40 text-sky-300">
-                            🔵 दिल्ली लोकल (CGST {editHalfRate}% + SGST {editHalfRate}%)
+                            🔵 Delhi Local (CGST {editHalfRate}% + SGST {editHalfRate}%)
                           </span>
                         ) : (
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-950/80 border border-amber-500/40 text-amber-300">
-                            🟠 आउटसाइड दिल्ली (IGST {editGstRate}%)
+                            🟠 Outside Delhi (IGST {editGstRate}%)
                           </span>
                         )}
                       </div>
@@ -8477,7 +8477,7 @@ export default function BillerPortalPage() {
                   }}
                   className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold transition"
                 >
-                  रद्द करें (Cancel)
+                  Cancel
                 </button>
                 <button
                   type="button"
@@ -8527,7 +8527,7 @@ export default function BillerPortalPage() {
                     }
                   }}
                   className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black rounded-xl text-xs transition flex items-center space-x-1.5 shadow"
-                  title="बिल और सरकारी ई-वे बिल दोनों एक साथ प्रिंट करें (Print Both Invoice & e-Way Bill)"
+                  title="Print Both Invoice & e-Way Bill"
                 >
                   <Printer className="w-3.5 h-3.5" />
                   <span>Print Both (Bill + e-Way)</span>
@@ -8550,7 +8550,7 @@ export default function BillerPortalPage() {
                     }
                   }}
                   className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs transition flex items-center space-x-1.5 shadow"
-                  title="सरकारी ई-वे बिल प्रिंट करें (Print Actual Government e-Way Bill PDF)"
+                  title="Print Government e-Way Bill PDF"
                 >
                   <Truck className="w-3.5 h-3.5" />
                   <span>e-Way Bill</span>
@@ -8564,8 +8564,8 @@ export default function BillerPortalPage() {
                   <Save className="w-4 h-4" />
                   <span>
                     {isSavingEditBill
-                      ? 'अपडेट हो रहा है...'
-                      : '💾 संशोधन सेव करें और नया PDF डाउनलोड करें'}
+                      ? 'Updating...'
+                      : '💾 Save Updates and Download New PDF'}
                   </span>
                 </button>
               </div>
@@ -8584,7 +8584,7 @@ export default function BillerPortalPage() {
                   <Truck className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-black text-white">ई-वे बिल प्रिंट करें (Print e-Way Bill)</h3>
+                  <h3 className="text-sm font-black text-white">Print e-Way Bill</h3>
                   <p className="text-[11px] text-slate-400">Bill No: #{eWayModalBill.billNumber || eWayModalBill.receipt}</p>
                 </div>
               </div>
@@ -8615,7 +8615,7 @@ export default function BillerPortalPage() {
 
               <div>
                 <label className="block text-[11px] font-bold text-amber-300 mb-1">
-                  सरकारी ई-वे बिल नंबर दर्ज करें (12-Digit e-Way Bill No.) *
+                  Government e-Way Bill Number (12-Digit) *
                 </label>
                 <input
                   type="text"
@@ -8626,13 +8626,13 @@ export default function BillerPortalPage() {
                   autoFocus
                 />
                 <p className="text-[10px] text-slate-400 mt-1">
-                  पोर्टल (ewaybillgst.gov.in) पर जनरेट होने के बाद प्राप्त हुआ 12-अंकों का नंबर दर्ज करें।
+                  Enter the 12-digit number generated on the GST portal (ewaybillgst.gov.in).
                 </p>
               </div>
 
               <div>
                 <label className="block text-[11px] font-bold text-slate-300 mb-1">
-                  गाड़ी नंबर (Vehicle Number)
+                  Vehicle Number
                 </label>
                 <input
                   type="text"

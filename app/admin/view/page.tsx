@@ -1395,14 +1395,14 @@ export default function InternalEmployeeViewPage() {
               href="/biller"
               className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold transition flex items-center space-x-1"
             >
-              <span>Biller (बिलर)</span>
+              <span>Biller</span>
             </Link>
 
             <Link
               href="/dispatcher"
               className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 text-xs font-bold transition flex items-center space-x-1"
             >
-              <span>Dispatcher (डिस्पैचर)</span>
+              <span>Dispatcher</span>
             </Link>
 
             {userRole === 'admin' && (

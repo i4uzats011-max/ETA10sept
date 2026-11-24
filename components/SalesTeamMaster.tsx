@@ -162,10 +162,10 @@ export default function SalesTeamMaster() {
         <div>
           <h2 className="text-lg font-bold text-slate-900 flex items-center space-x-2">
             <Users className="w-5 h-5 text-emerald-600" />
-            <span>Sales Team Master & Profile Management (मास्टर क्रिएशन)</span>
+            <span>Sales Team Master & Profile Management</span>
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            सेल्स हेड अपनी टीम के मेंबर्स बना सकते हैं, उनका यूजर आईडी व पासवर्ड जनरेट कर सकते हैं, और व्हाट्सएप पर डायरेक्ट क्रेडेंशियल्स शेयर कर सकते हैं।
+            Create and manage sales team members, generate login credentials, and share access via WhatsApp.
           </p>
         </div>
 
@@ -393,7 +393,7 @@ Please review your assigned cargo and discuss rates.`;
             <form onSubmit={handleCreate} className="p-5 space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Full Name (सेल्स पर्सन का नाम) *
+                  Full Name *
                 </label>
                 <input
                   type="text"
@@ -417,7 +417,7 @@ Please review your assigned cargo and discuss rates.`;
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Username / User ID (लॉगिन आईडी) *
+                  Username / User ID *
                 </label>
                 <input
                   type="text"
@@ -432,7 +432,7 @@ Please review your assigned cargo and discuss rates.`;
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="text-xs font-semibold text-slate-700">
-                    Password (पासवर्ड) *
+                    Password *
                   </label>
                   <button
                     type="button"
@@ -463,7 +463,7 @@ Please review your assigned cargo and discuss rates.`;
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  WhatsApp Mobile Number (व्हाट्सएप नंबर)
+                  WhatsApp Mobile Number
                 </label>
                 <input
                   type="text"
@@ -476,7 +476,7 @@ Please review your assigned cargo and discuss rates.`;
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Territory / Notes (क्षेत्र / विवरण)
+                  Territory / Notes
                 </label>
                 <input
                   type="text"

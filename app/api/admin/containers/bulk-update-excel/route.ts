@@ -92,8 +92,8 @@ function generateDateChangeTxtReport(
 
   let out = '';
   out += `${divider}\n`;
-  out += `          CONTAINER DATE CHANGE AUDIT REPORT (कंटेनर तारीख परिवर्तन रिपोर्ट)\n`;
-  out += `                        US INTERNATIONAL LOGISTICS\n`;
+  out += `                 CONTAINER DATE CHANGE AUDIT REPORT\n`;
+  out += `                     US INTERNATIONAL LOGISTICS\n`;
   out += `${divider}\n`;
   out += `Generated At       : ${timeFormatted} IST\n`;
   out += `Updated By         : ${meta.username} (${meta.role})\n`;
@@ -122,7 +122,7 @@ function generateDateChangeTxtReport(
             ? `${c.portDaysShift} Days (Earlier)`
             : 'Same Day'
           : 'Initial Assignment';
-      out += `\n    * PORT ARRIVAL DATE (Vessel ETA / एक्चुअल डेट) [CHANGED]:\n`;
+      out += `\n    * PORT ARRIVAL DATE (Vessel ETA / Actual Port Date) [CHANGED]:\n`;
       out += `      - Previous Date : ${c.oldPortDate || 'Not Set'} (${c.oldPortDate ? formatGlobalDate(c.oldPortDate) : 'N/A'})\n`;
       out += `      - New Port Date : ${c.newPortDate} (${formatGlobalDate(c.newPortDate)})\n`;
       out += `      - Date Shift    : ${shiftStr}\n`;
@@ -139,7 +139,7 @@ function generateDateChangeTxtReport(
             ? `${c.etaDaysShift} Days (Advanced)`
             : 'Same Day'
           : 'Initial Assignment';
-      out += `\n    * DESTINATION ETA (Customer Grace Date / ग्रेस डेट) [CHANGED]:\n`;
+      out += `\n    * DESTINATION ETA (Customer Grace Date) [CHANGED]:\n`;
       out += `      - Previous Date : ${c.oldEta || 'Not Set'} (${c.oldEta ? formatGlobalDate(c.oldEta) : 'N/A'})\n`;
       out += `      - New ETA Date  : ${c.newEta} (${formatGlobalDate(c.newEta)})\n`;
       out += `      - Date Shift    : ${shiftStr}\n`;

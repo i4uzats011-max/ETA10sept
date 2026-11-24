@@ -124,7 +124,7 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
   // Export to Excel Handler
   const handleExportExcel = () => {
     if (displayItems.length === 0) {
-      alert('एक्सपोर्ट करने के लिए कोई मिसमैच डेटा उपलब्ध नहीं है।');
+      alert('No mismatch data available to export.');
       return;
     }
 
@@ -204,7 +204,7 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
       XLSX.writeFile(wb, filename);
     } catch (err) {
       console.error('Error exporting excel:', err);
-      alert('एक्सेल फाइल डाउनलोड करते समय त्रुटि आई।');
+      alert('Error downloading Excel file.');
     } finally {
       setExportingExcel(false);
     }
@@ -224,14 +224,14 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
       return (
         <span className="inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
           <TrendingUp className="w-3 h-3 text-amber-600 inline mr-0.5" />
-          <span>{formatted} {unit} (ज्यादा)</span>
+          <span>{formatted} {unit} (Over)</span>
         </span>
       );
     }
     return (
       <span className="inline-flex items-center space-x-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
         <TrendingDown className="w-3 h-3 text-rose-600 inline mr-0.5" />
-        <span>{formatted} {unit} (कम)</span>
+        <span>{formatted} {unit} (Short)</span>
       </span>
     );
   };
@@ -276,13 +276,13 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
               </div>
               <div>
                 <h1 className="text-lg md:text-xl font-black tracking-tight text-white flex items-center space-x-2">
-                  <span>सेल्स हेड एक्सेप्शन रिपोर्ट</span>
+                  <span>Sales Head Exception Report</span>
                   <span className="text-xs px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-400/30 rounded-full font-mono font-normal">
                     Mismatch Tab
                   </span>
                 </h1>
                 <p className="text-xs text-slate-300">
-                  फुली लोडेड कंटेनर का मिसमैच: <strong className="text-white">टोटल लोडेड माइनस टोटल रिसीव्ड इन वेयरहाउस</strong> (कार्टन, CBM एवं वेट तुलना)।
+                  Container Load Mismatches: <strong className="text-white">Total Loaded minus Total Received in Warehouse</strong> (Cartons, CBM & Weight).
                 </p>
               </div>
             </div>
@@ -295,7 +295,7 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
               className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-xl text-xs font-semibold text-white transition flex items-center space-x-1.5 shadow-xs disabled:opacity-50"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-              <span>रिफ्रेश</span>
+              <span>Refresh</span>
             </button>
             <button
               onClick={handleExportExcel}
@@ -303,7 +303,7 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
               className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-md disabled:opacity-50"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>{exportingExcel ? 'एक्सपोर्टिंग...' : 'Excel डाउनलोड (.xlsx)'}</span>
+              <span>{exportingExcel ? 'Exporting...' : 'Download Excel (.xlsx)'}</span>
             </button>
           </div>
         </div>
@@ -313,25 +313,25 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
           {/* Card 1: Total Mismatches */}
           <div className="bg-slate-800/80 border border-slate-700 rounded-xl p-3">
             <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-              <span>कुल मिसमैच रसीदें</span>
+              <span>Total Mismatched Receipts</span>
               <AlertTriangle className="w-4 h-4 text-amber-400" />
             </div>
             <div className="text-xl font-black text-amber-400">
               {summary.totalMismatches || 0}
               <span className="text-[11px] font-normal text-slate-400 ml-1.5">
-                (मैच: {summary.totalMatched || 0} बाहर)
+                ({summary.totalMatched || 0} matched excluded)
               </span>
             </div>
             <div className="text-[11px] text-slate-400 mt-1 flex items-center space-x-2">
-              <span className="text-amber-300">कंटेनर: {summary.containersWithMismatches || 0}</span>
-              <span>/ कुल: {summary.totalContainers || 0}</span>
+              <span className="text-amber-300">Containers: {summary.containersWithMismatches || 0}</span>
+              <span>/ Total: {summary.totalContainers || 0}</span>
             </div>
           </div>
 
           {/* Card 2: Cartons Mismatch */}
           <div className="bg-slate-800/80 border border-slate-700 rounded-xl p-3">
             <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-              <span>कार्टन मिसमैच (CTN)</span>
+              <span>Cartons Mismatch (CTN)</span>
               <Boxes className="w-4 h-4 text-indigo-400" />
             </div>
             <div className="text-xl font-black">
@@ -352,7 +352,7 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
           {/* Card 3: CBM Mismatch */}
           <div className="bg-slate-800/80 border border-slate-700 rounded-xl p-3">
             <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-              <span>CBM मिसमैच (m³)</span>
+              <span>CBM Mismatch (m³)</span>
               <Maximize2 className="w-4 h-4 text-purple-400" />
             </div>
             <div className="text-xl font-black">
@@ -373,7 +373,7 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
           {/* Card 4: Weight Mismatch */}
           <div className="bg-slate-800/80 border border-slate-700 rounded-xl p-3">
             <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-              <span>वेट मिसमैच (KG)</span>
+              <span>Weight Mismatch (KG)</span>
               <Scale className="w-4 h-4 text-teal-400" />
             </div>
             <div className="text-xl font-black">
@@ -398,10 +398,10 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
         <div className="text-xs font-bold text-slate-700 flex items-center justify-between">
           <span className="flex items-center space-x-1.5">
             <Filter className="w-3.5 h-3.5 text-indigo-600" />
-            <span>एक्सेप्शन कैटेगरी क्विक फिल्टर (Exception Categories):</span>
+            <span>Exception Category Filters:</span>
           </span>
           <span className="text-[11px] text-slate-500 font-normal">
-            {displayItems.length} मिसमैच दिखाए जा रहे हैं
+            {displayItems.length} mismatches shown
           </span>
         </div>
 
@@ -414,7 +414,7 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
                 : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
             }`}
           >
-            <span>सभी मिसमैच (All)</span>
+            <span>All Mismatches</span>
             <span className="ml-1 px-1.5 py-0.2 bg-white/20 rounded-full text-[10px]">
               {summary.totalMismatches || 0}
             </span>
@@ -429,7 +429,7 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
                 : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200'
             }`}
           >
-            <span>कार्टन पूरे, CBM/वेट मिसमैच</span>
+            <span>CTN Matched, CBM/Wt Mismatch</span>
             <span className="ml-1 px-1.5 py-0.2 bg-indigo-200/60 rounded-full text-[10px]">
               {categoryCounts['Carton Matched, CBM/Weight Mismatch'] || 0}
             </span>
@@ -444,7 +444,7 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
                 : 'bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200'
             }`}
           >
-            <span>CBM पूरे, कार्टन/वेट मिसमैच</span>
+            <span>CBM Matched, CTN/Wt Mismatch</span>
             <span className="ml-1 px-1.5 py-0.2 bg-purple-200/60 rounded-full text-[10px]">
               {categoryCounts['CBM Matched, Carton/Weight Mismatch'] || 0}
             </span>
@@ -459,7 +459,7 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
                 : 'bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200'
             }`}
           >
-            <span>वेट पूरा, कार्टन/CBM मिसमैच</span>
+            <span>Weight Matched, CTN/CBM Mismatch</span>
             <span className="ml-1 px-1.5 py-0.2 bg-teal-200/60 rounded-full text-[10px]">
               {categoryCounts['Weight Matched, Carton/CBM Mismatch'] || 0}
             </span>
@@ -474,7 +474,7 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
                 : 'bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200'
             }`}
           >
-            <span>कार्टन व वेट मैच, CBM मिसमैच</span>
+            <span>CTN & Wt Matched, CBM Mismatch</span>
             <span className="ml-1 px-1.5 py-0.2 bg-blue-200/60 rounded-full text-[10px]">
               {categoryCounts['Carton & Weight Matched, CBM Mismatch'] || 0}
             </span>
@@ -489,7 +489,7 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
                 : 'bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200'
             }`}
           >
-            <span>कार्टन व CBM मैच, वेट मिसमैच</span>
+            <span>CTN & CBM Matched, Wt Mismatch</span>
             <span className="ml-1 px-1.5 py-0.2 bg-sky-200/60 rounded-full text-[10px]">
               {categoryCounts['Carton & CBM Matched, Weight Mismatch'] || 0}
             </span>
@@ -504,7 +504,7 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
                 : 'bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border border-cyan-200'
             }`}
           >
-            <span>CBM व वेट मैच, कार्टन मिसमैच</span>
+            <span>CBM & Wt Matched, CTN Mismatch</span>
             <span className="ml-1 px-1.5 py-0.2 bg-cyan-200/60 rounded-full text-[10px]">
               {categoryCounts['CBM & Weight Matched, Carton Mismatch'] || 0}
             </span>
@@ -519,7 +519,7 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
                 : 'bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200'
             }`}
           >
-            <span>तीनों मिसमैच (Multi-Metric)</span>
+            <span>All Three Mismatched</span>
             <span className="ml-1 px-1.5 py-0.2 bg-rose-200/60 rounded-full text-[10px]">
               {categoryCounts['Multi-Metric Mismatch'] || 0}
             </span>
@@ -533,17 +533,17 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
           {/* Container Selector */}
           <div>
             <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
-              कंटेनर चुनें (Container Filter)
+              Select Container
             </label>
             <select
               value={selectedContainer}
               onChange={(e) => setSelectedContainer(e.target.value)}
               className="w-full text-xs font-semibold bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
-              <option value="ALL">सभी कंटेनर (All Containers - {reportData.availableContainers.length})</option>
+              <option value="ALL">All Containers ({reportData.availableContainers.length})</option>
               {reportData.availableContainers.map((c) => (
                 <option key={c.container} value={c.container}>
-                  {c.container} {c.containerNumber ? `(${c.containerNumber})` : ''} — {c.mismatchCount} मिसमैच
+                  {c.container} {c.containerNumber ? `(${c.containerNumber})` : ''} — {c.mismatchCount} mismatches
                 </option>
               ))}
             </select>
@@ -552,14 +552,14 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
           {/* Warehouse Selector */}
           <div>
             <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
-              वेयरहाउस (Origin Warehouse)
+              Origin Warehouse
             </label>
             <select
               value={selectedWarehouse}
               onChange={(e) => setSelectedWarehouse(e.target.value)}
               className="w-full text-xs font-semibold bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
-              <option value="ALL">सभी वेयरहाउस (All Warehouses)</option>
+              <option value="ALL">All Warehouses</option>
               {reportData.availableWarehouses.map((w) => (
                 <option key={w} value={w}>{w}</option>
               ))}
@@ -569,7 +569,7 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
           {/* Search Query */}
           <div className="md:col-span-2">
             <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
-              सर्च (Search Receipt, Party, Marka, Container)
+              Search (Receipt, Party, Marka, Container)
             </label>
             <div className="relative">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
@@ -577,7 +577,7 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="रसीद नं, कंटेनर, पार्टी, या मार्का से तुरंत खोजें..."
+                placeholder="Search by receipt no., container, party, or marka..."
                 className="w-full text-xs bg-slate-50 border border-slate-300 rounded-xl pl-9 pr-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
               {searchQuery && (
@@ -603,10 +603,10 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
           >
             <div className="flex items-center space-x-2">
               <Ship className="w-4 h-4 text-indigo-600" />
-              <span>कंटेनर-वाइज मिसमैच विवरण ({reportData.containerSummaries.length} Containers Analyzed)</span>
+              <span>Container Mismatch Summary ({reportData.containerSummaries.length} Containers Analyzed)</span>
             </div>
             <div className="flex items-center space-x-1 text-slate-500">
-              <span>{expandedContainerSummary ? 'छिपाएं' : 'दिखाएं'}</span>
+              <span>{expandedContainerSummary ? 'Hide' : 'Show'}</span>
               <ChevronDown className={`w-4 h-4 transition-transform ${expandedContainerSummary ? 'rotate-180' : ''}`} />
             </div>
           </button>
@@ -639,7 +639,7 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
                       <span className={`font-bold px-1.5 py-0.2 rounded text-[10px] ${
                         cs.mismatchCount > 0 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
                       }`}>
-                        {cs.mismatchCount} मिसमैच
+                        {cs.mismatchCount} mismatches
                       </span>
                     </div>
 
@@ -677,27 +677,27 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
           <div className="flex items-center space-x-2">
             <AlertTriangle className="w-4 h-4 text-amber-400" />
             <h2 className="text-xs sm:text-sm font-bold tracking-wide">
-              एक्सेप्शन रिपोर्ट डेटा टेबल (केवल मिसमैच रिकॉर्ड्स — फुली मैच छिपे हुए हैं)
+              Exception Report Data Table (Only Mismatches — Fully Matched Excluded)
             </h2>
           </div>
           <div className="text-xs text-slate-300 font-mono">
-            {displayItems.length} रिकॉर्ड्स प्रदर्शित
+            {displayItems.length} records displayed
           </div>
         </div>
 
         {loading ? (
           <div className="p-12 text-center text-slate-500 space-y-2">
             <RefreshCw className="w-6 h-6 animate-spin mx-auto text-indigo-600" />
-            <p className="text-xs font-semibold">एक्सेप्शन रिपोर्ट लोड हो रही है...</p>
+            <p className="text-xs font-semibold">Loading Exception Report...</p>
           </div>
         ) : displayItems.length === 0 ? (
           <div className="p-12 text-center space-y-3">
             <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
               <CheckCircle2 className="w-6 h-6" />
             </div>
-            <h3 className="text-sm font-bold text-slate-900">कोई मिसमैच नहीं मिला!</h3>
+            <h3 className="text-sm font-bold text-slate-900">No Mismatches Found!</h3>
             <p className="text-xs text-slate-500 max-w-md mx-auto">
-              चयनित फिल्टर के अंतर्गत सभी कंटेनर और रसीदें पूर्णतया मैच हैं (कार्टन, CBM एवं वेट 100% फुली मैच)।
+              All containers and receipts under selected filters are fully matched across Cartons, CBM, and Weight.
             </p>
           </div>
         ) : (
@@ -706,24 +706,24 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
               <thead className="bg-slate-100 text-slate-700 sticky top-0 z-10 text-[11px] uppercase tracking-wider font-bold border-b border-slate-300">
                 <tr>
                   <th className="py-2.5 px-3">#</th>
-                  <th className="py-2.5 px-3">कंटेनर (Container)</th>
-                  <th className="py-2.5 px-3">रसीद नं (Receipt)</th>
-                  <th className="py-2.5 px-3">पार्टी व मार्का (Party / Marka)</th>
-                  <th className="py-2.5 px-3">वेयरहाउस व तारीख</th>
+                  <th className="py-2.5 px-3">Container</th>
+                  <th className="py-2.5 px-3">Receipt No.</th>
+                  <th className="py-2.5 px-3">Party & Marka</th>
+                  <th className="py-2.5 px-3">Warehouse & Date</th>
                   <th className="py-2.5 px-3">
-                    <span className="text-indigo-900 block font-bold">कार्टन तुलना (CTN)</span>
+                    <span className="text-indigo-900 block font-bold">Carton Comparison (CTN)</span>
                     <span className="text-[10px] text-slate-500 font-normal">Rec vs Load (Diff)</span>
                   </th>
                   <th className="py-2.5 px-3">
-                    <span className="text-purple-900 block font-bold">CBM तुलना (m³)</span>
+                    <span className="text-purple-900 block font-bold">CBM Comparison (m³)</span>
                     <span className="text-[10px] text-slate-500 font-normal">Rec vs Load (Diff)</span>
                   </th>
                   <th className="py-2.5 px-3">
-                    <span className="text-teal-900 block font-bold">वेट तुलना (KG)</span>
+                    <span className="text-teal-900 block font-bold">Weight Comparison (KG)</span>
                     <span className="text-[10px] text-slate-500 font-normal">Rec vs Load (Diff)</span>
                   </th>
-                  <th className="py-2.5 px-3">एक्सेप्शन कैटेगरी (Category)</th>
-                  <th className="py-2.5 px-3">विवरण (Discrepancy Summary)</th>
+                  <th className="py-2.5 px-3">Category</th>
+                  <th className="py-2.5 px-3">Discrepancy Summary</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">

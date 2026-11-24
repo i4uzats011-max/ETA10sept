@@ -253,7 +253,7 @@ export async function GET(req: NextRequest) {
       overallReceivedWeight = Number((overallReceivedWeight + receivedWeight).toFixed(2));
       overallLoadedWeight = Number((overallLoadedWeight + item.loadedWeight).toFixed(2));
 
-      // STRICT USER RULE: "जो फुली मैच है उसको नहीं, सिर्फ मिसमैच रिपोर्ट को दिखाया जाए।"
+      // STRICT USER RULE: Exclude fully matched items; display only mismatches in exception report.
       // If fully matched, count in matched stats but EXCLUDE from Exception Report items!
       if (evalResult.isFullyMatched) {
         cStats.matchedCount += 1;

@@ -47,13 +47,13 @@ export default function SalesLoginPage() {
 
     const cleanUsername = username.trim();
     if (!cleanUsername) {
-      setError('कृपया अपना यूजरनेम दर्ज करें (Username is mandatory)');
+      setError('Please enter your username');
       setIsLoading(false);
       return;
     }
 
     if (!password) {
-      setError('कृपया अपना पासवर्ड दर्ज करें (Password is mandatory)');
+      setError('Please enter your password');
       setIsLoading(false);
       return;
     }
@@ -71,12 +71,12 @@ export default function SalesLoginPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || 'लॉगिन विफल: यूजरनेम या पासवर्ड गलत है (Invalid username or password)');
+        throw new Error(data.error || 'Login failed: Invalid username or password');
       }
 
       // Check role policy: Super Admin cannot access Sales Head; must be sales_head, sales_person, or developer
       if (data.role === 'admin') {
-        throw new Error('सुपर एडमिन सेल्स पोर्टल में लॉगिन नहीं कर सकता। कृपया सेल्स हेड या एग्जीक्यूटिव अकाउंट से लॉगिन करें।');
+        throw new Error('Super Admin cannot access Sales Portal. Please log in with a Sales Head or Sales Executive account.');
       }
 
       // Persist session to native mobile device preferences
@@ -88,7 +88,7 @@ export default function SalesLoginPage() {
       router.push('/sales');
       router.refresh();
     } catch (err: any) {
-      setError(err.message || 'यूजरनेम या पासवर्ड गलत है (Invalid username or password)');
+      setError(err.message || 'Invalid username or password');
     } finally {
       setIsLoading(false);
     }
@@ -107,7 +107,7 @@ export default function SalesLoginPage() {
             <span className="font-black text-lg tracking-tight text-emerald-500">SALES</span>
           </div>
           <div className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-semibold mt-1">
-            <span>सेल्स हेड एवं एग्जीक्यूटिव लॉगिन पोर्टल</span>
+            <span>Sales Head &amp; Executive Portal</span>
           </div>
         </div>
 
@@ -116,7 +116,7 @@ export default function SalesLoginPage() {
           {loggedOutNotice && (
             <div className="p-3.5 rounded-2xl bg-emerald-950/70 border border-emerald-600/60 text-emerald-300 text-xs flex items-center space-x-2.5 animate-in fade-in">
               <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>सफलतापूर्वक लॉगआउट कर दिया गया है। आप नए यूजरनेम से लॉगिन कर सकते हैं। (Logged out successfully)</span>
+              <span>Logged out successfully. You can now log in with any account.</span>
             </div>
           )}
 
@@ -130,7 +130,7 @@ export default function SalesLoginPage() {
           {/* Username Input */}
           <div className="space-y-1.5">
             <label className="block text-xs font-bold uppercase tracking-wider text-slate-300">
-              यूजरनेम (Username) <span className="text-emerald-500 font-bold">*</span>
+              Username <span className="text-emerald-500 font-bold">*</span>
             </label>
             <div className="relative">
               <input
@@ -151,7 +151,7 @@ export default function SalesLoginPage() {
           {/* Password Input */}
           <div className="space-y-1.5">
             <label className="block text-xs font-bold uppercase tracking-wider text-slate-300">
-              पासवर्ड (Password) <span className="text-emerald-500 font-bold">*</span>
+              Password <span className="text-emerald-500 font-bold">*</span>
             </label>
             <div className="relative">
               <input
@@ -186,7 +186,7 @@ export default function SalesLoginPage() {
               <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
             ) : (
               <>
-                <span>सेल्स पोर्टल में लॉगिन करें</span>
+                <span>Log In to Sales Portal</span>
                 <ArrowRight className="w-4 h-4" />
               </>
             )}
@@ -194,12 +194,12 @@ export default function SalesLoginPage() {
 
           {/* Quick Switch to Unified Admin Login */}
           <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
-            <span>सुपर एडमिन या अन्य स्टाफ?</span>
+            <span>Super Admin or other Staff?</span>
             <Link
               href="/admin/login"
               className="text-emerald-400 hover:text-emerald-300 font-semibold transition flex items-center space-x-1"
             >
-              <span>एडमिन लॉगिन पर जाएं</span>
+              <span>Go to Admin Login</span>
               <span>→</span>
             </Link>
           </div>

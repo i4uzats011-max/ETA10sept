@@ -768,7 +768,7 @@ export default function AdminDashboardPage() {
 
     let effectiveDeliveryDate = manualDeliveryDate.trim();
     if (manualStatusInput.toLowerCase().includes('deliver') && !effectiveDeliveryDate) {
-      const entered = prompt('Container is marked as Delivered. Please enter the Delivery Date (डिलीवरी तारीख दर्ज करें) (YYYY-MM-DD):', new Date().toISOString().slice(0, 10));
+      const entered = prompt('Container is marked as Delivered. Please enter the Delivery Date (YYYY-MM-DD):', new Date().toISOString().slice(0, 10));
       if (!entered || !entered.trim()) {
         setManualEtaStatus({ type: 'error', message: 'Delivery Date is mandatory when marking container as Delivered.' });
         return;
@@ -1358,14 +1358,14 @@ export default function AdminDashboardPage() {
               href="/biller"
               className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold border border-amber-300 transition flex items-center space-x-1"
             >
-              <span>Biller (बिलर)</span>
+              <span>Biller</span>
             </Link>
 
             <Link
               href="/dispatcher"
               className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-300 transition flex items-center space-x-1"
             >
-              <span>Dispatcher (डिस्पैचर)</span>
+              <span>Dispatcher</span>
             </Link>
 
             {/* Sales Head Portal is restricted: ONLY Developer Admin can access */}
@@ -1376,7 +1376,7 @@ export default function AdminDashboardPage() {
                 title="Sales Head and Sales Team Portal (Developer Admin Only)"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5 text-purple-600" />
-                <span>Sales Portal (सेल्स हेड)</span>
+                <span>Sales Portal</span>
               </Link>
             )}
 
@@ -1764,7 +1764,7 @@ export default function AdminDashboardPage() {
                 </div>
                 <div>
                   <h2 className="font-black text-slate-900 text-lg sm:text-xl">
-                    Manual ETA &amp; Container Control (मैन्युअल ETA व कंटेनर नियंत्रण)
+                    Manual ETA &amp; Container Control
                   </h2>
                   <p className="text-xs text-slate-500">
                     Set destination port, actual vessel ETA, and manual grace delivery date. Zero API calls consumed.
@@ -1874,7 +1874,7 @@ export default function AdminDashboardPage() {
                     }`}
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    <span>+ Enter New Container (नया कंटेनर)</span>
+                    <span>+ Enter New Container</span>
                   </button>
                 </div>
 
@@ -1884,7 +1884,7 @@ export default function AdminDashboardPage() {
                     <div ref={containerSearchRef} className="relative">
                       <div className="flex items-center justify-between mb-1.5">
                         <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                          Select Container Alias * (कंटेनर सर्च करें)
+                          Select Container Alias *
                         </label>
                         <span className="text-[11px] font-medium text-slate-500">
                           {allSearchableContainers.length} containers in list
@@ -2198,7 +2198,7 @@ export default function AdminDashboardPage() {
                           <div className="p-3.5 bg-amber-50/70 border border-amber-300 rounded-xl space-y-2.5 animate-fadeIn">
                             <div className="text-xs font-bold text-amber-950 flex items-center space-x-1.5">
                               <Edit className="w-3.5 h-3.5 text-amber-700" />
-                              <span>Correct Container Details (कंटेनर नंबर सही करें)</span>
+                              <span>Correct Container Details</span>
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                               <div>
@@ -2251,7 +2251,7 @@ export default function AdminDashboardPage() {
                   <div className="p-4 bg-blue-50/60 rounded-xl border border-blue-200 space-y-3 animate-fadeIn">
                     <div className="text-xs font-bold text-blue-950 flex items-center space-x-1.5">
                       <Boxes className="w-4 h-4 text-blue-700" />
-                      <span>Register New Container into Fleet (नया कंटेनर जोड़ें)</span>
+                      <span>Register New Container into Fleet</span>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div>
@@ -2315,7 +2315,7 @@ export default function AdminDashboardPage() {
                     type="text"
                     value={datePasteInput}
                     onChange={(e) => handleDatePaste(e.target.value)}
-                    placeholder="👉 Paste any date here... (उदा. 12-10-2026, 12 Oct 2026, 2026-10-12)"
+                    placeholder="👉 Paste any date here... (e.g. 12-10-2026, 12 Oct 2026, 2026-10-12)"
                     className="w-full px-4 py-2.5 rounded-xl border border-amber-300 text-xs font-bold text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-xs"
                   />
                   {datePasteInput && (
@@ -2349,7 +2349,7 @@ export default function AdminDashboardPage() {
                         type="button"
                         onClick={() => applyDetectedDate('actual')}
                         className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold shadow-xs transition"
-                        title="Set as Actual Port Arrival Date (एक्चुअल डेट)"
+                        title="Set as Actual Port Arrival Date"
                       >
                         👉 Set as Actual Port ETA
                       </button>
@@ -2357,7 +2357,7 @@ export default function AdminDashboardPage() {
                         type="button"
                         onClick={() => applyDetectedDate('grace')}
                         className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-bold shadow-xs transition"
-                        title="Set as Grace Delivery Date (मैन्युअल ग्रेस डेट)"
+                        title="Set as Grace Delivery Date"
                       >
                         👉 Set as Grace Delivery Date
                       </button>
@@ -2383,7 +2383,7 @@ export default function AdminDashboardPage() {
               <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
                 <div className="flex items-center justify-between">
                   <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider">
-                    Destination Port in India (कंटेनर कहां पहुंचेगा) *
+                    Destination Port in India *
                   </label>
                   <span className="text-[10px] text-slate-500">Port of Discharge / Arrival</span>
                 </div>
@@ -2427,12 +2427,12 @@ export default function AdminDashboardPage() {
 
               {/* ── SECTION 4: ARRIVAL DATES (ACTUAL PORT ARRIVAL vs MANUAL GRACE DATE) ── */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                {/* 1. ACTUAL DESTINATION PORT ARRIVAL DATE (एक्चुअल डेट) */}
+                {/* 1. ACTUAL DESTINATION PORT ARRIVAL DATE */}
                 <div className="bg-blue-50/70 p-5 rounded-2xl border-2 border-blue-200 space-y-2">
                   <div className="flex items-center justify-between">
                     <label className="block text-xs font-black text-blue-950 uppercase tracking-wider flex items-center space-x-1.5">
                       <Calendar className="w-4 h-4 text-blue-600" />
-                      <span>Actual Port Arrival Date (एक्चुअल डेट)</span>
+                      <span>Actual Port Arrival Date</span>
                     </label>
                     <span className="text-[10px] font-bold text-blue-800 bg-blue-100 px-2 py-0.5 rounded">
                       Carrier Raw ETA
@@ -2455,12 +2455,12 @@ export default function AdminDashboardPage() {
                   </p>
                 </div>
 
-                {/* 2. MANUAL GRACE DATE / FINAL CUSTOMER ETA (मैन्युअल ग्रेस डेट) */}
+                {/* 2. MANUAL GRACE DATE / FINAL CUSTOMER ETA */}
                 <div className="bg-amber-50/70 p-5 rounded-2xl border-2 border-amber-200 space-y-2">
                   <div className="flex items-center justify-between">
                     <label className="block text-xs font-black text-amber-950 uppercase tracking-wider flex items-center space-x-1.5">
                       <Calendar className="w-4 h-4 text-amber-600" />
-                      <span>Manual Grace Date (मैन्युअल ग्रेस डेट)</span>
+                      <span>Manual Grace Date</span>
                     </label>
                     <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded">
                       Customer Delivery ETA
@@ -2637,7 +2637,7 @@ export default function AdminDashboardPage() {
                   <div className="col-span-full bg-emerald-50 border-2 border-emerald-400 p-4 rounded-xl space-y-1.5 animate-fadeIn">
                     <label className="block text-xs font-black text-emerald-950 uppercase tracking-wider flex items-center space-x-1.5">
                       <Calendar className="w-4 h-4 text-emerald-600" />
-                      <span>Actual Delivery Date * (डिलीवरी तारीख दर्ज करें)</span>
+                      <span>Actual Delivery Date *</span>
                     </label>
                     <input
                       type="date"
@@ -2663,7 +2663,7 @@ export default function AdminDashboardPage() {
                     </div>
                     <div>
                       <h3 className="text-sm font-black text-slate-900 tracking-tight">
-                        Container Remarks &amp; Status Log (कंटेनर रिमार्क्स व स्टेटस लॉग)
+                        Container Remarks &amp; Status Log
                       </h3>
                       <p className="text-[11px] text-slate-500">
                         Record chronological status updates &amp; remarks over time for this container. Saved container-wise.
@@ -2718,7 +2718,7 @@ export default function AdminDashboardPage() {
                         <div className="flex items-center justify-between">
                           <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center space-x-1">
                             <Calendar className="w-3.5 h-3.5 text-slate-500" />
-                            <span>Record Date * (तारीख)</span>
+                            <span>Record Date *</span>
                           </label>
                           <button
                             type="button"
@@ -2740,7 +2740,7 @@ export default function AdminDashboardPage() {
                       <div className="md:col-span-6 space-y-1">
                         <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center space-x-1">
                           <MessageSquare className="w-3.5 h-3.5 text-slate-500" />
-                          <span>Container Status / Remarks * (स्टेटस व रिमार्क्स)</span>
+                          <span>Container Status / Remarks *</span>
                         </label>
                         <input
                           type="text"
@@ -2808,7 +2808,7 @@ export default function AdminDashboardPage() {
                       <div className="flex items-center justify-between text-xs font-bold text-slate-700">
                         <span className="flex items-center space-x-1.5">
                           <Clock className="w-3.5 h-3.5 text-slate-500" />
-                          <span>Container Remarks History (टाइमलाइन इतिहास)</span>
+                          <span>Container Remarks History</span>
                         </span>
                         <span className="text-[11px] font-normal text-slate-500">
                           {containerRemarks.length === 0 ? 'No entries' : `${containerRemarks.length} entries recorded`}

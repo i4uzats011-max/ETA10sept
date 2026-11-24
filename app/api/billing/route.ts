@@ -208,7 +208,7 @@ export async function POST(req: NextRequest) {
       const loadingDate = item.loadingDate || (shipment as any)?.loadingDate || '';
       const eta = item.eta || (shipment as any)?.eta || '';
 
-      const vehicleNumber = String(item.vehicleNumber || item['Vehicle Number'] || item['गाड़ी नंबर'] || '').trim();
+      const vehicleNumber = String(item.vehicleNumber || item['Vehicle Number'] || '').trim();
       const eWayBillNo = String(item.eWayBillNo || item['e-Way Bill No.'] || item['eWayBillNo'] || '').trim();
       const deliveryNote = String(item.deliveryNote || item['Delivery Note'] || '').trim();
       const modeOfPayment = String(item.modeOfPayment || item['Mode/Terms of Payment'] || '').trim();
@@ -229,7 +229,7 @@ export async function POST(req: NextRequest) {
         ],
       });
 
-      // Rule: Receipt No is Bill No (Receipt आधार पर बिल/इनवॉइस नंबर)
+      // Rule: Receipt No is Bill No (Receipt based bill / invoice number)
       let billNumber = '';
       if (item.billNumber && String(item.billNumber).trim()) {
         billNumber = String(item.billNumber).trim();
@@ -351,7 +351,7 @@ export async function POST(req: NextRequest) {
       if (!isConsigneeDelhi && totalAmount > 50000 && !eWayBillNo) {
         errors.push({
           receipt: rawReceipt,
-          error: `आउटसाइड दिल्ली (${consigneeState || buyerState || 'Other State'}) के लिए ₹50,000 से अधिक राशि (₹${totalAmount.toLocaleString('en-IN')}) के बिल के लिए E-Way Bill No. अनिवार्य है।`,
+          error: `E-Way Bill No. is mandatory for outside Delhi (${consigneeState || buyerState || 'Other State'}) bills above ₹50,000 (Current: ₹${totalAmount.toLocaleString('en-IN')}).`,
         });
         continue;
       }
@@ -359,7 +359,7 @@ export async function POST(req: NextRequest) {
       if (isConsigneeDelhi && totalAmount > 100000 && !eWayBillNo) {
         errors.push({
           receipt: rawReceipt,
-          error: `दिल्ली के भीतर (Intra-Delhi) ₹1,00,000 से अधिक राशि (₹${totalAmount.toLocaleString('en-IN')}) के बिल के लिए E-Way Bill No. अनिवार्य है।`,
+          error: `E-Way Bill No. is mandatory for Delhi local bills above ₹1,00,000 (Current: ₹${totalAmount.toLocaleString('en-IN')}).`,
         });
         continue;
       }

@@ -623,7 +623,7 @@ ${trackingLine}`;
           <div>
             <div className="flex items-center space-x-2">
               <h2 className="text-xl font-black text-slate-900 tracking-tight">
-                Item Arrival Notification (माल प्राप्ति पार्टी सूचना)
+                Item Arrival Notification
               </h2>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
                 WhatsApp Ready
@@ -701,7 +701,7 @@ ${trackingLine}`;
           <div className="md:col-span-4">
             <label className="block text-xs font-black text-slate-800 uppercase tracking-wider mb-1.5 flex items-center space-x-1.5">
               <Calendar className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Select Receipt Date (प्राप्ति तारीख चुनें) *</span>
+              <span>Select Receipt Date *</span>
             </label>
             <input
               type="date"
@@ -757,7 +757,7 @@ ${trackingLine}`;
                 <Warehouse className="w-4 h-4 text-emerald-600 shrink-0" />
                 <div>
                   <span className="text-xs font-black text-slate-900 uppercase tracking-wide">
-                    Include in Arrival Message (मैसेज में क्या शामिल करें):
+                    Include in Arrival Message:
                   </span>
                   <span className="text-[11px] text-slate-500 block sm:inline sm:ml-2">
                     Choose Warehouse value, Warehouse Entry value, or Both
@@ -828,7 +828,7 @@ ${trackingLine}`;
                 <div>
                   <div className="flex items-center space-x-2">
                     <span className="text-xs font-black text-slate-900 uppercase tracking-wide">
-                      Include Rate in SMS / Message (मैसेज में रेट जोड़ें)
+                      Include Rate in SMS / Message
                     </span>
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                       includeRateGlobal ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
@@ -1092,7 +1092,7 @@ ${trackingLine}`;
                       {/* Item Description */}
                       <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
                         <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
-                          Description (वस्तु विवरण)
+                          Description
                         </span>
                         <p className="text-xs font-bold text-slate-900">
                           {r.english || r.commodity || 'General Goods'}
@@ -1107,7 +1107,7 @@ ${trackingLine}`;
                         <div className="flex items-center justify-between">
                           <label className="text-[11px] font-black text-blue-950 uppercase flex items-center space-x-1.5">
                             <Hash className="w-3.5 h-3.5 text-blue-600" />
-                            <span>Warehouse Entry Record # (गोदाम प्रविष्टि संख्या)</span>
+                            <span>Warehouse Entry Record #</span>
                           </label>
                           {currentEntry && (
                             <span className="text-[10px] font-bold text-blue-800 bg-blue-100 px-2 py-0.2 rounded font-mono">
@@ -1159,7 +1159,7 @@ ${trackingLine}`;
                         <div className="flex items-center justify-between">
                           <label className="text-[11px] font-black text-amber-950 uppercase flex items-center space-x-1.5">
                             <Phone className="w-3.5 h-3.5 text-amber-600" />
-                            <span>Party Mobile / WhatsApp No. (Optional / ऐच्छिक)</span>
+                            <span>Party Mobile / WhatsApp No. (Optional)</span>
                           </label>
                           {r.phone && (
                             <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.2 rounded">
@@ -1211,7 +1211,7 @@ ${trackingLine}`;
                         <div className="flex items-center justify-between">
                           <label className="text-[11px] font-black text-emerald-950 uppercase flex items-center space-x-1.5">
                             <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>Freight Rate (सेल्स हेड द्वारा तय दर)</span>
+                            <span>Freight Rate (Rate set by Sales Head)</span>
                           </label>
                           <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200">
                             Auto-Included in Message
@@ -1239,11 +1239,11 @@ ${trackingLine}`;
                         <p className="text-[10px] text-emerald-800">
                           {includeRateGlobal && currentRate ? (
                             <>
-                              मैसेज में स्वतः <strong>Rate {currentRate}</strong> शामिल रहेगा। यह दर सेल्स हेड द्वारा पोर्टल में निर्धारित की गई है।
+                              The message will automatically include <strong>Rate {currentRate}</strong> as set by Sales Head.
                             </>
                           ) : (
                             <span className="text-slate-500 italic">
-                              सेल्स हेड द्वारा रेट निर्धारित करने पर यह मैसेज में स्वतः शामिल हो जाएगा।
+                              When Sales Head sets the rate, it will be automatically included in the message.
                             </span>
                           )}
                         </p>
@@ -1256,7 +1256,7 @@ ${trackingLine}`;
                         <div className="flex items-center justify-between mb-1.5">
                           <span className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center space-x-1.5">
                             <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>Party Message Preview (मैसेज प्रारूप)</span>
+                            <span>Party Message Preview</span>
                           </span>
                           <span className="text-[10px] text-slate-400 font-mono">WhatsApp Standard Format</span>
                         </div>

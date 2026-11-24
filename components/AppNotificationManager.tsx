@@ -188,7 +188,7 @@ export default function AppNotificationManager() {
               ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300 hover:bg-emerald-900/80'
               : 'bg-slate-900/80 border-slate-700/60 text-slate-400 hover:bg-slate-800'
           }`}
-          title="लाइव GPS लोकेशन ट्रैकिंग देखें"
+          title="View Live GPS Location Tracking"
         >
           <span className="relative flex h-2 w-2">
             <span
@@ -216,7 +216,7 @@ export default function AppNotificationManager() {
           type="button"
           onClick={() => setIsDrawerOpen(true)}
           className="relative p-2 bg-slate-900/80 hover:bg-slate-800 border border-slate-700/60 text-white rounded-full shadow-lg backdrop-blur-md transition-all active:scale-95"
-          title="नोटिफिकेशन सेंटर (Notification Center)"
+          title="Notification Center"
         >
           <Bell className="w-4 h-4 text-amber-400" />
           {unreadCount > 0 && (
@@ -237,10 +237,10 @@ export default function AppNotificationManager() {
               </div>
               <div>
                 <h4 className="font-bold text-xs text-emerald-300">
-                  📱 ऐप अनुमतियाँ (App Permissions Required)
+                  📱 App Permissions Required
                 </h4>
                 <p className="text-[11px] text-slate-300 mt-0.5">
-                  बेहतर डिलीवरी ट्रैकिंग व लाइव नोटिफिकेशन के लिए GPS व सूचना अनुमति चालू करें।
+                  Enable GPS and notification permissions for real-time delivery tracking and alerts.
                 </p>
               </div>
             </div>
@@ -274,7 +274,7 @@ export default function AppNotificationManager() {
               className="flex-1 py-2 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center justify-center space-x-1.5"
             >
               <ShieldCheck className="w-4 h-4" />
-              <span>अनुमतियाँ चालू करें (Allow Permissions)</span>
+              <span>Allow Permissions</span>
             </button>
           </div>
         </div>
@@ -321,9 +321,9 @@ export default function AppNotificationManager() {
                 </div>
                 <div>
                   <h3 className="font-black text-sm text-emerald-300">
-                    📍 लाइव GPS लोकेशन ट्रैकिंग (Live GPS Tracking)
+                    📍 Live GPS Tracking
                   </h3>
-                  <p className="text-[10px] text-slate-400">लगातार सक्रिय बैकग्राउंड लोकेशन ट्रैकिंग</p>
+                  <p className="text-[10px] text-slate-400">Continuous active background location tracking</p>
                 </div>
               </div>
               <button
@@ -339,27 +339,27 @@ export default function AppNotificationManager() {
               <div className="space-y-3">
                 <div className="p-3.5 bg-slate-950/80 rounded-2xl border border-slate-800 grid grid-cols-2 gap-3 text-xs">
                   <div>
-                    <span className="text-[10px] text-slate-400 block">Latitude (अक्षांश):</span>
+                    <span className="text-[10px] text-slate-400 block">Latitude:</span>
                     <span className="font-mono font-bold text-white text-sm">
                       {liveLocation.latitude.toFixed(6)}° N
                     </span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-slate-400 block">Longitude (देशांतर):</span>
+                    <span className="text-[10px] text-slate-400 block">Longitude:</span>
                     <span className="font-mono font-bold text-white text-sm">
                       {liveLocation.longitude?.toFixed(6)}° E
                     </span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-slate-400 block">GPS Accuracy (सटीकता):</span>
+                    <span className="text-[10px] text-slate-400 block">GPS Accuracy:</span>
                     <span className="font-mono font-bold text-emerald-400 text-xs">
-                      ±{liveLocation.accuracy ? Math.round(liveLocation.accuracy) : 5} मीटर (Meters)
+                      ±{liveLocation.accuracy ? Math.round(liveLocation.accuracy) : 5} Meters
                     </span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-slate-400 block">अंतिम अपडेट (Updated):</span>
+                    <span className="text-[10px] text-slate-400 block">Last Updated:</span>
                     <span className="font-mono font-bold text-cyan-300 text-xs">
-                      {liveLocation.updatedAt || 'सक्रिय'}
+                      {liveLocation.updatedAt || 'Active'}
                     </span>
                   </div>
                 </div>
@@ -372,7 +372,7 @@ export default function AppNotificationManager() {
                     className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold text-center flex items-center justify-center space-x-1.5 shadow"
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
-                    <span>Google Maps पर देखें</span>
+                    <span>View on Google Maps</span>
                   </a>
                   <button
                     type="button"
@@ -389,8 +389,8 @@ export default function AppNotificationManager() {
             ) : (
               <div className="p-6 text-center text-xs text-slate-400 space-y-2">
                 <div className="inline-block w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-                <p>GPS सिग्नल खोजा जा रहा है...</p>
-                <p className="text-[10px] text-slate-500">सुनिश्चित करें कि फोन की लोकेशन / GPS सर्विस चालू है।</p>
+                <p>Searching for GPS signal...</p>
+                <p className="text-[10px] text-slate-500">Ensure device location / GPS service is turned on.</p>
               </div>
             )}
           </div>
@@ -405,7 +405,7 @@ export default function AppNotificationManager() {
             <div className="p-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <Bell className="w-5 h-5 text-amber-400" />
-                <h3 className="font-black text-sm text-white">नोटिफिकेशन सेंटर (Notifications)</h3>
+                <h3 className="font-black text-sm text-white">Notification Center</h3>
                 {unreadCount > 0 && (
                   <span className="px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 font-bold text-[10px]">
                     {unreadCount} New
@@ -429,7 +429,7 @@ export default function AppNotificationManager() {
                 className="px-2.5 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-xl text-[11px] font-bold flex items-center space-x-1"
               >
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>🔔 टेस्ट नोटिफिकेशन भेजें</span>
+                <span>🔔 Send Test Notification</span>
               </button>
               <div className="flex items-center space-x-2">
                 <button
@@ -440,7 +440,7 @@ export default function AppNotificationManager() {
                       ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
                       : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                   }`}
-                  title={isMuted ? 'ध्वनि चालू करें' : 'म्यूट करें'}
+                  title={isMuted ? 'Unmute Sound' : 'Mute Sound'}
                 >
                   {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
                   <span className="text-[10px]">{isMuted ? 'Muted' : 'Sound ON'}</span>
@@ -450,7 +450,7 @@ export default function AppNotificationManager() {
                     type="button"
                     onClick={handleClearHistory}
                     className="p-1.5 bg-slate-800 hover:bg-red-500/20 text-slate-400 hover:text-red-400 rounded-lg transition"
-                    title="सभी नोटिफिकेशन साफ़ करें"
+                    title="Clear All Notifications"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -463,9 +463,9 @@ export default function AppNotificationManager() {
               {notificationHistory.length === 0 ? (
                 <div className="py-16 text-center text-slate-500 text-xs space-y-2">
                   <Bell className="w-8 h-8 mx-auto opacity-30 text-slate-400" />
-                  <p>कोई नया नोटिफिकेशन नहीं है।</p>
+                  <p>No new notifications.</p>
                   <p className="text-[11px] text-slate-600">
-                    'टेस्ट नोटिफिकेशन भेजें' पर क्लिक करके आवाज़ और सिस्टम अलर्ट जाँचें।
+                    Click 'Send Test Notification' to verify alerts and sound.
                   </p>
                 </div>
               ) : (
@@ -486,7 +486,7 @@ export default function AppNotificationManager() {
 
             {/* Tone Selector Footer */}
             <div className="p-3 bg-slate-950 border-t border-slate-800 text-xs">
-              <span className="text-[10px] text-slate-400 block mb-1.5 font-bold">रिंगटोन टोन (Ringtone Tone):</span>
+              <span className="text-[10px] text-slate-400 block mb-1.5 font-bold">Ringtone Tone:</span>
               <div className="grid grid-cols-3 gap-1">
                 {NOTIFICATION_TONES.slice(0, 3).map((t) => (
                   <button

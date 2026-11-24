@@ -151,7 +151,7 @@ export default function SalesDatePickerCalendar({
     <div className="relative" ref={containerRef}>
       <div className="flex items-center justify-between mb-1">
         <label className="text-[11px] font-bold text-slate-700">
-          Select Date(s) (कैलेंडर मल्टी-सेलेक्ट) *
+          Select Date(s) (Calendar Multi-Select) *
         </label>
         {selectedDates.length > 0 && (
           <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded font-mono">
