@@ -379,6 +379,7 @@ export default function SalesPortalPage() {
       'Container No.': r.container || 'Not Loaded',
       'Container Carrier No.': r.containerNumber || '',
       'Date of Loading': r.loadingDate || '',
+      'ETA': r.eta || 'Pending',
       'Main Marka': r.mainMarka || '',
       'Sub Marka': r.subMarka || '',
       'Item Name': r.commodity || '',
@@ -387,7 +388,14 @@ export default function SalesPortalPage() {
       'KGS/CBM': (() => {
         const w = parseMetricNumber(r.weight);
         const v = parseMetricNumber(r.volume);
-        return v > 0 && w > 0 ? (w / v).toFixed(2) : '—';
+        if (v <= 0 || w <= 0) return '—';
+        const ratio = w / v;
+        return ratio > 200 ? `${ratio.toFixed(2)} [HEAVY]` : ratio.toFixed(2);
+      })(),
+      'Heavy Item (>200)': (() => {
+        const w = parseMetricNumber(r.weight);
+        const v = parseMetricNumber(r.volume);
+        return v > 0 && w / v > 200 ? 'YES (HEAVY)' : 'NO';
       })(),
       'CTN': r.quantity || 0,
       'Rate': r.rate || '',
@@ -649,17 +657,27 @@ export default function SalesPortalPage() {
             </Link>
           )}
 
-          {/* User & Logout */}
-          <div className="flex items-center space-x-2 pl-2 border-l border-slate-700 text-xs">
-            <span className="text-slate-300 font-medium">
-              {currentUser?.name || currentUser?.username}
-            </span>
+          {/* User & Confirmed Logout Button */}
+          <div className="flex items-center space-x-2.5 pl-2.5 border-l border-slate-700 text-xs">
+            <div className="flex flex-col text-right">
+              <span className="text-slate-200 font-semibold leading-tight">
+                {currentUser?.name || currentUser?.username}
+              </span>
+              <span className="text-[10px] text-emerald-400 font-mono">
+                {currentUser?.role === 'sales_head'
+                  ? 'Sales Head'
+                  : currentUser?.role === 'developer'
+                  ? 'Developer Admin'
+                  : 'Sales Executive'}
+              </span>
+            </div>
             <button
-              onClick={handleLogout}
-              className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded transition"
-              title="Logout"
+              onClick={() => setShowLogoutConfirm(true)}
+              className="px-2.5 py-1.5 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 hover:border-rose-600 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 shadow-xs"
+              title="Logout from Sales Portal"
             >
-              <LogOut className="w-4 h-4" />
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Logout</span>
             </button>
           </div>
         </div>
@@ -944,6 +962,9 @@ export default function SalesPortalPage() {
                         <th className="py-2.5 px-3 border-r border-emerald-800">Warehouse</th>
                         <th className="py-2.5 px-3 border-r border-emerald-800">Container No.</th>
                         <th className="py-2.5 px-3 border-r border-emerald-800">Loading Date</th>
+                        <th className="py-2.5 px-3 border-r border-emerald-800 whitespace-nowrap bg-[#0d452b] text-emerald-200">
+                          ETA
+                        </th>
                         <th className="py-2.5 px-3 border-r border-emerald-800">Marks (Marka)</th>
                         <th className="py-2.5 px-3 border-r border-emerald-800 min-w-[160px]">Item Name</th>
                         <th className="py-2.5 px-3 border-r border-emerald-800 text-right">CBM</th>
@@ -1028,8 +1049,17 @@ export default function SalesPortalPage() {
                             </td>
 
                             {/* Date of Loading */}
-                            <td className="py-2 px-3 border-r border-slate-200 text-slate-600 whitespace-nowrap">
+                            <td className="py-2 px-3 border-r border-slate-200 text-slate-600 whitespace-nowrap font-mono text-[11px]">
                               {row.loadingDate || '-'}
+                            </td>
+
+                            {/* ETA (Estimated Time of Arrival) */}
+                            <td className="py-2 px-3 border-r border-slate-200 text-emerald-800 font-mono font-semibold whitespace-nowrap text-[11px] bg-emerald-50/20">
+                              {row.eta && row.eta !== 'N/A' && row.eta !== 'Pending' ? (
+                                <span>{row.eta}</span>
+                              ) : (
+                                <span className="text-slate-400 italic text-[10px]">Pending</span>
+                              )}
                             </td>
 
                             {/* Marks */}
@@ -1055,15 +1085,38 @@ export default function SalesPortalPage() {
                               {row.weight || '0'}
                             </td>
 
-                            {/* KGS/CBM */}
-                            <td className="py-2 px-3 border-r border-slate-200 text-right font-mono font-bold text-slate-900 bg-amber-50/20 whitespace-nowrap">
+                            {/* KGS/CBM (Marked in RED if > 200 KGS/CBM Heavy Item) */}
+                            <td className={`py-2 px-3 border-r border-slate-200 text-right font-mono font-bold whitespace-nowrap ${
+                              (() => {
+                                const w = parseMetricNumber(row.weight);
+                                const v = parseMetricNumber(row.volume);
+                                return v > 0 && w / v > 200 ? 'bg-red-50 text-red-700' : 'bg-amber-50/20 text-slate-900';
+                              })()
+                            }`}>
                               {(() => {
                                 const w = parseMetricNumber(row.weight);
                                 const v = parseMetricNumber(row.volume);
                                 if (v <= 0 || w <= 0) return <span className="text-slate-400 font-normal">—</span>;
+                                const ratio = w / v;
+                                const isHeavy = ratio > 200;
+
+                                if (isHeavy) {
+                                  return (
+                                    <span
+                                      className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-red-100 text-red-700 border border-red-300 font-black shadow-2xs"
+                                      title={`Heavy Cargo (>200 KG/CBM): ${w} kg ÷ ${v} m³ = ${ratio.toFixed(1)} KGS/CBM`}
+                                    >
+                                      <span className="text-red-700 font-extrabold">{ratio.toFixed(1)}</span>
+                                      <span className="text-[9px] bg-red-600 text-white font-black px-1 py-0.2 rounded uppercase tracking-wider">
+                                        HEAVY
+                                      </span>
+                                    </span>
+                                  );
+                                }
+
                                 return (
-                                  <span className="text-amber-900 font-semibold" title={`${w} kg ÷ ${v} m³`}>
-                                    {(w / v).toFixed(1)}
+                                  <span className="text-slate-900 font-semibold" title={`${w} kg ÷ ${v} m³`}>
+                                    {ratio.toFixed(1)}
                                   </span>
                                 );
                               })()}
@@ -1341,6 +1394,42 @@ export default function SalesPortalPage() {
         }}
         receiptData={holdTarget}
       />
+
+      {/* LOGOUT CONFIRMATION MODAL */}
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150">
+            <div className="p-5 text-center space-y-3">
+              <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto shadow-inner">
+                <LogOut className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">लॉगआउट की पुष्टि करें (Confirm Logout)</h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  क्या आप वाकई सेल्स पोर्टल से लॉगआउट करना चाहते हैं, <strong>{currentUser?.name || currentUser?.username}</strong>?
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowLogoutConfirm(false)}
+                  className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition"
+                >
+                  रद्द करें (Cancel)
+                </button>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="w-full py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center justify-center space-x-1"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>हाँ, लॉगआउट करें</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

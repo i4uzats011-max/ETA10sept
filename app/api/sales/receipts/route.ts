@@ -167,15 +167,27 @@ export async function GET(req: NextRequest) {
       const mappedShipments = await Shipment.find({
         receipt: { $in: receiptNums },
       })
-        .select('receipt container containerNumber loadingDate salesRate salesPerson salesRemarks salesStatus holdReason salesDiscrepancy')
+        .select('receipt container containerNumber loadingDate destinationDate eta salesRate salesPerson salesRemarks salesStatus holdReason salesDiscrepancy')
         .lean();
+
+      const containerAliases = Array.from(new Set(mappedShipments.map((s: any) => s.container).filter(Boolean)));
+      const containerDocs = await Container.find({
+        container: { $in: containerAliases },
+      }).select('container containerNumber loadingDate destinationDate eta').lean();
+
+      const cDocMap = new Map<string, any>();
+      containerDocs.forEach((cd: any) => {
+        if (cd.container) cDocMap.set(cd.container.toLowerCase(), cd);
+      });
 
       mappedShipments.forEach((s: any) => {
         if (s.receipt) {
+          const cd = s.container ? cDocMap.get(s.container.toLowerCase()) : null;
           containerInfoMap.set(s.receipt, {
             container: s.container || '',
-            containerNumber: s.containerNumber || '',
-            loadingDate: s.loadingDate || '',
+            containerNumber: s.containerNumber || cd?.containerNumber || '',
+            loadingDate: s.loadingDate || cd?.loadingDate || '',
+            eta: s.destinationDate || s.eta || cd?.destinationDate || cd?.eta || '',
           });
         }
       });
@@ -190,6 +202,7 @@ export async function GET(req: NextRequest) {
           container: cInfo?.container || '',
           containerNumber: cInfo?.containerNumber || '',
           loadingDate: cInfo?.loadingDate || '',
+          eta: cInfo?.eta || '',
           mainMarka: r.mainMarka || '',
           subMarka: r.subMarka || '',
           commodity: r.english || r.commodity || '',
