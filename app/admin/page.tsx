@@ -27,6 +27,7 @@ import BulkContainerUpdateModal from '@/components/BulkContainerUpdateModal';
 import { getCarrierTrackingUrl, getLdbRailwayTrackingUrl } from '@/lib/trackingUrls';
 import { downloadContainerWiseRateExcel, downloadReceiptWiseRateExcel } from '@/lib/containerRateExport';
 import { ReduxProvider } from '@/store/ReduxProvider';
+import { clearMobileSession } from '@/lib/mobileBridge';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -417,7 +418,10 @@ export default function AdminDashboardPage() {
     fetch('/api/auth/me')
       .then((res) => {
         if (!res.ok) {
-          router.push('/admin/login');
+          try {
+      await clearMobileSession();
+    } catch {}
+    window.location.href = '/admin/login?logged_out=true';
         } else {
           return res.json();
         }
@@ -446,7 +450,10 @@ export default function AdminDashboardPage() {
         }
       })
       .catch(() => {
-        router.push('/admin/login');
+        try {
+      await clearMobileSession();
+    } catch {}
+    window.location.href = '/admin/login?logged_out=true';
       });
   }, [router]);
 
@@ -1183,7 +1190,10 @@ export default function AdminDashboardPage() {
   // Logout
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
-    router.push('/admin/login');
+    try {
+      await clearMobileSession();
+    } catch {}
+    window.location.href = '/admin/login?logged_out=true';
   };
 
   const filteredContainerFleet = useMemo(() => {

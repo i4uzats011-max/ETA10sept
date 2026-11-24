@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Lock, ShieldAlert, Ship, User, Eye, EyeOff } from 'lucide-react';
-import { saveMobileSession, getSavedMobileSession } from '@/lib/mobileBridge';
+import { saveMobileSession, getSavedMobileSession, clearMobileSession } from '@/lib/mobileBridge';
 
 export default function AdminLoginPage() {
   const [username, setUsername] = useState('');
@@ -17,6 +17,17 @@ export default function AdminLoginPage() {
   // Auto-restore persistent mobile session
   useEffect(() => {
     let isMounted = true;
+    if (typeof window !== 'undefined') {
+      const search = new URLSearchParams(window.location.search);
+      if (search.get('logged_out') === 'true' || search.get('logout') === 'true') {
+        clearMobileSession();
+        return;
+      }
+      if (sessionStorage.getItem('user_logged_out') === 'true') {
+        return;
+      }
+    }
+
     getSavedMobileSession().then((sess) => {
       if (isMounted && sess.token && sess.role) {
         if (sess.role === 'sales_head' || sess.role === 'sales_person') {

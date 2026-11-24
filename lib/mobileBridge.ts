@@ -21,6 +21,7 @@ export async function saveMobileSession(token: string, role: string, user: any) 
 
     // 2. LocalStorage backup
     if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('user_logged_out');
       localStorage.setItem(AUTH_TOKEN_KEY, token);
       localStorage.setItem(USER_ROLE_KEY, role);
       localStorage.setItem(USER_INFO_KEY, JSON.stringify(user));
@@ -30,6 +31,7 @@ export async function saveMobileSession(token: string, role: string, user: any) 
   } catch (err) {
     console.warn('Preferences storage note:', err);
     if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('user_logged_out');
       localStorage.setItem(AUTH_TOKEN_KEY, token);
       localStorage.setItem(USER_ROLE_KEY, role);
       localStorage.setItem(USER_INFO_KEY, JSON.stringify(user));
@@ -42,6 +44,13 @@ export async function saveMobileSession(token: string, role: string, user: any) 
  */
 export async function getSavedMobileSession(): Promise<{ token: string | null; role: string | null; user: any | null }> {
   try {
+    // If the user deliberately logged out in this session, never auto-restore!
+    if (typeof window !== 'undefined') {
+      if (sessionStorage.getItem('user_logged_out') === 'true') {
+        return { token: null, role: null, user: null };
+      }
+    }
+
     let token: string | null = null;
     let role: string | null = null;
     let user: any = null;
@@ -82,14 +91,29 @@ export async function getSavedMobileSession(): Promise<{ token: string | null; r
  */
 export async function clearMobileSession() {
   try {
-    await Preferences.remove({ key: AUTH_TOKEN_KEY });
-    await Preferences.remove({ key: USER_ROLE_KEY });
-    await Preferences.remove({ key: USER_INFO_KEY });
+    try {
+      await Preferences.remove({ key: AUTH_TOKEN_KEY });
+      await Preferences.remove({ key: USER_ROLE_KEY });
+      await Preferences.remove({ key: USER_INFO_KEY });
+    } catch {}
+
     if (typeof window !== 'undefined') {
-      localStorage.removeItem(AUTH_TOKEN_KEY);
-      localStorage.removeItem(USER_ROLE_KEY);
-      localStorage.removeItem(USER_INFO_KEY);
-      document.cookie = 'admin_token=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+      try {
+        localStorage.removeItem(AUTH_TOKEN_KEY);
+        localStorage.removeItem(USER_ROLE_KEY);
+        localStorage.removeItem(USER_INFO_KEY);
+        localStorage.clear();
+      } catch {}
+
+      try {
+        sessionStorage.clear();
+        sessionStorage.setItem('user_logged_out', 'true');
+      } catch {}
+
+      const past = 'Thu, 01 Jan 1970 00:00:00 GMT';
+      document.cookie = `admin_token=; path=/; expires=${past}; max-age=0; SameSite=Lax`;
+      document.cookie = `admin_token=; path=/; expires=${past}; max-age=0`;
+      document.cookie = `admin_token=; expires=${past}; max-age=0`;
     }
   } catch (err) {
     console.warn('Error clearing preferences:', err);

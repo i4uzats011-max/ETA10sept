@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Lock, ShieldAlert, Ship, User, Eye, EyeOff, Briefcase, ArrowRight, CheckCircle2 } from 'lucide-react';
-import { saveMobileSession, getSavedMobileSession } from '@/lib/mobileBridge';
+import { Lock, ShieldAlert, Ship, User, Eye, EyeOff, Briefcase, ArrowRight, CheckCircle2, RotateCcw } from 'lucide-react';
+import { saveMobileSession, getSavedMobileSession, clearMobileSession } from '@/lib/mobileBridge';
 
 export default function SalesLoginPage() {
   const [username, setUsername] = useState('');
@@ -12,11 +12,24 @@ export default function SalesLoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loggedOutNotice, setLoggedOutNotice] = useState(false);
   const router = useRouter();
 
-  // Auto-restore persistent mobile session if already logged in as sales
+  // Handle logout flag & auto-restore persistent mobile session
   useEffect(() => {
     let isMounted = true;
+    if (typeof window !== 'undefined') {
+      const search = new URLSearchParams(window.location.search);
+      if (search.get('logged_out') === 'true' || search.get('logout') === 'true') {
+        clearMobileSession();
+        setLoggedOutNotice(true);
+        return;
+      }
+      if (sessionStorage.getItem('user_logged_out') === 'true') {
+        return;
+      }
+    }
+
     getSavedMobileSession().then((sess) => {
       if (isMounted && sess.token && sess.role) {
         if (sess.role === 'sales_head' || sess.role === 'sales_person' || sess.role === 'developer') {
@@ -100,6 +113,13 @@ export default function SalesLoginPage() {
 
         {/* Form */}
         <form onSubmit={handleLogin} className="p-7 space-y-4">
+          {loggedOutNotice && (
+            <div className="p-3.5 rounded-2xl bg-emerald-950/70 border border-emerald-600/60 text-emerald-300 text-xs flex items-center space-x-2.5 animate-in fade-in">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>सफलतापूर्वक लॉगआउट कर दिया गया है। आप नए यूजरनेम से लॉगिन कर सकते हैं। (Logged out successfully)</span>
+            </div>
+          )}
+
           {error && (
             <div className="p-3.5 rounded-2xl bg-rose-950/60 border border-rose-800 text-rose-300 text-xs flex items-start space-x-2.5 animate-in fade-in">
               <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />

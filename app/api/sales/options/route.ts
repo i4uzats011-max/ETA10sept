@@ -33,14 +33,20 @@ export async function GET(req: NextRequest) {
       .filter((d: any) => typeof d === 'string' && d.trim().length > 0)
       .sort((a: string, b: string) => b.localeCompare(a)); // Newest first
 
-    // 3. Fetch available containers / loading plans
+    // 3. Fetch available containers / loading plans with full logistics metadata
     const containers = await Container.find({})
-      .select('container containerNumber loadingDate warehouse planStatus totalQuantity')
+      .select('container containerNumber loadingDate warehouse planStatus status totalQuantity totalVolume totalWeight destinationDate eta shippedTo shippedFrom portDate rawEta etaUpdatedAt updatedAt lastApiSync')
       .sort({ createdAt: -1 })
-      .limit(200)
+      .limit(300)
       .lean();
 
-    // 4. Fetch sales team members for dropdown
+    // 4. Fetch distinct markas for fast search suggestions
+    const rawMarkas = await WarehouseReceipt.distinct('mainMarka');
+    const markas = (rawMarkas || [])
+      .filter((m: any) => typeof m === 'string' && m.trim().length > 0)
+      .sort();
+
+    // 5. Fetch sales team members for dropdown
     const salesTeam = await User.find({ role: 'sales_person', isActive: true })
       .select('username name phone')
       .lean();
@@ -49,13 +55,24 @@ export async function GET(req: NextRequest) {
       success: true,
       warehouses: warehouses.length > 0 ? warehouses : ['Guangzhou', 'Yiwu', 'Ningbo', 'Shenzhen', 'Foshan'],
       dates,
+      markas,
       containers: containers.map((c: any) => ({
         container: c.container,
         containerNumber: c.containerNumber || '',
         loadingDate: c.loadingDate || '',
         warehouse: c.warehouse || '',
-        planStatus: c.planStatus || '',
+        planStatus: c.planStatus || c.status || '',
         totalQuantity: c.totalQuantity || 0,
+        totalVolume: c.totalVolume || '',
+        totalWeight: c.totalWeight || '',
+        eta: c.destinationDate || c.eta || '',
+        portName: c.shippedTo || c.shippedFrom || '',
+        portDate: c.portDate || c.rawEta || '',
+        lastUpdate: c.etaUpdatedAt
+          ? new Date(c.etaUpdatedAt).toISOString().split('T')[0]
+          : c.updatedAt
+          ? new Date(c.updatedAt).toISOString().split('T')[0]
+          : '',
       })),
       salesTeam: salesTeam.map((u: any) => ({
         username: u.username,

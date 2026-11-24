@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { clearMobileSession } from '@/lib/mobileBridge';
 import Link from 'next/link';
 import * as XLSX from 'xlsx';
 import {
@@ -3684,7 +3685,10 @@ export default function BillerPortalPage() {
   // Handle Logout
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
-    router.push('/admin/login');
+    try {
+      await clearMobileSession();
+    } catch {}
+    window.location.href = '/admin/login?logged_out=true';
   };
 
   return (

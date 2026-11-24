@@ -154,8 +154,17 @@ export async function GET(req: NextRequest) {
       }
 
       if (markaSearch) {
-        const markaRegex = new RegExp(markaSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-        query.$or = [{ mainMarka: markaRegex }, { subMarka: markaRegex }, { party: markaRegex }];
+        const markas = markaSearch.split(/[,+]/).map((m) => m.trim()).filter(Boolean);
+        if (markas.length > 1) {
+          const markaOr = markas.flatMap((m) => {
+            const regex = new RegExp(m.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+            return [{ mainMarka: regex }, { subMarka: regex }, { party: regex }];
+          });
+          query.$or = markaOr;
+        } else {
+          const markaRegex = new RegExp(markaSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+          query.$or = [{ mainMarka: markaRegex }, { subMarka: markaRegex }, { party: markaRegex }];
+        }
       }
 
       const receipts = await WarehouseReceipt.find(query)

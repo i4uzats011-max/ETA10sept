@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { clearMobileSession } from '@/lib/mobileBridge';
 import Link from 'next/link';
 import * as XLSX from 'xlsx';
 import { toJpeg } from 'html-to-image';
@@ -1329,8 +1330,13 @@ export default function InternalEmployeeViewPage() {
   };
 
   const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    router.push('/admin/login');
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch {}
+    try {
+      await clearMobileSession();
+    } catch {}
+    window.location.href = '/admin/login?logged_out=true';
   };
 
   if (isAuthenticated === null) {

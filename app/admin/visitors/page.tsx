@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { clearMobileSession } from '@/lib/mobileBridge';
 import Link from 'next/link';
 import {
   Smartphone,
@@ -461,8 +462,13 @@ export default function VisitorLogsPage() {
             {/* Logout */}
             <button
               onClick={async () => {
-                await fetch('/api/auth/logout', { method: 'POST' });
-                router.push('/admin/visitors/login');
+                try {
+                  await fetch('/api/auth/logout', { method: 'POST' });
+                } catch {}
+                try {
+                  await clearMobileSession();
+                } catch {}
+                window.location.href = '/admin/visitors/login?logged_out=true';
               }}
               className="p-1.5 rounded-xl bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-400 hover:text-red-400 transition"
               title="Sign Out"

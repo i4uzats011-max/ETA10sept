@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { clearMobileSession } from '@/lib/mobileBridge';
 import Link from 'next/link';
 import {
   Truck,
@@ -796,8 +797,13 @@ export default function DispatcherPortalPage() {
   }, [bills, searchQuery]);
 
   const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    router.push('/admin/login');
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch {}
+    try {
+      await clearMobileSession();
+    } catch {}
+    window.location.href = '/admin/login?logged_out=true';
   };
 
   return (

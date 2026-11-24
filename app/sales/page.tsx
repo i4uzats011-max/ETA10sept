@@ -40,6 +40,7 @@ import SalesDatePickerCalendar from '@/components/SalesDatePickerCalendar';
 import SearchableContainerSelect from '@/components/SearchableContainerSelect';
 import SalesExceptionReport from '@/components/SalesExceptionReport';
 import { parseMetricNumber } from '@/lib/metricUtils';
+import { clearMobileSession } from '@/lib/mobileBridge';
 
 export default function SalesPortalPage() {
   const router = useRouter();
@@ -71,6 +72,9 @@ export default function SalesPortalPage() {
   const [dates, setDates] = useState<string[]>([]);
   const [containers, setContainers] = useState<any[]>([]);
   const [salesTeam, setSalesTeam] = useState<any[]>([]);
+  const [markas, setMarkas] = useState<string[]>([]);
+  const [containerSearch, setContainerSearch] = useState('');
+  const [containerViewMode, setContainerViewMode] = useState<'directory' | 'sheet'>('directory');
   const [loadingOptions, setLoadingOptions] = useState(true);
 
   // Grid Data (Loaded On Demand ONLY)
@@ -206,6 +210,7 @@ export default function SalesPortalPage() {
         }
         setDates(data.dates || []);
         setContainers(data.containers || []);
+        if (data.markas) setMarkas(data.markas || []);
         setSalesTeam(data.salesTeam || []);
       }
     } catch (e) {
@@ -296,7 +301,45 @@ export default function SalesPortalPage() {
   const handleContainersChange = (newContainers: string[]) => {
     setSelectedContainers(newContainers);
     if (newContainers.length > 0) {
+      setContainerViewMode('sheet');
       executeLoadData('container', undefined, newContainers, undefined);
+    } else {
+      setReceipts([]);
+      setHasLoadedOnce(false);
+      setContainerViewMode('directory');
+    }
+  };
+
+  const handleSelectContainerRow = (cName: string) => {
+    const isSelected = selectedContainers.includes(cName);
+    let next: string[];
+    if (isSelected) {
+      next = selectedContainers.filter((c) => c !== cName);
+    } else {
+      next = [...selectedContainers, cName];
+    }
+    handleContainersChange(next);
+  };
+
+  const handleOpenSingleContainer = (cName: string) => {
+    handleContainersChange([cName]);
+  };
+
+  const handleToggleMarka = (mName: string) => {
+    const currentList = markaQuery.split(/[,+]/).map((m) => m.trim()).filter(Boolean);
+    let nextList: string[];
+    if (currentList.includes(mName)) {
+      nextList = currentList.filter((m) => m !== mName);
+    } else {
+      nextList = [...currentList, mName];
+    }
+    const nextQuery = nextList.join(', ');
+    setMarkaQuery(nextQuery);
+    if (nextList.length > 0) {
+      executeLoadData('marka', undefined, undefined, nextQuery);
+    } else {
+      setReceipts([]);
+      setHasLoadedOnce(false);
     }
   };
 
@@ -363,8 +406,23 @@ export default function SalesPortalPage() {
     } catch (e) {
       console.error('Logout error:', e);
     }
+    try {
+      await clearMobileSession();
+    } catch (e) {
+      console.error('Clear mobile session error:', e);
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.clear();
+        sessionStorage.clear();
+        sessionStorage.setItem('user_logged_out', 'true');
+        const past = 'Thu, 01 Jan 1970 00:00:00 GMT';
+        document.cookie = `admin_token=; path=/; expires=${past}; max-age=0; SameSite=Lax`;
+        document.cookie = `admin_token=; path=/; expires=${past}; max-age=0`;
+      } catch (err) {}
+    }
     setShowLogoutConfirm(false);
-    router.push('/sales/login');
+    window.location.href = '/sales/login?logged_out=true';
   };
 
   // Excel Export
@@ -431,6 +489,25 @@ export default function SalesPortalPage() {
     });
   }, [receipts, searchQuery]);
 
+  // Filtered containers for Directory Table
+  const filteredContainers = useMemo(() => {
+    if (!containerSearch.trim()) return containers;
+    const q = containerSearch.toLowerCase().trim();
+    return containers.filter((c) => {
+      return (
+        (c.container || '').toLowerCase().includes(q) ||
+        (c.containerNumber || '').toLowerCase().includes(q) ||
+        (c.eta || '').toLowerCase().includes(q) ||
+        (c.loadingDate || '').toLowerCase().includes(q) ||
+        (c.portName || '').toLowerCase().includes(q) ||
+        (c.portDate || '').toLowerCase().includes(q) ||
+        (c.lastUpdate || '').toLowerCase().includes(q) ||
+        (c.warehouse || '').toLowerCase().includes(q) ||
+        (c.planStatus || '').toLowerCase().includes(q)
+      );
+    });
+  }, [containers, containerSearch]);
+
   // Aggregated Summary Counters
   const summary = useMemo(() => {
     let totalCtn = 0;
@@ -487,6 +564,13 @@ export default function SalesPortalPage() {
             <p>सुपर एडमिन केवल <strong>एम्प्लॉई व्यू</strong>, <strong>डिस्पैचर</strong>, और <strong>बिलर</strong> एक्सेस कर सकता है।</p>
           </div>
           <div className="pt-2 flex flex-col sm:flex-row gap-2 justify-center">
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 shadow-md"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>लॉगआउट करें (Logout & Switch Account)</span>
+            </button>
             <Link
               href="/admin"
               className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition"
@@ -508,175 +592,182 @@ export default function SalesPortalPage() {
   return (
     <div className="min-h-screen bg-[#f8fafc] flex flex-col text-slate-800 font-sans selection:bg-emerald-500 selection:text-white">
       {/* Top Application Bar */}
-      <header className="bg-slate-900 text-white border-b border-slate-800 px-4 py-2.5 flex items-center justify-between shadow-md sticky top-0 z-40">
-        <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center font-bold text-white shadow-xs">
-            <FileSpreadsheet className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="flex items-center space-x-2">
-              <h1 className="font-bold text-sm tracking-wide text-white">
-                US International Logistics — Sales Portal
-              </h1>
-              <span className="text-[10px] bg-emerald-700 text-white font-mono uppercase px-2 py-0.5 rounded-full font-bold tracking-wider">
-                {currentUser?.role === 'sales_head'
-                  ? 'Sales Head'
-                  : currentUser?.role === 'sales_person'
-                  ? 'Sales Executive'
-                  : currentUser?.role || 'Admin'}
-              </span>
+      <header className="bg-slate-900 text-white border-b border-slate-800 px-3 sm:px-4 py-2.5 shadow-md sticky top-0 z-40">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center space-x-3 shrink-0">
+            <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center font-bold text-white shadow-xs">
+              <FileSpreadsheet className="w-5 h-5" />
             </div>
-            <div className="text-[11px] text-slate-400">
-              China Inward Cargo, Rate Sheet, Hold & Two-Way Live Communications
-            </div>
-          </div>
-        </div>
-
-        {/* Tab Switcher, Notification Bell & User Profile */}
-        <div className="flex items-center space-x-3">
-          {/* Notification Bell */}
-          <div className="relative" ref={notifRef}>
-            <button
-              onClick={() => setShowNotifications(!showNotifications)}
-              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition relative"
-              title="Recent Receipt Communications & Remarks"
-            >
-              <Bell className="w-4 h-4" />
-              {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-rose-600 text-white text-[10px] font-black w-4 h-4 rounded-full flex items-center justify-center animate-pulse">
-                  {unreadCount}
+            <div>
+              <div className="flex items-center space-x-2">
+                <h1 className="font-bold text-sm tracking-wide text-white">
+                  US International Logistics — Sales Portal
+                </h1>
+                <span className="text-[10px] bg-emerald-700 text-white font-mono uppercase px-2 py-0.5 rounded-full font-bold tracking-wider">
+                  {currentUser?.role === 'sales_head'
+                    ? 'Sales Head'
+                    : currentUser?.role === 'sales_person'
+                    ? 'Sales Executive'
+                    : currentUser?.role || 'Admin'}
                 </span>
-              )}
-            </button>
-
-            {/* Notification Dropdown */}
-            {showNotifications && (
-              <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-white rounded-xl shadow-2xl border border-slate-300 text-slate-800 z-50 overflow-hidden animate-in fade-in zoom-in-95">
-                <div className="bg-slate-900 text-white p-3 flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Bell className="w-4 h-4 text-emerald-400" />
-                    <span className="font-bold text-xs">Recent Communications & Remarks</span>
-                  </div>
-                  <span className="text-[10px] bg-emerald-700 px-1.5 py-0.5 rounded font-mono">
-                    Receipt-Wise
-                  </span>
-                </div>
-
-                <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 p-1 text-xs">
-                  {notifications.length === 0 ? (
-                    <div className="p-6 text-center text-slate-500 text-xs">
-                      No communications yet. Start a chat on any receipt.
-                    </div>
-                  ) : (
-                    notifications.map((n) => (
-                      <div
-                        key={n.receiptNo}
-                        onClick={() => {
-                          setChatReceiptNo(n.receiptNo);
-                          setChatContainerNo(n.container);
-                          setChatPartnerName(n.senderName);
-                          setChatModalOpen(true);
-                          setShowNotifications(false);
-                        }}
-                        className={`p-3 rounded-lg hover:bg-slate-50 cursor-pointer transition flex flex-col space-y-1 ${
-                          n.unreadCount > 0 ? 'bg-emerald-50/60' : ''
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-mono font-bold text-emerald-800">
-                            Receipt #{n.receiptNo}
-                          </span>
-                          <span className="text-[10px] text-slate-400">
-                            {new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                        </div>
-                        <p className="text-slate-700 text-xs truncate font-medium">
-                          <strong className="text-slate-900">{n.senderName}:</strong> {n.latestMessage}
-                        </p>
-                        {n.container && (
-                          <div className="text-[10px] text-slate-500">Container: {n.container}</div>
-                        )}
-                      </div>
-                    ))
-                  )}
-                </div>
               </div>
-            )}
+              <div className="text-[11px] text-slate-400 hidden sm:block">
+                China Inward Cargo, Rate Sheet, Hold & Two-Way Live Communications
+              </div>
+            </div>
           </div>
 
-          {isSalesHeadOrDev && (
-            <div className="bg-slate-800 p-0.5 rounded-lg flex items-center border border-slate-700 text-xs">
+          {/* Tab Switcher, Notification Bell, User Profile & Always-Visible Solid Logout */}
+          <div className="flex items-center flex-wrap gap-2 sm:gap-3 ml-auto">
+            {/* Notification Bell */}
+            <div className="relative" ref={notifRef}>
               <button
-                onClick={() => setActiveTab('sheet')}
-                className={`px-3 py-1 rounded-md font-medium transition flex items-center space-x-1.5 ${
-                  activeTab === 'sheet'
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'text-slate-300 hover:text-white'
-                }`}
+                onClick={() => setShowNotifications(!showNotifications)}
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition relative"
+                title="Recent Receipt Communications & Remarks"
               >
-                <FileSpreadsheet className="w-3.5 h-3.5" />
-                <span>Working Sheet</span>
-              </button>
-              <button
-                onClick={() => setActiveTab('team')}
-                className={`px-3 py-1 rounded-md font-medium transition flex items-center space-x-1.5 ${
-                  activeTab === 'team'
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                <Users className="w-3.5 h-3.5" />
-                <span>Team Master (मास्टर क्रिएशन)</span>
-              </button>
-              <button
-                onClick={() => setActiveTab('mismatch')}
-                className={`px-3 py-1 rounded-md font-medium transition flex items-center space-x-1.5 ${
-                  activeTab === 'mismatch'
-                    ? 'bg-amber-600 text-white shadow-xs font-bold'
-                    : 'text-amber-400 hover:text-amber-200'
-                }`}
-              >
-                <AlertTriangle className="w-3.5 h-3.5 text-amber-300" />
-                <span>Exception Report (मिसमैच टैब)</span>
-                {mismatchBadgeCount > 0 && (
-                  <span className="ml-1 px-1.5 py-0.2 bg-rose-600 text-white text-[10px] rounded-full font-bold">
-                    {mismatchBadgeCount}
+                <Bell className="w-4 h-4" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-rose-600 text-white text-[10px] font-black w-4 h-4 rounded-full flex items-center justify-center animate-pulse">
+                    {unreadCount}
                   </span>
                 )}
               </button>
-            </div>
-          )}
 
-          {/* Quick link back to Admin if Developer */}
-          {currentUser?.role === 'developer' && (
-            <Link
-              href="/admin"
-              className="text-xs text-slate-300 hover:text-white px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 transition"
-            >
-              Admin Dashboard
-            </Link>
-          )}
+              {/* Notification Dropdown */}
+              {showNotifications && (
+                <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-white rounded-xl shadow-2xl border border-slate-300 text-slate-800 z-50 overflow-hidden animate-in fade-in zoom-in-95">
+                  <div className="bg-slate-900 text-white p-3 flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <Bell className="w-4 h-4 text-emerald-400" />
+                      <span className="font-bold text-xs">Recent Communications & Remarks</span>
+                    </div>
+                    <span className="text-[10px] bg-emerald-700 px-1.5 py-0.5 rounded font-mono">
+                      Receipt-Wise
+                    </span>
+                  </div>
 
-          {/* User & Confirmed Logout Button */}
-          <div className="flex items-center space-x-2.5 pl-2.5 border-l border-slate-700 text-xs">
-            <div className="flex flex-col text-right">
-              <span className="text-slate-200 font-semibold leading-tight">
-                {currentUser?.name || currentUser?.username}
-              </span>
-              <span className="text-[10px] text-emerald-400 font-mono">
-                {currentUser?.role === 'sales_head'
-                  ? 'Sales Head'
-                  : currentUser?.role === 'developer'
-                  ? 'Developer Admin'
-                  : 'Sales Executive'}
-              </span>
+                  <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 p-1 text-xs">
+                    {notifications.length === 0 ? (
+                      <div className="p-6 text-center text-slate-500 text-xs">
+                        No communications yet. Start a chat on any receipt.
+                      </div>
+                    ) : (
+                      notifications.map((n) => (
+                        <div
+                          key={n.receiptNo}
+                          onClick={() => {
+                            setChatReceiptNo(n.receiptNo);
+                            setChatContainerNo(n.container);
+                            setChatPartnerName(n.senderName);
+                            setChatModalOpen(true);
+                            setShowNotifications(false);
+                          }}
+                          className={`p-3 rounded-lg hover:bg-slate-50 cursor-pointer transition flex flex-col space-y-1 ${
+                            n.unreadCount > 0 ? 'bg-emerald-50/60' : ''
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-mono font-bold text-emerald-800">
+                              Receipt #{n.receiptNo}
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              {new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                          <p className="text-slate-700 text-xs truncate font-medium">
+                            <strong className="text-slate-900">{n.senderName}:</strong> {n.latestMessage}
+                          </p>
+                          {n.container && (
+                            <div className="text-[10px] text-slate-500">Container: {n.container}</div>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
+
+            {isSalesHeadOrDev && (
+              <div className="bg-slate-800 p-0.5 rounded-lg flex items-center border border-slate-700 text-xs shrink-0 overflow-x-auto">
+                <button
+                  onClick={() => setActiveTab('sheet')}
+                  className={`px-3 py-1 rounded-md font-medium transition flex items-center space-x-1.5 shrink-0 ${
+                    activeTab === 'sheet'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>Working Sheet</span>
+                </button>
+                <button
+                  onClick={() => setActiveTab('team')}
+                  className={`px-3 py-1 rounded-md font-medium transition flex items-center space-x-1.5 shrink-0 ${
+                    activeTab === 'team'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>Team Master</span>
+                </button>
+                <button
+                  onClick={() => setActiveTab('mismatch')}
+                  className={`px-3 py-1 rounded-md font-medium transition flex items-center space-x-1.5 shrink-0 ${
+                    activeTab === 'mismatch'
+                      ? 'bg-amber-600 text-white shadow-xs font-bold'
+                      : 'text-amber-400 hover:text-amber-200'
+                  }`}
+                >
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Exception Report</span>
+                  {mismatchBadgeCount > 0 && (
+                    <span className="ml-1 px-1.5 py-0.2 bg-rose-600 text-white text-[10px] rounded-full font-bold">
+                      {mismatchBadgeCount}
+                    </span>
+                  )}
+                </button>
+              </div>
+            )}
+
+            {/* Quick link back to Admin if Developer */}
+            {currentUser?.role === 'developer' && (
+              <Link
+                href="/admin"
+                className="text-xs text-slate-300 hover:text-white px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 transition shrink-0"
+              >
+                Admin Dashboard
+              </Link>
+            )}
+
+            {/* User Profile Pill */}
+            <div className="flex items-center space-x-2 bg-slate-800/80 px-2.5 py-1 rounded-lg border border-slate-700 text-xs shrink-0">
+              <div className="w-6 h-6 rounded-full bg-emerald-600/30 text-emerald-400 flex items-center justify-center font-bold text-[11px]">
+                {(currentUser?.name || currentUser?.username || 'U')[0].toUpperCase()}
+              </div>
+              <div className="flex flex-col text-left">
+                <span className="text-slate-200 font-semibold leading-tight text-[11px] truncate max-w-[110px]">
+                  {currentUser?.name || currentUser?.username}
+                </span>
+                <span className="text-[9px] text-emerald-400 font-mono">
+                  {currentUser?.role === 'sales_head'
+                    ? 'Sales Head'
+                    : currentUser?.role === 'developer'
+                    ? 'Developer Admin'
+                    : 'Sales Executive'}
+                </span>
+              </div>
+            </div>
+
+            {/* SOLID HIGH-PROMINENCE RED LOGOUT BUTTON */}
             <button
               onClick={() => setShowLogoutConfirm(true)}
-              className="px-2.5 py-1.5 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 hover:border-rose-600 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 shadow-xs"
-              title="Logout from Sales Portal"
+              className="px-3 py-1.5 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white font-bold border border-red-500 rounded-lg text-xs transition flex items-center space-x-1.5 shadow-md shrink-0 cursor-pointer"
+              title="सेल्स पोर्टल से लॉगआउट करें (Logout from Sales Portal)"
             >
-              <LogOut className="w-3.5 h-3.5" />
+              <LogOut className="w-3.5 h-3.5 text-white" />
               <span>Logout</span>
             </button>
           </div>
@@ -814,10 +905,25 @@ export default function SalesPortalPage() {
                 ) : (
                   <>
                     {/* Marka Search Mode */}
-                    <div className="lg:col-span-3">
-                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                        Search by Marka (Main Marka / Sub Marka) *
-                      </label>
+                    <div className="lg:col-span-3 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-[11px] font-bold text-slate-700">
+                          Search by Marka (Main Marka / Sub Marka) *
+                        </label>
+                        {markaQuery && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMarkaQuery('');
+                              setReceipts([]);
+                              setHasLoadedOnce(false);
+                            }}
+                            className="text-[10px] text-rose-600 hover:underline font-semibold"
+                          >
+                            Clear Query
+                          </button>
+                        )}
+                      </div>
                       <div className="relative">
                         <Tag className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
                         <input
@@ -829,10 +935,49 @@ export default function SalesPortalPage() {
                               executeLoadData('marka', undefined, undefined, markaQuery);
                             }
                           }}
-                          placeholder="Type shipping mark (e.g. AS-14, R-99, KINGS)..."
+                          placeholder="Type or click marks below (e.g. SMA, GTG26115, AS-14)..."
                           className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-semibold focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                         />
                       </div>
+
+                      {/* Interactive Marka List Suggestions (Multi-marka query) */}
+                      {markas.length > 0 && (
+                        <div className="pt-0.5">
+                          <div className="text-[10px] text-slate-500 font-semibold mb-1 flex items-center justify-between">
+                            <span>Available Marks ({markas.length}) — Click to add/remove multiple marks:</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto p-1 bg-slate-50 border border-slate-200 rounded-lg scrollbar-thin">
+                            {markas
+                              .filter(
+                                (m) =>
+                                  !markaQuery ||
+                                  m.toLowerCase().includes(markaQuery.toLowerCase().trim().split(',').pop()?.trim() || '')
+                              )
+                              .slice(0, 30)
+                              .map((m) => {
+                                const isSel = markaQuery
+                                  .split(/[,+]/)
+                                  .map((s) => s.trim().toLowerCase())
+                                  .includes(m.toLowerCase());
+                                return (
+                                  <button
+                                    key={m}
+                                    type="button"
+                                    onClick={() => handleToggleMarka(m)}
+                                    className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition flex items-center space-x-1 ${
+                                      isSel
+                                        ? 'bg-emerald-600 text-white shadow-2xs'
+                                        : 'bg-white hover:bg-slate-200 text-slate-700 border border-slate-300'
+                                    }`}
+                                  >
+                                    <span>{m}</span>
+                                    {isSel && <Check className="w-2.5 h-2.5" />}
+                                  </button>
+                                );
+                              })}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </>
                 )}
@@ -930,8 +1075,153 @@ export default function SalesPortalPage() {
               )}
             </div>
 
-            {/* GOOGLE SHEET GRID CONTAINER */}
-            {!hasLoadedOnce ? (
+            {/* CONTAINER DIRECTORY TABLE (Shown when in Container mode and either Directory view is chosen OR no container selected yet) */}
+            {mode === 'container' && (containerViewMode === 'directory' || selectedContainers.length === 0) ? (
+              <div className="bg-white rounded-xl shadow-xs border border-slate-300 overflow-hidden space-y-3 p-4 animate-in fade-in">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
+                  <div className="flex items-center space-x-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
+                      <Boxes className="w-5 h-5 text-emerald-700" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-sm text-slate-900 flex items-center space-x-2">
+                        <span>Sales Head Container Directory (कंटेनर लिस्ट)</span>
+                        <span className="text-[11px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-mono font-bold">
+                          {containers.length} Containers
+                        </span>
+                      </h3>
+                      <p className="text-[11px] text-slate-500">
+                        कंटेनर पर क्लिक करते ही उसकी वर्किंग शीट लोड होगी। चेकबॉक्स से एक से अधिक कंटेनर भी खोल सकते हैं।
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="relative w-64">
+                      <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+                      <input
+                        type="text"
+                        value={containerSearch}
+                        onChange={(e) => setContainerSearch(e.target.value)}
+                        placeholder="Search Container, Carrier No, ETA, Port..."
+                        className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-semibold focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                      />
+                    </div>
+
+                    {selectedContainers.length > 0 && (
+                      <button
+                        onClick={() => {
+                          setContainerViewMode('sheet');
+                          executeLoadData('container', undefined, selectedContainers, undefined);
+                        }}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs transition flex items-center space-x-1.5 shrink-0"
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5" />
+                        <span>Open Selected Sheet ({selectedContainers.length})</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Table */}
+                <div className="overflow-x-auto max-h-[66vh] scrollbar-thin border border-slate-200 rounded-lg">
+                  <table className="w-full text-left border-collapse text-xs select-text">
+                    <thead className="sticky top-0 z-10 bg-slate-900 text-white font-semibold text-[11px] uppercase tracking-wider">
+                      <tr>
+                        <th className="py-2.5 px-3 border-r border-slate-800 text-center w-12">Select</th>
+                        <th className="py-2.5 px-3 border-r border-slate-800 whitespace-nowrap">CONTAINER NO.</th>
+                        <th className="py-2.5 px-3 border-r border-slate-800 whitespace-nowrap">ACTUAL CONTAINER</th>
+                        <th className="py-2.5 px-3 border-r border-slate-800 whitespace-nowrap">ETA</th>
+                        <th className="py-2.5 px-3 border-r border-slate-800 whitespace-nowrap">LOADING DATE</th>
+                        <th className="py-2.5 px-3 border-r border-slate-800 whitespace-nowrap">PORT NAME</th>
+                        <th className="py-2.5 px-3 border-r border-slate-800 whitespace-nowrap">PORT DATE</th>
+                        <th className="py-2.5 px-3 border-r border-slate-800 whitespace-nowrap">LAST UPDATE</th>
+                        <th className="py-2.5 px-3 border-r border-slate-800 text-right whitespace-nowrap">TOTAL CTN</th>
+                        <th className="py-2.5 px-3 text-center whitespace-nowrap">ACTION</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {filteredContainers.length === 0 ? (
+                        <tr>
+                          <td colSpan={10} className="py-8 text-center text-slate-500 text-xs">
+                            No containers found matching &quot;{containerSearch}&quot;.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredContainers.map((c, idx) => {
+                          const isSelected = selectedContainers.includes(c.container);
+                          return (
+                            <tr
+                              key={c.container}
+                              onClick={() => handleOpenSingleContainer(c.container)}
+                              className={`cursor-pointer transition hover:bg-emerald-50/70 ${
+                                isSelected
+                                  ? 'bg-emerald-50/80 font-semibold'
+                                  : idx % 2 === 0
+                                  ? 'bg-white'
+                                  : 'bg-slate-50/50'
+                              }`}
+                            >
+                              <td
+                                className="py-2 px-3 border-r border-slate-200 text-center"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSelectContainerRow(c.container);
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => handleSelectContainerRow(c.container)}
+                                  className="rounded text-emerald-600 focus:ring-emerald-500 h-4 w-4"
+                                />
+                              </td>
+                              <td className="py-2 px-3 border-r border-slate-200 font-mono font-bold text-emerald-800 whitespace-nowrap">
+                                {c.container}
+                              </td>
+                              <td className="py-2 px-3 border-r border-slate-200 font-mono text-slate-700 whitespace-nowrap">
+                                {c.containerNumber || '—'}
+                              </td>
+                              <td className="py-2 px-3 border-r border-slate-200 font-mono text-emerald-700 whitespace-nowrap font-bold">
+                                {c.eta || 'Pending'}
+                              </td>
+                              <td className="py-2 px-3 border-r border-slate-200 font-mono text-slate-600 whitespace-nowrap">
+                                {c.loadingDate || '—'}
+                              </td>
+                              <td className="py-2 px-3 border-r border-slate-200 text-slate-800 whitespace-nowrap">
+                                {c.portName || '—'}
+                              </td>
+                              <td className="py-2 px-3 border-r border-slate-200 font-mono text-slate-600 whitespace-nowrap">
+                                {c.portDate || '—'}
+                              </td>
+                              <td className="py-2 px-3 border-r border-slate-200 font-mono text-slate-500 text-[11px] whitespace-nowrap">
+                                {c.lastUpdate || '—'}
+                              </td>
+                              <td className="py-2 px-3 border-r border-slate-200 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
+                                {c.totalQuantity || 0}
+                              </td>
+                              <td className="py-2 px-3 text-center whitespace-nowrap">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleOpenSingleContainer(c.container);
+                                  }}
+                                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold text-[11px] shadow-2xs transition inline-flex items-center space-x-1"
+                                >
+                                  <FileSpreadsheet className="w-3 h-3" />
+                                  <span>Open Sheet</span>
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : !hasLoadedOnce ? (
               /* EMPTY STATE BANNER (NO DATA PRELOADED) */
               <div className="bg-white rounded-xl shadow-xs border border-dashed border-slate-300 p-12 text-center">
                 <div className="w-14 h-14 bg-emerald-50 text-emerald-700 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-2xs">
@@ -941,7 +1231,7 @@ export default function SalesPortalPage() {
                   No Data Preloaded (डेटा अभी लोड नहीं किया गया है)
                 </h3>
                 <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 leading-relaxed">
-                  कृपया ऊपर फ़िल्टर बार से वेयरहाउस और डेट (कैलेंडर से ग्रीन डेट) चुनें, या कंटेनर सर्च करके सेलेक्ट करें। सेलेक्ट करते ही आपका गूगल शीट डेटा ऑटोमैटिक लोड होगा।
+                  कृपया ऊपर फ़िल्टर बार से वेयरहाउस और डेट (कैलेंडर से ग्रीन डेट) चुनें, या मार्का सर्च करें। सेलेक्ट करते ही आपका गूगल शीट डेटा ऑटोमैटिक लोड होगा।
                 </p>
               </div>
             ) : filteredReceipts.length === 0 ? (
@@ -950,7 +1240,36 @@ export default function SalesPortalPage() {
               </div>
             ) : (
               /* GOOGLE SHEET TABLE */
-              <div className="bg-white rounded-xl shadow-xs border border-slate-300 overflow-hidden">
+              <div className="bg-white rounded-xl shadow-xs border border-slate-300 overflow-hidden space-y-2">
+                {/* Active Container Sheet Toolbar if in Container Mode */}
+                {mode === 'container' && selectedContainers.length > 0 && (
+                  <div className="bg-emerald-50/80 border-b border-emerald-200 px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold text-emerald-950">Active Container(s):</span>
+                      <div className="flex flex-wrap gap-1">
+                        {selectedContainers.map((cName) => (
+                          <span
+                            key={cName}
+                            className="bg-white text-emerald-900 border border-emerald-300 px-2 py-0.5 rounded font-mono font-bold text-[11px] shadow-2xs"
+                          >
+                            {cName}
+                          </span>
+                        ))}
+                      </div>
+                      <span className="text-slate-500 text-[11px]">
+                        ({receipts.length} items loaded)
+                      </span>
+                    </div>
+
+                    <button
+                      onClick={() => setContainerViewMode('directory')}
+                      className="px-3 py-1 bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded font-semibold text-xs transition flex items-center space-x-1.5 shadow-2xs"
+                    >
+                      <Boxes className="w-3.5 h-3.5" />
+                      <span>📋 View Container Fleet Directory</span>
+                    </button>
+                  </div>
+                )}
                 <div className="overflow-x-auto max-h-[74vh] scrollbar-thin">
                   <table className="w-full text-left border-collapse text-xs select-text">
                     {/* Sticky Table Header (Google Sheet Green Styling) */}
