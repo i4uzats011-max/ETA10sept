@@ -418,10 +418,7 @@ export default function AdminDashboardPage() {
     fetch('/api/auth/me')
       .then((res) => {
         if (!res.ok) {
-          try {
-      await clearMobileSession();
-    } catch {}
-    window.location.href = '/admin/login?logged_out=true';
+          router.push('/admin/login');
         } else {
           return res.json();
         }
@@ -450,10 +447,7 @@ export default function AdminDashboardPage() {
         }
       })
       .catch(() => {
-        try {
-      await clearMobileSession();
-    } catch {}
-    window.location.href = '/admin/login?logged_out=true';
+        router.push('/admin/login');
       });
   }, [router]);
 
