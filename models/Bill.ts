@@ -101,6 +101,7 @@ export interface IBill extends Document {
   isDownloaded?: boolean;
   downloadedAt?: Date | null;
   downloadCount?: number;
+  autoDeleteAt?: Date | null; // Auto-delete 1 hour after download
   deliveryNote?: string;
   modeOfPayment?: string;
   referenceNo?: string;
@@ -228,6 +229,7 @@ const BillSchema = new Schema<IBill>(
     isDownloaded: { type: Boolean, default: false },
     downloadedAt: { type: Date, default: null },
     downloadCount: { type: Number, default: 0 },
+    autoDeleteAt: { type: Date, default: null },
     deliveryNote: { type: String, default: '', trim: true },
     modeOfPayment: { type: String, default: '', trim: true },
     referenceNo: { type: String, default: '', trim: true },
@@ -251,5 +253,7 @@ const BillSchema = new Schema<IBill>(
 BillSchema.index({ mainMarka: 1, isDispatched: 1 });
 BillSchema.index({ subMarka: 1, isDispatched: 1 });
 BillSchema.index({ container: 1, isDispatched: 1 });
+// Auto-delete bill 1 hour after download via MongoDB TTL
+BillSchema.index({ autoDeleteAt: 1 }, { expireAfterSeconds: 0 });
 
 export default mongoose.models.Bill || mongoose.model<IBill>('Bill', BillSchema);

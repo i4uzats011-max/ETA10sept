@@ -193,6 +193,17 @@ export async function GET(req: NextRequest) {
 
     // SECTION 3: BILLS (Bills generated for completed dispatches)
     if (section === 'bills') {
+      // 1-hour Auto-Delete: Delete bills that were generated and downloaded > 1 hour ago
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      try {
+        await Bill.deleteMany({
+          isDownloaded: true,
+          downloadedAt: { $exists: true, $ne: null, $lte: oneHourAgo },
+        });
+      } catch (purgeErr) {
+        console.warn('Bill 1-hour purge note in dispatcher:', purgeErr);
+      }
+
       const bills = await Bill.find()
         .select('billNumber receipt container party mainMarka subMarka commodity totalAmount taxableValue igstAmount vehicleNumber totalCartons dispatchedCartons remainingCartons isDispatched deliveryDate deliveryTime deliveryAddress createdAt eWayBillNo')
         .sort({ createdAt: -1 })
@@ -242,6 +253,7 @@ export async function POST(req: NextRequest) {
       const {
         receipt,
         container,
+        containerNumber,
         marka,
         party,
         commodity,
@@ -276,6 +288,24 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      // Resolve Container & Container Number
+      let resolvedContainer = String(container || '').trim();
+      let resolvedContainerNumber = String(containerNumber || '').trim();
+
+      if (!resolvedContainer || !resolvedContainerNumber) {
+        try {
+          const sh = await Shipment.findOne({ receipt: String(receipt).trim() }).select('container containerNumber').lean();
+          if (sh) {
+            if (!resolvedContainer && (sh as any).container) resolvedContainer = (sh as any).container;
+            if (!resolvedContainerNumber && (sh as any).containerNumber) resolvedContainerNumber = (sh as any).containerNumber;
+          }
+          if (!resolvedContainerNumber && resolvedContainer) {
+            const contDoc = await Container.findOne({ container: resolvedContainer }).select('containerNumber').lean();
+            if (contDoc && (contDoc as any).containerNumber) resolvedContainerNumber = (contDoc as any).containerNumber;
+          }
+        } catch {}
+      }
+
       // Ensure commodity is never blank
       let resolvedCommodity = String(commodity || '').trim();
       if (!resolvedCommodity) {
@@ -290,10 +320,11 @@ export async function POST(req: NextRequest) {
       }
       if (!resolvedCommodity) resolvedCommodity = 'COMMERCIAL GOODS';
 
-      // Create new DispatchRequest
+      // Create new DispatchRequest with Container Number marked
       const newRequest = await DispatchRequest.create({
         receipt: String(receipt).trim(),
-        container: String(container || '').trim(),
+        container: resolvedContainer,
+        containerNumber: resolvedContainerNumber,
         marka: String(marka || '').trim(),
         party: String(party || '').trim(),
         commodity: resolvedCommodity,

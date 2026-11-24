@@ -3,6 +3,7 @@ import mongoose, { Schema, Document, Model } from 'mongoose';
 export interface IDispatchRequest extends Document {
   receipt: string;              // Receipt / B/L Number
   container: string;            // Container alias or number
+  containerNumber?: string;     // Physical container number
   marka?: string;               // Marka
   party?: string;               // Party / Client name
   commodity?: string;           // Goods description
@@ -27,6 +28,7 @@ const DispatchRequestSchema = new Schema<IDispatchRequest>(
   {
     receipt: { type: String, required: true, trim: true, index: true },
     container: { type: String, required: true, trim: true, index: true },
+    containerNumber: { type: String, default: '', trim: true, index: true },
     marka: { type: String, default: '', trim: true, index: true },
     party: { type: String, default: '', trim: true },
     commodity: { type: String, default: '', trim: true },

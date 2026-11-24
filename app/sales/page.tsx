@@ -38,6 +38,7 @@ import SalesHoldModal from '@/components/SalesHoldModal';
 import SalesTeamMaster from '@/components/SalesTeamMaster';
 import SalesDatePickerCalendar from '@/components/SalesDatePickerCalendar';
 import SearchableContainerSelect from '@/components/SearchableContainerSelect';
+import SalesExceptionReport from '@/components/SalesExceptionReport';
 
 export default function SalesPortalPage() {
   const router = useRouter();
@@ -51,8 +52,9 @@ export default function SalesPortalPage() {
   const [authChecking, setAuthChecking] = useState(true);
   const [accessDenied, setAccessDenied] = useState(false);
 
-  // Active Tab: 'sheet' | 'team'
-  const [activeTab, setActiveTab] = useState<'sheet' | 'team'>('sheet');
+  // Active Tab: 'sheet' | 'team' | 'mismatch'
+  const [activeTab, setActiveTab] = useState<'sheet' | 'team' | 'mismatch'>('sheet');
+  const [mismatchBadgeCount, setMismatchBadgeCount] = useState<number>(0);
 
   // Filter & Selection Bar State (NO PRELOAD)
   const [mode, setMode] = useState<'warehouse_date' | 'container' | 'marka'>('warehouse_date');
@@ -162,6 +164,27 @@ export default function SalesPortalPage() {
   useEffect(() => {
     fetchNotifications();
     const interval = setInterval(fetchNotifications, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Fetch live count of discrepancies for Sales Head Exception Report badge
+  const fetchMismatchBadge = async () => {
+    try {
+      const res = await fetch('/api/sales/exception-report');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.summary) {
+          setMismatchBadgeCount(data.summary.totalMismatches || 0);
+        }
+      }
+    } catch (e) {
+      // non-blocking
+    }
+  };
+
+  useEffect(() => {
+    fetchMismatchBadge();
+    const interval = setInterval(fetchMismatchBadge, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -577,6 +600,22 @@ export default function SalesPortalPage() {
                 <Users className="w-3.5 h-3.5" />
                 <span>Team Master (मास्टर क्रिएशन)</span>
               </button>
+              <button
+                onClick={() => setActiveTab('mismatch')}
+                className={`px-3 py-1 rounded-md font-medium transition flex items-center space-x-1.5 ${
+                  activeTab === 'mismatch'
+                    ? 'bg-amber-600 text-white shadow-xs font-bold'
+                    : 'text-amber-400 hover:text-amber-200'
+                }`}
+              >
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-300" />
+                <span>Exception Report (मिसमैच टैब)</span>
+                {mismatchBadgeCount > 0 && (
+                  <span className="ml-1 px-1.5 py-0.2 bg-rose-600 text-white text-[10px] rounded-full font-bold">
+                    {mismatchBadgeCount}
+                  </span>
+                )}
+              </button>
             </div>
           )}
 
@@ -610,6 +649,8 @@ export default function SalesPortalPage() {
       <main className="flex-1 p-3 sm:p-5 max-w-[1920px] w-full mx-auto">
         {activeTab === 'team' && isSalesHeadOrDev ? (
           <SalesTeamMaster />
+        ) : activeTab === 'mismatch' && isSalesHeadOrDev ? (
+          <SalesExceptionReport currentUser={currentUser} />
         ) : (
           <div className="space-y-4">
             {/* GOOGLE SHEET TOOLBAR & MULTI-SELECT ON-DEMAND BAR */}

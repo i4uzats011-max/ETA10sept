@@ -43,6 +43,18 @@ export async function GET(req: NextRequest) {
 
   try {
     await connectToDatabase();
+
+    // 1-hour Auto-Delete: Delete bills that were generated and downloaded > 1 hour ago
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    try {
+      await Bill.deleteMany({
+        isDownloaded: true,
+        downloadedAt: { $exists: true, $ne: null, $lte: oneHourAgo },
+      });
+    } catch (purgeErr) {
+      console.warn('Bill 1-hour purge error in GET /api/billing:', purgeErr);
+    }
+
     const { searchParams } = new URL(req.url);
 
     const search = searchParams.get('search')?.trim() || '';
@@ -217,13 +229,14 @@ export async function POST(req: NextRequest) {
         ],
       });
 
-      // Rule: Take receipt as invoice no, but take last 2 or 3 digits on random basis
-      // CRITICAL: Never modify existing data - if existingBill already has a billNumber, preserve it!
+      // Rule: Receipt No is Bill No (Receipt आधार पर बिल/इनवॉइस नंबर)
       let billNumber = '';
-      if (existingBill) {
-        billNumber = (item.billNumber && String(item.billNumber).trim()) ? String(item.billNumber).trim() : existingBill.billNumber;
+      if (item.billNumber && String(item.billNumber).trim()) {
+        billNumber = String(item.billNumber).trim();
+      } else if (existingBill) {
+        billNumber = existingBill.billNumber;
       } else {
-        billNumber = await resolveUniqueBillNumber(rawReceipt, item.billNumber);
+        billNumber = rawReceipt;
       }
 
       // Seller Resolution: check if seller provided or fallback to default
@@ -559,6 +572,9 @@ export async function POST(req: NextRequest) {
           vehicleNumber: vehicleNumber || '',
           isDispatched: false,
           dispatchStatus: 'Pending Dispatch',
+          isDownloaded: Boolean(item.isDownloaded),
+          downloadedAt: item.isDownloaded ? new Date() : null,
+          autoDeleteAt: item.isDownloaded ? new Date(Date.now() + 60 * 60 * 1000) : null,
           eWayBillNo,
           deliveryNote,
           modeOfPayment,
@@ -679,17 +695,19 @@ export async function PATCH(req: NextRequest) {
 
     if (action === 'mark_downloaded' || markDownloaded) {
       const now = new Date();
+      const autoDeleteAt = new Date(now.getTime() + 60 * 60 * 1000); // 1 hour after download
       await Bill.updateMany(
         { _id: { $in: idsToUpdate } },
         {
-          $set: { isDownloaded: true, downloadedAt: now },
+          $set: { isDownloaded: true, downloadedAt: now, autoDeleteAt },
           $inc: { downloadCount: 1 },
         }
       );
       return NextResponse.json({
         success: true,
-        message: 'Marked bills as downloaded',
+        message: 'Marked bills as downloaded (Auto-delete scheduled 1 hour after download)',
         downloadedAt: now,
+        autoDeleteAt,
       });
     }
 
@@ -965,6 +983,18 @@ export async function DELETE(req: NextRequest) {
 
   try {
     await connectToDatabase();
+
+    // 1-hour Auto-Delete: Delete bills that were generated and downloaded > 1 hour ago
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    try {
+      await Bill.deleteMany({
+        isDownloaded: true,
+        downloadedAt: { $exists: true, $ne: null, $lte: oneHourAgo },
+      });
+    } catch (purgeErr) {
+      console.warn('Bill 1-hour purge error in GET /api/billing:', purgeErr);
+    }
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
 

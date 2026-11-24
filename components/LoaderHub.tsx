@@ -2661,25 +2661,37 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
         throw new Error(data.error || 'Failed to upload Excel file');
       }
 
-      // Handle split warning confirmation for planning list upload
-      if (data.requiresConfirmation) {
-        const splitCount = data.splitWarnings?.length || 0;
-        const confirmMsg =
-          `WARNING: Loading Less Goods (Split Cargo)\n\n` +
-          `The uploaded planning list is loading less goods than received in warehouse for ${splitCount} receipt(s).\n` +
-          `These receipts will be SPLIT across containers, and remaining stock will stay in China warehouse inventory.\n\n` +
-          `Do you want to confirm splitting these goods? Click OK to proceed.`;
+      // Handle actual quantity confirmation or split warning confirmation for loading list upload
+      if (data.requiresActualConfirmation || data.requiresConfirmation) {
+        let confirmMsg = '';
+        if (data.requiresActualConfirmation) {
+          const mismatchCount = data.totalMismatches || data.detectedMismatches?.length || 0;
+          confirmMsg =
+            `⚠️ एक्चुअल लोडिंग क्वांटिटी कन्फर्मेशन (Loading Sheet Actual Quantities)\n\n` +
+            `अपलोड की गई लोडिंग शीट में ${mismatchCount} रसीदों में कार्टन, CBM या वेट वेयरहाउस रिसीव्ड स्टॉक से भिन्न है।\n\n` +
+            `क्या आप लोडिंग शीट की एक्चुअल क्वांटिटी (CTN, CBM, Weight) को कंटेनर में लोड करना चाहते हैं?\n` +
+            `सारे मिसमैच सेल्स हेड की 'एक्सेप्शन रिपोर्ट' (Mismatch Tab) में स्वतः दर्ज हो जाएंगे।\n\n` +
+            `आगे बढ़ने और एक्चुअल क्वांटिटी लोड करने के लिए OK दबाएं।`;
+        } else {
+          const splitCount = data.splitWarnings?.length || 0;
+          confirmMsg =
+            `WARNING: Loading Less Goods (Split Cargo)\n\n` +
+            `The uploaded planning list is loading less goods than received in warehouse for ${splitCount} receipt(s).\n` +
+            `These receipts will be SPLIT across containers, and remaining stock will stay in China warehouse inventory.\n\n` +
+            `Do you want to confirm splitting these goods? Click OK to proceed.`;
+        }
         const ok = window.confirm(confirmMsg);
         if (!ok) {
           setIsUploadingExcel(false);
           return;
         }
 
-        // Re-submit with confirmSplit: true
+        // Re-submit with confirmActual: true & confirmSplit: true
         const confirmedFormData = new FormData();
         confirmedFormData.append('file', excelFile);
         confirmedFormData.append('warehouse', excelUploadWarehouse);
         confirmedFormData.append('mode', 'append');
+        confirmedFormData.append('confirmActual', 'true');
         confirmedFormData.append('confirmSplit', 'true');
         confirmedFormData.append('uploadType', excelUploadType);
         if (Object.keys(excelColumnMapping).length > 0) {

@@ -325,6 +325,13 @@ export default function BillerPortalPage() {
   const [shipmentTotalCbm, setShipmentTotalCbm] = useState<number>(0);
   const [shipmentTotalCartons, setShipmentTotalCartons] = useState<number>(0);
   const [downloadFilter, setDownloadFilter] = useState<'undownloaded' | 'downloaded' | 'all'>('undownloaded');
+  const [autoDownloadOnGenerate, setAutoDownloadOnGenerate] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('biller_auto_download_on_generate');
+      return saved !== null ? saved === 'true' : true;
+    }
+    return true;
+  });
   const [currentTime, setCurrentTime] = useState<number>(Date.now());
 
   useEffect(() => {
@@ -523,6 +530,11 @@ export default function BillerPortalPage() {
         }
         prevPendingCountRef.current = data.requests.length;
         setPendingDispatchRequests(data.requests);
+
+        // When a request is deleted by dispatcher or completed, automatically remove from active banner
+        if (activeDispatchRequestId && !data.requests.some((r: any) => r._id === activeDispatchRequestId)) {
+          setActiveDispatchRequestId(null);
+        }
       }
     } catch (e) {
       // quiet
@@ -536,19 +548,23 @@ export default function BillerPortalPage() {
     const vehNo = (req.vehicleNumber || '').trim();
     const dest = (req.place || '').trim();
     const commodityName = (req.commodity || '').trim() || 'COMMERCIAL GOODS';
+    const contName = (req.container || '').trim();
+    const mName = (req.marka || '').trim();
 
+    // Rule: Receipt No is Bill No (रसीद नंबर ही बिल नंबर है)
     setReceiptNo(rNo);
-    setManualInvoiceNo(generateInvoiceNumberFromReceipt(rNo));
+    setManualInvoiceNo(rNo);
     setFormBillNumber(rNo);
-    setContainerAlias(req.container || '');
-    setSingleContainer(req.container || '');
+    setContainerAlias(contName);
+    setSingleContainer(contName);
     setFormVehicleNumber(vehNo);
     setTotalCartons(ctnCount);
     setLineQuantity(ctnCount);
     setLineUnit('CTN');
-    setPartyName(req.party || '');
-    setMainMarka(req.marka || '');
-    setSingleSelectedMarka(req.marka || '');
+    setPartyName(req.party || mName || '');
+    setMainMarka(mName);
+    setSingleSelectedMarka(mName);
+    setSingleSelectedReceipt(rNo);
     setCommodity(commodityName);
     setLineDescription(commodityName);
     setSelectedCargoDropdown(commodityName);
@@ -556,7 +572,7 @@ export default function BillerPortalPage() {
     // Seed markaCargoItems with this item description so dropdown immediately lists it
     setMarkaCargoItems([
       {
-        marka: req.marka || '',
+        marka: mName,
         description: commodityName,
         hsnCode: lineHsn || '39269099',
         pcs: (Number(ctnCount) || 1) * 10,
@@ -572,6 +588,27 @@ export default function BillerPortalPage() {
     }
     setActiveTab('manual');
 
+    // Populate Container & Marka Cascade dropdowns
+    if (contName) {
+      try {
+        const resCont = await fetch(`/api/billing/lookup?container=${encodeURIComponent(contName)}`);
+        if (resCont.ok) {
+          const dataCont = await resCont.json();
+          if (dataCont.markas) setSingleAvailableMarkas(dataCont.markas);
+        }
+      } catch {}
+    }
+
+    if (mName) {
+      try {
+        const resM = await fetch(`/api/billing/lookup?marka=${encodeURIComponent(mName)}&container=${encodeURIComponent(contName)}`);
+        if (resM.ok) {
+          const dataM = await resM.json();
+          if (dataM.shipments) setSingleAvailableReceipts(dataM.shipments);
+        }
+      } catch {}
+    }
+
     // Automatically trigger comprehensive receipt lookup to prefill party GSTIN, directory address & CBM
     if (rNo) {
       await handleReceiptLookup(rNo, {
@@ -582,10 +619,22 @@ export default function BillerPortalPage() {
       });
     }
 
-    // Guarantee dispatcher values strictly prevail
+    // Guarantee dispatcher values & bill number strictly prevail
+    setReceiptNo(rNo);
+    setManualInvoiceNo(rNo);
+    setFormBillNumber(rNo);
     setTotalCartons(ctnCount);
     setLineQuantity(ctnCount);
     setLineUnit('CTN');
+    if (contName) {
+      setSingleContainer(contName);
+      setContainerAlias(contName);
+    }
+    if (mName) {
+      setSingleSelectedMarka(mName);
+      setMainMarka(mName);
+    }
+    setSingleSelectedReceipt(rNo);
     if (vehNo) {
       setFormVehicleNumber(vehNo);
     }
@@ -611,8 +660,26 @@ export default function BillerPortalPage() {
       }
     } catch {}
 
+    // Ensure lineRate, lineAmount, taxableValue are ready and prefilled so bill can be made immediately
+    setTimeout(() => {
+      setLineRate((prev) => {
+        if (prev && parseFloat(prev) > 0) return prev;
+        return '100';
+      });
+      setLineAmount((prev) => {
+        if (prev && parseFloat(prev) > 0) return prev;
+        const c = parseFloat(ctnCount) || 1;
+        return String(c * 100);
+      });
+      setTaxableValue((prev) => {
+        if (prev && parseFloat(prev) > 0) return prev;
+        const c = parseFloat(ctnCount) || 1;
+        return String(c * 100);
+      });
+    }, 150);
+
     setLookupMessage(
-      `✓ डिस्पैच अनुरोध लोड हुआ: रसीद #${rNo} | वस्तु: ${commodityName} | गाड़ी ${vehNo || '—'} | ${ctnCount} कार्टन | गंतव्य: ${dest || '—'} | केवल दर (Rate) या कुल राशि दर्ज करके सीधे बिल जनरेट करें!`
+      `✓ डिस्पैच अनुरोध लोड हुआ: रसीद #${rNo} (Bill No: #${rNo}) | कंटेनर: ${contName || '—'} | मार्का: ${mName || '—'} | वस्तु: ${commodityName} | गाड़ी: ${vehNo || '—'} | ${ctnCount} CTN | गंतव्य: ${dest || '—'}`
     );
   };
 
@@ -793,21 +860,23 @@ export default function BillerPortalPage() {
     return Number(prop.toFixed(3));
   }, [shipmentTotalCbm, shipmentTotalCartons, totalCartons, lineUnit, lineQuantity, quantityPcs, quantityKg]);
 
-  // 5-Minute Download Management Helpers
+  // 1-Hour Auto-Delete Management Helpers (बिल डाउनलोड होने के 1 घंटे बाद स्वतः डिलीट)
+  const ONE_HOUR_MS = 60 * 60 * 1000;
+
   const isArchivedDownloaded = (b: any) => {
     if (!b?.downloadedAt) return false;
     const diff = currentTime - new Date(b.downloadedAt).getTime();
-    return diff >= 5 * 60 * 1000;
+    return diff >= ONE_HOUR_MS;
   };
 
   const getDownloadCountdown = (b: any) => {
     if (!b?.downloadedAt) return null;
     const diff = currentTime - new Date(b.downloadedAt).getTime();
-    if (diff >= 5 * 60 * 1000) return null;
-    const remainingSecs = Math.max(0, Math.ceil((5 * 60 * 1000 - diff) / 1000));
+    if (diff >= ONE_HOUR_MS) return null;
+    const remainingSecs = Math.max(0, Math.ceil((ONE_HOUR_MS - diff) / 1000));
     const mins = Math.floor(remainingSecs / 60);
     const secs = String(remainingSecs % 60).padStart(2, '0');
-    return mins + ':' + secs;
+    return `${mins}m ${secs}s`;
   };
 
   const handleMarkBillDownloaded = async (billId: string) => {
@@ -887,9 +956,8 @@ export default function BillerPortalPage() {
   const applyShipmentToForm = (shipment: any, markaAddress?: any) => {
     setReceiptNo(shipment.receipt || '');
     if (shipment.receipt) {
-      const genInv = generateInvoiceNumberFromReceipt(shipment.receipt);
-      setManualInvoiceNo(genInv);
-      setFormBillNumber(genInv);
+      setManualInvoiceNo(shipment.receipt);
+      setFormBillNumber(shipment.receipt);
     }
     setContainerAlias(shipment.container || singleContainer || '');
     const m = shipment.mainMarka || shipment.subMarka || shipment.marka || '';
@@ -1584,7 +1652,8 @@ export default function BillerPortalPage() {
   const handleSingleReceiptSelect = async (rNo: string) => {
     setSingleSelectedReceipt(rNo);
     if (!rNo.trim()) return;
-    setManualInvoiceNo(generateInvoiceNumberFromReceipt(rNo.trim()));
+    setManualInvoiceNo(rNo.trim());
+    setFormBillNumber(rNo.trim());
     await handleReceiptLookup(rNo);
   };
 
@@ -1651,7 +1720,9 @@ export default function BillerPortalPage() {
   ) => {
     const clean = rNo.trim();
     if (!clean || clean.length < 3) return;
-    setManualInvoiceNo(generateInvoiceNumberFromReceipt(clean));
+    // Rule: Receipt No is Bill No
+    setManualInvoiceNo(clean);
+    setFormBillNumber(clean);
     setIsLookingUp(true);
     setLookupMessage(null);
 
@@ -3208,6 +3279,22 @@ export default function BillerPortalPage() {
       const createdBillRecord = (data.bills && data.bills[0]) || data.bill || { ...payload, _id: data._id || 'temp', totalAmount: finalTotalBillAmt };
       setJustCreatedBill(createdBillRecord);
 
+      // Auto-download PDF option: Trigger immediate download upon generation
+      if (autoDownloadOnGenerate) {
+        try {
+          if (createdBillRecord.eWayBillNo) {
+            generateBothBillAndEWayPDF(createdBillRecord, true);
+          } else {
+            generateBillPDF(createdBillRecord, true);
+          }
+          if (createdBillRecord._id && createdBillRecord._id !== 'temp') {
+            handleMarkBillDownloaded(createdBillRecord._id);
+          }
+        } catch (dlErr) {
+          console.warn('Auto download error on bill generation:', dlErr);
+        }
+      }
+
       if (activeDispatchRequestId) {
         try {
           await fetch('/api/dispatcher', {
@@ -3232,7 +3319,11 @@ export default function BillerPortalPage() {
         handleInstantSaveMarkaAddress().catch((err: any) => console.warn('Background marka save:', err));
       }
 
-      setManualSuccessMsg(`✓ बिल सफलतापूर्वक बन गया! Bill No #${finalBillNumber} (Receipt #${finalReceiptNo})`);
+      setManualSuccessMsg(
+        autoDownloadOnGenerate
+          ? `✓ बिल सफलतापूर्वक बन गया और डाउनलोड हो गया! Bill No #${finalBillNumber} (Receipt #${finalReceiptNo}) — 1 घंटे बाद स्वतः डिलीट होगा`
+          : `✓ बिल सफलतापूर्वक बन गया! Bill No #${finalBillNumber} (Receipt #${finalReceiptNo})`
+      );
       // Reset form
       setReceiptNo('');
       setManualInvoiceNo('');
@@ -3525,21 +3616,27 @@ export default function BillerPortalPage() {
     }
   };
 
-  // Counts for 5-minute Download Management
+  // Counts for 1-Hour Auto-Delete Download Management
   const undownloadedCount = useMemo(() => {
-    return bills.filter((b) => !isArchivedDownloaded(b)).length;
-  }, [bills, currentTime]);
+    return bills.filter((b) => !b.isDownloaded && !b.downloadedAt).length;
+  }, [bills]);
 
   const downloadedCount = useMemo(() => {
-    return bills.filter((b) => isArchivedDownloaded(b)).length;
+    return bills.filter(
+      (b) => b.downloadedAt && currentTime - new Date(b.downloadedAt).getTime() < ONE_HOUR_MS
+    ).length;
   }, [bills, currentTime]);
 
-  // Filtered Bills
+  // Filtered Bills (Exclude bills expired 1 hour after download)
   const filteredBills = useMemo(() => {
     return bills.filter((b) => {
-      // 5-Minute Download Management
-      if (downloadFilter === 'undownloaded' && isArchivedDownloaded(b)) return false;
-      if (downloadFilter === 'downloaded' && !isArchivedDownloaded(b)) return false;
+      // 1-Hour Auto-Delete: If downloaded > 1 hour ago, do not display (auto-purged)
+      if (b.downloadedAt && currentTime - new Date(b.downloadedAt).getTime() >= ONE_HOUR_MS) {
+        return false;
+      }
+
+      if (downloadFilter === 'undownloaded' && (b.isDownloaded || b.downloadedAt)) return false;
+      if (downloadFilter === 'downloaded' && (!b.isDownloaded && !b.downloadedAt)) return false;
 
       if (statusFilter === 'pending' && b.isDispatched) return false;
       if (statusFilter === 'dispatched' && !b.isDispatched) return false;
@@ -4188,24 +4285,53 @@ export default function BillerPortalPage() {
                           <td className="py-3 px-4 font-bold text-cyan-300 max-w-[140px] truncate" title={req.commodity || 'COMMERCIAL GOODS'}>
                             {req.commodity || 'COMMERCIAL GOODS'}
                           </td>
-                          <td className="py-3 px-4 font-mono text-slate-300">{req.container || '—'}</td>
+                          <td className="py-3 px-4 font-mono text-slate-300">
+                            <span className="font-bold text-amber-300">{req.container || '—'}</span>
+                            {req.containerNumber && req.containerNumber !== req.container && (
+                              <span className="block text-[10px] text-slate-400 font-mono">({req.containerNumber})</span>
+                            )}
+                          </td>
                           <td className="py-3 px-4 font-mono font-bold text-amber-400">{req.vehicleNumber}</td>
                           <td className="py-3 px-4 text-center font-bold text-purple-300 font-mono">
                             {req.cartonCount} CTN
                           </td>
                           <td className="py-3 px-4 text-slate-300 max-w-xs truncate">{req.place}</td>
                           <td className="py-3 px-4 text-right">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleInitiateBillingFromRequest(req);
-                              }}
-                              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs shadow-md transition transform hover:scale-105 inline-flex items-center space-x-1.5"
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                              <span>बिलिंग शुरू करें (Initiate Billing)</span>
-                            </button>
+                            <div className="flex items-center justify-end space-x-1.5">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleInitiateBillingFromRequest(req);
+                                }}
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs shadow-md transition transform hover:scale-105 inline-flex items-center space-x-1"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                <span>बिलिंग शुरू करें (Initiate Billing)</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if (!window.confirm('क्या आप इस डिस्पैच अनुरोध को पेंडिंग सूची से हटाना / डिलीट करना चाहते हैं?')) return;
+                                  try {
+                                    const res = await fetch('/api/dispatcher', {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ action: 'delete_request', requestId: req._id }),
+                                    });
+                                    if (res.ok) {
+                                      setPendingDispatchRequests((prev) => prev.filter((r) => r._id !== req._id));
+                                      if (activeDispatchRequestId === req._id) setActiveDispatchRequestId(null);
+                                    }
+                                  } catch (err) {}
+                                }}
+                                className="p-1.5 bg-red-500/20 hover:bg-red-500 text-red-300 hover:text-white rounded-xl font-bold text-xs transition"
+                                title="अनुरोध डिलीट / रिजेक्ट करें"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -4577,9 +4703,11 @@ export default function BillerPortalPage() {
                           setReceiptNo(val);
                           setSingleSelectedReceipt(val);
                           if (val.trim()) {
-                            setManualInvoiceNo(generateInvoiceNumberFromReceipt(val.trim()));
+                            setManualInvoiceNo(val.trim());
+                            setFormBillNumber(val.trim());
                           } else {
                             setManualInvoiceNo('');
+                            setFormBillNumber('');
                           }
                         }}
                         onBlur={() => handleReceiptLookup(receiptNo)}
@@ -5979,6 +6107,33 @@ export default function BillerPortalPage() {
                       <span>Download E-Way JSON</span>
                     </button>
 
+                    {/* Auto-Download Option Checkbox */}
+                    <label
+                      className={`flex items-center space-x-2 px-3.5 py-2.5 rounded-2xl cursor-pointer transition border ${
+                        autoDownloadOnGenerate
+                          ? 'bg-emerald-950/70 border-emerald-500/80 text-emerald-300 shadow-sm'
+                          : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200'
+                      }`}
+                      title="चेक रहने पर बिल जनरेट होते ही तुरंत PDF डाउनलोड हो जाएगा"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={autoDownloadOnGenerate}
+                        onChange={(e) => {
+                          const val = e.target.checked;
+                          setAutoDownloadOnGenerate(val);
+                          try {
+                            localStorage.setItem('biller_auto_download_on_generate', String(val));
+                          } catch {}
+                        }}
+                        className="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500 border-slate-700 cursor-pointer"
+                      />
+                      <span className="flex items-center space-x-1.5 text-xs font-bold select-none">
+                        <Download className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>बिल के साथ स्वतः डाउनलोड (Auto-Download)</span>
+                      </span>
+                    </label>
+
                     <button
                       type="submit"
                       disabled={isSubmittingManual || invoiceTaxableTotal <= 0}
@@ -6047,7 +6202,7 @@ export default function BillerPortalPage() {
                 </select>
               </div>
 
-              {/* 5-Minute Download Management Filter Tabs */}
+              {/* 1-Hour Auto-Delete Download Management Filter Tabs */}
               <div className="flex bg-slate-950 border border-slate-800 rounded-xl p-1 text-xs font-semibold">
                 <button
                   type="button"
@@ -6057,7 +6212,7 @@ export default function BillerPortalPage() {
                       ? 'bg-amber-500 text-slate-950 font-black shadow'
                       : 'text-slate-400 hover:text-white'
                   }`}
-                  title="अनडाउनलोड बिल एवं 5 मिनट के अंदर डाउनलोड किए गए बिल"
+                  title="अनडाउनलोड बिल (Not downloaded yet)"
                 >
                   <Clock className="w-3.5 h-3.5" />
                   <span>📥 अनडाउनलोड बिल ({undownloadedCount})</span>
@@ -6070,10 +6225,10 @@ export default function BillerPortalPage() {
                       ? 'bg-emerald-500 text-slate-950 font-black shadow'
                       : 'text-slate-400 hover:text-white'
                   }`}
-                  title="डाउनलोड हुए 5+ मिनट हो चुके बिल (Archived Downloaded)"
+                  title="डाउनलोड किए गए बिल (1 घंटे के अंदर स्वतः डिलीट हो जाएँगे)"
                 >
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>✅ डाउनलोड किए गए बिल ({downloadedCount})</span>
+                  <span>✅ डाउनलोड किए गए ({downloadedCount})</span>
                 </button>
                 <button
                   type="button"
@@ -6334,22 +6489,14 @@ export default function BillerPortalPage() {
                             </span>
                           )}
 
-                          {/* 5-Minute Download Status Chip with Live Countdown */}
-                          {isArchivedDownloaded(b) ? (
+                          {/* 1-Hour Auto-Delete Download Status Chip with Live Countdown */}
+                          {b.downloadedAt ? (
                             <span
-                              className="inline-flex items-center space-x-1 px-1.5 py-0.5 bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded-full text-[9px] font-semibold"
-                              title={b.downloadedAt ? `डाउनलोड: ${new Date(b.downloadedAt).toLocaleString()}` : 'डाउनलोड पूर्ण'}
+                              className="inline-flex items-center space-x-1 px-2 py-0.5 bg-purple-500/20 text-purple-300 border border-purple-500/40 rounded-full text-[10px] font-bold animate-pulse"
+                              title={`डाउनलोड समय: ${new Date(b.downloadedAt).toLocaleTimeString()} | डाउनलोड के 1 घंटे बाद बिल स्वतः डिलीट हो जाएगा`}
                             >
-                              <CheckCircle2 className="w-2.5 h-2.5" />
-                              <span>डाउनलोड पूर्ण</span>
-                            </span>
-                          ) : b.downloadedAt ? (
-                            <span
-                              className="inline-flex items-center space-x-1 px-1.5 py-0.5 bg-purple-500/20 text-purple-300 border border-purple-500/40 rounded-full text-[9px] font-bold animate-pulse"
-                              title="5 मिनट में स्वतः 'डाउनलोड किए गए बिल' में जाएगा"
-                            >
-                              <Clock className="w-2.5 h-2.5 text-purple-400" />
-                              <span>⏳ {getDownloadCountdown(b)} में आर्काइव</span>
+                              <Clock className="w-3 h-3 text-purple-400" />
+                              <span>⏳ {getDownloadCountdown(b) || '0m 0s'} में डिलीट</span>
                             </span>
                           ) : (
                             <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 bg-slate-800 text-slate-400 border border-slate-700/60 rounded-full text-[9px] font-medium">

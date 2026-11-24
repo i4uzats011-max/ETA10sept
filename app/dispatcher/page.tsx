@@ -127,6 +127,7 @@ interface DispatchRequestItem {
   _id: string;
   receipt: string;
   container: string;
+  containerNumber?: string;
   marka?: string;
   party?: string;
   commodity?: string;
@@ -316,6 +317,7 @@ export default function DispatcherPortalPage() {
           action: 'initiate_billing',
           receipt: selectedReceipt.receipt,
           container: selectedReceipt.container,
+          containerNumber: selectedReceipt.containerNumber || selectedReceipt.container || '',
           marka: selectedReceipt.marka,
           party: selectedReceipt.party,
           commodity: selectedReceipt.commodity,
@@ -2042,6 +2044,7 @@ export default function DispatcherPortalPage() {
                   <tr className="bg-slate-950/80 text-slate-400 border-b border-slate-800 text-[11px] uppercase tracking-wider font-semibold">
                     <th className="py-3 px-4">Time</th>
                     <th className="py-3 px-4">Receipt #</th>
+                    <th className="py-3 px-4">Container / No.</th>
                     <th className="py-3 px-4">Marka</th>
                     <th className="py-3 px-4">Item / Commodity</th>
                     <th className="py-3 px-4">Gaadi No (गाड़ी)</th>
@@ -2055,7 +2058,7 @@ export default function DispatcherPortalPage() {
                 <tbody className="divide-y divide-slate-800">
                   {requests.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="py-12 text-center text-slate-500">
+                      <td colSpan={11} className="py-12 text-center text-slate-500">
                         No dispatch requests initiated yet.
                       </td>
                     </tr>
@@ -2069,6 +2072,12 @@ export default function DispatcherPortalPage() {
                           })}
                         </td>
                         <td className="py-3 px-4 font-mono font-bold text-blue-300">{req.receipt}</td>
+                        <td className="py-3 px-4 font-mono text-slate-300">
+                          <span className="font-bold text-amber-300">{req.container || '—'}</span>
+                          {req.containerNumber && req.containerNumber !== req.container && (
+                            <span className="block text-[10px] text-slate-400 font-mono">({req.containerNumber})</span>
+                          )}
+                        </td>
                         <td className="py-3 px-4 font-black text-white">{req.marka || '—'}</td>
                         <td className="py-3 px-4 font-bold text-cyan-300 max-w-[150px] truncate" title={req.commodity || 'COMMERCIAL GOODS'}>
                           {req.commodity || 'COMMERCIAL GOODS'}
@@ -2093,19 +2102,15 @@ export default function DispatcherPortalPage() {
                           {req.billerUsername ? `Processed by @${req.billerUsername}` : 'Awaiting Biller'}
                         </td>
                         <td className="py-3 px-4 text-right">
-                          {req.status === 'Pending' ? (
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteRequest(req._id)}
-                              className="px-2.5 py-1 bg-red-500/20 hover:bg-red-500 text-red-300 hover:text-white rounded-lg font-bold text-[11px] border border-red-500/40 transition flex items-center space-x-1 ml-auto"
-                              title="इस पेंडिंग डिस्पैच रिक्वेस्ट को डिलीट करें"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                              <span>डिलीट</span>
-                            </button>
-                          ) : (
-                            <span className="text-[10px] text-slate-500">—</span>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteRequest(req._id)}
+                            className="px-2.5 py-1 bg-red-500/20 hover:bg-red-500 text-red-300 hover:text-white rounded-lg font-bold text-[11px] border border-red-500/40 transition flex items-center space-x-1 ml-auto"
+                            title="इस डिस्पैच अनुरोध को डिलीट करें"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>डिलीट</span>
+                          </button>
                         </td>
                       </tr>
                     ))
@@ -2787,8 +2792,17 @@ export default function DispatcherPortalPage() {
                 <strong className="text-emerald-400">{selectedReceipt.marka}</strong>
               </div>
               <div>
-                <span className="text-slate-500">Container:</span>{' '}
-                <strong className="text-slate-300">{selectedReceipt.container}</strong>
+                <span className="text-slate-500">Container / No:</span>{' '}
+                <strong className="text-amber-300 font-mono">
+                  {selectedReceipt.container}
+                  {selectedReceipt.containerNumber && selectedReceipt.containerNumber !== selectedReceipt.container
+                    ? ` (${selectedReceipt.containerNumber})`
+                    : ''}
+                </strong>
+              </div>
+              <div>
+                <span className="text-slate-500">Item (वस्तु):</span>{' '}
+                <strong className="text-cyan-300 truncate block">{selectedReceipt.commodity || 'Goods'}</strong>
               </div>
               <div>
                 <span className="text-slate-500">Available CTN:</span>{' '}

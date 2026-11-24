@@ -21,6 +21,7 @@ import {
 } from '@/lib/translate';
 import { batchTranslateWithGemini } from '@/lib/geminiTranslate';
 import { parseMetricNumber } from '@/lib/metricUtils';
+import { evaluateMetricsMismatch } from '@/lib/exceptionReport';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,6 +38,7 @@ export async function POST(req: NextRequest) {
     const importMode = (formData.get('mode') as string | null) || 'append';
     const defaultWarehouseParam = (formData.get('warehouse') as string | null)?.trim() || '';
     const confirmSplit = (formData.get('confirmSplit') as string | null) === 'true';
+    const confirmActual = (formData.get('confirmActual') as string | null) === 'true' || confirmSplit;
     const targetContainer = ((formData.get('targetContainer') as string | null) || '').trim().toUpperCase();
     const uploadType = ((formData.get('uploadType') as string | null) || 'stock').trim().toLowerCase();
 
@@ -723,9 +725,10 @@ export async function POST(req: NextRequest) {
       whReceiptMap.set(key, wh);
     });
 
-    // 3. Strict Validation: Check Receipt existence, Quantity/CTN, CBM, and Weight exact parameters against DB stock
+    // 3. Validation & Exception Detection: Check Receipt existence and evaluate metric discrepancies
     const validationErrors: string[] = [];
     const splitWarnings: any[] = [];
+    const detectedMismatches: any[] = [];
     const errorDetails: Array<{ row?: number; receipt?: string; warehouse?: string; errorType: string; reason: string }> = [];
 
     for (const [key, requestedQty] of fileQtyByKey.entries()) {
@@ -750,23 +753,36 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // B. Check Quantity / CTN Parameter against DB
-      const available = wh.remainingQuantity !== undefined ? wh.remainingQuantity : (wh.quantity - (wh.loadedQuantity || 0));
-      const totalWhQty = typeof wh.quantity === 'number' ? wh.quantity : parseInt(String(wh.quantity || 0), 10);
+      // B. Evaluate Metrics Mismatch (Carton, CBM, Weight) against DB Received Stock
+      const requestedCbm = fileCbmByKey.get(key) || 0;
+      const dbCbm = parseMetricNumber(wh.volume);
+      const requestedWeight = fileWeightByKey.get(key) || 0;
+      const dbWeight = parseMetricNumber(wh.weight);
 
-      if (requestedQty > available) {
-        const errorMsg = `Receipt '${wh.receipt}' in '${wh.warehouse}' (Row ${rowList}): Attempting to load ${requestedQty} CTN, but only ${available} CTN remain in warehouse (Total received: ${wh.quantity}, already loaded: ${wh.loadedQuantity || 0}).`;
-        validationErrors.push(errorMsg);
-        for (const rNum of rows) {
-          errorDetails.push({
-            row: rNum + 1,
-            receipt: wh.receipt,
-            warehouse: wh.warehouse,
-            errorType: 'Quantity Exceeded (CTN Mismatch)',
-            reason: `Attempting to load ${requestedQty} CTN, but only ${available} CTN remain in ${wh.warehouse} warehouse stock (Total: ${wh.quantity}, Loaded: ${wh.loadedQuantity || 0}).`,
-          });
-        }
-      } else if (requestedQty < available) {
+      const evalRes = evaluateMetricsMismatch(wh.quantity, requestedQty, dbCbm, requestedCbm, dbWeight, requestedWeight);
+      if (evalRes.hasMismatch) {
+        detectedMismatches.push({
+          receipt: wh.receipt,
+          warehouse: wh.warehouse,
+          rows,
+          requestedQty,
+          dbQty: wh.quantity,
+          cartonDiff: evalRes.carton.diff,
+          requestedCbm,
+          dbCbm,
+          cbmDiff: evalRes.cbm.diff,
+          requestedWeight,
+          dbWeight,
+          weightDiff: evalRes.weight.diff,
+          category: evalRes.category,
+          categoryLabel: evalRes.categoryLabel,
+          categoryGroup: evalRes.categoryGroup,
+          summary: evalRes.summary,
+        });
+      }
+
+      const available = wh.remainingQuantity !== undefined ? wh.remainingQuantity : (wh.quantity - (wh.loadedQuantity || 0));
+      if (requestedQty < available) {
         splitWarnings.push({
           receipt: wh.receipt,
           requestedQty,
@@ -776,79 +792,13 @@ export async function POST(req: NextRequest) {
           party: wh.party || 'General Party',
         });
       }
-
-      // C. Check CBM (Volume) Parameter against DB
-      const requestedCbm = fileCbmByKey.get(key) || 0;
-      const dbCbm = parseFloat(String(wh.volume || 0)) || 0;
-      if (requestedCbm > 0 && dbCbm > 0) {
-        // If loading full quantity, CBM must match within 0.05 m³ tolerance
-        if (requestedQty === totalWhQty && Math.abs(requestedCbm - dbCbm) > 0.05) {
-          const errorMsg = `Receipt '${wh.receipt}' in '${wh.warehouse}' (Row ${rowList}): Uploaded CBM (${requestedCbm.toFixed(2)} m³) does not match DB warehouse stock CBM (${dbCbm.toFixed(2)} m³).`;
-          validationErrors.push(errorMsg);
-          for (const rNum of rows) {
-            errorDetails.push({
-              row: rNum + 1,
-              receipt: wh.receipt,
-              warehouse: wh.warehouse,
-              errorType: 'CBM Parameter Mismatch',
-              reason: `Uploaded CBM (${requestedCbm.toFixed(2)} m³) does not match DB warehouse stock CBM (${dbCbm.toFixed(2)} m³).`,
-            });
-          }
-        } else if (requestedCbm > dbCbm + 0.05) {
-          // If CBM exceeds total DB CBM
-          const errorMsg = `Receipt '${wh.receipt}' in '${wh.warehouse}' (Row ${rowList}): Uploaded CBM (${requestedCbm.toFixed(2)} m³) exceeds DB warehouse stock CBM (${dbCbm.toFixed(2)} m³).`;
-          validationErrors.push(errorMsg);
-          for (const rNum of rows) {
-            errorDetails.push({
-              row: rNum + 1,
-              receipt: wh.receipt,
-              warehouse: wh.warehouse,
-              errorType: 'CBM Parameter Mismatch',
-              reason: `Uploaded CBM (${requestedCbm.toFixed(2)} m³) exceeds DB warehouse stock CBM (${dbCbm.toFixed(2)} m³).`,
-            });
-          }
-        }
-      }
-
-      // D. Check Weight Parameter against DB
-      const requestedWeight = fileWeightByKey.get(key) || 0;
-      const dbWeight = parseFloat(String(wh.weight || 0)) || 0;
-      if (requestedWeight > 0 && dbWeight > 0) {
-        // If loading full quantity, Weight must match within 1.0 kg tolerance
-        if (requestedQty === totalWhQty && Math.abs(requestedWeight - dbWeight) > 1.0) {
-          const errorMsg = `Receipt '${wh.receipt}' in '${wh.warehouse}' (Row ${rowList}): Uploaded Weight (${requestedWeight.toFixed(1)} kg) does not match DB warehouse stock Weight (${dbWeight.toFixed(1)} kg).`;
-          validationErrors.push(errorMsg);
-          for (const rNum of rows) {
-            errorDetails.push({
-              row: rNum + 1,
-              receipt: wh.receipt,
-              warehouse: wh.warehouse,
-              errorType: 'Weight Parameter Mismatch',
-              reason: `Uploaded Weight (${requestedWeight.toFixed(1)} kg) does not match DB warehouse stock Weight (${dbWeight.toFixed(1)} kg).`,
-            });
-          }
-        } else if (requestedWeight > dbWeight + 1.0) {
-          // If Weight exceeds total DB Weight
-          const errorMsg = `Receipt '${wh.receipt}' in '${wh.warehouse}' (Row ${rowList}): Uploaded Weight (${requestedWeight.toFixed(1)} kg) exceeds DB warehouse stock Weight (${dbWeight.toFixed(1)} kg).`;
-          validationErrors.push(errorMsg);
-          for (const rNum of rows) {
-            errorDetails.push({
-              row: rNum + 1,
-              receipt: wh.receipt,
-              warehouse: wh.warehouse,
-              errorType: 'Weight Parameter Mismatch',
-              reason: `Uploaded Weight (${requestedWeight.toFixed(1)} kg) exceeds DB warehouse stock Weight (${dbWeight.toFixed(1)} kg).`,
-            });
-          }
-        }
-      }
     }
 
-    // If any validation errors exist (Receipt not found, CTN mismatch, CBM mismatch, Weight mismatch), immediately reject
+    // Missing receipt in DB is a blocking error
     if (validationErrors.length > 0) {
       return NextResponse.json(
         {
-          error: `Loading Plan validation failed for ${validationErrors.length} issue(s): Parameters (Receipt, Quantity/CTN, CBM, or Weight) do not match DB warehouse stock. ` + validationErrors.slice(0, 3).join(' | ') + (validationErrors.length > 3 ? ` (+${validationErrors.length - 3} more)` : ''),
+          error: `Loading Plan validation failed for ${validationErrors.length} issue(s): ` + validationErrors.slice(0, 3).join(' | ') + (validationErrors.length > 3 ? ` (+${validationErrors.length - 3} more)` : ''),
           validationErrors,
           errorDetails,
         },
@@ -856,8 +806,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Prompt user for actual quantities confirmation if discrepancies exist and not yet confirmed
+    if (detectedMismatches.length > 0 && !confirmActual) {
+      return NextResponse.json({
+        requiresActualConfirmation: true,
+        message: `Notice: Loading list contains actual quantity, CBM, or weight discrepancies across ${detectedMismatches.length} receipt(s) compared to warehouse received stock.\n\nActual quantities from the loading sheet will be recorded, and discrepancies will be routed to the Sales Head Exception Report. Confirm to proceed.`,
+        detectedMismatches,
+        totalMismatches: detectedMismatches.length,
+      });
+    }
+
     // If user is loading less quantity than received stock (splitting cargo) and has not confirmed yet:
-    if (splitWarnings.length > 0 && !confirmSplit) {
+    if (splitWarnings.length > 0 && !confirmSplit && !confirmActual) {
       return NextResponse.json({
         requiresConfirmation: true,
         message: `Notice: Loading less goods than received for ${splitWarnings.length} receipt(s). This will split the cargo across containers. Please confirm to proceed.`,
@@ -1070,6 +1030,8 @@ export async function POST(req: NextRequest) {
           weight: newRemainingWeight,
         };
 
+        const evalM = evaluateMetricsMismatch(wh.quantity, newLoaded, origCbm, newLoadedCbm, origWeight, newLoadedWeight);
+
         await WarehouseReceipt.updateOne(
           { _id: wh._id },
           {
@@ -1084,6 +1046,7 @@ export async function POST(req: NextRequest) {
               status: newStatus,
               stockstatus: newStockStatus,
               isDelivered: false,
+              hasMismatch: evalM.hasMismatch,
             },
           }
         );
@@ -1183,11 +1146,13 @@ export async function POST(req: NextRequest) {
       success: true,
       uploadId: uploadBatchId,
       message: importMode === 'update'
-        ? `Loading Plan Processed: ${countInserted} new records inserted, ${countModified} updated. (Internal container created; actual container numbers remain unassigned until manually updated).`
-        : `Loading Plan Processed: Successfully added ${countInserted || bulkOperations.length} cargo records to internal container plan(s). (Actual container number will be manually updated).`,
+        ? `Loading Plan Processed: ${countInserted} new records inserted, ${countModified} updated.` + (detectedMismatches.length > 0 ? ` (${detectedMismatches.length} discrepancies routed to Sales Head Exception Report).` : '')
+        : `Loading Plan Processed: Successfully added ${countInserted || bulkOperations.length} cargo records with actual quantities to internal container plan(s).` + (detectedMismatches.length > 0 ? ` (${detectedMismatches.length} discrepancies routed to Sales Head Exception Report).` : ''),
       insertedCount: countInserted || bulkOperations.length,
       savedCount: countInserted || bulkOperations.length,
       updatedCount: countModified,
+      mismatchesCount: detectedMismatches.length,
+      detectedMismatches,
       missingCount: missingPlanDetails.length,
       missingDetails: missingPlanDetails,
       errorDetails,
