@@ -120,6 +120,7 @@ export async function GET(req: NextRequest) {
           container: s.container || (cDoc ? cDoc.container : ''),
           containerNumber: s.containerNumber || (cDoc ? cDoc.containerNumber : ''),
           loadingDate: s.loadingDate || (cDoc ? cDoc.loadingDate : ''),
+          eta: s.destinationDate || s.eta || (cDoc ? (cDoc.destinationDate || cDoc.eta) : '') || '',
           mainMarka: s.mainMarka || wh.mainMarka || '',
           subMarka: s.subMarka || wh.subMarka || '',
           commodity: s.english || s.commodity || wh.english || wh.commodity || '',

@@ -198,6 +198,16 @@ export default function AdminLoginPage() {
             )}
           </button>
 
+          <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-xs">
+            <span className="text-slate-400">Sales Head or Executive?</span>
+            <Link
+              href="/sales/login"
+              className="text-emerald-400 hover:text-emerald-300 font-semibold transition"
+            >
+              Sales Portal Login →
+            </Link>
+          </div>
+
           <div className="text-center">
             <a href="/" className="text-xs text-slate-400 hover:text-white transition">
               ← Return to Public Tracker

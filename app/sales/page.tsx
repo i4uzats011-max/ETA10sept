@@ -56,6 +56,7 @@ export default function SalesPortalPage() {
   // Active Tab: 'sheet' | 'team' | 'mismatch'
   const [activeTab, setActiveTab] = useState<'sheet' | 'team' | 'mismatch'>('sheet');
   const [mismatchBadgeCount, setMismatchBadgeCount] = useState<number>(0);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   // Filter & Selection Bar State (NO PRELOAD)
   const [mode, setMode] = useState<'warehouse_date' | 'container' | 'marka'>('warehouse_date');
@@ -132,11 +133,11 @@ export default function SalesPortalPage() {
               name: data.name || data.username || 'Sales Head',
             });
           } else {
-            router.push('/admin/login');
+            router.push('/sales/login');
             return;
           }
         } else {
-          router.push('/admin/login');
+          router.push('/sales/login');
           return;
         }
       } catch (e) {
@@ -355,10 +356,15 @@ export default function SalesPortalPage() {
     }
   };
 
-  // Logout
+  // Confirmed Logout Handler
   const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    router.push('/admin/login');
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch (e) {
+      console.error('Logout error:', e);
+    }
+    setShowLogoutConfirm(false);
+    router.push('/sales/login');
   };
 
   // Excel Export
@@ -424,11 +430,15 @@ export default function SalesPortalPage() {
     let totalWeight = 0;
     let holdCount = 0;
     let availableCount = 0;
+    let heavyCount = 0;
 
     receipts.forEach((r) => {
       totalCtn += Number(r.quantity) || 0;
-      totalCbm += parseFloat(String(r.volume || '0')) || 0;
-      totalWeight += parseFloat(String(r.weight || '0')) || 0;
+      const cbmVal = parseMetricNumber(r.volume);
+      const wtVal = parseMetricNumber(r.weight);
+      totalCbm += cbmVal;
+      totalWeight += wtVal;
+      if (cbmVal > 0 && wtVal / cbmVal > 200) heavyCount++;
       if (r.salesStatus === 'Hold') holdCount++;
       if (r.salesStatus === 'Available to Deliver') availableCount++;
     });
@@ -441,6 +451,7 @@ export default function SalesPortalPage() {
       totalCbm: totalCbm.toFixed(3),
       totalWeight: totalWeight.toFixed(1),
       avgKgsPerCbm,
+      heavyCount,
       holdCount,
       availableCount,
     };
