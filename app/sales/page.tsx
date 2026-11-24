@@ -39,6 +39,7 @@ import SalesTeamMaster from '@/components/SalesTeamMaster';
 import SalesDatePickerCalendar from '@/components/SalesDatePickerCalendar';
 import SearchableContainerSelect from '@/components/SearchableContainerSelect';
 import SalesExceptionReport from '@/components/SalesExceptionReport';
+import { parseMetricNumber } from '@/lib/metricUtils';
 
 export default function SalesPortalPage() {
   const router = useRouter();
@@ -377,6 +378,11 @@ export default function SalesPortalPage() {
       'Item Name': r.commodity || '',
       'CBM': r.volume || '',
       'Weight (KG)': r.weight || '',
+      'KGS/CBM': (() => {
+        const w = parseMetricNumber(r.weight);
+        const v = parseMetricNumber(r.volume);
+        return v > 0 && w > 0 ? (w / v).toFixed(2) : '—';
+      })(),
       'CTN': r.quantity || 0,
       'Rate': r.rate || '',
       'Sales Person': r.salesPerson || '',
@@ -427,11 +433,14 @@ export default function SalesPortalPage() {
       if (r.salesStatus === 'Available to Deliver') availableCount++;
     });
 
+    const avgKgsPerCbm = totalCbm > 0 && totalWeight > 0 ? (totalWeight / totalCbm).toFixed(1) : '0';
+
     return {
       totalReceipts: receipts.length,
       totalCtn,
       totalCbm: totalCbm.toFixed(3),
       totalWeight: totalWeight.toFixed(1),
+      avgKgsPerCbm,
       holdCount,
       availableCount,
     };
@@ -855,6 +864,10 @@ export default function SalesPortalPage() {
                       Total Wt: <strong>{summary.totalWeight} KG</strong>
                     </span>
                     <span>|</span>
+                    <span className="text-amber-800 font-semibold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                      Avg KGS/CBM: <strong className="text-amber-900">{summary.avgKgsPerCbm}</strong>
+                    </span>
+                    <span>|</span>
                     <span className="text-emerald-700 font-semibold">
                       Available: {summary.availableCount}
                     </span>
@@ -924,6 +937,9 @@ export default function SalesPortalPage() {
                         <th className="py-2.5 px-3 border-r border-emerald-800 min-w-[160px]">Item Name</th>
                         <th className="py-2.5 px-3 border-r border-emerald-800 text-right">CBM</th>
                         <th className="py-2.5 px-3 border-r border-emerald-800 text-right">Weight (KG)</th>
+                        <th className="py-2.5 px-3 border-r border-emerald-800 text-right bg-[#0d452b] text-amber-300 font-bold whitespace-nowrap">
+                          KGS/CBM
+                        </th>
                         <th className="py-2.5 px-3 border-r border-emerald-800 text-right">CTN</th>
                         <th className="py-2.5 px-3 border-r border-emerald-800 bg-[#0d452b] min-w-[110px]">
                           Rate (दर) ✏️
@@ -1026,6 +1042,20 @@ export default function SalesPortalPage() {
                             {/* Weight */}
                             <td className="py-2 px-3 border-r border-slate-200 text-right font-mono font-medium text-slate-900">
                               {row.weight || '0'}
+                            </td>
+
+                            {/* KGS/CBM */}
+                            <td className="py-2 px-3 border-r border-slate-200 text-right font-mono font-bold text-slate-900 bg-amber-50/20 whitespace-nowrap">
+                              {(() => {
+                                const w = parseMetricNumber(row.weight);
+                                const v = parseMetricNumber(row.volume);
+                                if (v <= 0 || w <= 0) return <span className="text-slate-400 font-normal">—</span>;
+                                return (
+                                  <span className="text-amber-900 font-semibold" title={`${w} kg ÷ ${v} m³`}>
+                                    {(w / v).toFixed(1)}
+                                  </span>
+                                );
+                              })()}
                             </td>
 
                             {/* CTN */}
