@@ -24,6 +24,11 @@ import {
   ChevronDown,
   ChevronRight,
   ExternalLink,
+  Edit3,
+  Save,
+  X,
+  ShieldAlert,
+  Check,
 } from 'lucide-react';
 
 interface SalesExceptionReportProps {
@@ -81,6 +86,105 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
 
   const [expandedContainerSummary, setExpandedContainerSummary] = useState(true);
   const [exportingExcel, setExportingExcel] = useState(false);
+
+  const isSalesHeadOrDev = currentUser?.role === 'sales_head' || currentUser?.role === 'developer';
+
+  // Correction Modal State (Sales Head only)
+  const [correctModalItem, setCorrectModalItem] = useState<any | null>(null);
+  const [alterTarget, setAlterTarget] = useState<'WAREHOUSE' | 'LOADING_PLAN'>('WAREHOUSE');
+  const [editCtn, setEditCtn] = useState<number | string>(0);
+  const [editCbm, setEditCbm] = useState<number | string>(0);
+  const [editWeight, setEditWeight] = useState<number | string>(0);
+  const [editNotes, setEditNotes] = useState<string>('');
+  const [savingCorrection, setSavingCorrection] = useState<boolean>(false);
+  const [correctionError, setCorrectionError] = useState<string | null>(null);
+  const [correctionSuccessMsg, setCorrectionSuccessMsg] = useState<string | null>(null);
+
+  const openCorrectionModal = (item: any, defaultTarget: 'WAREHOUSE' | 'LOADING_PLAN' = 'WAREHOUSE') => {
+    setCorrectModalItem(item);
+    setAlterTarget(defaultTarget);
+    if (defaultTarget === 'WAREHOUSE') {
+      setEditCtn(item.receivedCartons);
+      setEditCbm(item.receivedCbm);
+      setEditWeight(item.receivedWeight);
+    } else {
+      setEditCtn(item.loadedCartons);
+      setEditCbm(item.loadedCbm);
+      setEditWeight(item.loadedWeight);
+    }
+    setEditNotes('');
+    setCorrectionError(null);
+    setCorrectionSuccessMsg(null);
+  };
+
+  const handleTargetChange = (newTarget: 'WAREHOUSE' | 'LOADING_PLAN') => {
+    setAlterTarget(newTarget);
+    if (!correctModalItem) return;
+    if (newTarget === 'WAREHOUSE') {
+      setEditCtn(correctModalItem.receivedCartons);
+      setEditCbm(correctModalItem.receivedCbm);
+      setEditWeight(correctModalItem.receivedWeight);
+    } else {
+      setEditCtn(correctModalItem.loadedCartons);
+      setEditCbm(correctModalItem.loadedCbm);
+      setEditWeight(correctModalItem.loadedWeight);
+    }
+    setCorrectionError(null);
+  };
+
+  // Form zero-exception validation
+  const parsedFormCtn = Math.max(0, parseInt(String(editCtn || 0), 10) || 0);
+  const parsedFormCbm = Math.max(0, parseFloat(String(editCbm || 0)) || 0);
+  const parsedFormWeight = Math.max(0, parseFloat(String(editWeight || 0)) || 0);
+  const isFormCtnZ = parsedFormCtn === 0;
+  const isFormCbmZ = parsedFormCbm <= 0.0001;
+  const isFormWtZ = parsedFormWeight <= 0.001;
+  const formZeroCount = (isFormCtnZ ? 1 : 0) + (isFormCbmZ ? 1 : 0) + (isFormWtZ ? 1 : 0);
+  const hasFormZeroException = formZeroCount === 1 || formZeroCount === 2;
+
+  const handleSaveCorrection = async () => {
+    if (!correctModalItem) return;
+    if (hasFormZeroException) {
+      setCorrectionError('Exception rule violation: CTN, CBM and Weight must either all be 0 or all positive non-zero values.');
+      return;
+    }
+
+    setSavingCorrection(true);
+    setCorrectionError(null);
+    setCorrectionSuccessMsg(null);
+
+    try {
+      const res = await fetch('/api/sales/exception-report/correct', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          target: alterTarget,
+          receipt: correctModalItem.receipt,
+          container: correctModalItem.container,
+          warehouse: correctModalItem.warehouse,
+          quantity: parsedFormCtn,
+          cbm: parsedFormCbm,
+          weight: parsedFormWeight,
+          notes: editNotes.trim(),
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to update entry');
+      }
+
+      setCorrectionSuccessMsg(data.message || 'Entry successfully updated!');
+      setTimeout(() => {
+        setCorrectModalItem(null);
+        fetchReport();
+      }, 1000);
+    } catch (err: any) {
+      setCorrectionError(err.message || 'Failed to update entry');
+    } finally {
+      setSavingCorrection(false);
+    }
+  };
 
   // Fetch Report Data from API
   const fetchReport = async () => {
@@ -239,7 +343,9 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
   // Category Color Badge Helper
   const renderCategoryBadge = (group: string, label: string) => {
     let colorClasses = 'bg-slate-100 text-slate-800 border-slate-300';
-    if (group.includes('Carton Matched') || group.includes('Carton & Weight Matched') || group.includes('Carton & CBM Matched')) {
+    if (group.includes('Zero') || label.includes('Zero')) {
+      colorClasses = 'bg-amber-100 text-amber-950 border-amber-400 font-bold';
+    } else if (group.includes('Carton Matched') || group.includes('Carton & Weight Matched') || group.includes('Carton & CBM Matched')) {
       colorClasses = 'bg-indigo-50 text-indigo-800 border-indigo-200';
     } else if (group.includes('CBM Matched') || group.includes('CBM & Weight Matched')) {
       colorClasses = 'bg-purple-50 text-purple-800 border-purple-200';
@@ -417,6 +523,24 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
             <span>All Mismatches</span>
             <span className="ml-1 px-1.5 py-0.2 bg-white/20 rounded-full text-[10px]">
               {summary.totalMismatches || 0}
+            </span>
+          </button>
+
+          {/* Zero Metric Discrepancy Tab */}
+          <button
+            onClick={() => setSelectedCategory('Zero Metric Discrepancy')}
+            className={`px-3 py-1 rounded-xl font-semibold transition flex items-center space-x-1.5 ${
+              selectedCategory === 'Zero Metric Discrepancy'
+                ? 'bg-amber-600 text-white shadow-xs'
+                : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300'
+            }`}
+          >
+            <span className="flex items-center space-x-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse inline-block mr-1"></span>
+              <span>Zero-Metric Exceptions</span>
+            </span>
+            <span className="ml-1 px-1.5 py-0.2 bg-amber-200/80 rounded-full text-[10px] font-bold text-amber-950">
+              {summary.zeroExceptionsCount ?? categoryCounts['Zero Metric Discrepancy'] ?? 0}
             </span>
           </button>
 
@@ -724,6 +848,7 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
                   </th>
                   <th className="py-2.5 px-3">Category</th>
                   <th className="py-2.5 px-3">Discrepancy Summary</th>
+                  <th className="py-2.5 px-3 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
@@ -801,7 +926,14 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
 
                     {/* Category Badge */}
                     <td className="py-2.5 px-3">
-                      {renderCategoryBadge(item.categoryGroup, item.categoryLabel)}
+                      <div>
+                        {renderCategoryBadge(item.categoryGroup, item.categoryLabel)}
+                        {item.hasZeroException && (
+                          <div className="mt-1 inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                            <span>⚡ Zero Exception</span>
+                          </div>
+                        )}
+                      </div>
                     </td>
 
                     {/* Summary */}
@@ -810,6 +942,31 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
                         {item.summary}
                       </div>
                     </td>
+
+                    {/* Action Column */}
+                    <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                      {isSalesHeadOrDev ? (
+                        <button
+                          onClick={() =>
+                            openCorrectionModal(
+                              item,
+                              item.hasZeroException && item.zeroExceptionDetails?.side === 'LOADING_PLAN'
+                                ? 'LOADING_PLAN'
+                                : 'WAREHOUSE'
+                            )
+                          }
+                          className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition transform active:scale-95"
+                          title="Sales Head: Alter Warehouse or Loading Plan Entry to resolve exception"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>Alter Entry</span>
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 italic font-mono">
+                          Sales Head Only
+                        </span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -817,6 +974,274 @@ export default function SalesExceptionReport({ currentUser }: SalesExceptionRepo
           </div>
         )}
       </div>
+
+      {/* ─── 7. SALES HEAD CORRECTION MODAL ─── */}
+      {correctModalItem && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto">
+            {/* Modal Header */}
+            <div className="px-5 py-3.5 bg-gradient-to-r from-slate-900 to-indigo-950 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-1.5 bg-indigo-500/20 rounded-lg border border-indigo-400/30">
+                  <Edit3 className="w-4 h-4 text-indigo-300" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold tracking-wide">
+                    Resolve Exception / Alter Entry
+                  </h3>
+                  <p className="text-[11px] text-slate-300 font-mono">
+                    Receipt: <strong className="text-white">{correctModalItem.receipt}</strong> • Container: <strong className="text-indigo-300">{correctModalItem.container}</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCorrectModalItem(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-4 max-h-[80vh] overflow-y-auto">
+              {/* Zero Exception Alert if present */}
+              {correctModalItem.hasZeroException && (
+                <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl text-amber-900 text-xs flex items-start space-x-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                  <div>
+                    <span className="font-bold">Zero-Discrepancy Exception: </span>
+                    <span>{correctModalItem.zeroExceptionDetails?.description || correctModalItem.categoryLabel}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Target Selector (Warehouse vs Loading Plan) */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Choose Entry to Alter:
+                </label>
+                <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl border border-slate-200 text-xs font-bold">
+                  <button
+                    type="button"
+                    onClick={() => handleTargetChange('WAREHOUSE')}
+                    className={`py-2 px-3 rounded-lg transition flex items-center justify-center space-x-1.5 ${
+                      alterTarget === 'WAREHOUSE'
+                        ? 'bg-white text-indigo-700 shadow-xs border border-indigo-200'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Warehouse className="w-3.5 h-3.5" />
+                    <span>Warehouse Entry (Received)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTargetChange('LOADING_PLAN')}
+                    className={`py-2 px-3 rounded-lg transition flex items-center justify-center space-x-1.5 ${
+                      alterTarget === 'LOADING_PLAN'
+                        ? 'bg-white text-indigo-700 shadow-xs border border-indigo-200'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Ship className="w-3.5 h-3.5" />
+                    <span>Loading Plan Entry (Loaded)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Current Context Card */}
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs">
+                <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                  Current Database Values:
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-[11px]">
+                  <div className={`p-2.5 rounded-lg border ${alterTarget === 'WAREHOUSE' ? 'bg-indigo-50/50 border-indigo-200 ring-1 ring-indigo-300' : 'bg-white border-slate-200'}`}>
+                    <div className="font-bold text-slate-800 flex items-center space-x-1">
+                      <Warehouse className="w-3 h-3 text-slate-500" />
+                      <span>Warehouse (Received):</span>
+                    </div>
+                    <div className="font-mono text-slate-700 mt-1.5 space-y-0.5">
+                      <div>
+                        CTN: <strong className={correctModalItem.receivedCartons === 0 && (correctModalItem.receivedCbm > 0 || correctModalItem.receivedWeight > 0) ? 'text-rose-600 font-bold' : 'text-slate-900'}>{correctModalItem.receivedCartons}</strong>
+                      </div>
+                      <div>
+                        CBM: <strong className={correctModalItem.receivedCbm === 0 && (correctModalItem.receivedCartons > 0 || correctModalItem.receivedWeight > 0) ? 'text-rose-600 font-bold' : 'text-slate-900'}>{Number(correctModalItem.receivedCbm.toFixed(2))} m³</strong>
+                      </div>
+                      <div>
+                        Weight: <strong className={correctModalItem.receivedWeight === 0 && (correctModalItem.receivedCartons > 0 || correctModalItem.receivedCbm > 0) ? 'text-rose-600 font-bold' : 'text-slate-900'}>{Number(correctModalItem.receivedWeight.toFixed(1))} kg</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className={`p-2.5 rounded-lg border ${alterTarget === 'LOADING_PLAN' ? 'bg-indigo-50/50 border-indigo-200 ring-1 ring-indigo-300' : 'bg-white border-slate-200'}`}>
+                    <div className="font-bold text-slate-800 flex items-center space-x-1">
+                      <Ship className="w-3 h-3 text-slate-500" />
+                      <span>Loading Plan (Loaded):</span>
+                    </div>
+                    <div className="font-mono text-slate-700 mt-1.5 space-y-0.5">
+                      <div>
+                        CTN: <strong className={correctModalItem.loadedCartons === 0 && (correctModalItem.loadedCbm > 0 || correctModalItem.loadedWeight > 0) ? 'text-rose-600 font-bold' : 'text-slate-900'}>{correctModalItem.loadedCartons}</strong>
+                      </div>
+                      <div>
+                        CBM: <strong className={correctModalItem.loadedCbm === 0 && (correctModalItem.loadedCartons > 0 || correctModalItem.loadedWeight > 0) ? 'text-rose-600 font-bold' : 'text-slate-900'}>{Number(correctModalItem.loadedCbm.toFixed(2))} m³</strong>
+                      </div>
+                      <div>
+                        Weight: <strong className={correctModalItem.loadedWeight === 0 && (correctModalItem.loadedCartons > 0 || correctModalItem.loadedCbm > 0) ? 'text-rose-600 font-bold' : 'text-slate-900'}>{Number(correctModalItem.loadedWeight.toFixed(1))} kg</strong>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Input Fields */}
+              <div className="space-y-3">
+                <div className="text-xs font-bold text-slate-800 flex items-center justify-between">
+                  <span>Enter Corrected Values for {alterTarget === 'WAREHOUSE' ? 'Warehouse Entry' : 'Loading Plan Entry'}:</span>
+                  <span className="text-[10px] text-indigo-600 font-normal">All 3 must be 0 OR all 3 positive</span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2.5">
+                  {/* Cartons */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Cartons (CTN) *
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={editCtn}
+                      onChange={(e) => setEditCtn(e.target.value)}
+                      className={`w-full text-xs font-mono font-bold bg-white border rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 ${
+                        isFormCtnZ && (!isFormCbmZ || !isFormWtZ)
+                          ? 'border-rose-400 bg-rose-50/30 focus:ring-rose-500'
+                          : 'border-slate-300 focus:ring-indigo-500'
+                      }`}
+                    />
+                  </div>
+
+                  {/* CBM */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      CBM (Volume m³) *
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={editCbm}
+                      onChange={(e) => setEditCbm(e.target.value)}
+                      className={`w-full text-xs font-mono font-bold bg-white border rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 ${
+                        isFormCbmZ && (!isFormCtnZ || !isFormWtZ)
+                          ? 'border-rose-400 bg-rose-50/30 focus:ring-rose-500'
+                          : 'border-slate-300 focus:ring-indigo-500'
+                      }`}
+                    />
+                  </div>
+
+                  {/* Weight */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Gross Weight (KG) *
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={editWeight}
+                      onChange={(e) => setEditWeight(e.target.value)}
+                      className={`w-full text-xs font-mono font-bold bg-white border rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 ${
+                        isFormWtZ && (!isFormCtnZ || !isFormCbmZ)
+                          ? 'border-rose-400 bg-rose-50/30 focus:ring-rose-500'
+                          : 'border-slate-300 focus:ring-indigo-500'
+                      }`}
+                    />
+                  </div>
+                </div>
+
+                {/* Live Form Zero Discrepancy Alert */}
+                {hasFormZeroException && (
+                  <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-300 text-rose-900 text-xs flex items-start space-x-2 animate-in fade-in duration-100">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 mt-0.5 shrink-0" />
+                    <div>
+                      <span className="font-bold">Zero-Value Rule Violation: </span>
+                      <span>
+                        {isFormCtnZ && !isFormCbmZ && !isFormWtZ && "CTN is 0, but CBM and Weight are entered."}
+                        {!isFormCtnZ && isFormCbmZ && !isFormWtZ && "CBM is 0, but CTN and Weight are entered."}
+                        {!isFormCtnZ && !isFormCbmZ && isFormWtZ && "Weight is 0, but CTN and CBM are entered."}
+                        {isFormCtnZ && !isFormCbmZ && isFormWtZ && "Only CBM is entered; CTN and Weight are 0."}
+                        {isFormCtnZ && isFormCbmZ && !isFormWtZ && "Only Weight is entered; CTN and CBM are 0."}
+                        {!isFormCtnZ && isFormCbmZ && isFormWtZ && "Only CTN is entered; CBM and Weight are 0."}
+                        {" "}Please enter positive values for all three fields (or all 0 if void).
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Remarks / Notes */}
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Sales Head Notes / Reason (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={editNotes}
+                    onChange={(e) => setEditNotes(e.target.value)}
+                    placeholder="e.g. Corrected weight after physical re-measurement in warehouse"
+                    className="w-full text-xs bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {/* Error Message */}
+              {correctionError && (
+                <div className="p-3 bg-red-50 border border-red-300 rounded-xl text-red-900 text-xs flex items-start space-x-2">
+                  <ShieldAlert className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
+                  <span>{correctionError}</span>
+                </div>
+              )}
+
+              {/* Success Message */}
+              {correctionSuccessMsg && (
+                <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-900 text-xs flex items-center space-x-2">
+                  <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span className="font-bold">{correctionSuccessMsg}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-end space-x-2.5">
+              <button
+                type="button"
+                onClick={() => setCorrectModalItem(null)}
+                disabled={savingCorrection}
+                className="px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200 rounded-xl transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveCorrection}
+                disabled={savingCorrection || hasFormZeroException}
+                className="px-4 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl shadow-md transition flex items-center space-x-1.5"
+              >
+                {savingCorrection ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-3.5 h-3.5" />
+                    <span>Save & Alter Entry</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

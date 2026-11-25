@@ -313,6 +313,9 @@ export async function GET(req: NextRequest) {
         weightDiff: evalResult.weight.diff,
         weightStatus: evalResult.weight.status,
         isWeightMatched: evalResult.weight.isMatched,
+        // Zero Discrepancy details
+        hasZeroException: evalResult.hasZeroException,
+        zeroExceptionDetails: evalResult.zeroExceptionDetails,
         // Category metadata
         category: evalResult.category,
         categoryLabel: evalResult.categoryLabel,
@@ -418,6 +421,7 @@ export async function GET(req: NextRequest) {
         totalContainers: containerDocs.length,
         containersWithMismatches: containerSummaries.filter((c) => c.mismatchCount > 0).length,
         totalMismatches: allEvaluatedItems.length,
+        zeroExceptionsCount: allEvaluatedItems.filter((i) => i.hasZeroException).length,
         filteredMismatches: filteredItems.length,
         totalMatched: Array.from(containerStatsMap.values()).reduce((sum, s) => sum + s.matchedCount, 0),
         overallLoadedCartons,

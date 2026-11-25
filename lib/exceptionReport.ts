@@ -2,7 +2,22 @@ import { parseMetricNumber } from './metricUtils';
 
 export type MetricStatus = 'MATCHED' | 'EXCESS' | 'SHORTAGE';
 
+export type ZeroExceptionType =
+  | 'ZERO_CTN'             // CTN is 0, but CBM and Weight are > 0
+  | 'ZERO_CBM'             // CBM is 0, but CTN and Weight are > 0
+  | 'ZERO_WEIGHT'          // Weight is 0, but CTN and CBM are > 0
+  | 'ZERO_CTN_WEIGHT'      // CTN and Weight are 0, but CBM is > 0
+  | 'ZERO_CTN_CBM'         // CTN and CBM are 0, but Weight is > 0
+  | 'ZERO_CBM_WEIGHT';     // CBM and Weight are 0, but CTN is > 0
+
 export type ExceptionCategory =
+  | 'ZERO_CTN_EXCEPTION'
+  | 'ZERO_CBM_EXCEPTION'
+  | 'ZERO_WEIGHT_EXCEPTION'
+  | 'ZERO_CTN_WEIGHT_EXCEPTION'
+  | 'ZERO_CTN_CBM_EXCEPTION'
+  | 'ZERO_CBM_WEIGHT_EXCEPTION'
+  | 'ZERO_METRIC_EXCEPTION'
   | 'CARTON_CBM_MATCH_WEIGHT_MISMATCH'     // Cartons & CBM match, but Weight is higher/lower
   | 'CBM_WEIGHT_MATCH_CARTON_MISMATCH'     // CBM & Weight match, but Cartons are higher/lower
   | 'CARTON_WEIGHT_MATCH_CBM_MISMATCH'     // Cartons & Weight match, but CBM is higher/lower
@@ -25,6 +40,14 @@ export interface IExceptionMetricComparison {
   isMatched: boolean;
 }
 
+export interface IZeroDiscrepancyCheck {
+  hasZeroException: boolean;
+  type?: ZeroExceptionType;
+  category?: ExceptionCategory;
+  label?: string;
+  detail?: string;
+}
+
 export interface IExceptionEvaluation {
   carton: IExceptionMetricComparison;
   cbm: IExceptionMetricComparison;
@@ -34,7 +57,104 @@ export interface IExceptionEvaluation {
   categoryGroup: string;
   isFullyMatched: boolean;
   hasMismatch: boolean;
+  hasZeroException: boolean;
+  zeroExceptionDetails?: {
+    side: 'WAREHOUSE' | 'LOADING_PLAN' | 'BOTH';
+    type: ZeroExceptionType;
+    label: string;
+    description: string;
+  };
   summary: string;
+}
+
+/**
+ * Checks whether a given (ctn, cbm, weight) triplet satisfies the Zero-Value Rule:
+ * - If CTN is 0, CBM and Weight must also be 0.
+ * - If CBM is 0, CTN and Weight must also be 0.
+ * - If Weight is 0, CTN and CBM must also be 0.
+ * 
+ * Valid:
+ * - (0, 0, 0): All 3 are zero
+ * - (>0, >0, >0): All 3 are positive
+ * 
+ * Exception:
+ * - Exactly 1 or 2 metrics are zero while others are non-zero.
+ */
+export function checkZeroDiscrepancy(ctn: number, cbm: number, weight: number): IZeroDiscrepancyCheck {
+  const isCtnZero = ctn <= 0;
+  const isCbmZero = Math.abs(cbm) <= 0.0001;
+  const isWeightZero = Math.abs(weight) <= 0.001;
+
+  const zeroCount = (isCtnZero ? 1 : 0) + (isCbmZero ? 1 : 0) + (isWeightZero ? 1 : 0);
+
+  // If all 3 are zero or all 3 are non-zero => Valid!
+  if (zeroCount === 0 || zeroCount === 3) {
+    return { hasZeroException: false };
+  }
+
+  // Case 1: 1 metric is zero, 2 are non-zero
+  if (isCtnZero && !isCbmZero && !isWeightZero) {
+    return {
+      hasZeroException: true,
+      type: 'ZERO_CTN',
+      category: 'ZERO_CTN_EXCEPTION',
+      label: 'Zero CTN (CBM & Wt > 0)',
+      detail: `CTN is 0, but CBM (${cbm.toFixed(2)}) and Weight (${weight.toFixed(1)}kg) are present.`,
+    };
+  }
+
+  if (!isCtnZero && isCbmZero && !isWeightZero) {
+    return {
+      hasZeroException: true,
+      type: 'ZERO_CBM',
+      category: 'ZERO_CBM_EXCEPTION',
+      label: 'Zero CBM (CTN & Wt > 0)',
+      detail: `CBM is 0, but Cartons (${ctn}) and Weight (${weight.toFixed(1)}kg) are present.`,
+    };
+  }
+
+  if (!isCtnZero && !isCbmZero && isWeightZero) {
+    return {
+      hasZeroException: true,
+      type: 'ZERO_WEIGHT',
+      category: 'ZERO_WEIGHT_EXCEPTION',
+      label: 'Zero Weight (CTN & CBM > 0)',
+      detail: `Weight is 0, but Cartons (${ctn}) and CBM (${cbm.toFixed(2)}) are present.`,
+    };
+  }
+
+  // Case 2: 2 metrics are zero, 1 is non-zero
+  if (isCtnZero && !isCbmZero && isWeightZero) {
+    return {
+      hasZeroException: true,
+      type: 'ZERO_CTN_WEIGHT',
+      category: 'ZERO_CTN_WEIGHT_EXCEPTION',
+      label: 'Zero CTN & Weight (Only CBM > 0)',
+      detail: `Only CBM (${cbm.toFixed(2)}) is entered; CTN and Weight are both 0.`,
+    };
+  }
+
+  if (isCtnZero && isCbmZero && !isWeightZero) {
+    return {
+      hasZeroException: true,
+      type: 'ZERO_CTN_CBM',
+      category: 'ZERO_CTN_CBM_EXCEPTION',
+      label: 'Zero CTN & CBM (Only Weight > 0)',
+      detail: `Only Weight (${weight.toFixed(1)}kg) is entered; CTN and CBM are both 0.`,
+    };
+  }
+
+  if (!isCtnZero && isCbmZero && isWeightZero) {
+    return {
+      hasZeroException: true,
+      type: 'ZERO_CBM_WEIGHT',
+      category: 'ZERO_CBM_WEIGHT_EXCEPTION',
+      label: 'Zero CBM & Weight (Only CTN > 0)',
+      detail: `Only Cartons (${ctn}) are entered; CBM and Weight are both 0.`,
+    };
+  }
+
+  return { hasZeroException: false };
 }
 
 /**
@@ -42,8 +162,12 @@ export interface IExceptionEvaluation {
  * Formula: Diff = Loaded - Received
  * 
  * Rules:
- * - If cartonDiff === 0 && Math.abs(cbmDiff) <= 0.005 && Math.abs(weightDiff) <= 0.05 => FULLY MATCHED (Excluded from Exception Report)
- * - If any metric differs => Mismatch detected and classified into distinct exception categories.
+ * 1. Zero Exception Check:
+ *    If either Received or Loaded metrics have partial zero values (1 or 2 are zero while others are non-zero),
+ *    an immediate EXCEPTION is raised under categoryGroup 'Zero Metric Discrepancy'.
+ * 2. If no zero exception exists:
+ *    - If cartonDiff === 0 && Math.abs(cbmDiff) <= 0.005 && Math.abs(weightDiff) <= 0.05 => FULLY MATCHED
+ *    - If any metric differs => Mismatch detected and classified into distinct exception categories.
  */
 export function evaluateMetricsMismatch(
   receivedQty: number | string | undefined,
@@ -76,8 +200,40 @@ export function evaluateMetricsMismatch(
   const isWeightMatched = Math.abs(weightDiff) <= 0.05;
   const weightStatus: MetricStatus = isWeightMatched ? 'MATCHED' : (weightDiff > 0 ? 'EXCESS' : 'SHORTAGE');
 
+  // Check Zero Discrepancy on both sides
+  const recZero = checkZeroDiscrepancy(rQty, rCbm, rWeight);
+  const loadZero = checkZeroDiscrepancy(lQty, lCbm, lWeight);
+  const hasZeroException = recZero.hasZeroException || loadZero.hasZeroException;
+
+  let zeroExceptionDetails: IExceptionEvaluation['zeroExceptionDetails'] = undefined;
+  if (hasZeroException) {
+    if (recZero.hasZeroException && loadZero.hasZeroException) {
+      zeroExceptionDetails = {
+        side: 'BOTH',
+        type: recZero.type || 'ZERO_CTN',
+        label: `Warehouse: ${recZero.label} | Loaded: ${loadZero.label}`,
+        description: `Both Warehouse Entry (${recZero.detail}) and Loading Plan (${loadZero.detail}) have zero-metric exceptions.`,
+      };
+    } else if (recZero.hasZeroException) {
+      zeroExceptionDetails = {
+        side: 'WAREHOUSE',
+        type: recZero.type || 'ZERO_CTN',
+        label: `Warehouse: ${recZero.label}`,
+        description: `Warehouse Entry: ${recZero.detail}`,
+      };
+    } else {
+      zeroExceptionDetails = {
+        side: 'LOADING_PLAN',
+        type: loadZero.type || 'ZERO_CTN',
+        label: `Loading Plan: ${loadZero.label}`,
+        description: `Loading Plan Entry: ${loadZero.detail}`,
+      };
+    }
+  }
+
   // Full Match Check (Only non-matched will be shown in Exception Report)
-  const isFullyMatched = isCartonMatched && isCbmMatched && isWeightMatched;
+  // If either side has a zero discrepancy, it CANNOT be considered fully matched!
+  const isFullyMatched = !hasZeroException && isCartonMatched && isCbmMatched && isWeightMatched;
   const hasMismatch = !isFullyMatched;
 
   // Category Classification
@@ -86,7 +242,12 @@ export function evaluateMetricsMismatch(
   let categoryGroup = 'Multi-Metric Mismatch';
   let summary = '';
 
-  if (isFullyMatched) {
+  if (hasZeroException && zeroExceptionDetails) {
+    category = (recZero.category || loadZero.category || 'ZERO_METRIC_EXCEPTION');
+    categoryGroup = 'Zero Metric Discrepancy';
+    categoryLabel = zeroExceptionDetails.label;
+    summary = `${zeroExceptionDetails.description} (Requires Sales Head to alter entry).`;
+  } else if (isFullyMatched) {
     category = 'EXCESS_LOADED_CARTONS'; // Fallback
     categoryLabel = 'Fully Matched (पूर्णतया मेल)';
     categoryGroup = 'Matched';
@@ -165,6 +326,8 @@ export function evaluateMetricsMismatch(
     categoryGroup,
     isFullyMatched,
     hasMismatch,
+    hasZeroException,
+    zeroExceptionDetails,
     summary,
   };
 }
