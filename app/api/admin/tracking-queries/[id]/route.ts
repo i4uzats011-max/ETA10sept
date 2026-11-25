@@ -33,9 +33,16 @@ export async function PUT(
     if (reply !== undefined) {
       query.reply = reply.trim();
       query.status = 'Answered';
+      query.replyAt = new Date();
+      if (body.repliedBy) {
+        query.repliedBy = String(body.repliedBy).trim();
+      }
     }
     if (status) {
       query.status = status;
+      if (status === 'Answered' && !query.replyAt) {
+        query.replyAt = new Date();
+      }
     }
 
     await query.save();
@@ -49,8 +56,11 @@ export async function PUT(
         receiptNo: query.receiptNo,
         message: query.message,
         reply: query.reply,
+        replyAt: query.replyAt,
+        repliedBy: query.repliedBy,
         status: query.status,
-        updatedAt: query.updatedAt
+        createdAt: query.createdAt,
+        updatedAt: query.updatedAt,
       }
     });
   } catch (error: any) {

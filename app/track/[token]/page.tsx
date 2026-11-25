@@ -46,8 +46,10 @@ interface ITrackingQuery {
   senderName?: string;
   message: string;
   reply?: string;
+  replyAt?: string;
   status: string;
   createdAt: string;
+  updatedAt?: string;
 }
 
 interface IPublicReceipt {
@@ -2892,16 +2894,46 @@ export default function PublicReceiptTrackingPage() {
                       </div>
 
                       <div className="text-slate-800 font-medium bg-white p-2.5 rounded-lg border border-slate-100">
-                        <p className="text-[11px] text-slate-400 mb-0.5 font-bold">Question:</p>
-                        {q.message}
+                        <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1 font-bold">
+                          <span>Your Question:</span>
+                          {q.createdAt && (
+                            <span className="font-mono text-slate-500 font-medium">
+                              {new Date(q.createdAt).toLocaleDateString('en-GB', {
+                                day: '2-digit',
+                                month: 'short',
+                                year: 'numeric',
+                              })}, {new Date(q.createdAt).toLocaleTimeString('en-US', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                hour12: true,
+                              })}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-900 leading-relaxed">{q.message}</p>
                       </div>
 
                       {q.reply ? (
                         <div className="bg-emerald-50 border border-emerald-200 text-emerald-950 p-2.5 rounded-lg">
-                          <p className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider mb-0.5 flex items-center gap-1">
-                            <ShieldCheck className="w-3 h-3 text-emerald-600" /> Dispatch Response:
-                          </p>
-                          <p className="font-semibold">{q.reply}</p>
+                          <div className="flex items-center justify-between text-[10px] font-bold text-emerald-800 uppercase tracking-wider mb-1">
+                            <span className="flex items-center gap-1">
+                              <ShieldCheck className="w-3 h-3 text-emerald-600" /> Dispatch Response:
+                            </span>
+                            {Boolean(q.replyAt || q.updatedAt) && (
+                              <span className="font-mono text-emerald-800 font-medium lowercase first-letter:uppercase">
+                                {new Date(String(q.replyAt || q.updatedAt)).toLocaleDateString('en-GB', {
+                                  day: '2-digit',
+                                  month: 'short',
+                                  year: 'numeric',
+                                })}, {new Date(String(q.replyAt || q.updatedAt)).toLocaleTimeString('en-US', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                  hour12: true,
+                                })}
+                              </span>
+                            )}
+                          </div>
+                          <p className="font-semibold text-xs leading-relaxed">{q.reply}</p>
                         </div>
                       ) : (
                         <p className="text-[11px] text-slate-400 italic">

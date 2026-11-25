@@ -57,6 +57,8 @@ export async function GET(req: NextRequest) {
           senderPhone: q.senderPhone || '',
           message: q.message,
           reply: q.reply || '',
+          replyAt: q.replyAt || (q.reply ? q.updatedAt : null),
+          repliedBy: q.repliedBy || '',
           status: q.status || 'Pending',
           createdAt: q.createdAt,
           updatedAt: q.updatedAt,

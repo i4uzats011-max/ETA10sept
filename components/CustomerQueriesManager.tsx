@@ -35,6 +35,8 @@ export interface ICustomerQuery {
   senderPhone?: string;
   message: string;
   reply?: string;
+  replyAt?: string | null;
+  repliedBy?: string;
   status: 'Pending' | 'Answered' | 'Closed' | string;
   createdAt: string;
   updatedAt: string;
@@ -152,6 +154,7 @@ export default function CustomerQueriesManager({
       return;
     }
 
+    const responder = currentUser?.name || currentUser?.username || 'Staff';
     setIsSubmittingReply(true);
     try {
       const res = await fetch(`/api/admin/tracking-queries/${queryId}`, {
@@ -159,6 +162,7 @@ export default function CustomerQueriesManager({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           reply: replyText.trim(),
+          repliedBy: responder,
           status: 'Answered',
         }),
       });
@@ -167,10 +171,18 @@ export default function CustomerQueriesManager({
         throw new Error(data.message || 'Failed to send reply');
       }
 
+      const nowIso = new Date().toISOString();
       setQueries((prev) =>
         prev.map((q) =>
           q.id === queryId
-            ? { ...q, reply: replyText.trim(), status: 'Answered', updatedAt: new Date().toISOString() }
+            ? {
+                ...q,
+                reply: replyText.trim(),
+                replyAt: nowIso,
+                repliedBy: responder,
+                status: 'Answered',
+                updatedAt: nowIso,
+              }
             : q
         )
       );
@@ -605,19 +617,30 @@ export default function CustomerQueriesManager({
 
                   {/* Customer Question Bubble */}
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 mb-2.5">
-                    <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold mb-1">
-                      <span className="uppercase tracking-wider flex items-center space-x-1">
-                        <HelpCircle className="w-3 h-3 text-indigo-500" />
+                    <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] font-bold mb-2 pb-1.5 border-b border-slate-200">
+                      <span className="uppercase tracking-wider flex items-center space-x-1.5 text-indigo-700">
+                        <HelpCircle className="w-3.5 h-3.5 text-indigo-600" />
                         <span>Customer Question</span>
                       </span>
-                      <span>
-                        {new Date(q.createdAt).toLocaleString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
+                      <span className="flex items-center space-x-1.5 text-slate-700 bg-white px-2.5 py-1 rounded-md border border-slate-200 font-mono text-[11px] shadow-2xs">
+                        <Calendar className="w-3.5 h-3.5 text-indigo-500" />
+                        <span className="text-slate-400 font-sans font-medium">Date &amp; Time:</span>
+                        <strong>
+                          {new Date(q.createdAt).toLocaleDateString('en-GB', {
+                            day: '2-digit',
+                            month: 'short',
+                            year: 'numeric',
+                          })}
+                        </strong>
+                        <span className="text-slate-300">•</span>
+                        <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                        <strong>
+                          {new Date(q.createdAt).toLocaleTimeString('en-US', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            hour12: true,
+                          })}
+                        </strong>
                       </span>
                     </div>
                     <p className="text-xs font-semibold text-slate-800 leading-relaxed whitespace-pre-wrap">
@@ -627,24 +650,54 @@ export default function CustomerQueriesManager({
 
                   {/* Existing Reply Display */}
                   {q.reply && !isReplying && (
-                    <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3.5 mb-2 flex items-start justify-between gap-3">
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">
-                          ✓ Sent Staff Reply:
+                    <div className="bg-emerald-50/80 border border-emerald-300 rounded-xl p-3.5 mb-2.5 space-y-2 shadow-2xs">
+                      <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] font-bold pb-1.5 border-b border-emerald-200">
+                        <span className="uppercase tracking-wider flex items-center space-x-1.5 text-emerald-800">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Staff Response Published</span>
+                          {q.repliedBy && (
+                            <span className="text-emerald-700 font-medium font-sans">
+                              (by {q.repliedBy})
+                            </span>
+                          )}
                         </span>
-                        <p className="text-xs font-medium text-emerald-950 whitespace-pre-wrap">{q.reply}</p>
+                        <span className="flex items-center space-x-1.5 text-emerald-950 bg-white px-2.5 py-1 rounded-md border border-emerald-300 font-mono text-[11px] shadow-2xs">
+                          <Calendar className="w-3.5 h-3.5 text-emerald-600" />
+                          <span className="text-emerald-600 font-sans font-medium">Reply Date &amp; Time:</span>
+                          <strong>
+                            {new Date(q.replyAt || q.updatedAt).toLocaleDateString('en-GB', {
+                              day: '2-digit',
+                              month: 'short',
+                              year: 'numeric',
+                            })}
+                          </strong>
+                          <span className="text-emerald-300">•</span>
+                          <Clock className="w-3.5 h-3.5 text-emerald-600" />
+                          <strong>
+                            {new Date(q.replyAt || q.updatedAt).toLocaleTimeString('en-US', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              hour12: true,
+                            })}
+                          </strong>
+                        </span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setActiveReplyingId(q.id);
-                          setReplyInputMap((prev) => ({ ...prev, [q.id]: q.reply || '' }));
-                        }}
-                        className="px-2.5 py-1 bg-white hover:bg-emerald-100 text-emerald-800 rounded-lg text-[11px] font-bold border border-emerald-300 flex items-center space-x-1 shrink-0 cursor-pointer"
-                      >
-                        <Edit2 className="w-3 h-3" />
-                        <span>Edit Reply</span>
-                      </button>
+                      <div className="flex items-start justify-between gap-3 pt-0.5">
+                        <p className="text-xs font-semibold text-emerald-950 whitespace-pre-wrap leading-relaxed">
+                          {q.reply}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveReplyingId(q.id);
+                            setReplyInputMap((prev) => ({ ...prev, [q.id]: q.reply || '' }));
+                          }}
+                          className="px-2.5 py-1 bg-white hover:bg-emerald-100 text-emerald-800 rounded-lg text-[11px] font-bold border border-emerald-300 flex items-center space-x-1 shrink-0 cursor-pointer shadow-2xs"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                          <span>Edit Reply</span>
+                        </button>
+                      </div>
                     </div>
                   )}
 

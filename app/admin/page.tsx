@@ -24,6 +24,7 @@ import UserManager from '@/components/UserManager';
 import EditLogViewer from '@/components/EditLogViewer';
 import ContainerRateDownloadModal from '@/components/ContainerRateDownloadModal';
 import BulkContainerUpdateModal from '@/components/BulkContainerUpdateModal';
+import CustomerQueriesManager from '@/components/CustomerQueriesManager';
 import { getCarrierTrackingUrl, getLdbRailwayTrackingUrl } from '@/lib/trackingUrls';
 import { downloadContainerWiseRateExcel, downloadReceiptWiseRateExcel } from '@/lib/containerRateExport';
 import { ReduxProvider } from '@/store/ReduxProvider';
@@ -72,6 +73,7 @@ import {
   Users,
   FileText,
   ExternalLink,
+  HelpCircle,
 } from 'lucide-react';
 
 const SHIPPING_LINES = [
@@ -260,7 +262,23 @@ export default function AdminDashboardPage() {
   };
 
   // Modern Modular Menu Bar Tabs state
-  type AdminTab = 'loader-hub' | 'china-sync' | 'shipping-lines' | 'notifications' | 'shipments' | 'containers' | 'manual-eta' | 'api-sync' | 'alerts' | 'users' | 'edit-logs';
+  type AdminTab = 'loader-hub' | 'china-sync' | 'shipping-lines' | 'notifications' | 'customer-queries' | 'shipments' | 'containers' | 'manual-eta' | 'api-sync' | 'alerts' | 'users' | 'edit-logs';
+  const [pendingCustomerQueriesCount, setPendingCustomerQueriesCount] = useState<number>(0);
+
+  const fetchAdminQueriesBadge = async () => {
+    try {
+      const res = await fetch('/api/admin/tracking-queries');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.queries)) {
+          const pending = data.queries.filter((q: any) => q.status === 'Pending').length;
+          setPendingCustomerQueriesCount(pending);
+        }
+      }
+    } catch (e) {
+      // non-blocking
+    }
+  };
   const [activeAdminTab, setActiveAdminTab] = useState<AdminTab>('loader-hub');
 
   // Container Fleet Directory state (Table view)
@@ -443,6 +461,7 @@ export default function AdminDashboardPage() {
             fetchApiStats();
             fetchLateContainers();
             fetchDynamicShippingLines();
+            fetchAdminQueriesBadge();
           }
         }
       })
@@ -1513,6 +1532,24 @@ export default function AdminDashboardPage() {
             >
               <MessageSquare className="w-4 h-4 shrink-0" />
               <span className="truncate">Party Messages</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveAdminTab('customer-queries')}
+              className={`px-3 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 w-full ${
+                activeAdminTab === 'customer-queries'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'bg-indigo-50/70 hover:bg-indigo-100 text-indigo-900 border border-indigo-200'
+              }`}
+            >
+              <HelpCircle className="w-4 h-4 shrink-0" />
+              <span className="truncate">Customer Queries</span>
+              {pendingCustomerQueriesCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white animate-pulse">
+                  {pendingCustomerQueriesCount}
+                </span>
+              )}
             </button>
 
             <button
@@ -3122,6 +3159,13 @@ export default function AdminDashboardPage() {
         {activeAdminTab === 'notifications' && (
           <div className="animate-fadeIn">
             <PartyArrivalNotifications />
+          </div>
+        )}
+
+        {/* ── TAB: CUSTOMER TRACKING QUERIES ── */}
+        {activeAdminTab === 'customer-queries' && (
+          <div className="animate-fadeIn">
+            <CustomerQueriesManager currentUser={currentUserRole ? { role: currentUserRole } : null} />
           </div>
         )}
 

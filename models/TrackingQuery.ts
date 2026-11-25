@@ -8,6 +8,8 @@ export interface ITrackingQuery extends Document {
   senderPhone?: string;
   message: string;
   reply?: string;
+  replyAt?: Date | null;
+  repliedBy?: string;
   status: 'Pending' | 'Answered' | 'Closed';
   createdAt: Date;
   updatedAt: Date;
@@ -22,6 +24,8 @@ const TrackingQuerySchema = new Schema<ITrackingQuery>(
     senderPhone: { type: String, default: '', trim: true },
     message: { type: String, required: true, trim: true },
     reply: { type: String, default: '', trim: true },
+    replyAt: { type: Date, default: null },
+    repliedBy: { type: String, default: '', trim: true },
     status: { type: String, enum: ['Pending', 'Answered', 'Closed'], default: 'Pending' }
   },
   {

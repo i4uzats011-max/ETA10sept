@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import TrackingQuery from '@/models/TrackingQuery';
 import ReceiptTracking from '@/models/ReceiptTracking';
+import SalesMessage from '@/models/SalesMessage';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,9 +29,11 @@ export async function GET(
         senderName: q.senderName || '',
         message: q.message,
         reply: q.reply || '',
+        replyAt: q.replyAt || (q.reply ? q.updatedAt : null),
+        repliedBy: q.repliedBy || '',
         status: q.status || 'Pending',
         createdAt: q.createdAt,
-        updatedAt: q.updatedAt
+        updatedAt: q.updatedAt,
       }))
     });
   } catch (error: any) {
@@ -85,6 +88,32 @@ export async function POST(
       status: 'Pending'
     });
 
+    // SEND NOTIFICATION TO ALL (Sales Head, Admin, Staff, Sales Persons)
+    try {
+      await SalesMessage.create({
+        receiptNo: formattedReceiptNo,
+        container: (trackingDoc as any)?.container || '',
+        senderUsername: 'customer',
+        senderName: senderName ? `Customer: ${senderName}` : 'Online Customer',
+        senderRole: 'staff',
+        recipientUsername: 'all',
+        message: `❓ New Customer Query on Receipt #${formattedReceiptNo}${marka ? ` [${marka}]` : ''}${senderPhone ? ` (Phone: ${senderPhone})` : ''}: "${message.trim()}"`,
+        type: 'text',
+        isRead: false,
+        metadata: {
+          queryId: newQuery._id.toString(),
+          token,
+          senderName: newQuery.senderName,
+          senderPhone: newQuery.senderPhone,
+          marka: newQuery.marka,
+          receiptNo: formattedReceiptNo,
+          queryCreatedAt: newQuery.createdAt,
+        },
+      });
+    } catch (notifErr) {
+      console.error('Non-blocking: Failed to broadcast customer query notification:', notifErr);
+    }
+
     return NextResponse.json({
       success: true,
       message: 'Your query has been sent to dispatch. We will review and reply shortly.',
@@ -94,7 +123,7 @@ export async function POST(
         senderName: newQuery.senderName,
         message: newQuery.message,
         status: newQuery.status,
-        createdAt: newQuery.createdAt
+        createdAt: newQuery.createdAt,
       }
     });
   } catch (error: any) {
