@@ -144,6 +144,9 @@ export async function POST(req: NextRequest) {
     } else if (authenticatedRole === 'sales_person') {
       redirectTo = '/sales';
       roleName = 'Sales Executive';
+    } else if (authenticatedRole === 'operations_head') {
+      redirectTo = '/operations';
+      roleName = 'Operations Head';
     }
 
     const response = NextResponse.json({

@@ -5,13 +5,13 @@ import WarehouseReceipt from '@/models/WarehouseReceipt';
 import Container from '@/models/Container';
 import ReceiptTracking from '@/models/ReceiptTracking';
 import { isMarkaMatch } from '@/lib/liveTrackingResolver';
-import { isStaffOrAdminAuthenticated } from '@/lib/auth';
+import { isStaffOrAdminAuthenticated, isOperationsHeadAuthenticated, isSalesPersonOrHeadAuthenticated } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 export async function GET(req: NextRequest) {
-  if (!isStaffOrAdminAuthenticated(req)) {
+  if (!isStaffOrAdminAuthenticated(req) && !isOperationsHeadAuthenticated(req) && !isSalesPersonOrHeadAuthenticated(req)) {
     return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
   }
 

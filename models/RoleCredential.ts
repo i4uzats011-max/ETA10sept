@@ -17,7 +17,7 @@ const RoleCredentialSchema: Schema = new Schema<IRoleCredential>(
       type: String,
       required: true,
       unique: true,
-      enum: ['admin', 'staff', 'biller', 'dispatcher', 'developer'],
+      enum: ['admin', 'staff', 'biller', 'dispatcher', 'developer', 'sales_head', 'operations_head'],
       index: true,
     },
     passwordHash: {

@@ -204,6 +204,10 @@ export async function GET(req: NextRequest) {
         totalCartons: c.totalCartons || 0,
         totalWeight: c.totalWeight || 0,
         totalVolume: c.totalVolume || 0,
+        remarks: isStaffOrAdmin ? (Array.isArray(c.remarks) ? c.remarks : []) : undefined,
+        latestRemark: isStaffOrAdmin && Array.isArray(c.remarks) && c.remarks.length > 0
+          ? c.remarks[c.remarks.length - 1]
+          : null,
         apiCallCount: c.apiCallCount || 0,
         lastApiSync: isStaffOrAdmin ? (c.lastApiSync ? new Date(c.lastApiSync).toISOString() : null) : undefined,
         etaUpdatedAt: isStaffOrAdmin ? etaUpdatedAt : undefined,

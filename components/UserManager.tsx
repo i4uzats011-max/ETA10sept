@@ -28,6 +28,7 @@ import {
   BadgeCheck,
   Briefcase,
   TrendingUp,
+  Boxes,
 } from 'lucide-react';
 import { UserRole } from '@/lib/auth';
 
@@ -164,6 +165,7 @@ export default function UserManager() {
       admin: 0,
       sales_head: 0,
       sales_person: 0,
+      operations_head: 0,
       biller: 0,
       dispatcher: 0,
       staff: 0,
@@ -227,6 +229,13 @@ export default function UserManager() {
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-teal-500/10 text-teal-400 border border-teal-500/30">
             <TrendingUp className="w-3.5 h-3.5" />
             Sales Person
+          </span>
+        );
+      case 'operations_head':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-orange-500/10 text-orange-400 border border-orange-500/30">
+            <Boxes className="w-3.5 h-3.5" />
+            Operations Head
           </span>
         );
       case 'biller':
@@ -663,6 +672,7 @@ export default function UserManager() {
             <option value="admin">Super Admin</option>
             <option value="sales_head">Sales Head</option>
             <option value="sales_person">Sales Person</option>
+            <option value="operations_head">Operations Head</option>
             <option value="biller">Biller</option>
             <option value="dispatcher">Dispatcher</option>
             <option value="staff">Staff / Employee</option>
@@ -972,6 +982,13 @@ export default function UserManager() {
                       icon: <TrendingUp className="w-4 h-4 text-teal-400" />,
                     },
                     {
+                      role: 'operations_head' as UserRole,
+                      title: 'Operations Head',
+                      desc: 'Container Tracking, Port Dates, Wh Date & Public Links (View Only)',
+                      color: 'border-orange-800/80 bg-orange-950/20 text-orange-300',
+                      icon: <Boxes className="w-4 h-4 text-orange-400" />,
+                    },
+                    {
                       role: 'biller' as UserRole,
                       title: 'Biller',
                       desc: 'HSN, IGST, Pcs, KG & Bill generation',
@@ -1108,6 +1125,7 @@ export default function UserManager() {
                     { role: 'admin' as UserRole, title: 'Super Admin', icon: <Shield className="w-4 h-4 text-red-400" /> },
                     { role: 'sales_head' as UserRole, title: 'Sales Head', icon: <Briefcase className="w-4 h-4 text-purple-400" /> },
                     { role: 'sales_person' as UserRole, title: 'Sales Person', icon: <TrendingUp className="w-4 h-4 text-teal-400" /> },
+                    { role: 'operations_head' as UserRole, title: 'Operations Head', icon: <Boxes className="w-4 h-4 text-orange-400" /> },
                     { role: 'biller' as UserRole, title: 'Biller', icon: <FileText className="w-4 h-4 text-amber-400" /> },
                     { role: 'dispatcher' as UserRole, title: 'Dispatcher', icon: <Truck className="w-4 h-4 text-emerald-400" /> },
                     { role: 'staff' as UserRole, title: 'Staff / Employee', icon: <Users className="w-4 h-4 text-blue-400" /> },

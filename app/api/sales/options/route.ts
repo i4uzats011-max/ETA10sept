@@ -3,12 +3,12 @@ import { connectToDatabase } from '@/lib/mongodb';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
 import Container from '@/models/Container';
 import User from '@/models/User';
-import { isSalesPersonOrHeadAuthenticated } from '@/lib/auth';
+import { isSalesPersonOrHeadAuthenticated, isOperationsHeadAuthenticated } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
-  if (!isSalesPersonOrHeadAuthenticated(req)) {
+  if (!isSalesPersonOrHeadAuthenticated(req) && !isOperationsHeadAuthenticated(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

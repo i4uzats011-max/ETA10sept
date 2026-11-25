@@ -5,7 +5,7 @@ import ReceiptTracking, { IReceiptEntry } from '@/models/ReceiptTracking';
 import Shipment from '@/models/Shipment';
 import WarehouseReceipt from '@/models/WarehouseReceipt';
 import { resolveLiveReceiptsForTrackingDoc, calculateRemainDays, isMarkaMatch } from '@/lib/liveTrackingResolver';
-import { isStaffOrAdminAuthenticated, isAdminAuthenticated } from '@/lib/auth';
+import { isStaffOrAdminAuthenticated, isAdminAuthenticated, isOperationsHeadAuthenticated } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -13,7 +13,7 @@ export const revalidate = 0;
 // GET tracking links summary for admin (FAST on-demand loading)
 // If ?token=... or ?id=... is passed, resolves live receipts ONLY for that specific link!
 export async function GET(req: NextRequest) {
-  if (!isStaffOrAdminAuthenticated(req)) {
+  if (!isStaffOrAdminAuthenticated(req) && !isOperationsHeadAuthenticated(req)) {
     return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
   }
 

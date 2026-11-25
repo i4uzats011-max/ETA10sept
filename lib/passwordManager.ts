@@ -5,7 +5,7 @@ import { connectToDatabase } from '@/lib/mongodb';
 import RoleCredential from '@/models/RoleCredential';
 import { UserRole } from '@/lib/auth';
 
-export const ALL_ROLES: UserRole[] = ['admin', 'developer', 'staff', 'biller', 'dispatcher', 'sales_head', 'sales_person'];
+export const ALL_ROLES: UserRole[] = ['admin', 'developer', 'staff', 'biller', 'dispatcher', 'sales_head', 'sales_person', 'operations_head'];
 
 export function getRoleDisplayName(role: UserRole): string {
   switch (role) {
@@ -23,6 +23,8 @@ export function getRoleDisplayName(role: UserRole): string {
       return 'Sales Head (सेल्स हेड)';
     case 'sales_person':
       return 'Sales Executive (सेल्स पर्सन)';
+    case 'operations_head':
+      return 'Operations Head (ऑपरेशन हेड)';
     default:
       return role;
   }
@@ -92,6 +94,12 @@ export function isDefaultRolePassword(role: UserRole, candidate: string): boolea
         candidate === (process.env.SALES_PERSON_PASSWORD || '') ||
         candidate === 'sales123'
       );
+    case 'operations_head':
+      return (
+        candidate === (process.env.OPERATIONS_HEAD_PASSWORD || '') ||
+        candidate === 'opshead123' ||
+        candidate === 'operations123'
+      );
     default:
       return false;
   }
@@ -123,6 +131,7 @@ export function updateEnvPassword(role: UserRole, newPassword: string): void {
     dispatcher: ['DISPATCHER_PASSWORD'],
     sales_head: ['SALES_HEAD_PASSWORD'],
     sales_person: ['SALES_PERSON_PASSWORD'],
+    operations_head: ['OPERATIONS_HEAD_PASSWORD'],
   };
 
   const keys = roleEnvMap[role] || [];

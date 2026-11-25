@@ -1400,6 +1400,15 @@ export default function AdminDashboardPage() {
             )}
 
             <Link
+              href="/operations"
+              className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-orange-50 hover:bg-orange-100 text-orange-800 text-xs font-bold border border-orange-300 transition flex items-center space-x-1"
+              title="Operations Head Portal: Container Fleet Status, Port Dates, ETA & Public Links"
+            >
+              <Boxes className="w-3.5 h-3.5 text-orange-600" />
+              <span>Operations Portal</span>
+            </Link>
+
+            <Link
               href="/admin/tracking-links"
               className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-800 text-xs font-bold border border-blue-300 transition flex items-center space-x-1"
               title="Public Receipt ETA Tracking Links"

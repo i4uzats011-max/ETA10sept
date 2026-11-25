@@ -48,6 +48,12 @@ async function ensureDefaultUsers() {
       name: 'Sales Head',
       defaultPass: process.env.SALES_HEAD_PASSWORD || 'saleshead123',
     },
+    {
+      role: 'operations_head',
+      username: 'operationshead',
+      name: 'Operations Head',
+      defaultPass: process.env.OPERATIONS_HEAD_PASSWORD || 'opshead123',
+    },
   ];
 
   for (const acc of defaultAccounts) {
@@ -139,7 +145,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const allowedRoles: UserRole[] = ['admin', 'staff', 'biller', 'dispatcher', 'developer', 'sales_head', 'sales_person'];
+    const allowedRoles: UserRole[] = ['admin', 'staff', 'biller', 'dispatcher', 'developer', 'sales_head', 'sales_person', 'operations_head'];
     if (!role || !allowedRoles.includes(role)) {
       return NextResponse.json(
         { error: `Invalid role "${role}". Must be one of: ${allowedRoles.join(', ')}` },
@@ -229,7 +235,7 @@ export async function PUT(req: NextRequest) {
 
     // Role assignment
     if (role !== undefined) {
-      const allowedRoles: UserRole[] = ['admin', 'staff', 'biller', 'dispatcher', 'developer', 'sales_head', 'sales_person'];
+      const allowedRoles: UserRole[] = ['admin', 'staff', 'biller', 'dispatcher', 'developer', 'sales_head', 'sales_person', 'operations_head'];
       if (!allowedRoles.includes(role)) {
         return NextResponse.json(
           { error: `Invalid role "${role}". Must be one of: ${allowedRoles.join(', ')}` },

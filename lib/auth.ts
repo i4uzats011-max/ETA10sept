@@ -4,7 +4,7 @@ import { NextRequest } from 'next/server';
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_jwt_secret_key_12345';
 const COOKIE_NAME = 'admin_token';
 
-export type UserRole = 'admin' | 'staff' | 'biller' | 'dispatcher' | 'developer' | 'sales_head' | 'sales_person';
+export type UserRole = 'admin' | 'staff' | 'biller' | 'dispatcher' | 'developer' | 'sales_head' | 'sales_person' | 'operations_head';
 
 export interface AdminPayload {
   role: UserRole;
@@ -117,6 +117,7 @@ export function isStaffOrAdminAuthenticated(req: NextRequest): boolean {
   if (payload.role === 'developer') return true;
   if (payload.role === 'admin') return true;
   if (payload.role === 'staff') return true;
+  if (payload.role === 'operations_head') return true;
 
   return false;
 }
@@ -193,8 +194,24 @@ export function isSalesPersonOrHeadAuthenticated(req: NextRequest): boolean {
 }
 
 /**
+ * Operations Head Authentication:
+ * Accessible by Developer and Operations Head.
+ */
+export function isOperationsHeadAuthenticated(req: NextRequest): boolean {
+  const token = getAdminTokenFromRequest(req);
+  if (!token) return false;
+  const payload = verifyAdminToken(token);
+  if (!payload) return false;
+
+  return (
+    payload.role === 'developer' ||
+    payload.role === 'operations_head'
+  );
+}
+
+/**
  * Customer Tracking Query Authentication:
- * Accessible by Developer, Admin, Staff, Sales Head, and Sales Person.
+ * Accessible by Developer, Admin, Staff, Sales Head, Sales Person, and Operations Head.
  */
 export function isCustomerQueryAccessAuthorized(req: NextRequest): boolean {
   const token = getAdminTokenFromRequest(req);
@@ -208,6 +225,7 @@ export function isCustomerQueryAccessAuthorized(req: NextRequest): boolean {
     'staff',
     'sales_head',
     'sales_person',
+    'operations_head',
   ];
   return allowedRoles.includes(payload.role);
 }

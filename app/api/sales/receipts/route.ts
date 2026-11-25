@@ -5,14 +5,14 @@ import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
 import DailyTask from '@/models/DailyTask';
 import SalesMessage from '@/models/SalesMessage';
-import { isSalesPersonOrHeadAuthenticated, getAuthenticatedUser } from '@/lib/auth';
+import { isSalesPersonOrHeadAuthenticated, isOperationsHeadAuthenticated, getAuthenticatedUser } from '@/lib/auth';
 import { recordEditLog } from '@/lib/auditLog';
 
 export const dynamic = 'force-dynamic';
 
 // GET: Fetch sales records on-demand with multi-select (NO EAGER LOADING)
 export async function GET(req: NextRequest) {
-  if (!isSalesPersonOrHeadAuthenticated(req)) {
+  if (!isSalesPersonOrHeadAuthenticated(req) && !isOperationsHeadAuthenticated(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -273,6 +273,12 @@ export async function PATCH(req: NextRequest) {
   }
 
   const currentUser = getAuthenticatedUser(req);
+  if (currentUser.role === 'operations_head') {
+    return NextResponse.json(
+      { error: 'Operations Head has view-only access. Modification is strictly disallowed.' },
+      { status: 403 }
+    );
+  }
 
   try {
     await connectToDatabase();

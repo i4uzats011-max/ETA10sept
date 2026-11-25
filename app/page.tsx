@@ -81,6 +81,8 @@ export default function PublicTrackerPage() {
       if (sess && sess.token && sess.role) {
         if (sess.role === 'sales_head' || sess.role === 'sales_person') {
           router.replace('/sales');
+        } else if (sess.role === 'operations_head') {
+          router.replace('/operations');
         } else if (sess.role === 'dispatcher') {
           router.replace('/dispatcher');
         } else if (sess.role === 'biller') {

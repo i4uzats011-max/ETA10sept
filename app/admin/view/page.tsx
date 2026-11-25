@@ -1405,6 +1405,13 @@ export default function InternalEmployeeViewPage() {
               <span>Dispatcher</span>
             </Link>
 
+            <Link
+              href="/operations"
+              className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-orange-50 hover:bg-orange-100 text-orange-900 border border-orange-300 text-xs font-bold transition flex items-center space-x-1"
+            >
+              <span>Operations</span>
+            </Link>
+
             {userRole === 'admin' && (
               <Link
                 href="/admin"
