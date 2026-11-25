@@ -36,6 +36,9 @@ import {
   HelpCircle,
   FileText,
   Filter,
+  CheckSquare,
+  Square,
+  ArrowLeft,
 } from 'lucide-react';
 import SalesDatePickerCalendar from '@/components/SalesDatePickerCalendar';
 import SearchableContainerSelect from '@/components/SearchableContainerSelect';
@@ -72,7 +75,10 @@ export default function OperationsPortalPage() {
   const [loadingFleet, setLoadingFleet] = useState(false);
   const [containerSearch, setContainerSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>(['ALL']);
   const [portFilter, setPortFilter] = useState('ALL');
+  // Tab 1 Multi-Container Selection State
+  const [selectedFleetContainers, setSelectedFleetContainers] = useState<string[]>([]);
   // Remarks Modal State
   const [remarksModalContainer, setRemarksModalContainer] = useState<any | null>(null);
 
@@ -83,6 +89,10 @@ export default function OperationsPortalPage() {
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
   const [selectedContainers, setSelectedContainers] = useState<string[]>([]);
   const [markaQuery, setMarkaQuery] = useState('');
+
+  // Tab 3 View Mode: 'directory' (Container List with Checkboxes) | 'sheet' (Loaded Shipments Spreadsheet)
+  const [containerViewMode, setContainerViewMode] = useState<'directory' | 'sheet'>('directory');
+  const [containerDirectorySearch, setContainerDirectorySearch] = useState('');
 
   // Options from backend
   const [warehouses, setWarehouses] = useState<string[]>([]);
@@ -315,6 +325,102 @@ export default function OperationsPortalPage() {
     }
   };
 
+  // Tab 3: Container Directory Selection Handlers
+  const handleSelectContainerRow = (cName: string) => {
+    const isSelected = selectedContainers.includes(cName);
+    let next: string[];
+    if (isSelected) {
+      next = selectedContainers.filter((c) => c !== cName);
+    } else {
+      next = [...selectedContainers, cName];
+    }
+    handleContainersChange(next);
+  };
+
+  const handleOpenSingleContainer = (cName: string) => {
+    handleContainersChange([cName]);
+    setContainerViewMode('sheet');
+  };
+
+  // Tab 1: Multi-Select Status Filter Handler
+  const handleToggleStatus = (st: string) => {
+    if (st === 'ALL') {
+      setSelectedStatuses(['ALL']);
+      return;
+    }
+    const cleaned = selectedStatuses.filter((s) => s !== 'ALL');
+    let next: string[];
+    if (cleaned.includes(st)) {
+      next = cleaned.filter((s) => s !== st);
+    } else {
+      next = [...cleaned, st];
+    }
+    if (next.length === 0) next = ['ALL'];
+    setSelectedStatuses(next);
+  };
+
+  // Tab 1: Fleet Multi-Select Container Handlers
+  const handleToggleFleetContainer = (cName: string) => {
+    setSelectedFleetContainers((prev) =>
+      prev.includes(cName) ? prev.filter((c) => c !== cName) : [...prev, cName]
+    );
+  };
+
+  const handleSelectAllFleet = () => {
+    if (
+      selectedFleetContainers.length === filteredFleetContainers.length &&
+      filteredFleetContainers.length > 0
+    ) {
+      setSelectedFleetContainers([]);
+    } else {
+      setSelectedFleetContainers(filteredFleetContainers.map((c) => c.container));
+    }
+  };
+
+  const handleOpenSelectedInTab3 = () => {
+    if (selectedFleetContainers.length === 0) return;
+    setSelectedContainers(selectedFleetContainers);
+    setActiveTab('container_wise');
+    setContainerViewMode('sheet');
+    executeLoadReceipts('container', undefined, selectedFleetContainers, undefined);
+  };
+
+  const handleOpenSelectedModal = () => {
+    if (selectedFleetContainers.length === 0) return;
+    handleOpenDrilldown(selectedFleetContainers.join(','));
+  };
+
+  const handleExportSelectedFleetExcel = () => {
+    const toExport = fleetContainers.filter((c) => selectedFleetContainers.includes(c.container));
+    if (toExport.length === 0) return;
+    const exportRows = toExport.map((c, i) => ({
+      '#': i + 1,
+      'Container No.': c.container,
+      'Carrier No.': c.containerNumber || '—',
+      Status: c.status,
+      'Port Name': c.portName,
+      'Last Status / Remark': c.latestRemark?.remarks || '—',
+      'Remark Date': c.latestRemark?.date || '—',
+      'Remark By': c.latestRemark?.createdBy || '—',
+      ETA: c.eta,
+      'Port Date': c.portDate,
+      Destination: c.destination,
+      'Total CTN': c.totalCartons,
+      'Total CBM': c.totalVolume,
+      'Total Weight (KG)': c.totalWeight,
+      'Shipping Line': c.shippingLine,
+      'Loading Date': c.loadingDate,
+    }));
+    const ws = XLSX.utils.json_to_sheet(exportRows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Selected_Containers');
+    XLSX.writeFile(
+      wb,
+      `Operations_Selected_Containers_${new Date().toISOString().slice(0, 10)}.xlsx`
+    );
+    showToast(`Exported ${toExport.length} containers to Excel!`);
+  };
+
   const handleToggleMarka = (mName: string) => {
     const currentList = markaQuery.split(/[,+]/).map((m) => m.trim()).filter(Boolean);
     let nextList: string[];
@@ -383,14 +489,14 @@ export default function OperationsPortalPage() {
   };
 
   // ----------------------------------------------------
-  // 6. DRILLDOWN SINGLE CONTAINER CARGO SHEET
+  // 6. DRILLDOWN CONTAINER CARGO SHEET (SINGLE OR MULTI)
   // ----------------------------------------------------
   const handleOpenDrilldown = async (cName: string) => {
     setDrilldownContainer(cName);
     setDrilldownLoading(true);
     setDrilldownData(null);
     try {
-      const res = await fetch(`/api/operations/containers?container=${encodeURIComponent(cName)}`);
+      const res = await fetch(`/api/operations/containers?containers=${encodeURIComponent(cName)}`);
       const data = await res.json();
       if (data.success) {
         setDrilldownData(data);
@@ -400,6 +506,18 @@ export default function OperationsPortalPage() {
     } finally {
       setDrilldownLoading(false);
     }
+  };
+
+  const handleExportDrilldownExcel = () => {
+    if (!drilldownData || !drilldownData.items || drilldownData.items.length === 0) return;
+    const ws = XLSX.utils.json_to_sheet(drilldownData.items);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Shipments');
+    XLSX.writeFile(
+      wb,
+      `Operations_Cargo_${(drilldownContainer || 'Container').replace(/[^a-zA-Z0-9_-]/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`
+    );
+    showToast('Drilldown cargo exported to Excel!');
   };
 
   // ----------------------------------------------------
@@ -480,13 +598,17 @@ export default function OperationsPortalPage() {
   // Filtered fleet containers
   const filteredFleetContainers = useMemo(() => {
     return fleetContainers.filter((c) => {
-      // Status Filter
-      if (statusFilter !== 'ALL') {
+      // Status Multi-Select Filter
+      if (!selectedStatuses.includes('ALL')) {
         const cStatus = (c.status || '').toLowerCase();
-        if (statusFilter === 'In Transit' && !cStatus.includes('transit')) return false;
-        if (statusFilter === 'Arrived' && !cStatus.includes('arrived') && !cStatus.includes('port')) return false;
-        if (statusFilter === 'Customs Clearance' && !cStatus.includes('custom')) return false;
-        if (statusFilter === 'Delivered' && !c.isDelivered && !cStatus.includes('deliver')) return false;
+        const matchesAny = selectedStatuses.some((st) => {
+          if (st === 'In Transit') return cStatus.includes('transit');
+          if (st === 'Arrived') return cStatus.includes('arrived') || cStatus.includes('port');
+          if (st === 'Customs Clearance') return cStatus.includes('custom');
+          if (st === 'Delivered') return c.isDelivered || cStatus.includes('deliver');
+          return cStatus.includes(st.toLowerCase());
+        });
+        if (!matchesAny) return false;
       }
 
       // Port Filter
@@ -512,7 +634,7 @@ export default function OperationsPortalPage() {
 
       return true;
     });
-  }, [fleetContainers, statusFilter, portFilter, containerSearch]);
+  }, [fleetContainers, selectedStatuses, portFilter, containerSearch]);
 
   // Distinct Ports for filter dropdown
   const distinctPorts = useMemo(() => {
@@ -522,6 +644,23 @@ export default function OperationsPortalPage() {
     });
     return Array.from(set).sort();
   }, [fleetContainers]);
+
+  // Filtered Container Options for Tab 3 Directory
+  const filteredContainersOptions = useMemo(() => {
+    if (!containerDirectorySearch.trim()) return containersOptions;
+    const q = containerDirectorySearch.toLowerCase().trim();
+    return containersOptions.filter((c) => {
+      return (
+        (c.container || '').toLowerCase().includes(q) ||
+        (c.containerNumber || '').toLowerCase().includes(q) ||
+        (c.warehouse || '').toLowerCase().includes(q) ||
+        (c.portName || '').toLowerCase().includes(q) ||
+        (c.eta || '').toLowerCase().includes(q) ||
+        (c.loadingDate || '').toLowerCase().includes(q) ||
+        (c.planStatus || '').toLowerCase().includes(q)
+      );
+    });
+  }, [containersOptions, containerDirectorySearch]);
 
   // Filtered Sheet Receipts
   const filteredReceipts = useMemo(() => {
@@ -827,9 +966,9 @@ export default function OperationsPortalPage() {
               </div>
 
               {/* Filters & Search Row */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-center">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-center">
                 {/* Search */}
-                <div className="relative">
+                <div className="relative lg:col-span-2">
                   <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
                   <input
                     type="text"
@@ -848,19 +987,40 @@ export default function OperationsPortalPage() {
                   )}
                 </div>
 
-                {/* Status Filter */}
-                <div>
-                  <select
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-orange-500 focus:outline-none"
-                  >
-                    <option value="ALL">All Statuses (सभी स्टेटस)</option>
-                    <option value="In Transit">In Transit (रास्ते में)</option>
-                    <option value="Arrived">Arrived at Port (पोर्ट पर पहुंचा)</option>
-                    <option value="Customs Clearance">Customs Clearance (कस्टम प्रक्रिया)</option>
-                    <option value="Delivered">Delivered (डिलीवर हो गया)</option>
-                  </select>
+                {/* Status Multi-Select Filter Buttons */}
+                <div className="sm:col-span-2 lg:col-span-2">
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="text-[10px] font-bold text-slate-600">
+                      Status Filter (Select 1 or more):
+                    </span>
+                    {!selectedStatuses.includes('ALL') && (
+                      <button
+                        onClick={() => setSelectedStatuses(['ALL'])}
+                        className="text-[10px] text-orange-600 hover:underline font-bold"
+                      >
+                        Reset ALL
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1 items-center">
+                    {['ALL', 'In Transit', 'Arrived', 'Customs Clearance', 'Delivered'].map((st) => {
+                      const isSel = selectedStatuses.includes(st);
+                      return (
+                        <button
+                          key={st}
+                          type="button"
+                          onClick={() => handleToggleStatus(st)}
+                          className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition cursor-pointer border ${
+                            isSel
+                              ? 'bg-orange-600 text-white border-orange-600 shadow-2xs'
+                              : 'bg-white text-slate-700 border-slate-300 hover:bg-orange-50'
+                          }`}
+                        >
+                          {st === 'ALL' ? 'ALL' : st}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {/* Port Filter */}
@@ -878,16 +1038,68 @@ export default function OperationsPortalPage() {
                     ))}
                   </select>
                 </div>
-
-                {/* Active Info Badge */}
-                <div className="flex items-center justify-between text-xs text-slate-600 bg-slate-100/80 px-3 py-1.5 rounded-xl border border-slate-200">
-                  <span className="font-semibold">Showing:</span>
-                  <span className="font-mono font-bold text-orange-700">
-                    {filteredFleetContainers.length} Active Records
-                  </span>
-                </div>
               </div>
             </div>
+
+            {/* Multi-Select Floating / Sticky Action Bar (When 1 or more selected) */}
+            {selectedFleetContainers.length > 0 && (
+              <div className="bg-gradient-to-r from-orange-600 via-amber-600 to-orange-700 text-white rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-3 shadow-lg border border-orange-500/30 animate-in slide-in-from-top-2">
+                <div className="flex items-center space-x-3">
+                  <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center font-bold text-white shadow-inner">
+                    <CheckCircle2 className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <div className="font-black text-sm flex items-center space-x-2">
+                      <span>
+                        {selectedFleetContainers.length} Container
+                        {selectedFleetContainers.length > 1 ? 's' : ''} Selected
+                      </span>
+                      <span className="text-[11px] bg-white/20 px-2 py-0.2 rounded-full font-mono">
+                        Multi-Select Active
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-orange-100 max-w-xl truncate font-mono">
+                      {selectedFleetContainers.join(', ')}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center flex-wrap gap-2">
+                  <button
+                    onClick={handleOpenSelectedInTab3}
+                    className="px-3.5 py-1.5 bg-white hover:bg-orange-50 text-orange-950 rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-md transition cursor-pointer"
+                    title="Open all selected containers in Container Wise Cargo Sheet"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-orange-600" />
+                    <span>Open Cargo Sheet ({selectedFleetContainers.length})</span>
+                  </button>
+
+                  <button
+                    onClick={handleOpenSelectedModal}
+                    className="px-3 py-1.5 bg-slate-900/80 hover:bg-slate-900 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-md transition cursor-pointer"
+                    title="Quick modal view of all shipments for selected containers"
+                  >
+                    <Eye className="w-3.5 h-3.5 text-orange-300" />
+                    <span>Quick Modal ({selectedFleetContainers.length})</span>
+                  </button>
+
+                  <button
+                    onClick={handleExportSelectedFleetExcel}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-md transition cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Export Selected ({selectedFleetContainers.length})</span>
+                  </button>
+
+                  <button
+                    onClick={() => setSelectedFleetContainers([])}
+                    className="px-2.5 py-1.5 bg-black/20 hover:bg-black/30 text-orange-100 hover:text-white rounded-xl text-xs font-semibold transition cursor-pointer"
+                  >
+                    Clear Selection
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Container Fleet Table */}
             <div className="bg-white rounded-2xl shadow-xs border border-slate-300 overflow-hidden">
@@ -895,7 +1107,20 @@ export default function OperationsPortalPage() {
                 <table className="w-full text-left border-collapse text-xs select-text">
                   <thead className="sticky top-0 z-20 bg-slate-900 text-white font-semibold text-[11px] tracking-wide uppercase shadow-md">
                     <tr>
-                      <th className="py-3 px-2 border-r border-slate-800 text-center w-10">#</th>
+                      <th className="py-3 px-2 border-r border-slate-800 text-center w-12">
+                        <div className="flex items-center justify-center space-x-1">
+                          <input
+                            type="checkbox"
+                            checked={
+                              filteredFleetContainers.length > 0 &&
+                              selectedFleetContainers.length === filteredFleetContainers.length
+                            }
+                            onChange={handleSelectAllFleet}
+                            className="rounded text-orange-600 focus:ring-orange-500 h-3.5 w-3.5 cursor-pointer"
+                            title="Select All Visible Containers"
+                          />
+                        </div>
+                      </th>
                       <th className="py-3 px-3 border-r border-slate-800 whitespace-nowrap bg-slate-950 font-bold text-orange-300">
                         CONTAINER NO.
                       </th>
@@ -935,23 +1160,38 @@ export default function OperationsPortalPage() {
                     ) : (
                       filteredFleetContainers.map((c, idx) => {
                         const isDelivered = c.isDelivered;
+                        const isSelected = selectedFleetContainers.includes(c.container);
                         const hasLatestRemark = Boolean(c.latestRemark?.remarks);
                         const remarksCount = Array.isArray(c.remarks) ? c.remarks.length : 0;
 
                         return (
                           <tr
                             key={c.container}
-                            className={`transition hover:bg-orange-50/50 ${
-                              isDelivered
-                                ? 'bg-emerald-50/20'
+                            onClick={() => handleToggleFleetContainer(c.container)}
+                            className={`transition cursor-pointer ${
+                              isSelected
+                                ? 'bg-orange-100/70 font-semibold'
+                                : isDelivered
+                                ? 'bg-emerald-50/20 hover:bg-orange-50/50'
                                 : idx % 2 === 0
-                                ? 'bg-white'
-                                : 'bg-slate-50/40'
+                                ? 'bg-white hover:bg-orange-50/50'
+                                : 'bg-slate-50/40 hover:bg-orange-50/50'
                             }`}
                           >
-                            {/* Row Index */}
-                            <td className="py-2.5 px-2 border-r border-slate-200 text-center text-slate-400 font-mono text-[11px] bg-slate-50">
-                              {idx + 1}
+                            {/* Row Checkbox & Index */}
+                            <td
+                              className="py-2.5 px-2 border-r border-slate-200 text-center text-slate-400 font-mono text-[11px] bg-slate-50/80"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <div className="flex items-center justify-center space-x-1">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => handleToggleFleetContainer(c.container)}
+                                  className="rounded text-orange-600 focus:ring-orange-500 h-3.5 w-3.5 cursor-pointer"
+                                />
+                                <span className="text-[10px] text-slate-400">{idx + 1}</span>
+                              </div>
                             </td>
 
                             {/* 1. CONTAINER NO. (Alias & Actual Carrier Number) */}
@@ -1086,15 +1326,35 @@ export default function OperationsPortalPage() {
                             </td>
 
                             {/* Action Button: Open Single Container Cargo Sheet */}
-                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                              <button
-                                onClick={() => handleOpenDrilldown(c.container)}
-                                className="px-2.5 py-1 bg-orange-600 hover:bg-orange-700 text-white rounded font-bold text-[11px] shadow-xs transition inline-flex items-center space-x-1 cursor-pointer"
-                                title="View All Shipments Inside This Container"
-                              >
-                                <Eye className="w-3 h-3" />
-                                <span>Cargo Sheet</span>
-                              </button>
+                            <td
+                              className="py-2.5 px-3 text-center whitespace-nowrap"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <div className="flex items-center justify-center space-x-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenDrilldown(c.container)}
+                                  className="px-2 py-1 bg-orange-600 hover:bg-orange-700 text-white rounded font-bold text-[11px] shadow-xs transition inline-flex items-center space-x-1 cursor-pointer"
+                                  title="View Quick Modal Cargo Sheet"
+                                >
+                                  <Eye className="w-3 h-3" />
+                                  <span>Modal</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedContainers([c.container]);
+                                    setActiveTab('container_wise');
+                                    setContainerViewMode('sheet');
+                                    executeLoadReceipts('container', undefined, [c.container], undefined);
+                                  }}
+                                  className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold text-[11px] shadow-xs transition inline-flex items-center space-x-1 cursor-pointer"
+                                  title="Open Full Container Sheet"
+                                >
+                                  <FileSpreadsheet className="w-3 h-3" />
+                                  <span>Sheet</span>
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -1438,28 +1698,238 @@ export default function OperationsPortalPage() {
               )}
             </div>
 
-            {/* Container Sheet Display */}
-            {loadingReceipts ? (
+            {/* Container Directory vs Loaded Sheet View */}
+            {containerViewMode === 'directory' || selectedContainers.length === 0 ? (
+              <div className="bg-white rounded-2xl shadow-xs border border-slate-300 overflow-hidden space-y-3 p-4 animate-in fade-in">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
+                  <div className="flex items-center space-x-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-800 flex items-center justify-center font-bold">
+                      <Boxes className="w-5 h-5 text-blue-700" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-sm text-slate-900 flex items-center space-x-2">
+                        <span>Operations Container Directory</span>
+                        <span className="text-[11px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-mono font-bold">
+                          {containersOptions.length} Containers Available
+                        </span>
+                      </h3>
+                      <p className="text-[11px] text-slate-500">
+                        Check multiple boxes to select one or more containers at one time, then click &quot;Open Selected Sheet&quot;.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="relative w-64">
+                      <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+                      <input
+                        type="text"
+                        value={containerDirectorySearch}
+                        onChange={(e) => setContainerDirectorySearch(e.target.value)}
+                        placeholder="Search Container, Carrier No, Port, ETA..."
+                        className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      />
+                      {containerDirectorySearch && (
+                        <button
+                          onClick={() => setContainerDirectorySearch('')}
+                          className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {selectedContainers.length > 0 && (
+                      <button
+                        onClick={() => {
+                          setContainerViewMode('sheet');
+                          executeLoadReceipts('container', undefined, selectedContainers, undefined);
+                        }}
+                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-xs transition flex items-center space-x-1.5 shrink-0 cursor-pointer"
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5" />
+                        <span>Open Selected Sheet ({selectedContainers.length})</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Directory Table */}
+                <div className="overflow-x-auto max-h-[66vh] scrollbar-thin border border-slate-200 rounded-xl">
+                  <table className="w-full text-left border-collapse text-xs select-text">
+                    <thead className="sticky top-0 z-10 bg-slate-900 text-white font-semibold text-[11px] uppercase tracking-wider">
+                      <tr>
+                        <th className="py-2.5 px-3 border-r border-slate-800 text-center w-12">
+                          <input
+                            type="checkbox"
+                            checked={
+                              filteredContainersOptions.length > 0 &&
+                              selectedContainers.length === filteredContainersOptions.length
+                            }
+                            onChange={() => {
+                              if (
+                                selectedContainers.length === filteredContainersOptions.length &&
+                                filteredContainersOptions.length > 0
+                              ) {
+                                handleContainersChange([]);
+                              } else {
+                                handleContainersChange(filteredContainersOptions.map((c) => c.container));
+                              }
+                            }}
+                            className="rounded text-blue-600 focus:ring-blue-500 h-3.5 w-3.5 cursor-pointer"
+                            title="Select / Deselect All Filtered Containers"
+                          />
+                        </th>
+                        <th className="py-2.5 px-3 border-r border-slate-800 whitespace-nowrap bg-slate-950 font-bold text-blue-300">
+                          CONTAINER NO.
+                        </th>
+                        <th className="py-2.5 px-3 border-r border-slate-800 whitespace-nowrap">CARRIER CONTAINER NO.</th>
+                        <th className="py-2.5 px-3 border-r border-slate-800 whitespace-nowrap">ETA</th>
+                        <th className="py-2.5 px-3 border-r border-slate-800 whitespace-nowrap">LOADING DATE</th>
+                        <th className="py-2.5 px-3 border-r border-slate-800 whitespace-nowrap">WAREHOUSE / PORT</th>
+                        <th className="py-2.5 px-3 border-r border-slate-800 whitespace-nowrap">PORT DATE</th>
+                        <th className="py-2.5 px-3 border-r border-slate-800 whitespace-nowrap">STATUS</th>
+                        <th className="py-2.5 px-3 border-r border-slate-800 text-right whitespace-nowrap">TOTAL CTN</th>
+                        <th className="py-2.5 px-3 text-center whitespace-nowrap bg-slate-950">ACTION</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {filteredContainersOptions.length === 0 ? (
+                        <tr>
+                          <td colSpan={10} className="py-8 text-center text-slate-500 text-xs">
+                            No containers found matching &quot;{containerDirectorySearch}&quot;.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredContainersOptions.map((c, idx) => {
+                          const isSelected = selectedContainers.includes(c.container);
+                          return (
+                            <tr
+                              key={c.container}
+                              onClick={() => handleSelectContainerRow(c.container)}
+                              className={`cursor-pointer transition hover:bg-blue-50/70 ${
+                                isSelected
+                                  ? 'bg-blue-50/90 font-semibold'
+                                  : idx % 2 === 0
+                                  ? 'bg-white'
+                                  : 'bg-slate-50/50'
+                              }`}
+                            >
+                              <td
+                                className="py-2 px-3 border-r border-slate-200 text-center"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSelectContainerRow(c.container);
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => handleSelectContainerRow(c.container)}
+                                  className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4 cursor-pointer"
+                                />
+                              </td>
+                              <td className="py-2 px-3 border-r border-slate-200 font-mono font-bold text-blue-800 whitespace-nowrap">
+                                {c.container}
+                              </td>
+                              <td className="py-2 px-3 border-r border-slate-200 font-mono text-slate-700 whitespace-nowrap">
+                                {c.containerNumber || '—'}
+                              </td>
+                              <td className="py-2 px-3 border-r border-slate-200 font-mono text-orange-700 whitespace-nowrap font-bold">
+                                {c.eta || 'Pending'}
+                              </td>
+                              <td className="py-2 px-3 border-r border-slate-200 font-mono text-slate-600 whitespace-nowrap">
+                                {c.loadingDate || '—'}
+                              </td>
+                              <td className="py-2 px-3 border-r border-slate-200 text-slate-800 whitespace-nowrap">
+                                {c.portName || c.warehouse || '—'}
+                              </td>
+                              <td className="py-2 px-3 border-r border-slate-200 font-mono text-slate-600 whitespace-nowrap">
+                                {c.portDate || '—'}
+                              </td>
+                              <td className="py-2 px-3 border-r border-slate-200 whitespace-nowrap">
+                                <span className="text-[10px] px-2 py-0.5 rounded font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                                  {c.planStatus || 'Active'}
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 border-r border-slate-200 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
+                                {c.totalQuantity || 0}
+                              </td>
+                              <td
+                                className="py-2 px-3 text-center whitespace-nowrap"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenSingleContainer(c.container)}
+                                  className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold text-[11px] shadow-2xs transition inline-flex items-center space-x-1 cursor-pointer"
+                                >
+                                  <FileSpreadsheet className="w-3 h-3" />
+                                  <span>Open Sheet</span>
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : loadingReceipts ? (
               <div className="bg-white rounded-2xl shadow-xs border border-slate-300 p-12 text-center text-slate-500">
                 <RefreshCw className="w-8 h-8 text-orange-500 animate-spin mx-auto mb-3" />
                 <p className="text-xs font-semibold">Loading Container Cargo Sheet...</p>
               </div>
-            ) : selectedContainers.length === 0 ? (
-              <div className="bg-white rounded-2xl shadow-xs border border-dashed border-slate-300 p-12 text-center">
-                <div className="w-12 h-12 bg-blue-50 text-blue-700 rounded-2xl flex items-center justify-center mx-auto mb-2">
-                  <Boxes className="w-6 h-6" />
-                </div>
-                <h3 className="text-sm font-bold text-slate-900">Select Container(s) Above</h3>
-                <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1">
-                  Type or select one or more containers to see their complete item breakdown, packages, weights, and ETAs.
-                </p>
-              </div>
             ) : filteredReceipts.length === 0 ? (
               <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-10 text-center text-slate-500 text-xs">
                 No items found inside the selected container(s).
+                <div className="mt-3">
+                  <button
+                    onClick={() => setContainerViewMode('directory')}
+                    className="px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-lg shadow-sm"
+                  >
+                    ← Back to Container Directory
+                  </button>
+                </div>
               </div>
             ) : (
-              <div className="bg-white rounded-2xl shadow-xs border border-slate-300 overflow-hidden">
+              <div className="bg-white rounded-2xl shadow-xs border border-slate-300 overflow-hidden space-y-2">
+                {/* Active Container Sheet Toolbar */}
+                <div className="bg-blue-50/80 border-b border-blue-200 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center space-x-2">
+                    <span className="font-bold text-blue-950">Active Container(s):</span>
+                    <div className="flex flex-wrap gap-1">
+                      {selectedContainers.map((cName) => (
+                        <span
+                          key={cName}
+                          className="bg-white text-blue-900 border border-blue-300 px-2 py-0.5 rounded font-mono font-bold text-[11px] shadow-2xs flex items-center space-x-1"
+                        >
+                          <span>{cName}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleSelectContainerRow(cName)}
+                            className="hover:text-rose-600 text-slate-400"
+                            title={`Remove ${cName}`}
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                    <span className="text-slate-500 text-[11px]">
+                      ({receipts.length} items loaded across {selectedContainers.length} container{selectedContainers.length > 1 ? 's' : ''})
+                    </span>
+                  </div>
+
+                  <button
+                    onClick={() => setContainerViewMode('directory')}
+                    className="px-3 py-1 bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 rounded-lg font-semibold text-xs transition flex items-center space-x-1.5 shadow-2xs cursor-pointer"
+                  >
+                    <Boxes className="w-3.5 h-3.5 text-blue-600" />
+                    <span>📋 View Container Directory Table</span>
+                  </button>
+                </div>
                 <div className="overflow-x-auto max-h-[75vh] scrollbar-thin">
                   <table className="w-full text-left border-collapse text-xs select-text">
                     <thead className="sticky top-0 z-20 bg-[#0f5132] text-white font-semibold text-[11px] tracking-wide uppercase shadow-sm">
@@ -2150,22 +2620,61 @@ export default function OperationsPortalPage() {
                 </div>
                 <div>
                   <h3 className="font-bold text-sm flex items-center space-x-2">
-                    <span>Container Cargo Sheet: {drilldownContainer}</span>
+                    <span>
+                      {drilldownContainer.split(',').length > 1
+                        ? `Cargo Sheet: ${drilldownContainer.split(',').length} Containers Selected`
+                        : `Container Cargo Sheet: ${drilldownContainer}`}
+                    </span>
                     <span className="text-[10px] bg-slate-800 text-orange-400 font-mono px-2 py-0.5 rounded">
                       View-Only 🔒
                     </span>
                   </h3>
-                  <div className="text-[10px] text-slate-400">
-                    Inspecting all inward shipments packed inside this container
+                  <div className="text-[10px] text-slate-400 max-w-xl truncate">
+                    {drilldownContainer.split(',').length > 1
+                      ? `Containers: ${drilldownContainer}`
+                      : `Inspecting all inward shipments packed inside container ${drilldownContainer}`}
                   </div>
                 </div>
               </div>
-              <button
-                onClick={() => setDrilldownContainer(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg"
-              >
-                <X className="w-5 h-5" />
-              </button>
+
+              <div className="flex items-center space-x-2">
+                {drilldownData && drilldownData.items && drilldownData.items.length > 0 && (
+                  <>
+                    <button
+                      onClick={handleExportDrilldownExcel}
+                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold text-[11px] shadow-xs transition flex items-center space-x-1"
+                      title="Download Excel for this cargo"
+                    >
+                      <Download className="w-3 h-3" />
+                      <span>Export</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        const cList = drilldownContainer
+                          .split(',')
+                          .map((c) => c.trim())
+                          .filter(Boolean);
+                        setSelectedContainers(cList);
+                        setActiveTab('container_wise');
+                        setContainerViewMode('sheet');
+                        executeLoadReceipts('container', undefined, cList, undefined);
+                        setDrilldownContainer(null);
+                      }}
+                      className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold text-[11px] shadow-xs transition flex items-center space-x-1"
+                      title="Open full sheet in Container Wise Tab"
+                    >
+                      <FileSpreadsheet className="w-3 h-3" />
+                      <span>Open in Tab</span>
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => setDrilldownContainer(null)}
+                  className="text-slate-400 hover:text-white p-1 rounded-lg"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             {/* Modal Body */}
@@ -2177,15 +2686,16 @@ export default function OperationsPortalPage() {
                 </div>
               ) : !drilldownData || drilldownData.items.length === 0 ? (
                 <div className="py-12 text-center text-slate-500">
-                  No shipments found packed in container {drilldownContainer}.
+                  No shipments found packed in container(s) {drilldownContainer}.
                 </div>
               ) : (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
-                    <span>
-                      Total Packed Items: <strong>{drilldownData.totalItems}</strong>
+                    <span className="font-semibold">
+                      Total Packed Items: <strong>{drilldownData.totalItems}</strong> across{' '}
+                      <strong>{drilldownContainer.split(',').length}</strong> container(s)
                     </span>
-                    <span className="text-[11px] text-slate-500">
+                    <span className="text-[11px] text-slate-500 font-mono">
                       Operations Head Access — Data strictly read-only
                     </span>
                   </div>
@@ -2195,6 +2705,11 @@ export default function OperationsPortalPage() {
                       <thead className="bg-[#0f5132] text-white font-semibold text-[11px] uppercase tracking-wide">
                         <tr>
                           <th className="py-2.5 px-2 border-r border-emerald-800 text-center w-8">#</th>
+                          {drilldownContainer.split(',').length > 1 && (
+                            <th className="py-2.5 px-3 border-r border-emerald-800 whitespace-nowrap bg-[#0b3d26] text-blue-200">
+                              Container
+                            </th>
+                          )}
                           <th className="py-2.5 px-3 border-r border-emerald-800 whitespace-nowrap">Receipt No.</th>
                           <th className="py-2.5 px-3 border-r border-emerald-800 whitespace-nowrap">Date</th>
                           <th className="py-2.5 px-3 border-r border-emerald-800 whitespace-nowrap">Warehouse</th>
@@ -2215,6 +2730,11 @@ export default function OperationsPortalPage() {
                             <td className="py-2 px-2 border-r border-slate-200 text-center font-mono text-[10px] text-slate-400">
                               {it.idx}
                             </td>
+                            {drilldownContainer.split(',').length > 1 && (
+                              <td className="py-2 px-3 border-r border-slate-200 font-mono font-bold text-blue-700 whitespace-nowrap bg-blue-50/40">
+                                {it.container || it.containerNumber || '—'}
+                              </td>
+                            )}
                             <td className="py-2 px-3 border-r border-slate-200 font-mono font-bold text-slate-900 whitespace-nowrap">
                               {it.receipt}
                             </td>

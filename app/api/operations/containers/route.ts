@@ -31,63 +31,75 @@ export async function GET(req: NextRequest) {
   try {
     await connectToDatabase();
     const { searchParams } = new URL(req.url);
-    const containerQuery = searchParams.get('container')?.trim();
+    const rawContainers = searchParams.get('containers') || searchParams.get('container')?.trim();
 
-    // If single container details requested (for Container-Wise Drill-down like Sales Head)
-    if (containerQuery) {
-      const escaped = containerQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const cRegex = new RegExp(`^${escaped}$`, 'i');
+    // If container details requested (Single or Multiple Containers at one time)
+    if (rawContainers) {
+      const containerList = rawContainers
+        .split(',')
+        .map((c) => c.trim())
+        .filter(Boolean);
 
-      const containerDoc: any = await Container.findOne({
-        $or: [{ container: cRegex }, { containerNumber: cRegex }]
-      }).lean();
+      if (containerList.length > 0) {
+        const regexes = containerList.map(
+          (c) => new RegExp(`^${c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
+        );
 
-      // Fetch all shipments inside this container
-      const shipments: any[] = await Shipment.find({
-        $or: [{ container: cRegex }, { containerNumber: cRegex }]
-      }).sort({ date: -1 }).lean();
+        const containerDocs: any[] = await Container.find({
+          $or: [{ container: { $in: regexes } }, { containerNumber: { $in: regexes } }],
+        }).lean();
 
-      // Fetch warehouse receipts for matched receipt numbers
-      const receiptNos = Array.from(new Set(shipments.map(s => s.receipt).filter(Boolean)));
-      const whReceipts: any[] = receiptNos.length > 0
-        ? await WarehouseReceipt.find({ receipt: { $in: receiptNos } }).lean()
-        : [];
+        // Fetch all shipments inside these containers
+        const shipments: any[] = await Shipment.find({
+          $or: [{ container: { $in: regexes } }, { containerNumber: { $in: regexes } }],
+        })
+          .sort({ date: -1 })
+          .lean();
 
-      const whMap = new Map<string, any>();
-      whReceipts.forEach(w => {
-        if (w.receipt) whMap.set(String(w.receipt).toLowerCase().trim(), w);
-      });
+        // Fetch warehouse receipts for matched receipt numbers
+        const receiptNos = Array.from(new Set(shipments.map((s) => s.receipt).filter(Boolean)));
+        const whReceipts: any[] =
+          receiptNos.length > 0
+            ? await WarehouseReceipt.find({ receipt: { $in: receiptNos } }).lean()
+            : [];
 
-      const items = shipments.map((s, idx) => {
-        const wh = whMap.get(String(s.receipt || '').toLowerCase().trim());
-        return {
-          idx: idx + 1,
-          receipt: s.receipt || wh?.receipt || '—',
-          date: s.date || wh?.date || '—',
-          warehouse: s.warehouse || wh?.warehouse || '—',
-          container: s.container || containerDoc?.container || containerQuery,
-          containerNumber: s.containerNumber || containerDoc?.containerNumber || '',
-          mainMarka: s.mainMarka || wh?.mainMarka || '',
-          subMarka: s.subMarka || wh?.subMarka || '',
-          party: s.party || wh?.party || '',
-          commodity: s.english || s.commodity || wh?.english || wh?.commodity || wh?.chinese || '—',
-          quantity: s.quantity || wh?.quantity || 0,
-          weight: s.weight || wh?.weight || '0',
-          volume: s.volume || wh?.volume || '0',
-          rate: wh?.rate || '—',
-          salesPerson: wh?.salesPerson || '—',
-          salesRemarks: wh?.salesRemarks || wh?.remarks || '—',
-          status: s.status || wh?.status || 'In Transit',
-        };
-      });
+        const whMap = new Map<string, any>();
+        whReceipts.forEach((w) => {
+          if (w.receipt) whMap.set(String(w.receipt).toLowerCase().trim(), w);
+        });
 
-      return NextResponse.json({
-        success: true,
-        container: containerDoc?.container || containerQuery,
-        containerDetails: containerDoc || null,
-        items,
-        totalItems: items.length
-      });
+        const items = shipments.map((s, idx) => {
+          const wh = whMap.get(String(s.receipt || '').toLowerCase().trim());
+          return {
+            idx: idx + 1,
+            receipt: s.receipt || wh?.receipt || '—',
+            date: s.date || wh?.date || '—',
+            warehouse: s.warehouse || wh?.warehouse || '—',
+            container: s.container || s.containerNumber || containerList[0],
+            containerNumber: s.containerNumber || '',
+            mainMarka: s.mainMarka || wh?.mainMarka || '',
+            subMarka: s.subMarka || wh?.subMarka || '',
+            party: s.party || wh?.party || '',
+            commodity: s.english || s.commodity || wh?.english || wh?.commodity || wh?.chinese || '—',
+            quantity: s.quantity || wh?.quantity || 0,
+            weight: s.weight || wh?.weight || '0',
+            volume: s.volume || wh?.volume || '0',
+            rate: wh?.rate || '—',
+            salesPerson: wh?.salesPerson || '—',
+            salesRemarks: wh?.salesRemarks || wh?.remarks || '—',
+            status: s.status || wh?.status || 'In Transit',
+          };
+        });
+
+        return NextResponse.json({
+          success: true,
+          container: containerList.join(', '),
+          containers: containerList,
+          containerDetails: containerDocs.length === 1 ? containerDocs[0] : null,
+          items,
+          totalItems: items.length,
+        });
+      }
     }
 
     // Default: Fetch all containers with full fleet metrics & remarks
