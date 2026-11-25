@@ -1,16 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import TrackingQuery from '@/models/TrackingQuery';
-import { isStaffOrAdminAuthenticated, isAdminAuthenticated } from '@/lib/auth';
+import {
+  isCustomerQueryAccessAuthorized,
+  getAdminTokenFromRequest,
+  verifyAdminToken,
+} from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
-// PUT: Admin replies to query
+// PUT: Admin or Sales Head replies to query
 export async function PUT(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  if (!isStaffOrAdminAuthenticated(req)) {
+  if (!isCustomerQueryAccessAuthorized(req)) {
     return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
   }
 
@@ -63,8 +67,10 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  if (!isAdminAuthenticated(req)) {
-    return NextResponse.json({ success: false, message: 'Unauthorized: Admin access required' }, { status: 401 });
+  const token = getAdminTokenFromRequest(req);
+  const payload = token ? verifyAdminToken(token) : null;
+  if (!payload || !['developer', 'admin', 'sales_head'].includes(payload.role)) {
+    return NextResponse.json({ success: false, message: 'Unauthorized: Admin or Sales Head access required' }, { status: 401 });
   }
 
   try {

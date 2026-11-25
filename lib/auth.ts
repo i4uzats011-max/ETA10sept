@@ -192,6 +192,26 @@ export function isSalesPersonOrHeadAuthenticated(req: NextRequest): boolean {
   );
 }
 
+/**
+ * Customer Tracking Query Authentication:
+ * Accessible by Developer, Admin, Staff, Sales Head, and Sales Person.
+ */
+export function isCustomerQueryAccessAuthorized(req: NextRequest): boolean {
+  const token = getAdminTokenFromRequest(req);
+  if (!token) return false;
+  const payload = verifyAdminToken(token);
+  if (!payload) return false;
+
+  const allowedRoles: UserRole[] = [
+    'developer',
+    'admin',
+    'staff',
+    'sales_head',
+    'sales_person',
+  ];
+  return allowedRoles.includes(payload.role);
+}
+
 export function isAnyAuthenticated(req: NextRequest): boolean {
   const token = getAdminTokenFromRequest(req);
   if (!token) return false;

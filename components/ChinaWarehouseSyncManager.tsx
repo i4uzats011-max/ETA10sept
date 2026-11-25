@@ -25,7 +25,7 @@ import {
 interface MismatchItem {
   _id: string;
   receipt: string;
-  warehouse: 'GZ' | 'YW';
+  warehouse: 'GZ' | 'YW' | 'YW-55' | string;
   mismatchType: string;
   diffSummary: string;
   dbData?: {
@@ -56,6 +56,7 @@ interface MismatchItem {
 interface SyncStats {
   gz: { total: number; verified: number; unverified: number };
   yw: { total: number; verified: number; unverified: number };
+  yw55?: { total: number; verified: number; unverified: number };
   pendingMismatchesCount: number;
   lastChinaSyncAt: string | null;
 }
@@ -69,19 +70,19 @@ export default function ChinaWarehouseSyncManager() {
   const [error, setError] = useState<string | null>(null);
 
   // Filters for Mismatch List
-  const [selectedWarehouse, setSelectedWarehouse] = useState<'ALL' | 'GZ' | 'YW'>('ALL');
+  const [selectedWarehouse, setSelectedWarehouse] = useState<'ALL' | 'GZ' | 'YW' | 'YW-55'>('ALL');
   const [selectedStatus, setSelectedStatus] = useState<'PENDING' | 'RESOLVED' | 'IGNORED' | 'ALL'>('PENDING');
   const [selectedPeriod, setSelectedPeriod] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
   // 1-Click Single Receipt Fetch state
   const [fetchReceiptInput, setFetchReceiptInput] = useState('');
-  const [fetchWhInput, setFetchWhInput] = useState<'ALL' | 'GZ' | 'YW'>('ALL');
+  const [fetchWhInput, setFetchWhInput] = useState<'ALL' | 'GZ' | 'YW' | 'YW-55'>('ALL');
   const [isFetchingSingle, setIsFetchingSingle] = useState(false);
   const [singleFetchResult, setSingleFetchResult] = useState<any | null>(null);
 
   // 1-Click Single Receipt Fetch handler
-  const handleFetchSingleReceipt = async (codeToFetch?: string, whToFetch?: 'GZ' | 'YW' | 'ALL') => {
+  const handleFetchSingleReceipt = async (codeToFetch?: string, whToFetch?: 'GZ' | 'YW' | 'YW-55' | 'ALL' | string) => {
     const code = (codeToFetch || fetchReceiptInput).trim();
     const wh = whToFetch || fetchWhInput;
     if (!code) {
@@ -225,7 +226,7 @@ export default function ChinaWarehouseSyncManager() {
         </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mt-5">
           {/* GZ Card */}
           <div className="bg-slate-50 rounded-lg p-4 border border-slate-200/80">
             <div className="flex items-center justify-between">
@@ -270,6 +271,30 @@ export default function ChinaWarehouseSyncManager() {
               </span>
               <span className="text-amber-700 font-medium">
                 {stats?.yw.unverified.toLocaleString() ?? 0} Pending
+              </span>
+            </div>
+          </div>
+
+          {/* YW-55 Card */}
+          <div className="bg-slate-50 rounded-lg p-4 border border-slate-200/80">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Yiwu 55 (YW-55)
+              </span>
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" title="Connected" />
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-900">
+                {stats?.yw55?.total.toLocaleString() ?? '—'}
+              </span>
+              <span className="text-xs text-slate-500">receipts</span>
+            </div>
+            <div className="mt-2 text-xs text-slate-600 flex items-center justify-between">
+              <span className="text-emerald-700 font-medium">
+                ✓ {stats?.yw55?.verified.toLocaleString() ?? 0} Verified
+              </span>
+              <span className="text-amber-700 font-medium">
+                {stats?.yw55?.unverified.toLocaleString() ?? 0} Pending
               </span>
             </div>
           </div>
@@ -352,6 +377,7 @@ export default function ChinaWarehouseSyncManager() {
                 <option value="ALL">Auto-Detect WH</option>
                 <option value="GZ">Guangzhou (GZ)</option>
                 <option value="YW">Yiwu (YW)</option>
+                <option value="YW-55">Yiwu 55 (YW-55)</option>
               </select>
 
               <div className="flex items-center gap-1.5">
@@ -409,7 +435,7 @@ export default function ChinaWarehouseSyncManager() {
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold text-slate-600 uppercase">Target:</span>
             <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5">
-              {(['ALL', 'GZ', 'YW'] as const).map((wh) => (
+              {(['ALL', 'GZ', 'YW', 'YW-55'] as const).map((wh) => (
                 <button
                   key={wh}
                   onClick={() => setSelectedWarehouse(wh)}

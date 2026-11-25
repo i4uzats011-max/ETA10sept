@@ -1,15 +1,17 @@
 /**
  * China Warehouse Client (https://zg.kuaisongkj.com)
  * Handles automated session login, querying, and paginated data extraction
- * for GZ (RS-21) and YW (AS-14) warehouses.
+ * for GZ (RS-21), YW (AS-14), and YW-55 (YW-55) warehouses.
  */
 
 import { CONFIG } from '@/lib/config';
 
+export type ChinaWarehouseKey = 'GZ' | 'YW' | 'YW-55' | string;
+
 export interface ChinaWarehouseRecord {
   id: string; // China portal record ID
-  warehouse: 'GZ' | 'YW';
-  entryCode: string; // "RS-21" or "AS-14"
+  warehouse: string;
+  entryCode: string; // "RS-21", "AS-14", "YW-55"
   code: string; // Unique Receipt / Waybill number (e.g. "261121020")
   date: string; // Full date string (e.g. "2026-11-21 13:02:28")
   formattedDate: string; // "YYYY-MM-DD"
@@ -34,18 +36,62 @@ export interface ChinaWarehouseRecord {
   networkName: string;
 }
 
+export function getWarehouseCreds(wh: string): { UID: string; PASSWORD: string; CODE: string } {
+  const clean = wh.trim();
+  const upper = clean.toUpperCase();
+  const normalized = upper.replace(/[^A-Z0-9]/g, '');
+
+  if (upper === 'GZ' || normalized === 'GZ') {
+    return CONFIG.CHINA_WH.GZ;
+  }
+  if (upper === 'YW-55' || upper === 'YW55' || normalized === 'YW55') {
+    return (CONFIG.CHINA_WH as any).YW55 || (CONFIG.CHINA_WH as any)['YW-55'];
+  }
+  if (upper === 'YW' || normalized === 'YW') {
+    return CONFIG.CHINA_WH.YW;
+  }
+  if ((CONFIG.CHINA_WH as any)[clean]) {
+    return (CONFIG.CHINA_WH as any)[clean];
+  }
+  if ((CONFIG.CHINA_WH as any)[upper]) {
+    return (CONFIG.CHINA_WH as any)[upper];
+  }
+  throw new Error(`No credentials configured for China warehouse: ${wh}`);
+}
+
+async function fetchWithRetry(url: string, init: RequestInit, retries: number = 3, timeoutMs: number = 30000): Promise<Response> {
+  let lastError: any;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url, {
+        ...init,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      return res;
+    } catch (err: any) {
+      lastError = err;
+      if (attempt < retries) {
+        await new Promise((r) => setTimeout(r, attempt * 1500));
+      }
+    }
+  }
+  throw lastError;
+}
+
 export class ChinaWarehouseClient {
   private baseUrl: string;
 
   constructor(baseUrl?: string) {
-    this.baseUrl = baseUrl || CONFIG.CHINA_WH.BASE_URL;
+    const raw = baseUrl || CONFIG.CHINA_WH.BASE_URL;
+    // Strip trailing /s or slashes to ensure consistent query/search endpoints
+    this.baseUrl = raw.replace(/\/s\/?$/i, '').replace(/\/+$/, '');
   }
 
   /**
    * Authenticate with China portal and obtain session cookie
    */
-  async login(wh: 'GZ' | 'YW'): Promise<string> {
-    const creds = wh === 'GZ' ? CONFIG.CHINA_WH.GZ : CONFIG.CHINA_WH.YW;
+  async login(wh: ChinaWarehouseKey): Promise<string> {
+    const creds = getWarehouseCreds(wh);
     const loginUrl = `${this.baseUrl}/query`;
 
     const params = new URLSearchParams({
@@ -54,7 +100,7 @@ export class ChinaWarehouseClient {
       language: 'zh_CN',
     });
 
-    const res = await fetch(loginUrl, {
+    const res = await fetchWithRetry(loginUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -62,8 +108,7 @@ export class ChinaWarehouseClient {
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       },
       body: params.toString(),
-      signal: AbortSignal.timeout(15000),
-    });
+    }, 3, 25000);
 
     if (!res.ok) {
       throw new Error(`Login failed for warehouse ${wh}: HTTP status ${res.status}`);
@@ -92,7 +137,7 @@ export class ChinaWarehouseClient {
    * Fetch a single paginated batch of records
    */
   async fetchBatch(
-    wh: 'GZ' | 'YW',
+    wh: ChinaWarehouseKey,
     cookie: string,
     options: {
       page?: number;
@@ -113,7 +158,7 @@ export class ChinaWarehouseClient {
       code: options.code || '',
     });
 
-    const res = await fetch(searchUrl, {
+    const res = await fetchWithRetry(searchUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -122,8 +167,7 @@ export class ChinaWarehouseClient {
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       },
       body: searchParams.toString(),
-      signal: AbortSignal.timeout(25000),
-    });
+    }, 3, 30000);
 
     if (!res.ok) {
       throw new Error(`Search failed for ${wh}: HTTP ${res.status}`);
@@ -133,6 +177,9 @@ export class ChinaWarehouseClient {
     if (data.code !== 200 || !Array.isArray(data.data)) {
       throw new Error(`Invalid response from /search for ${wh}: ${JSON.stringify(data).slice(0, 200)}`);
     }
+
+    const defaultEntryCode =
+      wh === 'GZ' ? 'RS-21' : wh === 'YW-55' ? 'YW-55' : 'AS-14';
 
     const records: ChinaWarehouseRecord[] = data.data.map((row: any) => {
       const rawDate = String(row.date || '').trim();
@@ -144,7 +191,7 @@ export class ChinaWarehouseClient {
       return {
         id: String(row.id || ''),
         warehouse: wh,
-        entryCode: String(row.entryCode || (wh === 'GZ' ? 'RS-21' : 'AS-14')).trim(),
+        entryCode: String(row.entryCode || defaultEntryCode).trim(),
         code: String(row.code || '').trim(),
         date: rawDate,
         formattedDate: formattedDate || new Date().toISOString().slice(0, 10),
@@ -180,13 +227,14 @@ export class ChinaWarehouseClient {
    * Fetch all records matching criteria across all pages (with pagination)
    */
   async fetchAllRecords(
-    wh: 'GZ' | 'YW',
+    wh: ChinaWarehouseKey,
     options: {
       startDate?: string;
       endDate?: string;
       stockState?: string;
       maxPages?: number;
       limitPerPage?: number;
+      receiptCode?: string;
     } = {}
   ): Promise<ChinaWarehouseRecord[]> {
     const cookie = await this.login(wh);
@@ -203,6 +251,7 @@ export class ChinaWarehouseClient {
         startDate: options.startDate,
         endDate: options.endDate,
         stockState: options.stockState,
+        code: options.receiptCode,
       });
 
       if (records.length === 0) break;

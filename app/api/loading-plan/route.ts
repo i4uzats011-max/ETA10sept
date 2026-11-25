@@ -230,7 +230,7 @@ export async function POST(req: NextRequest) {
         whReceipt = await WarehouseReceipt.findById(receiptId);
       }
       if (!whReceipt) {
-        const targetWarehouse = (warehouse || body.warehouse || targetContainer.warehouse || '').trim();
+        const targetWarehouse = (warehouse || body.warehouse || '').trim();
         const whQuery: any = {
           receipt: new RegExp(`^${cleanReceipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
         };
@@ -267,23 +267,14 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Strict Warehouse Isolation Rule: Container origin warehouse must match receipt origin warehouse
+      // Multi-Warehouse Container Support:
+      // Allow loading goods from multiple warehouses into a single container plan.
+      // Each loaded shipment maintains its own origin warehouse.
       const containerWh = (targetContainer.warehouse || '').trim();
       const receiptWh = (whReceipt.warehouse || '').trim();
-      if (
-        containerWh &&
-        receiptWh &&
-        containerWh !== 'ALL' &&
-        containerWh !== 'China Warehouse' &&
-        receiptWh !== 'China Warehouse' &&
-        containerWh.toLowerCase() !== receiptWh.toLowerCase()
-      ) {
-        return NextResponse.json(
-          {
-            error: `Warehouse Mismatch Error: Receipt #${whReceipt.receipt} is stored in '${receiptWh}' warehouse, but container '${targetContainer.container}' belongs to '${containerWh}' warehouse. Goods can only be loaded into a container originating from the same warehouse.`,
-          },
-          { status: 400 }
-        );
+      if (!containerWh || containerWh === 'China Warehouse' || containerWh === 'ALL') {
+        targetContainer.warehouse = receiptWh;
+        await targetContainer.save();
       }
 
       if (!whReceipt.quantity || whReceipt.quantity <= 0) {

@@ -28,6 +28,16 @@ export const CONFIG = {
       UID: process.env.CHINA_WH_YW_UID || 'AS-14',
       PASSWORD: process.env.CHINA_WH_YW_PWD || '940426',
     },
+    YW55: {
+      CODE: 'YW-55',
+      UID: process.env.CHINA_WH_YW55_UID || 'YW-55',
+      PASSWORD: process.env.CHINA_WH_YW55_PWD || '157243',
+    },
+    'YW-55': {
+      CODE: 'YW-55',
+      UID: process.env.CHINA_WH_YW55_UID || 'YW-55',
+      PASSWORD: process.env.CHINA_WH_YW55_PWD || '157243',
+    },
   },
 
   // Security & Cron secrets

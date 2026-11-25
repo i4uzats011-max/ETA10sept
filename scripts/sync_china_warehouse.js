@@ -51,6 +51,8 @@ const GZ_UID = process.env.CHINA_WH_GZ_UID || 'RS-21';
 const GZ_PWD = process.env.CHINA_WH_GZ_PWD || '123456';
 const YW_UID = process.env.CHINA_WH_YW_UID || 'AS-14';
 const YW_PWD = process.env.CHINA_WH_YW_PWD || '940426';
+const YW55_UID = process.env.CHINA_WH_YW55_UID || 'YW-55';
+const YW55_PWD = process.env.CHINA_WH_YW55_PWD || '157243';
 
 // Packaging standard translation map
 const PKG_MAP = {
@@ -144,13 +146,38 @@ Terms: ${JSON.stringify(uniqueToFetch)}`;
   return result;
 }
 
+// Helper fetch with retry
+async function fetchWithRetry(url, options = {}, retries = 3, timeoutMs = 25000) {
+  let lastErr;
+  for (let i = 1; i <= retries; i++) {
+    try {
+      return await fetch(url, { ...options, signal: AbortSignal.timeout(timeoutMs) });
+    } catch (e) {
+      lastErr = e;
+      if (i < retries) await new Promise((r) => setTimeout(r, i * 1500));
+    }
+  }
+  throw lastErr;
+}
+
 // China portal login
 async function loginChinaWh(wh) {
-  const uid = wh === 'GZ' ? GZ_UID : YW_UID;
-  const pwd = wh === 'GZ' ? GZ_PWD : YW_PWD;
+  const norm = String(wh || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  let uid, pwd;
+  if (norm === 'GZ') {
+    uid = GZ_UID;
+    pwd = GZ_PWD;
+  } else if (norm === 'YW55' || norm === 'YW-55') {
+    uid = YW55_UID;
+    pwd = YW55_PWD;
+  } else {
+    uid = YW_UID;
+    pwd = YW_PWD;
+  }
 
   const params = new URLSearchParams({ code: uid, password: pwd, language: 'zh_CN' });
-  const res = await fetch(`${BASE_URL}/query`, {
+  const cleanBase = BASE_URL.replace(/\/s\/?$/i, '').replace(/\/+$/, '');
+  const res = await fetchWithRetry(`${cleanBase}/query`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: params.toString(),
@@ -170,9 +197,13 @@ async function loginChinaWh(wh) {
 // Fetch portal records
 async function fetchChinaRecords(wh, startDate, endDate, maxRecords = 2000, receiptCode = '') {
   const cookie = await loginChinaWh(wh);
+  const cleanBase = BASE_URL.replace(/\/s\/?$/i, '').replace(/\/+$/, '');
   const limit = 200;
   let page = 1;
   let allRecords = [];
+
+  const defaultEntryCode =
+    wh === 'GZ' ? 'RS-21' : (wh === 'YW-55' || wh === 'YW55') ? 'YW-55' : 'AS-14';
 
   while (allRecords.length < maxRecords) {
     const params = new URLSearchParams({
@@ -184,7 +215,7 @@ async function fetchChinaRecords(wh, startDate, endDate, maxRecords = 2000, rece
       code: receiptCode || '',
     });
 
-    const res = await fetch(`${BASE_URL}/search`, {
+    const res = await fetchWithRetry(`${cleanBase}/search`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -199,7 +230,7 @@ async function fetchChinaRecords(wh, startDate, endDate, maxRecords = 2000, rece
     const list = data.data.map((r) => ({
       id: String(r.id || ''),
       warehouse: wh,
-      entryCode: String(r.entryCode || (wh === 'GZ' ? 'RS-21' : 'AS-14')),
+      entryCode: String(r.entryCode || defaultEntryCode),
       code: String(r.code || '').trim(),
       date: String(r.date || '').slice(0, 10),
       rawDate: String(r.date || ''),
@@ -255,7 +286,7 @@ async function runCliSync() {
 
   const whArg = args.find((a) => a.startsWith('--wh='));
   const targetWh = whArg ? whArg.split('=')[1].toUpperCase() : 'ALL';
-  const whList = targetWh === 'ALL' ? ['GZ', 'YW'] : [targetWh];
+  const whList = targetWh === 'ALL' ? ['GZ', 'YW', 'YW-55'] : [targetWh];
 
   const receiptArg = args.find((a) => a.startsWith('--receipt='));
   const singleReceiptCode = receiptArg ? receiptArg.split('=')[1].trim() : null;

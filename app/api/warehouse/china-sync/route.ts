@@ -18,16 +18,20 @@ export async function GET(req: NextRequest) {
     const [
       gzTotal,
       ywTotal,
+      yw55Total,
       gzVerified,
       ywVerified,
+      yw55Verified,
       pendingMismatchesCount,
       recentMismatches,
       lastSyncedReceipt,
     ] = await Promise.all([
       WarehouseReceipt.countDocuments({ warehouse: 'GZ' }),
       WarehouseReceipt.countDocuments({ warehouse: 'YW' }),
+      WarehouseReceipt.countDocuments({ warehouse: { $in: ['YW-55', 'YW55'] } }),
       WarehouseReceipt.countDocuments({ warehouse: 'GZ', isVerified: true }),
       WarehouseReceipt.countDocuments({ warehouse: 'YW', isVerified: true }),
+      WarehouseReceipt.countDocuments({ warehouse: { $in: ['YW-55', 'YW55'] }, isVerified: true }),
       ChinaSyncMismatch.countDocuments({ status: 'PENDING' }),
       ChinaSyncMismatch.find({ status: 'PENDING' })
         .sort({ detectedAt: -1 })
@@ -52,6 +56,11 @@ export async function GET(req: NextRequest) {
           verified: ywVerified,
           unverified: ywTotal - ywVerified,
         },
+        yw55: {
+          total: yw55Total,
+          verified: yw55Verified,
+          unverified: yw55Total - yw55Verified,
+        },
         pendingMismatchesCount,
         lastChinaSyncAt: (lastSyncedReceipt as any)?.lastChinaSyncAt || null,
       },
@@ -74,7 +83,7 @@ export async function POST(req: NextRequest) {
     // 1-Click Single Receipt Fetch from China Portal
     if (body.action === 'fetch_receipt' || (body.receipt && !body.mode)) {
       const receiptCode = String(body.receipt || '').trim();
-      const warehouse = (body.warehouse as 'GZ' | 'YW' | 'ALL') || 'ALL';
+      const warehouse = (body.warehouse as 'GZ' | 'YW' | 'YW-55' | 'ALL' | string) || 'ALL';
       const singleRes = await fetchSingleReceiptFromChina(receiptCode, warehouse);
       if (!singleRes.success) {
         return NextResponse.json({ success: false, error: singleRes.message }, { status: 404 });
@@ -83,7 +92,7 @@ export async function POST(req: NextRequest) {
     }
 
     const mode = (body.mode as SyncMode) || 'sync';
-    const warehouse = (body.warehouse as 'GZ' | 'YW' | 'ALL') || 'ALL';
+    const warehouse = (body.warehouse as 'GZ' | 'YW' | 'YW-55' | 'ALL' | string) || 'ALL';
     const daysBack = body.daysBack !== undefined ? parseInt(String(body.daysBack), 10) : undefined;
     const startDate = body.startDate ? String(body.startDate).trim() : undefined;
     const endDate = body.endDate ? String(body.endDate).trim() : undefined;

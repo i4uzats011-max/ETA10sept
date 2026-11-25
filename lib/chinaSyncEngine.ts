@@ -28,17 +28,14 @@ export interface SyncEngineResult {
   matchedCount: number;
   mismatchCount: number;
   verifiedCount: number;
-  warehouses: {
-    GZ: { checked: number; inserted: number; mismatches: number; verified: number };
-    YW: { checked: number; inserted: number; mismatches: number; verified: number };
-  };
+  warehouses: Record<string, { checked: number; inserted: number; mismatches: number; verified: number }>;
   details?: string[];
 }
 
 export async function runChinaWarehouseSync(
   options: {
     mode?: SyncMode;
-    warehouse?: 'GZ' | 'YW' | 'ALL';
+    warehouse?: 'GZ' | 'YW' | 'YW-55' | 'ALL' | string;
     daysBack?: number;
     startDate?: string;
     endDate?: string;
@@ -63,8 +60,8 @@ export async function runChinaWarehouseSync(
     : getDateRange(days);
 
   const client = new ChinaWarehouseClient();
-  const whList: Array<'GZ' | 'YW'> =
-    targetWh === 'ALL' ? ['GZ', 'YW'] : [targetWh];
+  const whList: string[] =
+    targetWh === 'ALL' ? ['GZ', 'YW', 'YW-55'] : [targetWh];
 
   const overall = {
     totalChecked: 0,
@@ -72,12 +69,13 @@ export async function runChinaWarehouseSync(
     matchedCount: 0,
     mismatchCount: 0,
     verifiedCount: 0,
-    warehouses: {
-      GZ: { checked: 0, inserted: 0, mismatches: 0, verified: 0 },
-      YW: { checked: 0, inserted: 0, mismatches: 0, verified: 0 },
-    },
+    warehouses: {} as Record<string, { checked: number; inserted: number; mismatches: number; verified: number }>,
     details: [] as string[],
   };
+
+  for (const wh of whList) {
+    overall.warehouses[wh] = { checked: 0, inserted: 0, mismatches: 0, verified: 0 };
+  }
 
   const auditPeriod =
     mode === 'verify_24h'
@@ -151,7 +149,7 @@ export async function runChinaWarehouseSync(
             receipt: item.code,
             party: item.customerName || 'General Party',
             warehouse: wh,
-            warehouseEntry: item.entryCode || (wh === 'GZ' ? 'RS-21' : 'AS-14'),
+            warehouseEntry: item.entryCode || (wh === 'GZ' ? 'RS-21' : wh === 'YW-55' ? 'YW-55' : 'AS-14'),
             date: item.formattedDate || new Date().toISOString().slice(0, 10),
             quantity: item.actualQuantity,
             loadedQuantity: 0,
@@ -432,7 +430,7 @@ export async function runChinaWarehouseSync(
  */
 export async function fetchSingleReceiptFromChina(
   receiptCode: string,
-  targetWh: 'GZ' | 'YW' | 'ALL' = 'ALL'
+  targetWh: 'GZ' | 'YW' | 'YW-55' | 'ALL' | string = 'ALL'
 ): Promise<{
   success: boolean;
   message: string;
@@ -448,10 +446,10 @@ export async function fetchSingleReceiptFromChina(
   }
 
   const client = new ChinaWarehouseClient();
-  const whsToCheck: Array<'GZ' | 'YW'> = targetWh === 'ALL' ? ['GZ', 'YW'] : [targetWh];
+  const whsToCheck: string[] = targetWh === 'ALL' ? ['GZ', 'YW', 'YW-55'] : [targetWh];
 
   let foundRecord: ChinaWarehouseRecord | null = null;
-  let foundWh: 'GZ' | 'YW' | null = null;
+  let foundWh: string | null = null;
 
   for (const wh of whsToCheck) {
     try {
@@ -568,7 +566,7 @@ export async function fetchSingleReceiptFromChina(
       receipt: foundRecord.code,
       party: foundRecord.customerName || 'General Party',
       warehouse: foundWh,
-      warehouseEntry: foundRecord.entryCode || (foundWh === 'GZ' ? 'RS-21' : 'AS-14'),
+      warehouseEntry: foundRecord.entryCode || (foundWh === 'GZ' ? 'RS-21' : foundWh === 'YW-55' ? 'YW-55' : 'AS-14'),
       date: foundRecord.formattedDate || new Date().toISOString().slice(0, 10),
       quantity: foundRecord.actualQuantity,
       loadedQuantity: 0,

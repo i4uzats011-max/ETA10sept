@@ -39,6 +39,7 @@ import SalesTeamMaster from '@/components/SalesTeamMaster';
 import SalesDatePickerCalendar from '@/components/SalesDatePickerCalendar';
 import SearchableContainerSelect from '@/components/SearchableContainerSelect';
 import SalesExceptionReport from '@/components/SalesExceptionReport';
+import CustomerQueriesManager from '@/components/CustomerQueriesManager';
 import { parseMetricNumber } from '@/lib/metricUtils';
 import { clearMobileSession } from '@/lib/mobileBridge';
 
@@ -54,9 +55,10 @@ export default function SalesPortalPage() {
   const [authChecking, setAuthChecking] = useState(true);
   const [accessDenied, setAccessDenied] = useState(false);
 
-  // Active Tab: 'sheet' | 'team' | 'mismatch'
-  const [activeTab, setActiveTab] = useState<'sheet' | 'team' | 'mismatch'>('sheet');
+  // Active Tab: 'sheet' | 'team' | 'mismatch' | 'queries'
+  const [activeTab, setActiveTab] = useState<'sheet' | 'team' | 'mismatch' | 'queries'>('sheet');
   const [mismatchBadgeCount, setMismatchBadgeCount] = useState<number>(0);
+  const [pendingQueriesCount, setPendingQueriesCount] = useState<number>(0);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   // Filter & Selection Bar State (NO PRELOAD)
@@ -188,9 +190,29 @@ export default function SalesPortalPage() {
     }
   };
 
+  // Fetch live count of customer queries for badge
+  const fetchQueriesBadge = async () => {
+    try {
+      const res = await fetch('/api/admin/tracking-queries');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.queries)) {
+          const pending = data.queries.filter((q: any) => q.status === 'Pending').length;
+          setPendingQueriesCount(pending);
+        }
+      }
+    } catch (e) {
+      // non-blocking
+    }
+  };
+
   useEffect(() => {
     fetchMismatchBadge();
-    const interval = setInterval(fetchMismatchBadge, 30000);
+    fetchQueriesBadge();
+    const interval = setInterval(() => {
+      fetchMismatchBadge();
+      fetchQueriesBadge();
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -729,6 +751,22 @@ export default function SalesPortalPage() {
                     </span>
                   )}
                 </button>
+                <button
+                  onClick={() => setActiveTab('queries')}
+                  className={`px-3 py-1 rounded-md font-medium transition flex items-center space-x-1.5 shrink-0 ${
+                    activeTab === 'queries'
+                      ? 'bg-indigo-600 text-white shadow-xs font-bold'
+                      : 'text-indigo-300 hover:text-white'
+                  }`}
+                >
+                  <MessageSquare className="w-3.5 h-3.5 text-indigo-300" />
+                  <span>Customer Queries</span>
+                  {pendingQueriesCount > 0 && (
+                    <span className="ml-1 px-1.5 py-0.2 bg-amber-500 text-white text-[10px] rounded-full font-bold animate-pulse">
+                      {pendingQueriesCount}
+                    </span>
+                  )}
+                </button>
               </div>
             )}
 
@@ -780,6 +818,8 @@ export default function SalesPortalPage() {
           <SalesTeamMaster />
         ) : activeTab === 'mismatch' && isSalesHeadOrDev ? (
           <SalesExceptionReport currentUser={currentUser} />
+        ) : activeTab === 'queries' && isSalesHeadOrDev ? (
+          <CustomerQueriesManager currentUser={currentUser} />
         ) : (
           <div className="space-y-4">
             {/* GOOGLE SHEET TOOLBAR & MULTI-SELECT ON-DEMAND BAR */}

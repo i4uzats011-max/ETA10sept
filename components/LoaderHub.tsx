@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import {
   fetchWarehouseReceipts,
@@ -47,6 +47,7 @@ import {
   CheckCircle2,
   Clock,
   AlertCircle,
+  Info,
   Search,
   RefreshCw,
   X,
@@ -589,12 +590,22 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
   const [containerWisePlan, setContainerWisePlan] = useState<LoadingPlanItem | null>(null);
   const [containerWiseReceiptId, setContainerWiseReceiptId] = useState('');
   const [containerWiseReceiptSearch, setContainerWiseReceiptSearch] = useState('');
+  const [containerWiseWarehouse, setContainerWiseWarehouse] = useState('ALL');
   const [isReceiptDropdownOpen, setIsReceiptDropdownOpen] = useState(false);
   const [containerWiseQuantity, setContainerWiseQuantity] = useState<number | ''>('');
   const [containerWiseWeight, setContainerWiseWeight] = useState('');
   const [containerWiseVolume, setContainerWiseVolume] = useState('');
   const [containerWiseItemName, setContainerWiseItemName] = useState('');
   const [isContainerWiseLoading, setIsContainerWiseLoading] = useState(false);
+  const [verifyStatus, setVerifyStatus] = useState<'idle' | 'verified' | 'not_found' | 'multi_wh'>('idle');
+  const [verifyMessage, setVerifyMessage] = useState('');
+
+  // Refs for smooth Enter-Enter keyboard navigation
+  const receiptInputRef = useRef<HTMLInputElement>(null);
+  const warehouseSelectRef = useRef<HTMLSelectElement>(null);
+  const ctnInputRef = useRef<HTMLInputElement>(null);
+  const cbmInputRef = useRef<HTMLInputElement>(null);
+  const weightInputRef = useRef<HTMLInputElement>(null);
 
   // Local state for Mark Delivered modal
   const [isDeliverModalOpen, setIsDeliverModalOpen] = useState(false);
@@ -1564,16 +1575,14 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
   // Warehouse receipts that have remaining stock available to load container-wise
   const availableReceiptsWithStock = useMemo(() => {
     return warehouseReceipts.filter((r) => {
-      // If a container-wise plan is open with a specific warehouse, only show receipts from that warehouse
+      // Filter by selected containerWiseWarehouse if not 'ALL'
       if (
-        containerWisePlan &&
-        containerWisePlan.warehouse &&
-        containerWisePlan.warehouse !== 'ALL' &&
-        containerWisePlan.warehouse !== 'China Warehouse'
+        containerWiseWarehouse &&
+        containerWiseWarehouse !== 'ALL'
       ) {
         if (
           (r.warehouse || '').toUpperCase().trim() !==
-          containerWisePlan.warehouse.toUpperCase().trim()
+          containerWiseWarehouse.toUpperCase().trim()
         ) {
           return false;
         }
@@ -1581,17 +1590,16 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
       const remaining = r.remainingQuantity !== undefined ? r.remainingQuantity : r.quantity - (r.loadedQuantity || 0);
       return remaining > 0;
     });
-  }, [warehouseReceipts, containerWisePlan]);
+  }, [warehouseReceipts, containerWiseWarehouse]);
 
   // Currently selected receipt in Container-Wise load modal
   const selectedContainerWiseReceipt = useMemo(() => {
-    if (!containerWiseReceiptId) return availableReceiptsWithStock[0] || null;
+    if (!containerWiseReceiptId) return null;
     return (
-      availableReceiptsWithStock.find((r) => String(r._id) === String(containerWiseReceiptId)) ||
-      availableReceiptsWithStock[0] ||
+      warehouseReceipts.find((r) => String(r._id) === String(containerWiseReceiptId)) ||
       null
     );
-  }, [containerWiseReceiptId, availableReceiptsWithStock]);
+  }, [containerWiseReceiptId, warehouseReceipts]);
 
   // Filtered available receipts for container loading search combobox
   const filteredAvailableReceipts = useMemo(() => {
@@ -1607,50 +1615,182 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
     );
   }, [availableReceiptsWithStock, containerWiseReceiptSearch]);
 
+  // Handle Verify Receipt Details
+  const handleVerifyReceipt = (receiptNum?: string, whName?: string) => {
+    const rawCode = (receiptNum !== undefined ? receiptNum : containerWiseReceiptSearch).trim();
+    const rawWh = (whName !== undefined ? whName : containerWiseWarehouse).trim();
+    if (!rawCode) {
+      setVerifyStatus('idle');
+      setVerifyMessage('');
+      setContainerWiseReceiptId('');
+      return;
+    }
+
+    const matches = warehouseReceipts.filter((r) => {
+      const codeMatches = (r.receipt || '').toLowerCase() === rawCode.toLowerCase();
+      if (!codeMatches) return false;
+      if (rawWh && rawWh !== 'ALL') {
+        return (r.warehouse || '').toLowerCase() === rawWh.toLowerCase();
+      }
+      return true;
+    });
+
+    if (matches.length === 1) {
+      const found = matches[0];
+      const rem = found.remainingQuantity !== undefined
+        ? found.remainingQuantity
+        : found.quantity - (found.loadedQuantity || 0);
+
+      setContainerWiseReceiptId(String(found._id));
+      if (found.warehouse) {
+        setContainerWiseWarehouse(found.warehouse);
+      }
+      setContainerWiseQuantity(rem > 0 ? rem : '');
+      setContainerWiseWeight(found.weight || '');
+      setContainerWiseVolume(found.volume || '');
+      setContainerWiseItemName(found.english || found.commodity || '');
+      setContainerWiseReceiptSearch(found.receipt);
+      setIsReceiptDropdownOpen(false);
+
+      if (rem <= 0) {
+        setVerifyStatus('not_found');
+        setVerifyMessage(
+          `Receipt #${found.receipt} exists in ${found.warehouse || 'Warehouse'}, but 0 CTN is available (${found.quantity} received, ${found.loadedQuantity || 0} already loaded/delivered).`
+        );
+        return;
+      }
+
+      setVerifyStatus('verified');
+      setVerifyMessage(`✓ Receipt #${found.receipt} verified in ${found.warehouse || 'Warehouse'} stock (${rem} CTN available)`);
+      setTimeout(() => {
+        ctnInputRef.current?.focus();
+      }, 100);
+      return;
+    }
+
+    if (matches.length > 1) {
+      setVerifyStatus('multi_wh');
+      const whList = matches.map((r) => r.warehouse).join(', ');
+      setVerifyMessage(`Receipt #${rawCode} exists in multiple warehouses: ${whList}. Please select the specific warehouse to verify.`);
+      return;
+    }
+
+    // Check if receipt exists in another warehouse if specific warehouse was selected
+    if (rawWh && rawWh !== 'ALL') {
+      const otherWh = warehouseReceipts.find(
+        (r) => (r.receipt || '').toLowerCase() === rawCode.toLowerCase()
+      );
+      if (otherWh) {
+        setContainerWiseWarehouse(otherWh.warehouse);
+        const remOther = otherWh.remainingQuantity !== undefined
+          ? otherWh.remainingQuantity
+          : otherWh.quantity - (otherWh.loadedQuantity || 0);
+
+        setContainerWiseReceiptId(String(otherWh._id));
+        setContainerWiseQuantity(remOther > 0 ? remOther : '');
+        setContainerWiseWeight(otherWh.weight || '');
+        setContainerWiseVolume(otherWh.volume || '');
+        setContainerWiseItemName(otherWh.english || otherWh.commodity || '');
+        setContainerWiseReceiptSearch(otherWh.receipt);
+        setIsReceiptDropdownOpen(false);
+
+        if (remOther <= 0) {
+          setVerifyStatus('not_found');
+          setVerifyMessage(
+            `Receipt #${otherWh.receipt} found in '${otherWh.warehouse}' warehouse, but 0 CTN is available (${otherWh.quantity} received, ${otherWh.loadedQuantity || 0} already loaded/delivered).`
+          );
+          return;
+        }
+
+        setVerifyStatus('verified');
+        setVerifyMessage(`✓ Receipt #${otherWh.receipt} verified in '${otherWh.warehouse}' warehouse stock (${remOther} CTN available)`);
+        setTimeout(() => {
+          ctnInputRef.current?.focus();
+        }, 100);
+        return;
+      }
+    }
+
+    setVerifyStatus('not_found');
+    setVerifyMessage(`Receipt #${rawCode} was not found in received warehouse inventory.`);
+  };
+
+  // Auto-proportionate weight and volume when quantity changes
+  const handleContainerWiseQuantityChange = (newVal: string) => {
+    if (newVal === '') {
+      setContainerWiseQuantity('');
+      return;
+    }
+    const qty = parseInt(newVal, 10);
+    if (isNaN(qty)) {
+      setContainerWiseQuantity('');
+      return;
+    }
+    setContainerWiseQuantity(qty);
+
+    if (selectedContainerWiseReceipt && qty > 0) {
+      const totalQty = selectedContainerWiseReceipt.quantity || qty;
+      const rawW = parseFloat(String(selectedContainerWiseReceipt.weight || '0').replace(/[^0-9.]/g, '')) || 0;
+      const rawV = parseFloat(String(selectedContainerWiseReceipt.volume || '0').replace(/[^0-9.]/g, '')) || 0;
+      if (totalQty > 0) {
+        if (rawW > 0) {
+          const propW = Math.round(((rawW * qty) / totalQty) * 100) / 100;
+          setContainerWiseWeight(String(propW));
+        }
+        if (rawV > 0) {
+          const propV = Math.round(((rawV * qty) / totalQty) * 1000) / 1000;
+          setContainerWiseVolume(String(propV));
+        }
+      }
+    }
+  };
+
+  // 1-Click Fetch receipt directly from China Warehouse portal if not in local DB
+  const handleFetchReceiptFromChina = async (codeToFetch: string, whTarget: string) => {
+    if (!codeToFetch.trim()) return;
+    setIsFetchingChinaReceipt(true);
+    try {
+      const res = await fetch('/api/warehouse/china-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'fetch_receipt',
+          receipt: codeToFetch.trim(),
+          warehouse: whTarget !== 'ALL' ? whTarget : 'ALL',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `Receipt #${codeToFetch} not found in China warehouse portal.`);
+      }
+      await dispatch(fetchWarehouseReceipts());
+      alert(`✓ Receipt #${codeToFetch} successfully imported from China warehouse (${data.warehouse || whTarget})!`);
+      handleVerifyReceipt(codeToFetch.trim(), data.warehouse || whTarget);
+    } catch (err: any) {
+      alert(err.message || 'Failed to fetch receipt from China warehouse');
+    } finally {
+      setIsFetchingChinaReceipt(false);
+    }
+  };
+
   // Open Container-Wise Load Modal
   const handleOpenContainerWiseLoad = (plan: LoadingPlanItem) => {
     setContainerWisePlan(plan);
     setContainerWiseReceiptSearch('');
+    const defaultWh = plan.warehouse && plan.warehouse !== 'China Warehouse' ? plan.warehouse : 'ALL';
+    setContainerWiseWarehouse(defaultWh);
     setIsReceiptDropdownOpen(false);
-    // Find available stock scoped strictly to this plan's warehouse
-    const matchingStock = warehouseReceipts.filter((r) => {
-      if (
-        plan.warehouse &&
-        plan.warehouse !== 'ALL' &&
-        plan.warehouse !== 'China Warehouse'
-      ) {
-        if (
-          (r.warehouse || '').toUpperCase().trim() !==
-          plan.warehouse.toUpperCase().trim()
-        ) {
-          return false;
-        }
-      }
-      const remaining =
-        r.remainingQuantity !== undefined
-          ? r.remainingQuantity
-          : r.quantity - (r.loadedQuantity || 0);
-      return remaining > 0;
-    });
-    const firstStock = matchingStock[0];
-    if (firstStock) {
-      setContainerWiseReceiptId(String(firstStock._id));
-      const rem =
-        firstStock.remainingQuantity !== undefined
-          ? firstStock.remainingQuantity
-          : firstStock.quantity - (firstStock.loadedQuantity || 0);
-      setContainerWiseQuantity(rem > 0 ? rem : '');
-      setContainerWiseWeight(firstStock.weight || '');
-      setContainerWiseVolume(firstStock.volume || '');
-      setContainerWiseItemName(firstStock.english || firstStock.commodity || '');
-    } else {
-      setContainerWiseReceiptId('');
-      setContainerWiseQuantity('');
-      setContainerWiseWeight('');
-      setContainerWiseVolume('');
-      setContainerWiseItemName('');
-    }
+    setContainerWiseReceiptId('');
+    setContainerWiseQuantity('');
+    setContainerWiseWeight('');
+    setContainerWiseVolume('');
+    setContainerWiseItemName('');
+    setVerifyStatus('idle');
+    setVerifyMessage('');
     setIsContainerWiseLoadOpen(true);
+    setTimeout(() => {
+      receiptInputRef.current?.focus();
+    }, 150);
   };
 
   // Submit Container-Wise Cargo Allocation
@@ -9076,307 +9216,347 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
               </button>
             </div>
 
-            <form onSubmit={handleContainerWiseLoadSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+            <form onSubmit={handleContainerWiseLoadSubmit} className="p-6 space-y-4 max-h-[85vh] overflow-y-auto">
               {/* Container Summary Banner */}
-              <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl flex flex-wrap items-center justify-between gap-2 text-xs">
-                <div>
-                  <span className="text-slate-500 font-medium">Target Container: </span>
-                  <strong className="text-emerald-950 font-black font-mono text-sm">{containerWisePlan.container}</strong>
-                  {containerWisePlan.containerNumber && (
-                    <span className="text-slate-600 ml-1.5 font-mono">({containerWisePlan.containerNumber})</span>
-                  )}
+              <div className="p-4 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border border-emerald-200/80 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs shadow-xs">
+                <div className="space-y-0.5">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Target Container:</span>
+                    <strong className="text-emerald-950 font-black font-mono text-base">{containerWisePlan.container}</strong>
+                    {containerWisePlan.containerNumber && (
+                      <span className="text-slate-600 font-mono text-xs">({containerWisePlan.containerNumber})</span>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-emerald-800">
+                    Destination: <strong>{containerWisePlan.shippedTo || 'Nhava Sheva / Mundra, India'}</strong>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-slate-500 font-medium">Origin Warehouse: </span>
-                  <strong className="text-slate-800">{containerWisePlan.warehouse || 'China Warehouse'}</strong>
+                <div className="flex items-center space-x-3 text-right">
+                  <div className="bg-white/80 backdrop-blur px-3 py-1.5 rounded-xl border border-emerald-200 text-center">
+                    <span className="text-[10px] text-slate-500 uppercase block font-semibold">Loaded CTN</span>
+                    <strong className="text-emerald-900 font-black text-sm">{containerWisePlan.totalQuantity || 0} CTN</strong>
+                  </div>
+                  <div className="bg-white/80 backdrop-blur px-3 py-1.5 rounded-xl border border-emerald-200 text-center">
+                    <span className="text-[10px] text-slate-500 uppercase block font-semibold">Shipments</span>
+                    <strong className="text-slate-800 font-black text-sm">{containerWisePlan.shipmentCount || 0} items</strong>
+                  </div>
                 </div>
-                <div className="w-full pt-1 border-t border-emerald-200/60 flex justify-between text-[11px] text-emerald-900">
-                  <span>Currently Loaded: <strong>{containerWisePlan.totalQuantity || 0} CTN</strong> ({containerWisePlan.shipmentCount || 0} items)</span>
-                  <span>Destination: <strong>{containerWisePlan.shippedTo || 'Nhava Sheva / Mundra, India'}</strong></span>
+                <div className="w-full pt-2 border-t border-emerald-200/60 flex items-center justify-between text-[11px] text-emerald-900">
+                  <span className="flex items-center space-x-1">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
+                    <span className="font-semibold">Multi-Warehouse Loading:</span>
+                    <span>Load cargo from multiple origin warehouses into this container</span>
+                  </span>
+                  <span className="text-slate-500 font-mono">
+                    Container Base WH: <strong>{containerWisePlan.warehouse || 'China Warehouse'}</strong>
+                  </span>
                 </div>
               </div>
 
-              {availableReceiptsWithStock.length === 0 ? (
-                <div className="p-5 bg-amber-50 border border-amber-200 rounded-2xl text-center space-y-2">
-                  <AlertCircle className="w-8 h-8 text-amber-600 mx-auto" />
-                  <h4 className="text-sm font-bold text-amber-900">No Received Stock Available</h4>
-                  <p className="text-xs text-amber-700 leading-relaxed">
-                    There are currently no warehouse receipts with remaining received stock in China warehouses.
-                    Under system integrity rules, you cannot load any container without first receiving goods.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsContainerWiseLoadOpen(false);
-                      const userWhs = availableWarehouses.filter((w) => w !== 'ALL');
-                      if (userWhs.length === 0) {
-                        alert('No China warehouse found! You cannot enter received goods until at least one China warehouse is created. Please create a warehouse first.');
-                        setWarehouseModalContext('receive');
-                        setIsAddWarehouseModalOpen(true);
-                        return;
-                      }
-                      if (!receiveWarehouse || receiveWarehouse === 'ALL') {
-                        setReceiveWarehouse(userWhs[0]);
-                      }
-                      setIsReceiveModalOpen(true);
-                    }}
-                    className="mt-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition shadow-sm"
-                  >
-                    + Record Received Goods First
-                  </button>
-                </div>
-              ) : (
-                <>
-                  {/* Searchable Receipt Picker for Container Cargo Loading */}
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center justify-between">
-                      <span>Search &amp; Select Receipt No. (From Warehouse Stock) *</span>
-                      <span className="text-[11px] font-bold text-emerald-700">
-                        {availableReceiptsWithStock.length} receipt(s) available
-                      </span>
-                    </label>
+              {/* ── STEP 1 & 2: RECEIPT NO. & ORIGIN WAREHOUSE ── */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 bg-slate-50/80 p-4 rounded-2xl border border-slate-200">
+                {/* 1. Receipt No. Input */}
+                <div className="space-y-1.5 relative">
+                  <label className="block text-xs font-black text-slate-800 uppercase tracking-wider flex items-center justify-between">
+                    <span className="flex items-center space-x-1.5">
+                      <span className="w-5 h-5 rounded-full bg-emerald-600 text-white inline-flex items-center justify-center text-[10px] font-bold">1</span>
+                      <span>Receipt No. *</span>
+                    </span>
+                    <span className="text-[10px] text-slate-500 font-normal">Press Enter → Warehouse</span>
+                  </label>
+                  <div className="relative">
+                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    <input
+                      ref={receiptInputRef}
+                      type="text"
+                      value={containerWiseReceiptSearch}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setContainerWiseReceiptSearch(val);
+                        setIsReceiptDropdownOpen(true);
+                        if (verifyStatus !== 'idle') {
+                          setVerifyStatus('idle');
+                          setVerifyMessage('');
+                        }
+                      }}
+                      onFocus={() => setIsReceiptDropdownOpen(true)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          warehouseSelectRef.current?.focus();
+                        }
+                      }}
+                      placeholder="e.g. 261125001 (Type receipt #)"
+                      className="w-full pl-9 pr-8 py-2.5 text-xs font-bold rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 shadow-xs font-mono"
+                      autoFocus
+                    />
+                    {containerWiseReceiptSearch ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setContainerWiseReceiptSearch('');
+                          setContainerWiseReceiptId('');
+                          setVerifyStatus('idle');
+                          setVerifyMessage('');
+                          setIsReceiptDropdownOpen(false);
+                          receiptInputRef.current?.focus();
+                        }}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    ) : null}
+                  </div>
 
-                    <div className="relative">
-                      <div className="relative flex items-center">
-                        <Search className="w-4 h-4 absolute left-3.5 text-slate-400 pointer-events-none" />
-                        <input
-                          type="text"
-                          value={containerWiseReceiptSearch}
-                          onChange={(e) => {
-                            setContainerWiseReceiptSearch(e.target.value);
-                            setIsReceiptDropdownOpen(true);
-                          }}
-                          onFocus={() => setIsReceiptDropdownOpen(true)}
-                          placeholder="Type receipt # to search &amp; select (e.g. 260902006)..."
-                          className="w-full pl-10 pr-9 py-2 text-xs font-bold rounded-xl border border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 shadow-xs font-mono"
-                        />
-                        {containerWiseReceiptSearch ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setContainerWiseReceiptSearch('');
-                              setIsReceiptDropdownOpen(true);
-                            }}
-                            className="absolute right-3 text-slate-400 hover:text-slate-600 p-0.5"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        ) : null}
+                  {/* Suggestion Dropdown */}
+                  {isReceiptDropdownOpen && containerWiseReceiptSearch.trim() && (
+                    <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white border border-slate-200 rounded-2xl shadow-2xl max-h-52 overflow-y-auto divide-y divide-slate-100 animate-fadeIn">
+                      <div className="p-2 bg-slate-50 text-[10px] font-bold text-slate-500 flex justify-between items-center sticky top-0 border-b border-slate-200 z-10">
+                        <span>Matching stock receipts ({filteredAvailableReceipts.length})</span>
+                        <button
+                          type="button"
+                          onClick={() => setIsReceiptDropdownOpen(false)}
+                          className="text-slate-500 hover:text-slate-800 text-[10px] uppercase font-bold"
+                        >
+                          Close ✕
+                        </button>
                       </div>
 
-                      {/* Filtered Suggestion Dropdown */}
-                      {isReceiptDropdownOpen && (
-                        <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white border border-slate-200 rounded-2xl shadow-2xl max-h-56 overflow-y-auto divide-y divide-slate-100 animate-fadeIn">
-                          <div className="p-2 bg-slate-50 text-[10px] font-bold text-slate-500 flex justify-between items-center sticky top-0 border-b border-slate-200 z-10">
-                            <span>Found {filteredAvailableReceipts.length} matching receipt(s)</span>
-                            <button
-                              type="button"
-                              onClick={() => setIsReceiptDropdownOpen(false)}
-                              className="text-slate-500 hover:text-slate-800 text-[10px] uppercase font-bold"
-                            >
-                              Close ✕
-                            </button>
-                          </div>
-
-                          {filteredAvailableReceipts.length === 0 ? (
-                            <div className="p-4 text-center text-xs space-y-2">
-                              <p className="text-slate-400 italic">No available stock found matching &quot;{containerWiseReceiptSearch}&quot;</p>
-                              {(() => {
-                                const q = containerWiseReceiptSearch.toLowerCase().trim();
-                                if (!q) return null;
-                                const matchedAny = warehouseReceipts.find(
-                                  (r) => (r.receipt || '').toLowerCase() === q
-                                );
-                                if (matchedAny) {
-                                  return (
-                                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-left text-xs space-y-1.5 mt-2">
-                                      <p className="font-bold text-amber-900">
-                                        Receipt #{matchedAny.receipt} is recorded with {matchedAny.quantity} CTN ({matchedAny.loadedQuantity || 0} loaded/delivered, 0 remaining in warehouse).
-                                      </p>
-                                      <p className="text-amber-800 text-[11px]">
-                                        Did you discover more / remaining pieces in the godown?
-                                      </p>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setIsReceiptDropdownOpen(false);
-                                          setIsContainerWiseLoadOpen(false);
-                                          handleOpenAddStock(matchedAny);
-                                        }}
-                                        className="inline-flex items-center space-x-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs transition shadow-xs"
-                                      >
-                                        <Plus className="w-3.5 h-3.5" />
-                                        <span>+ Add Found Stock</span>
-                                      </button>
-                                    </div>
-                                  );
-                                }
-                                return null;
-                              })()}
-                            </div>
-                          ) : (
-                            filteredAvailableReceipts.map((r) => {
-                              const rem =
-                                r.remainingQuantity !== undefined
-                                  ? r.remainingQuantity
-                                  : r.quantity - (r.loadedQuantity || 0);
-                              const isSelected = String(r._id) === String(containerWiseReceiptId);
-                              return (
-                                <button
-                                  key={String(r._id)}
-                                  type="button"
-                                  onClick={() => {
-                                    setContainerWiseReceiptId(String(r._id));
-                                    setContainerWiseQuantity(rem > 0 ? rem : '');
-                                    setContainerWiseWeight(r.weight || '');
-                                    setContainerWiseVolume(r.volume || '');
-                                    setContainerWiseItemName(r.english || r.commodity || '');
-                                    setContainerWiseReceiptSearch(r.receipt);
-                                    setIsReceiptDropdownOpen(false);
-                                  }}
-                                  className={`w-full p-2.5 text-left hover:bg-emerald-50/70 transition flex items-center justify-between gap-2 ${
-                                    isSelected ? 'bg-emerald-50 ring-1 ring-emerald-400' : ''
-                                  }`}
-                                >
-                                  <div className="min-w-0">
-                                    <div className="flex items-center space-x-2">
-                                      <span className="font-mono font-black text-slate-900 text-xs">
-                                        #{r.receipt}
-                                      </span>
-                                      <span className="text-[11px] font-bold text-slate-700 truncate">
-                                        {r.party || 'General Party'}
-                                      </span>
-                                      <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded font-medium">
-                                        {r.warehouse || 'China Warehouse'}
-                                      </span>
-                                    </div>
-                                    <p className="text-[11px] text-slate-500 truncate mt-0.5" title={r.english || r.commodity || ''}>
-                                      {r.english || r.commodity || 'General Goods'}
-                                    </p>
-                                  </div>
-
-                                  <div className="text-right shrink-0">
-                                    <span className="inline-block px-2 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
-                                      {rem} CTN Available
-                                    </span>
-                                    <span className="block text-[10px] text-slate-400 mt-0.5">
-                                      (Total: {r.quantity} CTN)
-                                    </span>
-                                  </div>
-                                </button>
-                              );
-                            })
-                          )}
+                      {filteredAvailableReceipts.length === 0 ? (
+                        <div className="p-3 text-center text-xs text-slate-400 italic">
+                          No received warehouse stock matching &quot;{containerWiseReceiptSearch}&quot;
                         </div>
-                      )}
-                    </div>
-
-                    {/* Quick Dropdown Fallback */}
-                    <div className="pt-1 flex items-center space-x-2">
-                      <span className="text-[11px] text-slate-400 font-semibold whitespace-nowrap">Or quick select:</span>
-                      <select
-                        value={containerWiseReceiptId}
-                        onChange={(e) => {
-                          const rId = e.target.value;
-                          setContainerWiseReceiptId(rId);
-                          const r = availableReceiptsWithStock.find((x) => String(x._id) === rId);
-                          if (r) {
-                            const rem =
-                              r.remainingQuantity !== undefined
-                                ? r.remainingQuantity
-                                : r.quantity - (r.loadedQuantity || 0);
-                            setContainerWiseQuantity(rem > 0 ? rem : '');
-                            setContainerWiseWeight(r.weight || '');
-                            setContainerWiseVolume(r.volume || '');
-                            setContainerWiseItemName(r.english || r.commodity || '');
-                            setContainerWiseReceiptSearch(r.receipt);
-                          }
-                        }}
-                        className="w-full px-2.5 py-1 text-xs font-semibold rounded-lg border border-slate-200 bg-slate-50 text-slate-800 focus:ring-2 focus:ring-emerald-500"
-                      >
-                        {availableReceiptsWithStock.map((r) => {
+                      ) : (
+                        filteredAvailableReceipts.slice(0, 15).map((r) => {
                           const rem =
                             r.remainingQuantity !== undefined
                               ? r.remainingQuantity
                               : r.quantity - (r.loadedQuantity || 0);
                           return (
-                            <option key={String(r._id)} value={String(r._id)}>
-                              #{r.receipt} - {r.party || 'General'} ({rem} CTN in {r.warehouse})
-                            </option>
+                            <button
+                              key={String(r._id)}
+                              type="button"
+                              onClick={() => {
+                                setContainerWiseReceiptSearch(r.receipt);
+                                if (r.warehouse) setContainerWiseWarehouse(r.warehouse);
+                                setIsReceiptDropdownOpen(false);
+                                handleVerifyReceipt(r.receipt, r.warehouse);
+                              }}
+                              className="w-full p-2.5 text-left hover:bg-emerald-50 transition flex items-center justify-between gap-2"
+                            >
+                              <div className="min-w-0">
+                                <div className="flex items-center space-x-1.5">
+                                  <span className="font-mono font-black text-slate-900 text-xs">#{r.receipt}</span>
+                                  <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 font-bold text-slate-700 rounded">
+                                    {r.warehouse || 'China'}
+                                  </span>
+                                  <span className="text-[11px] text-slate-600 truncate">{r.party || 'General'}</span>
+                                </div>
+                                <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                                  {r.english || r.commodity || 'Goods'}
+                                </p>
+                              </div>
+                              <span className="shrink-0 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800">
+                                {rem} CTN Avail
+                              </span>
+                            </button>
                           );
-                        })}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Selected Receipt Stock Card */}
-                  {selectedContainerWiseReceipt && (
-                    <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2 text-xs">
-                      <div className="flex justify-between items-center">
-                        <span className="text-slate-500 font-semibold">Receipt Number:</span>
-                        <span className="font-mono font-black text-slate-900 text-sm">#{selectedContainerWiseReceipt.receipt}</span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-slate-500 font-semibold">Shipper / Party:</span>
-                        <span className="font-bold text-slate-800">{selectedContainerWiseReceipt.party || 'General Party'}</span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-slate-500 font-semibold">Commodity Description:</span>
-                        <span className="font-bold text-slate-800 truncate max-w-[240px]">
-                          {selectedContainerWiseReceipt.english || selectedContainerWiseReceipt.commodity || 'Goods'}
-                        </span>
-                      </div>
-                      <div className="pt-2 border-t border-slate-200 grid grid-cols-3 gap-2 text-center">
-                        <div className="bg-white p-2 rounded-xl border border-slate-200">
-                          <span className="text-[10px] text-slate-400 font-bold uppercase block">Received</span>
-                          <strong className="text-slate-900 text-xs">{selectedContainerWiseReceipt.quantity} CTN</strong>
-                        </div>
-                        <div className="bg-white p-2 rounded-xl border border-slate-200">
-                          <span className="text-[10px] text-slate-400 font-bold uppercase block">Already Loaded</span>
-                          <strong className="text-slate-600 text-xs">{selectedContainerWiseReceipt.loadedQuantity || 0} CTN</strong>
-                        </div>
-                        <div className="bg-emerald-50 p-2 rounded-xl border border-emerald-200">
-                          <span className="text-[10px] text-emerald-700 font-bold uppercase block">Available Stock</span>
-                          <strong className="text-emerald-700 text-xs">
-                            {selectedContainerWiseReceipt.remainingQuantity !== undefined
-                              ? selectedContainerWiseReceipt.remainingQuantity
-                              : selectedContainerWiseReceipt.quantity - (selectedContainerWiseReceipt.loadedQuantity || 0)} CTN
-                          </strong>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Item / Commodity Name for this Container Plan */}
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                      Item / Commodity Name in Container Plan
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Item B (Custom description for this container plan)"
-                      value={containerWiseItemName}
-                      onChange={(e) => setContainerWiseItemName(e.target.value)}
-                      className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-xs"
-                    />
-                    <p className="text-[11px] text-slate-400 mt-1">
-                      Customize item name for this container plan. Warehouse stock balance keeps original item name.
-                    </p>
-                  </div>
-
-                  {/* Quantity to Load into this Container */}
-                  <div>
-                    <div className="flex justify-between items-center mb-1">
-                      <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                        Quantity to Load into {containerWisePlan.container} (CTN) *
-                      </label>
-                      {selectedContainerWiseReceipt && (
-                        <span className="text-[11px] text-slate-400 font-medium">
-                          Max available: {selectedContainerWiseReceipt.remainingQuantity !== undefined ? selectedContainerWiseReceipt.remainingQuantity : selectedContainerWiseReceipt.quantity} CTN
-                        </span>
+                        })
                       )}
                     </div>
+                  )}
+                </div>
+
+                {/* 2. Origin Warehouse Selection */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-black text-slate-800 uppercase tracking-wider flex items-center justify-between">
+                    <span className="flex items-center space-x-1.5">
+                      <span className="w-5 h-5 rounded-full bg-emerald-600 text-white inline-flex items-center justify-center text-[10px] font-bold">2</span>
+                      <span>Origin Warehouse *</span>
+                    </span>
+                    <span className="text-[10px] text-slate-500 font-normal">Press Enter → Verify</span>
+                  </label>
+                  <div className="flex items-center space-x-2">
+                    <select
+                      ref={warehouseSelectRef}
+                      value={containerWiseWarehouse}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setContainerWiseWarehouse(val);
+                        if (verifyStatus !== 'idle') {
+                          setVerifyStatus('idle');
+                          setVerifyMessage('');
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleVerifyReceipt(containerWiseReceiptSearch, containerWiseWarehouse);
+                        }
+                      }}
+                      className="w-full py-2.5 px-3 text-xs font-bold rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-xs"
+                    >
+                      <option value="ALL">🔍 All / Any Warehouse (Auto-Detect)</option>
+                      {availableWarehouses
+                        .filter((w) => w !== 'ALL')
+                        .map((wh) => (
+                          <option key={wh} value={wh}>
+                            {wh === 'YW-55' ? 'YW-55 (Yiwu Portal UID: YW-55)' : wh}
+                          </option>
+                        ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => handleVerifyReceipt(containerWiseReceiptSearch, containerWiseWarehouse)}
+                      className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-xs flex items-center space-x-1 shrink-0"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Verify</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── STEP 3: VERIFIED DETAILS CARD ── */}
+              {verifyStatus === 'verified' && selectedContainerWiseReceipt ? (
+                <div className="p-4 bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-300 rounded-2xl space-y-3 animate-fadeIn shadow-xs">
+                  <div className="flex items-center justify-between pb-2 border-b border-emerald-200/80">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shadow-xs">
+                        ✓
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-black uppercase text-emerald-950 tracking-wider">
+                          Receipt Verified &amp; Ready to Load
+                        </h4>
+                        <span className="text-[11px] text-emerald-800 font-medium">
+                          Receipt #{selectedContainerWiseReceipt.receipt} ({selectedContainerWiseReceipt.warehouse || 'Warehouse'})
+                        </span>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full text-xs font-black bg-emerald-600 text-white shadow-xs">
+                      {selectedContainerWiseReceipt.remainingQuantity !== undefined
+                        ? selectedContainerWiseReceipt.remainingQuantity
+                        : selectedContainerWiseReceipt.quantity - (selectedContainerWiseReceipt.loadedQuantity || 0)}{' '}
+                      CTN Available
+                    </span>
+                  </div>
+
+                  {/* Receipt Meta Grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                    <div className="bg-white/90 p-2.5 rounded-xl border border-emerald-200">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase block">Party / Shipper</span>
+                      <strong className="text-slate-800 truncate block mt-0.5" title={selectedContainerWiseReceipt.party}>
+                        {selectedContainerWiseReceipt.party || 'General Party'}
+                      </strong>
+                    </div>
+                    <div className="bg-white/90 p-2.5 rounded-xl border border-emerald-200">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase block">Commodity</span>
+                      <strong className="text-slate-800 truncate block mt-0.5" title={selectedContainerWiseReceipt.english || selectedContainerWiseReceipt.commodity}>
+                        {selectedContainerWiseReceipt.english || selectedContainerWiseReceipt.commodity || 'Goods'}
+                      </strong>
+                    </div>
+                    <div className="bg-white/90 p-2.5 rounded-xl border border-emerald-200">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase block">Origin Warehouse</span>
+                      <strong className="text-emerald-900 font-mono font-bold block mt-0.5">
+                        {selectedContainerWiseReceipt.warehouse}
+                      </strong>
+                    </div>
+                    <div className="bg-white/90 p-2.5 rounded-xl border border-emerald-200">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase block">Marka / Pkg</span>
+                      <strong className="text-slate-700 truncate block mt-0.5">
+                        {selectedContainerWiseReceipt.mainMarka || selectedContainerWiseReceipt.subMarka || '—'} / {selectedContainerWiseReceipt.packaging || 'Carton'}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {/* Stock Metrics Bar */}
+                  <div className="grid grid-cols-3 gap-2 text-center pt-1">
+                    <div className="bg-white p-2 rounded-xl border border-slate-200">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase block">Inward Received</span>
+                      <strong className="text-slate-900 text-xs font-mono">{selectedContainerWiseReceipt.quantity} CTN</strong>
+                      <span className="block text-[10px] text-slate-400 font-mono">
+                        {selectedContainerWiseReceipt.weight || '—'} / {selectedContainerWiseReceipt.volume || '—'}
+                      </span>
+                    </div>
+                    <div className="bg-white p-2 rounded-xl border border-slate-200">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase block">Already Loaded</span>
+                      <strong className="text-slate-600 text-xs font-mono">{selectedContainerWiseReceipt.loadedQuantity || 0} CTN</strong>
+                      <span className="block text-[10px] text-slate-400 font-mono">In containers/delivered</span>
+                    </div>
+                    <div className="bg-emerald-100/80 p-2 rounded-xl border border-emerald-300">
+                      <span className="text-[10px] text-emerald-800 font-bold uppercase block">Available Stock</span>
+                      <strong className="text-emerald-900 text-xs font-mono">
+                        {selectedContainerWiseReceipt.remainingQuantity !== undefined
+                          ? selectedContainerWiseReceipt.remainingQuantity
+                          : selectedContainerWiseReceipt.quantity - (selectedContainerWiseReceipt.loadedQuantity || 0)}{' '}
+                        CTN
+                      </strong>
+                      <span className="block text-[10px] text-emerald-700 font-medium">Ready to allocate</span>
+                    </div>
+                  </div>
+                </div>
+              ) : verifyStatus === 'not_found' ? (
+                <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-2xl text-xs space-y-2 animate-fadeIn">
+                  <div className="flex items-start space-x-2">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-amber-900 font-bold block">Verification Alert</strong>
+                      <p className="text-amber-800 leading-relaxed mt-0.5">{verifyMessage}</p>
+                    </div>
+                  </div>
+                  {containerWiseReceiptSearch && (
+                    <div className="pt-2 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleFetchReceiptFromChina(containerWiseReceiptSearch, containerWiseWarehouse)}
+                        disabled={isFetchingChinaReceipt}
+                        className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs shadow-xs transition"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isFetchingChinaReceipt ? 'animate-spin' : ''}`} />
+                        <span>
+                          {isFetchingChinaReceipt
+                            ? 'Fetching from China Portal...'
+                            : `Fetch #${containerWiseReceiptSearch} from China Warehouse Portal`}
+                        </span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : verifyStatus === 'multi_wh' ? (
+                <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-2xl text-xs space-y-1.5 animate-fadeIn">
+                  <div className="flex items-start space-x-2">
+                    <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-blue-900 font-bold block">Multiple Warehouses Found</strong>
+                      <p className="text-blue-800 leading-relaxed mt-0.5">{verifyMessage}</p>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* ── STEP 4: CARGO LOADING DETAILS (ACTUAL CTN, CBM, WEIGHT) ── */}
+              <div className="space-y-3 pt-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center space-x-1.5">
+                    <span className="w-5 h-5 rounded-full bg-emerald-600 text-white inline-flex items-center justify-center text-[10px] font-bold">3</span>
+                    <span>Enter Cargo to Load (CTN, CBM, Weight)</span>
+                  </label>
+                  {selectedContainerWiseReceipt && (
+                    <span className="text-[11px] text-slate-500 font-medium">
+                      Max Stock: {selectedContainerWiseReceipt.remainingQuantity !== undefined ? selectedContainerWiseReceipt.remainingQuantity : selectedContainerWiseReceipt.quantity} CTN
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {/* Actual CTN */}
+                  <div className="space-y-1">
+                    <label className="block text-xs font-bold text-slate-700">
+                      Actual CTN * <span className="text-[10px] text-slate-400 font-normal">(Enter → CBM)</span>
+                    </label>
                     <input
+                      ref={ctnInputRef}
                       type="number"
                       min={1}
                       max={
@@ -9389,10 +9569,14 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
                       required
                       placeholder="e.g. 25"
                       value={containerWiseQuantity}
-                      onChange={(e) =>
-                        setContainerWiseQuantity(e.target.value === '' ? '' : parseInt(e.target.value, 10))
-                      }
-                      className={`w-full px-3 py-2 text-sm font-black rounded-xl border focus:outline-none focus:ring-2 ${
+                      onChange={(e) => handleContainerWiseQuantityChange(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          cbmInputRef.current?.focus();
+                        }
+                      }}
+                      className={`w-full px-3 py-2 text-sm font-black rounded-xl border focus:outline-none focus:ring-2 font-mono ${
                         selectedContainerWiseReceipt &&
                         Number(containerWiseQuantity) >
                           (selectedContainerWiseReceipt.remainingQuantity !== undefined
@@ -9402,79 +9586,116 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
                           : 'border-slate-300 bg-white text-slate-900 focus:ring-emerald-500'
                       }`}
                     />
-                    {selectedContainerWiseReceipt &&
+                  </div>
+
+                  {/* Volume CBM */}
+                  <div className="space-y-1">
+                    <label className="block text-xs font-bold text-slate-700">
+                      Actual CBM <span className="text-[10px] text-slate-400 font-normal">(Enter → Weight)</span>
+                    </label>
+                    <input
+                      ref={cbmInputRef}
+                      type="text"
+                      placeholder="e.g. 1.25 CBM"
+                      value={containerWiseVolume}
+                      onChange={(e) => setContainerWiseVolume(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          weightInputRef.current?.focus();
+                        }
+                      }}
+                      className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-slate-900 font-mono"
+                    />
+                  </div>
+
+                  {/* Gross Weight */}
+                  <div className="space-y-1">
+                    <label className="block text-xs font-bold text-slate-700">
+                      Gross Weight <span className="text-[10px] text-slate-400 font-normal">(KG)</span>
+                    </label>
+                    <input
+                      ref={weightInputRef}
+                      type="text"
+                      placeholder="e.g. 250 KG"
+                      value={containerWiseWeight}
+                      onChange={(e) => setContainerWiseWeight(e.target.value)}
+                      className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-slate-900 font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* Exceeds Stock Warning */}
+                {selectedContainerWiseReceipt &&
+                  Number(containerWiseQuantity) >
+                    (selectedContainerWiseReceipt.remainingQuantity !== undefined
+                      ? selectedContainerWiseReceipt.remainingQuantity
+                      : selectedContainerWiseReceipt.quantity) && (
+                    <p className="text-[11px] text-red-600 font-bold bg-red-50 p-2 rounded-lg border border-red-200">
+                      ⚠️ Strict Rule: You cannot load {containerWiseQuantity} CTN. Max available received stock is{' '}
+                      {selectedContainerWiseReceipt.remainingQuantity !== undefined
+                        ? selectedContainerWiseReceipt.remainingQuantity
+                        : selectedContainerWiseReceipt.quantity}{' '}
+                      CTN.
+                    </p>
+                  )}
+
+                {/* Optional Item / Commodity Description */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Item Description for Container Manifest <span className="text-slate-400 font-normal">(Optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Item B (Custom description for this container plan)"
+                    value={containerWiseItemName}
+                    onChange={(e) => setContainerWiseItemName(e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-medium rounded-xl border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-xs"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Custom item name on container loading sheet. Warehouse stock receipt keeps original commodity name.
+                  </p>
+                </div>
+              </div>
+
+              {/* ── MODAL FOOTER ── */}
+              <div className="pt-4 border-t border-slate-200 flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsContainerWiseLoadOpen(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={
+                    isContainerWiseLoading ||
+                    !selectedContainerWiseReceipt ||
+                    !containerWiseQuantity ||
+                    Number(containerWiseQuantity) <= 0 ||
+                    (selectedContainerWiseReceipt &&
                       Number(containerWiseQuantity) >
                         (selectedContainerWiseReceipt.remainingQuantity !== undefined
                           ? selectedContainerWiseReceipt.remainingQuantity
-                          : selectedContainerWiseReceipt.quantity) && (
-                        <p className="text-[11px] text-red-600 font-bold mt-1">
-                          ⚠️ Strict Rule: You cannot load more goods than received in China warehouse.
-                        </p>
-                      )}
-                  </div>
-
-                  {/* Weight and Volume */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Gross Weight (Optional)
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="e.g. 250 KG"
-                        value={containerWiseWeight}
-                        onChange={(e) => setContainerWiseWeight(e.target.value)}
-                        className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white text-slate-900"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Volume CBM (Optional)
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="e.g. 1.25 CBM"
-                        value={containerWiseVolume}
-                        onChange={(e) => setContainerWiseVolume(e.target.value)}
-                        className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white text-slate-900"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Modal Footer */}
-                  <div className="pt-4 border-t border-slate-200 flex items-center justify-between">
-                    <button
-                      type="button"
-                      onClick={() => setIsContainerWiseLoadOpen(false)}
-                      className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={
-                        isContainerWiseLoading ||
-                        !containerWiseQuantity ||
-                        (selectedContainerWiseReceipt &&
-                          Number(containerWiseQuantity) >
-                            (selectedContainerWiseReceipt.remainingQuantity !== undefined
-                              ? selectedContainerWiseReceipt.remainingQuantity
-                              : selectedContainerWiseReceipt.quantity))
-                      }
-                      className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center space-x-1.5 disabled:opacity-50"
-                    >
-                      {isContainerWiseLoading ? (
-                        <span>Allocating to Container...</span>
-                      ) : (
-                        <>
-                          <Boxes className="w-4 h-4" />
-                          <span>Load into {containerWisePlan.container}</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </>
-              )}
+                          : selectedContainerWiseReceipt.quantity))
+                  }
+                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl shadow-md transition flex items-center space-x-2 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                >
+                  {isContainerWiseLoading ? (
+                    <span>Allocating to {containerWisePlan.container}...</span>
+                  ) : (
+                    <>
+                      <Boxes className="w-4 h-4" />
+                      <span>
+                        + Load {containerWiseQuantity ? `${containerWiseQuantity} CTN` : 'Goods'} into{' '}
+                        {containerWisePlan.container}
+                      </span>
+                    </>
+                  )}
+                </button>
+              </div>
             </form>
           </div>
         </div>
