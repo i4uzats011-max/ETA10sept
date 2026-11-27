@@ -437,6 +437,20 @@ export default function VisitorLogsPage() {
               <span className="hidden md:inline">Cargo Admin</span>
             </Link>
 
+            {/* API Quota & Telemetry */}
+            <button
+              onClick={() => setActiveTab('api-telemetry')}
+              className={`px-2.5 sm:px-3 py-1.5 rounded-xl border font-medium transition flex items-center space-x-1.5 text-xs ${
+                activeTab === 'api-telemetry'
+                  ? 'bg-cyan-500 text-black border-cyan-400 font-bold shadow-md'
+                  : 'bg-cyan-950/60 border-cyan-800/60 hover:bg-cyan-900/50 text-cyan-300'
+              }`}
+              title="API Plugins & Quota Telemetry (Gemini AI, China Sync, Carrier ETA)"
+            >
+              <Cpu className="w-3.5 h-3.5 text-cyan-400" />
+              <span>API Telemetry</span>
+            </button>
+
             {/* Users & Role Management */}
             <button
               onClick={() => setActiveTab('users')}
