@@ -233,10 +233,6 @@ export async function POST(req: NextRequest) {
       'shippingline', 'shipping line', 'shipping_line', 'carrier', 'line',
       '船公司', '船名', '船运公司', '承运人'
     ]);
-    const actualContainerHeader = getResolvedHeader('containerNumber', [
-      'containernumber', 'container_number', 'actual container', 'actual container no', 'carrier container',
-      '实际柜号', '大柜号', '船公司柜号', '真实柜号'
-    ]);
     const destinationHeader = getResolvedHeader('shippedTo', [
       'shippedto', 'shipped to', 'destination', 'dest', 'destination port', 'port of discharge', 'pod',
       '目的港', '目的地', '目的国', '卸货港', '到达港'

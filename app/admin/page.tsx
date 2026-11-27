@@ -25,6 +25,7 @@ import EditLogViewer from '@/components/EditLogViewer';
 import ContainerRateDownloadModal from '@/components/ContainerRateDownloadModal';
 import BulkContainerUpdateModal from '@/components/BulkContainerUpdateModal';
 import CustomerQueriesManager from '@/components/CustomerQueriesManager';
+import ApiTelemetryManager from '@/components/ApiTelemetryManager';
 import { getCarrierTrackingUrl, getLdbRailwayTrackingUrl } from '@/lib/trackingUrls';
 import { downloadContainerWiseRateExcel, downloadReceiptWiseRateExcel } from '@/lib/containerRateExport';
 import { ReduxProvider } from '@/store/ReduxProvider';
@@ -74,6 +75,7 @@ import {
   FileText,
   ExternalLink,
   HelpCircle,
+  Cpu,
 } from 'lucide-react';
 
 const SHIPPING_LINES = [
@@ -262,7 +264,7 @@ export default function AdminDashboardPage() {
   };
 
   // Modern Modular Menu Bar Tabs state
-  type AdminTab = 'loader-hub' | 'china-sync' | 'shipping-lines' | 'notifications' | 'customer-queries' | 'shipments' | 'containers' | 'manual-eta' | 'api-sync' | 'alerts' | 'users' | 'edit-logs';
+  type AdminTab = 'loader-hub' | 'china-sync' | 'shipping-lines' | 'notifications' | 'customer-queries' | 'shipments' | 'containers' | 'manual-eta' | 'api-sync' | 'alerts' | 'users' | 'edit-logs' | 'api-telemetry';
   const [pendingCustomerQueriesCount, setPendingCustomerQueriesCount] = useState<number>(0);
 
   const fetchAdminQueriesBadge = async () => {
