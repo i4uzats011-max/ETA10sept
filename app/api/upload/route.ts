@@ -261,12 +261,54 @@ export async function POST(req: NextRequest) {
       'rate_fixed', 'ratefixed', 'is_fixed', 'fixed_rate', 'fixed',
       '固定单价', '固定汇率', '包干', '是否固定'
     ]);
+    const plateHeader = getResolvedHeader('plate', [
+      'plate', 'license plate', 'truck plate', 'vehicle', 'car plate', 'plate no', 'plate_no',
+      '车牌', '车牌号', '车号'
+    ]);
+    const phoneHeader = getResolvedHeader('phone', [
+      'phone', 'mobile', 'tel', 'contact', 'telephone', 'phone no', 'phone_no',
+      '电话', '联系电话', '手机', '手机号', '电话号码'
+    ]);
+    const deliveryHeader = getResolvedHeader('delivery', [
+      'delivery', 'delivery party', 'sender', 'driver', 'carrier', 'trucking', 'express',
+      '送货', '送货人', '送货方', '送货公司', '送货司机', '交货人', '交货单位', '承运人'
+    ]);
+    const typeHeader = getResolvedHeader('type', [
+      'type', 'cargo type', 'goods type', 'commodity type', 'item type',
+      '类型', '货物类型', '产品类型', '分类'
+    ]);
+
+    // Warehouse normalization helper (maps Chinese names, entry codes like RS-21, AS-14, YW-55 to standard warehouse codes)
+    const normalizeWarehouse = (rawWh?: string, entryCode?: string): string => {
+      const cleanWh = (rawWh || '').trim();
+      const cleanEntry = (entryCode || '').trim().toUpperCase();
+
+      if (cleanEntry === 'RS-21' || cleanEntry.startsWith('RS')) return 'GZ';
+      if (cleanEntry === 'AS-14' || cleanEntry.startsWith('AS')) return 'YW';
+      if (cleanEntry === 'YW-55' || cleanEntry === 'YW55') return 'YW-55';
+
+      const upper = cleanWh.toUpperCase();
+      if (upper === 'GZ' || upper === 'GUANGZHOU' || cleanWh.includes('广州') || cleanWh.includes('九边')) return 'GZ';
+      if (upper === 'YW-55' || upper === 'YW55' || cleanWh.includes('55')) return 'YW-55';
+      if (upper === 'YW' || upper === 'YIWU' || cleanWh.includes('义乌')) return 'YW';
+      if (cleanWh === '总部' || cleanWh.includes('总部')) {
+        return cleanEntry === 'RS-21' ? 'GZ' : 'YW';
+      }
+
+      const translated = translateWarehouse(cleanWh);
+      if (translated === 'GZ' || translated === 'YW' || translated === 'YW-55') return translated;
+      return cleanWh || 'GZ';
+    };
 
     await connectToDatabase();
 
-    if (!defaultWarehouseParam || defaultWarehouseParam === 'ALL') {
+    const isPlanUpload = uploadType === 'plan' || Boolean(targetContainer) || Boolean(containerHeader);
+
+    // If uploading a loading plan or file has warehouse columns, user can either rely on file's warehouse or dropdown
+    const hasRowWarehouse = Boolean(warehouseHeader || warehouseEntryHeader);
+    if (!hasRowWarehouse && (!defaultWarehouseParam || defaultWarehouseParam === 'ALL')) {
       return NextResponse.json(
-        { error: 'Selecting a valid China Warehouse is strictly mandatory while uploading. Please select or create a warehouse first.' },
+        { error: 'Warehouse is strictly mandatory: Either provide warehouse in file columns or select a China warehouse.' },
         { status: 400 }
       );
     }
@@ -279,19 +321,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const defaultWarehouse = translateWarehouse(defaultWarehouseParam);
-
-    const whDoc = await Warehouse.findOne({
-      name: new RegExp(`^${defaultWarehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-    });
-    if (!whDoc) {
-      return NextResponse.json(
-        { error: `Warehouse '${defaultWarehouse}' does not exist in the system. Please create the warehouse first.` },
-        { status: 400 }
-      );
+    let defaultWarehouse = 'GZ';
+    if (defaultWarehouseParam && defaultWarehouseParam !== 'ALL') {
+      defaultWarehouse = normalizeWarehouse(defaultWarehouseParam);
     }
-
-    const isPlanUpload = uploadType === 'plan' || Boolean(targetContainer);
 
     // If uploading a loading plan, internal container selection is mandatory
     if (uploadType === 'plan' && !targetContainer && !containerHeader) {
@@ -310,10 +343,14 @@ export async function POST(req: NextRequest) {
       const eng = englishHeader && r[englishHeader] !== undefined ? String(r[englishHeader]).trim() : '';
       const pkg = packagingHeader && r[packagingHeader] !== undefined ? String(r[packagingHeader]).trim() : '';
       const rem = remarksHeader && r[remarksHeader] !== undefined ? String(r[remarksHeader]).trim() : '';
+      const deliv = deliveryHeader && r[deliveryHeader] !== undefined ? String(r[deliveryHeader]).trim() : '';
+      const stockst = stockStatusHeader && r[stockStatusHeader] !== undefined ? String(r[stockStatusHeader]).trim() : '';
       if (hasChineseCharacters(comm)) chineseTermsToTranslate.push(comm);
       if (hasChineseCharacters(eng)) chineseTermsToTranslate.push(eng);
       if (hasChineseCharacters(pkg)) chineseTermsToTranslate.push(pkg);
       if (hasChineseCharacters(rem)) chineseTermsToTranslate.push(rem);
+      if (hasChineseCharacters(deliv)) chineseTermsToTranslate.push(deliv);
+      if (hasChineseCharacters(stockst)) chineseTermsToTranslate.push(stockst);
     }
     const aiTranslationMap = await batchTranslateWithGemini(chineseTermsToTranslate);
 
@@ -715,12 +752,17 @@ export async function POST(req: NextRequest) {
     }
 
     // 1. Gather all requested receipts & sum quantities, volume, and weight in uploaded file by (WAREHOUSE, RECEIPT)
-    // Rule: First check warehouse name, then receipt number!
+    // Mandatory Rule: Both Warehouse Name and Receipt No. are strictly required to load goods and deduct warehouse stock!
     const fileQtyByKey = new Map<string, number>();
     const fileCbmByKey = new Map<string, number>();
     const fileWeightByKey = new Map<string, number>();
     const fileReceiptRows = new Map<string, number[]>();
-    const fileKeyToMeta = new Map<string, { warehouse: string; receipt: string }>();
+    const fileKeyToMeta = new Map<string, { warehouse: string; receipt: string; entry?: string }>();
+    const containerToActualMap = new Map<string, string>();
+    const containerToWarehouseMap = new Map<string, string>();
+    const missingPlanDetails: Array<{ row: number; reason: string }> = [];
+
+    const isIsoContainer = (v: string) => /^[A-Z]{4}\d{6,7}$/i.test(String(v || '').replace(/[\s-_]/g, ''));
 
     for (let index = 0; index < records.length; index++) {
       const row = records[index];
@@ -730,11 +772,40 @@ export async function POST(req: NextRequest) {
       }
       if (!containerVal) continue;
 
-      const rVal = receiptHeader && row[receiptHeader] !== undefined ? String(row[receiptHeader]).trim() : '';
-      if (!rVal) continue;
+      let actualVal = actualContainerHeader && row[actualContainerHeader] !== undefined ? String(row[actualContainerHeader]).trim().toUpperCase() : '';
 
-      const rawWh = warehouseHeader && row[warehouseHeader] !== undefined ? String(row[warehouseHeader]).trim() : defaultWarehouse;
-      const rowWarehouse = translateWarehouse(rawWh || defaultWarehouse);
+      // If containerVal has standard ISO 6346 container number (like GESU6221024) and actualVal is internal alias (like USSI-358), swap them
+      if (isIsoContainer(containerVal) && actualVal && !isIsoContainer(actualVal)) {
+        const tmp = containerVal;
+        containerVal = actualVal;
+        actualVal = tmp;
+      }
+
+      if (actualVal && !containerToActualMap.has(containerVal)) {
+        containerToActualMap.set(containerVal, actualVal);
+      }
+
+      const rVal = receiptHeader && row[receiptHeader] !== undefined ? String(row[receiptHeader]).trim() : '';
+      if (!rVal) {
+        missingPlanDetails.push({ row: index + 2, reason: `Row ${index + 2}: Missing mandatory Receipt Number (Receipt No. is required)` });
+        continue;
+      }
+
+      const rawEntry = warehouseEntryHeader && row[warehouseEntryHeader] !== undefined ? String(row[warehouseEntryHeader]).trim() : '';
+      const rawWh = warehouseHeader && row[warehouseHeader] !== undefined ? String(row[warehouseHeader]).trim() : '';
+      const determinedWh = rawWh || rawEntry || defaultWarehouse;
+
+      if (!determinedWh) {
+        missingPlanDetails.push({ row: index + 2, reason: `Row ${index + 2} (Receipt #${rVal}): Missing mandatory Warehouse Name (Warehouse is required)` });
+        continue;
+      }
+
+      const rowWarehouse = normalizeWarehouse(determinedWh, rawEntry);
+
+      if (!containerToWarehouseMap.has(containerVal)) {
+        containerToWarehouseMap.set(containerVal, rowWarehouse);
+      }
+
       const cleanR = rVal.trim();
       const rawQ = quantityHeader && row[quantityHeader] !== undefined ? String(row[quantityHeader]).trim() : '0';
       const q = parseInt(rawQ, 10) || 0;
@@ -749,25 +820,30 @@ export async function POST(req: NextRequest) {
       if (!fileReceiptRows.has(compoundKey)) fileReceiptRows.set(compoundKey, []);
       fileReceiptRows.get(compoundKey)!.push(index + 1);
       if (!fileKeyToMeta.has(compoundKey)) {
-        fileKeyToMeta.set(compoundKey, { warehouse: rowWarehouse, receipt: cleanR });
+        fileKeyToMeta.set(compoundKey, { warehouse: rowWarehouse, receipt: cleanR, entry: rawEntry });
       }
     }
 
-    // 2. Fetch existing WarehouseReceipt stock for all (warehouse, receipt) pairs in the file
-    const uniqueKeys = Array.from(fileKeyToMeta.keys());
+    // 2. Fetch existing WarehouseReceipt stock for all receipts in the file
+    const allReceiptNumbers = Array.from(new Set(Array.from(fileKeyToMeta.values()).map((m) => m.receipt)));
     let existingWhReceipts: any[] = [];
-    if (uniqueKeys.length > 0) {
-      const orConditions = Array.from(fileKeyToMeta.values()).map((m) => ({
-        receipt: new RegExp(`^${m.receipt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-        warehouse: new RegExp(`^${m.warehouse.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+    if (allReceiptNumbers.length > 0) {
+      const orConditions = allReceiptNumbers.map((r) => ({
+        receipt: new RegExp(`^${r.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
       }));
       existingWhReceipts = await WarehouseReceipt.find({ $or: orConditions }).lean();
     }
 
     const whReceiptMap = new Map<string, any>();
+    const receiptToAllDocsMap = new Map<string, any[]>();
+
     existingWhReceipts.forEach((wh: any) => {
-      const key = `${String(wh.warehouse).toLowerCase().trim()}___${String(wh.receipt).toLowerCase().trim()}`;
-      whReceiptMap.set(key, wh);
+      const exactKey = `${String(wh.warehouse).toLowerCase().trim()}___${String(wh.receipt).toLowerCase().trim()}`;
+      whReceiptMap.set(exactKey, wh);
+
+      const rKey = String(wh.receipt).toLowerCase().trim();
+      if (!receiptToAllDocsMap.has(rKey)) receiptToAllDocsMap.set(rKey, []);
+      receiptToAllDocsMap.get(rKey)!.push(wh);
     });
 
     // 3. Validation & Exception Detection: Check Receipt existence and evaluate metric discrepancies
@@ -780,7 +856,32 @@ export async function POST(req: NextRequest) {
       let wh = whReceiptMap.get(key);
       const meta = fileKeyToMeta.get(key)!;
       const rows = fileReceiptRows.get(key) || [];
-      const rowList = rows.length > 3 ? `${rows.slice(0, 3).join(', ')}... (total ${rows.length} rows)` : rows.join(', ');
+      const rKey = meta.receipt.toLowerCase().trim();
+      const allMatchesForReceipt = receiptToAllDocsMap.get(rKey) || [];
+
+      // If exact compound key didn't match directly, intelligently resolve warehouse stock
+      if (!wh && allMatchesForReceipt.length > 0) {
+        // A. Match by entryCode if provided (e.g. RS-21 -> GZ stock, AS-14 -> YW stock)
+        if (meta.entry) {
+          wh = allMatchesForReceipt.find(
+            (d) => d.warehouseEntry && d.warehouseEntry.toUpperCase() === meta.entry!.toUpperCase()
+          );
+        }
+        // B. If receipt exists in ONLY ONE warehouse in DB, match that record!
+        if (!wh && allMatchesForReceipt.length === 1) {
+          wh = allMatchesForReceipt[0];
+        }
+        // C. Match normalized warehouse
+        if (!wh) {
+          wh = allMatchesForReceipt.find(
+            (d) => normalizeWarehouse(d.warehouse, d.warehouseEntry) === meta.warehouse
+          );
+        }
+
+        if (wh) {
+          whReceiptMap.set(key, wh);
+        }
+      }
 
       // A. Check Receipt Existence in DB
       if (!wh) {
