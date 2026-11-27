@@ -694,10 +694,22 @@ export default function VisitorLogsPage() {
                 <Users className="w-3.5 h-3.5" />
                 <span>User & Role Management</span>
               </button>
+
+              <button
+                onClick={() => setActiveTab('api-telemetry')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition flex items-center space-x-1.5 ${
+                  activeTab === 'api-telemetry'
+                    ? 'bg-cyan-500 text-black shadow-md font-bold'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Cpu className="w-3.5 h-3.5" />
+                <span>🔌 API Quota & Telemetry</span>
+              </button>
             </div>
 
             {/* Time Period Filter */}
-            {activeTab !== 'users' && (
+            {activeTab !== 'users' && activeTab !== 'api-telemetry' && (
               <div className="flex items-center space-x-2 text-xs font-mono">
                 <span className="text-slate-400 hidden sm:inline">Period:</span>
                 <select
@@ -1229,6 +1241,13 @@ export default function VisitorLogsPage() {
         {activeTab === 'users' && (
           <div className="pt-2">
             <UserManager />
+          </div>
+        )}
+
+        {/* TAB 5: API Plugins & Quota Telemetry (Developer Only) */}
+        {activeTab === 'api-telemetry' && (
+          <div className="pt-2">
+            <ApiTelemetryManager />
           </div>
         )}
       </main>
