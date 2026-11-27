@@ -9,6 +9,8 @@ import { recordEditLog } from '@/lib/auditLog';
 import { detectCarrierWithGemini, ensureShippingLineExists } from '@/lib/carrierDetector';
 import ExcelJS from 'exceljs';
 import * as XLSX from 'xlsx';
+import { notifyWebPushOfContainerUpdate } from '@/lib/webPushNotifier';
+import { notifySubscribersOfContainerUpdate } from '@/lib/telegramNotifier';
 
 export const dynamic = 'force-dynamic';
 
@@ -889,6 +891,10 @@ export async function POST(req: NextRequest) {
       if (parsedEta) {
         containerSetFields.destinationDate = parsedEta;
         containerSetFields.eta = parsedEta;
+        if (isEtaChanged && oldEtaNorm) {
+          containerSetFields.previousEta = oldEtaNorm;
+          containerSetFields.etaChangeMessage = `ETA updated from ${oldEtaNorm} to ${parsedEta}`;
+        }
       }
 
       if (parsedPortDate) {
@@ -1023,6 +1029,43 @@ export async function POST(req: NextRequest) {
         })),
       },
     }).catch(() => {});
+
+    // Dispatch Web Push & Telegram notifications to subscribed parties for containers with date updates
+    for (const d of dateChanges) {
+      if (d.isEtaChanged || d.isPortDateChanged) {
+        notifyWebPushOfContainerUpdate({
+          container: d.container,
+          containerNumber: d.containerNumber,
+          blNumber: d.blNumber,
+          shippingLine: d.shippingLine,
+          portName: d.portName,
+          loadingDate: d.newLoadingDate,
+          oldEta: d.oldEta,
+          newEta: d.newEta,
+          etaDaysShift: d.etaDaysShift,
+          oldPortDate: d.oldPortDate,
+          newPortDate: d.newPortDate,
+          portDaysShift: d.portDaysShift,
+          remarks: d.remarks,
+        }).catch((err) => console.error('[BulkUpdateExcel] Web push notify error:', err));
+
+        notifySubscribersOfContainerUpdate({
+          container: d.container,
+          containerNumber: d.containerNumber,
+          blNumber: d.blNumber,
+          shippingLine: d.shippingLine,
+          portName: d.portName,
+          loadingDate: d.newLoadingDate,
+          oldEta: d.oldEta,
+          newEta: d.newEta,
+          etaDaysShift: d.etaDaysShift,
+          oldPortDate: d.oldPortDate,
+          newPortDate: d.newPortDate,
+          portDaysShift: d.portDaysShift,
+          remarks: d.remarks,
+        }).catch((err) => console.error('[BulkUpdateExcel] Telegram notify error:', err));
+      }
+    }
 
     return NextResponse.json({
       success: true,

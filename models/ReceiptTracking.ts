@@ -21,10 +21,19 @@ export interface IReceiptEntry {
   updatedAt?: Date;
 }
 
+export interface ITelegramSubscriber {
+  phone: string;               // Customer mobile number e.g. 9876543210
+  chatId?: string;             // Telegram Chat ID
+  username?: string;           // Telegram @username
+  subscribedAt?: Date;
+  active?: boolean;
+}
+
 export interface IReceiptTracking extends Document {
   token: string;               // Unique tracking token, e.g. trk_982ab1
   name?: string;               // Link Name / Allocated Party Name e.g. "Rahul Electronics"
   receipts: IReceiptEntry[];
+  telegramSubscribers?: ITelegramSubscriber[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -57,7 +66,16 @@ const ReceiptTrackingSchema = new Schema<IReceiptTracking>(
   {
     token: { type: String, required: true, unique: true, index: true, trim: true },
     name: { type: String, default: '', trim: true, index: true },
-    receipts: [ReceiptEntrySchema]
+    receipts: [ReceiptEntrySchema],
+    telegramSubscribers: [
+      {
+        phone: { type: String, default: '', trim: true },
+        chatId: { type: String, default: '', trim: true },
+        username: { type: String, default: '', trim: true },
+        subscribedAt: { type: Date, default: Date.now },
+        active: { type: Boolean, default: true }
+      }
+    ]
   },
   {
     timestamps: true

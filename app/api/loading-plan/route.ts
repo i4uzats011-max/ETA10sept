@@ -8,6 +8,8 @@ import { recordEditLog } from '@/lib/auditLog';
 import { addFilingBufferDays } from '@/lib/jsoncargo';
 import { parseMetricNumber } from '@/lib/metricUtils';
 import { invalidateContainerCache } from '@/lib/redis';
+import { notifyWebPushOfGoodsLoaded } from '@/lib/webPushNotifier';
+import { notifyTelegramOfGoodsLoaded } from '@/lib/telegramNotifier';
 
 export const dynamic = 'force-dynamic';
 
@@ -468,6 +470,27 @@ export async function POST(req: NextRequest) {
       targetContainer.shipmentCount = (targetContainer.shipmentCount || 0) + 1;
       targetContainer.totalQuantity = (targetContainer.totalQuantity || 0) + qtyToLoad;
       await targetContainer.save();
+
+      // Dispatch Web Push & Telegram notification to party for loaded goods
+      notifyWebPushOfGoodsLoaded({
+        receiptNo: cleanReceipt,
+        container: targetContainer.container,
+        containerNumber: targetContainer.containerNumber,
+        quantity: qtyToLoad,
+        warehouse: whReceipt.warehouse,
+        itemName: loadedEnglish || whReceipt.english || whReceipt.commodity,
+        eta: targetContainer.destinationDate || targetContainer.eta,
+      }).catch((err) => console.error('[LoadingPlan] Web push loaded error:', err));
+
+      notifyTelegramOfGoodsLoaded({
+        receiptNo: cleanReceipt,
+        container: targetContainer.container,
+        containerNumber: targetContainer.containerNumber,
+        quantity: qtyToLoad,
+        warehouse: whReceipt.warehouse,
+        itemName: loadedEnglish || whReceipt.english || whReceipt.commodity,
+        eta: targetContainer.destinationDate || targetContainer.eta,
+      }).catch((err) => console.error('[LoadingPlan] Telegram loaded error:', err));
 
       return NextResponse.json({
         success: true,

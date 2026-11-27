@@ -16,6 +16,9 @@ export interface ILivePublicReceipt {
   weight: string;
   ctn: string;
   eta: string | null;
+  previousEta?: string | null;
+  isEtaUpdated?: boolean;
+  etaChangeMessage?: string | null;
   deliveryDate?: string | null;
   markedDate?: string | null;
   status: string;
@@ -555,6 +558,22 @@ export async function resolveLiveReceiptsForTrackingDoc(
           liveEta = null;
         }
 
+        // Live ETA Update Detection (Changed from previous date to new date)
+        const prevEtaRaw = cDoc?.previousEta || s.previousEta || null;
+        let prevEta = (prevEtaRaw && prevEtaRaw !== '-' && prevEtaRaw.toLowerCase() !== 'n/a' && prevEtaRaw.toLowerCase() !== 'pending')
+          ? prevEtaRaw
+          : null;
+
+        const isEtaUpdated = Boolean(
+          prevEta &&
+          liveEta &&
+          prevEta.trim().toLowerCase() !== liveEta.trim().toLowerCase()
+        );
+
+        const etaChangeMessage = isEtaUpdated
+          ? (cDoc?.etaChangeMessage || s.etaChangeMessage || `ETA updated from ${prevEta} to ${liveEta}`)
+          : null;
+
         // Live Delivery & Status Resolution
         const isDelivered = Boolean(
           cDoc?.isDelivered ||
@@ -635,6 +654,9 @@ export async function resolveLiveReceiptsForTrackingDoc(
               weight: String(gi.weight || rowWeight),
               ctn: String(gi.ctn || rowCtn),
               eta: liveEta,
+              previousEta: prevEta,
+              isEtaUpdated: isEtaUpdated,
+              etaChangeMessage: etaChangeMessage,
               deliveryDate: effectiveDeliveryDate,
               markedDate: markedDate,
               status: rawStatus,
@@ -661,6 +683,9 @@ export async function resolveLiveReceiptsForTrackingDoc(
               weight: rowWeight,
               ctn: rowCtn,
               eta: liveEta,
+              previousEta: prevEta,
+              isEtaUpdated: isEtaUpdated,
+              etaChangeMessage: etaChangeMessage,
               deliveryDate: effectiveDeliveryDate,
               markedDate: markedDate,
               status: rawStatus,

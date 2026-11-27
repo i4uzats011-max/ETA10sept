@@ -36,7 +36,11 @@ import {
   ArrowDown,
   FileText,
   FileSpreadsheet,
-  ChevronDown
+  ChevronDown,
+  Bell,
+  BellRing,
+  BellOff,
+  Smartphone
 } from 'lucide-react';
 import { toJpeg, toPng } from 'html-to-image';
 
@@ -63,6 +67,9 @@ interface IPublicReceipt {
   weight: string;
   ctn: string;
   eta: string | null;
+  previousEta?: string | null;
+  isEtaUpdated?: boolean;
+  etaChangeMessage?: string | null;
   deliveryDate?: string | null;
   markedDate?: string | null;
   status?: string;
@@ -332,6 +339,18 @@ function renderRemainDaysBadge(remainDays: number | null) {
 type SortField = 'eta' | 'receiptNo' | 'marka' | 'itemName' | 'containerNo' | 'cbm' | 'weight' | 'ctn' | 'status';
 type SortDirection = 'asc' | 'desc';
 
+// Helper to convert base64 VAPID public key to Uint8Array for PushManager.subscribe
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
 export default function PublicReceiptTrackingPage() {
   const params = useParams();
   const token = typeof params.token === 'string' ? params.token : Array.isArray(params.token) ? params.token[0] : '';
@@ -350,6 +369,22 @@ export default function PublicReceiptTrackingPage() {
   const [isShareDropdownOpen, setIsShareDropdownOpen] = useState(false);
   const [mobileViewMode, setMobileViewMode] = useState<'cards' | 'table'>('cards');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Web Push Notification State
+  const [pushStatus, setPushStatus] = useState<'default' | 'granted' | 'denied' | 'unsupported'>('default');
+  const [isPushSubscribed, setIsPushSubscribed] = useState(false);
+  const [isPushSubscribing, setIsPushSubscribing] = useState(false);
+  const [dismissPushBanner, setDismissPushBanner] = useState(false);
+
+  // Telegram Alert Modal State
+  const [isTelegramModalOpen, setIsTelegramModalOpen] = useState(false);
+  const [telegramPhone, setTelegramPhone] = useState('');
+  const [telegramUsername, setTelegramUsername] = useState('');
+  const [isTelegramSubscribed, setIsTelegramSubscribed] = useState(false);
+  const [telegramLoading, setTelegramLoading] = useState(false);
+  const [telegramSubmitting, setTelegramSubmitting] = useState(false);
+  const [telegramBotUrl, setTelegramBotUrl] = useState('');
+  const [isTelegramConfigured, setIsTelegramConfigured] = useState(false);
 
   const tableCardRef = useRef<HTMLDivElement>(null);
 
@@ -598,12 +633,173 @@ export default function PublicReceiptTrackingPage() {
   useEffect(() => {
     fetchTrackingDetails();
     fetchQueries();
+    fetchTelegramInfo();
     const interval = setInterval(() => {
       fetchTrackingDetails();
       fetchQueries();
     }, 30000); // Auto-refresh every 30 seconds
     return () => clearInterval(interval);
   }, [token]);
+
+  // Check Web Push support and existing status
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+        setPushStatus('unsupported');
+      } else {
+        const perm = Notification.permission;
+        setPushStatus(perm);
+
+        const dismissed = localStorage.getItem(`push_dismissed_${token}`);
+        if (dismissed) {
+          setDismissPushBanner(true);
+        }
+
+        navigator.serviceWorker.getRegistration().then(async (reg) => {
+          if (reg) {
+            const sub = await reg.pushManager.getSubscription();
+            if (sub) {
+              setIsPushSubscribed(true);
+            }
+          }
+        }).catch(() => {});
+      }
+    }
+  }, [token]);
+
+  const handleEnablePush = async () => {
+    if (typeof window === 'undefined') return;
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+      showToast('Push notifications are not supported in this browser.');
+      return;
+    }
+
+    try {
+      setIsPushSubscribing(true);
+      const perm = await Notification.requestPermission();
+      setPushStatus(perm);
+
+      if (perm !== 'granted') {
+        showToast('Notification permission was not granted.');
+        setIsPushSubscribing(false);
+        return;
+      }
+
+      // 1. Fetch VAPID public key
+      const resKey = await fetch(`/api/track/receipt-link/${encodeURIComponent(token)}/push-subscribe`);
+      const keyData = await resKey.json();
+      const vapidKey = keyData.vapidPublicKey || process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+
+      if (!vapidKey) {
+        showToast('Push server keys are being initialized. Please try again in a moment.');
+        setIsPushSubscribing(false);
+        return;
+      }
+
+      // 2. Register Service Worker
+      const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+      await navigator.serviceWorker.ready;
+
+      // 3. Subscribe to Push Manager
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        const convertedVapidKey = urlBase64ToUint8Array(vapidKey);
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: convertedVapidKey,
+        });
+      }
+
+      // 4. Save subscription to backend tied strictly to this link's token
+      const saveRes = await fetch(`/api/track/receipt-link/${encodeURIComponent(token)}/push-subscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subscription: sub.toJSON(),
+          userAgent: navigator.userAgent,
+          active: true,
+        }),
+      });
+
+      const saveData = await saveRes.json();
+      if (saveData.success) {
+        setIsPushSubscribed(true);
+        setDismissPushBanner(true);
+        showToast('🔔 Live ETA Auto-Update Notifications enabled successfully!');
+      } else {
+        showToast(saveData.message || 'Failed to register push subscription.');
+      }
+    } catch (err: any) {
+      console.error('Error enabling push notifications:', err);
+      showToast(err?.message || 'Error subscribing to notifications.');
+    } finally {
+      setIsPushSubscribing(false);
+    }
+  };
+
+  const handleDismissPushBanner = () => {
+    setDismissPushBanner(true);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(`push_dismissed_${token}`, 'true');
+    }
+  };
+
+  const fetchTelegramInfo = async () => {
+    if (!token) return;
+    try {
+      setTelegramLoading(true);
+      const res = await fetch(`/api/track/receipt-link/${encodeURIComponent(token)}/telegram`);
+      const data = await res.json();
+      if (data.success) {
+        setIsTelegramSubscribed(Boolean(data.isSubscribed));
+        setTelegramBotUrl(data.botUrl || '');
+        setIsTelegramConfigured(Boolean(data.isBotConfigured));
+      }
+    } catch (err) {
+      // non-blocking
+    } finally {
+      setTelegramLoading(false);
+    }
+  };
+
+  const handleSaveTelegram = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!telegramPhone.trim() && !telegramUsername.trim()) {
+      showToast('Please enter your Mobile Number or Telegram username.');
+      return;
+    }
+
+    try {
+      setTelegramSubmitting(true);
+      const res = await fetch(`/api/track/receipt-link/${encodeURIComponent(token)}/telegram`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: telegramPhone.trim(),
+          username: telegramUsername.trim(),
+          enabled: true,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setIsTelegramSubscribed(true);
+        showToast('✈️ Telegram alert preferences saved successfully!');
+        setIsTelegramModalOpen(false);
+      } else {
+        showToast(data.message || 'Failed to save Telegram preferences.');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Error saving Telegram settings.');
+    } finally {
+      setTelegramSubmitting(false);
+    }
+  };
+
+  // Detect whether any receipt in this link had its ETA changed
+  const hasUpdatedEtas = useMemo(() => {
+    return receipts.some((r) => r.isEtaUpdated);
+  }, [receipts]);
 
   // Auto-focus / scroll directly to ETA cargo cards on mobile so users immediately see their ETA without scrolling down
   useEffect(() => {
@@ -1504,6 +1700,18 @@ export default function PublicReceiptTrackingPage() {
               </button>
 
               <button
+                onClick={() => {
+                  setIsTelegramModalOpen(true);
+                  fetchTelegramInfo();
+                }}
+                title="Subscribe or manage Telegram alerts for this tracking link"
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-sky-900 bg-sky-50 hover:bg-sky-100 border border-sky-300 rounded-xl transition shadow-xs cursor-pointer"
+              >
+                <Send className="w-3.5 h-3.5 text-sky-600" />
+                <span>Telegram Alerts {isTelegramSubscribed ? '✓' : ''}</span>
+              </button>
+
+              <button
                 onClick={() => openQueryModal()}
                 title="Send a message or query to dispatch"
                 className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition shadow-sm cursor-pointer"
@@ -1732,6 +1940,92 @@ export default function PublicReceiptTrackingPage() {
             </div>
           )}
         </div>
+
+        {/* Web Push Notification Opt-in Banner */}
+        {!loading && !dismissPushBanner && pushStatus === 'default' && (
+          <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-950 text-white rounded-2xl p-5 shadow-lg border border-indigo-500/30 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-fadeIn">
+            <div className="flex items-start sm:items-center gap-3.5">
+              <div className="w-12 h-12 rounded-xl bg-blue-500/20 border border-blue-400/30 text-blue-300 flex items-center justify-center shrink-0 shadow-inner">
+                <BellRing className="w-6 h-6 animate-bounce" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm sm:text-base font-black text-white tracking-tight">
+                    Kya aapko ETA auto-update notification chahiye?
+                  </h3>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                    100% Free • Direct Screen Alert
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed max-w-2xl">
+                  Jab bhi aapke container ka ETA change hoga, turant aapke mobile ya laptop browser par pop-up notification aayega. Sirf aapke link ke receipts ka update aayega.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2.5 shrink-0 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={handleEnablePush}
+                disabled={isPushSubscribing}
+                className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-black shadow-md shadow-emerald-500/20 transition cursor-pointer disabled:opacity-50"
+              >
+                <Bell className="w-4 h-4" />
+                <span>{isPushSubscribing ? 'Activating...' : 'Allow Notification'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleDismissPushBanner}
+                className="inline-flex items-center justify-center px-3 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white text-xs font-bold transition cursor-pointer"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Active Push Status Pill */}
+        {!loading && isPushSubscribed && (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 flex items-center justify-between text-xs text-emerald-900 shadow-2xs">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="font-bold">🔔 Screen Push Notifications Active on this Device:</span>
+              <span className="text-emerald-800 text-[11px]">Direct screen alerts will arrive whenever ETA changes for your shipments.</span>
+            </div>
+            <button
+              type="button"
+              onClick={handleEnablePush}
+              className="text-[11px] font-bold text-emerald-700 underline hover:text-emerald-900 ml-2 cursor-pointer"
+            >
+              Refresh Settings
+            </button>
+          </div>
+        )}
+
+        {/* Updated ETA Alert Banner (Green Highlight Notice) */}
+        {!loading && hasUpdatedEtas && (
+          <div className="bg-emerald-50 border-2 border-emerald-400 rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3 text-emerald-950 animate-fadeIn">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm shadow-emerald-600/30">
+                <BellRing className="w-5 h-5 animate-pulse" />
+              </div>
+              <div>
+                <div className="font-black text-sm text-emerald-950 flex items-center gap-2">
+                  <span>⚡ Container ETA Updated For Your Cargo</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-200 text-emerald-900 border border-emerald-300">
+                    Live DB Sync
+                  </span>
+                </div>
+                <p className="text-xs text-emerald-800 mt-0.5">
+                  Arrival dates have been updated for one or more containers. The affected shipment receipt(s) are highlighted in <strong>GREEN</strong> below with the exact date change.
+                </p>
+              </div>
+            </div>
+            <span className="text-[11px] font-black uppercase tracking-wider text-emerald-900 bg-emerald-200/80 px-3 py-1.5 rounded-xl border border-emerald-300 whitespace-nowrap">
+              Auto-Highlighted in Green
+            </span>
+          </div>
+        )}
 
         {/* Loading State */}
         {loading && (
@@ -2024,6 +2318,7 @@ export default function PublicReceiptTrackingPage() {
               <div className="md:hidden p-2.5 space-y-3 bg-slate-50/60 no-jpg">
                 {filteredReceipts.map((r, idx) => {
                   const isDelivered = isReceiptDelivered(r);
+                  const isEtaUpdated = Boolean(r.isEtaUpdated);
                   const effDate = isDelivered ? getEffectiveDeliveryDate(r) : r.eta;
                   const dateText = effDate ? formatDisplayDate(effDate) : 'Pending Schedule';
                   const cleanStat = cleanDisplayStatus(r.status);
@@ -2033,11 +2328,28 @@ export default function PublicReceiptTrackingPage() {
                   return (
                     <div
                       key={`card-${r.id || r.receiptNo}-${idx}`}
-                      style={{ borderLeft: `5px solid ${colorTheme.borderHex}` }}
-                      className={`p-3.5 bg-white border rounded-xl shadow-xs transition ${
-                        isSelected ? 'border-blue-400 bg-blue-50/40 ring-1 ring-blue-300' : 'border-slate-200'
+                      style={{ borderLeft: isEtaUpdated ? '6px solid #059669' : `5px solid ${colorTheme.borderHex}` }}
+                      className={`p-3.5 rounded-xl shadow-xs transition ${
+                        isEtaUpdated
+                          ? 'bg-emerald-50/80 border-2 border-emerald-400 ring-2 ring-emerald-300/40'
+                          : isSelected
+                          ? 'border-blue-400 bg-blue-50/40 ring-1 ring-blue-300 border'
+                          : 'bg-white border border-slate-200'
                       }`}
                     >
+                      {/* Live ETA Update Notice for Mobile Card */}
+                      {isEtaUpdated && (
+                        <div className="p-2.5 rounded-xl bg-emerald-100 border border-emerald-300 text-emerald-950 font-bold text-xs space-y-1 mb-2.5 animate-fadeIn">
+                          <div className="flex items-center gap-1.5 font-black text-emerald-900 text-[10px] uppercase tracking-wide">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                            <span>⚡ Live ETA Change Notification</span>
+                          </div>
+                          <div className="text-xs text-emerald-950">
+                            This ETA has been changed from <span className="line-through opacity-75">{r.previousEta}</span> to <span className="font-black text-emerald-900 underline decoration-emerald-500">{r.eta}</span>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Top Row: Checkbox, Receipt No, Marka, Status */}
                       <div className="flex items-center justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2 flex-wrap">
@@ -2469,12 +2781,17 @@ export default function PublicReceiptTrackingPage() {
                 <tbody className="divide-y divide-slate-100">
                   {filteredReceipts.map((r, idx) => {
                     const colorTheme = getReceiptColorTheme(r.receiptNo, receipts);
+                    const isRowEtaUpdated = Boolean(r.isEtaUpdated);
                     return (
                     <tr
                       key={`row-${r.id || r.receiptNo}-${idx}`}
-                      style={{ borderLeft: `5px solid ${colorTheme.borderHex}` }}
-                      className={`hover:bg-blue-50/40 transition-colors odd:bg-white even:bg-slate-50/30 ${
-                        selectedReceiptNos.has(r.receiptNo) ? 'bg-blue-50/70 ring-1 ring-inset ring-blue-300' : ''
+                      style={{ borderLeft: isRowEtaUpdated ? '6px solid #059669' : `5px solid ${colorTheme.borderHex}` }}
+                      className={`transition-colors ${
+                        isRowEtaUpdated
+                          ? 'bg-emerald-50/70 hover:bg-emerald-100/50 border-y border-emerald-300'
+                          : selectedReceiptNos.has(r.receiptNo)
+                          ? 'bg-blue-50/70 ring-1 ring-inset ring-blue-300'
+                          : 'hover:bg-blue-50/40 odd:bg-white even:bg-slate-50/30'
                       }`}
                     >
                       {/* Checkbox Column (Hidden in JPG download) */}
@@ -2495,34 +2812,41 @@ export default function PublicReceiptTrackingPage() {
 
                       {/* 1. Receipt No. */}
                       <td className="py-3.5 px-4 whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => openQueryModal(r.receiptNo)}
-                          title="Click to ask a query about this receipt"
-                          style={{
-                            backgroundColor: colorTheme.pillBg,
-                            borderColor: colorTheme.pillBorder,
-                            color: colorTheme.pillText
-                          }}
-                          className="inline-flex items-center gap-1.5 font-mono font-bold border px-2.5 py-1 rounded-md text-xs cursor-pointer hover:opacity-85 transition shadow-xs group"
-                        >
-                          <span className={`w-2 h-2 rounded-full ${colorTheme.dotBg} inline-block shrink-0`} />
-                          <Package className="w-3.5 h-3.5 opacity-80 group-hover:scale-110 transition-transform" />
-                          <span>{r.receiptNo}</span>
-                          {r.warehouse && (
-                            <span className="text-[10px] font-bold bg-white/90 border border-current px-1.5 py-0.2 rounded ml-1 uppercase">
-                              {r.warehouse} WH
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => openQueryModal(r.receiptNo)}
+                            title="Click to ask a query about this receipt"
+                            style={{
+                              backgroundColor: colorTheme.pillBg,
+                              borderColor: colorTheme.pillBorder,
+                              color: colorTheme.pillText
+                            }}
+                            className="inline-flex items-center gap-1.5 font-mono font-bold border px-2.5 py-1 rounded-md text-xs cursor-pointer hover:opacity-85 transition shadow-xs group"
+                          >
+                            <span className={`w-2 h-2 rounded-full ${colorTheme.dotBg} inline-block shrink-0`} />
+                            <Package className="w-3.5 h-3.5 opacity-80 group-hover:scale-110 transition-transform" />
+                            <span>{r.receiptNo}</span>
+                            {r.warehouse && (
+                              <span className="text-[10px] font-bold bg-white/90 border border-current px-1.5 py-0.2 rounded ml-1 uppercase">
+                                {r.warehouse} WH
+                              </span>
+                            )}
+                            {r.splitInfo && (
+                              <span className="text-[10px] font-extrabold bg-white/80 border border-current px-1.5 py-0.2 rounded ml-1">
+                                {r.splitInfo}
+                              </span>
+                            )}
+                            <span className="no-jpg text-[10px] font-sans font-normal opacity-80 group-hover:opacity-100 flex items-center gap-0.5 ml-1">
+                              <MessageCircle className="w-3 h-3" /> Ask
+                            </span>
+                          </button>
+                          {isRowEtaUpdated && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-emerald-600 text-white shadow-2xs uppercase tracking-wide">
+                              ⚡ ETA UPDATED
                             </span>
                           )}
-                          {r.splitInfo && (
-                            <span className="text-[10px] font-extrabold bg-white/80 border border-current px-1.5 py-0.2 rounded ml-1">
-                              {r.splitInfo}
-                            </span>
-                          )}
-                          <span className="no-jpg text-[10px] font-sans font-normal opacity-80 group-hover:opacity-100 flex items-center gap-0.5 ml-1">
-                            <MessageCircle className="w-3 h-3" /> Ask
-                          </span>
-                        </button>
+                        </div>
                       </td>
 
                       {/* 2. Marka */}
@@ -2583,6 +2907,25 @@ export default function PublicReceiptTrackingPage() {
                               <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
                               <span>Completed</span>
                             </span>
+                          </div>
+                        ) : isRowEtaUpdated ? (
+                          <div className="flex flex-col gap-1 items-start">
+                            <div className="font-black text-emerald-950 flex items-center gap-1.5 text-xs">
+                              <Calendar className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <span>New ETA: {formatDisplayDate(r.eta)}</span>
+                            </div>
+                            <div className="mt-1 px-2.5 py-1.5 rounded-lg bg-emerald-100 border border-emerald-300 text-emerald-950 font-bold text-[11px] space-y-0.5 shadow-2xs">
+                              <div className="flex items-center gap-1 text-emerald-800 font-extrabold text-[10px] uppercase">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                <span>⚡ ETA Updated</span>
+                              </div>
+                              <div className="text-xs">
+                                This ETA has been changed from <span className="line-through opacity-75">{r.previousEta}</span> to <span className="font-black text-emerald-900 underline decoration-emerald-500">{r.eta}</span>
+                              </div>
+                            </div>
+                            <div>
+                              {renderRemainDaysBadge(getEffectiveRemainDays(r))}
+                            </div>
                           </div>
                         ) : (
                           <div className="flex flex-col gap-1 items-start">
@@ -3127,6 +3470,122 @@ export default function PublicReceiptTrackingPage() {
                         ? `Verify & Link (${selectedWarehouse || 'Select Warehouse'})`
                         : 'Verify & Add'}
                     </span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Telegram Alerts Modal */}
+      {isTelegramModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-sky-800 to-blue-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center font-bold">
+                  <Send className="w-5 h-5 text-sky-200" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base leading-tight">Telegram Cargo Alerts</h3>
+                  <p className="text-[11px] text-sky-200">
+                    Get instant Telegram messages for arrival updates &amp; deliveries
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsTelegramModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 sm:p-6 space-y-4 text-xs">
+              <div className="p-3 bg-sky-50 border border-sky-200 rounded-xl space-y-1 text-sky-950">
+                <div className="font-extrabold flex items-center gap-1.5 text-sky-900">
+                  <ShieldCheck className="w-4 h-4 text-sky-600" />
+                  <span>100% Private &amp; Data-Protected</span>
+                </div>
+                <p className="text-[11px] text-sky-800 leading-relaxed">
+                  Notifications are sent strictly for shipments registered under this tracking link. Other customers can never see your receipt numbers.
+                </p>
+              </div>
+
+              {isTelegramSubscribed && (
+                <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-950 font-bold flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>You are currently subscribed for Telegram alerts on this link.</span>
+                </div>
+              )}
+
+              <form onSubmit={handleSaveTelegram} className="space-y-4">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Your Mobile Number *
+                  </label>
+                  <input
+                    type="tel"
+                    required
+                    placeholder="e.g. +91 9876543210"
+                    value={telegramPhone}
+                    onChange={(e) => setTelegramPhone(e.target.value)}
+                    className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:border-sky-600 font-mono font-bold text-slate-900 text-sm"
+                  />
+                  <span className="text-[10px] text-slate-500 mt-0.5 block">
+                    Enter your mobile number to receive automated Telegram alerts whenever container arrival dates change or goods are delivered.
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Telegram Username (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. @yourusername"
+                    value={telegramUsername}
+                    onChange={(e) => setTelegramUsername(e.target.value)}
+                    className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:border-sky-600 font-bold text-slate-900 text-sm"
+                  />
+                </div>
+
+                {telegramBotUrl && (
+                  <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-center">
+                    <span className="text-[11px] text-slate-600 block mb-1">
+                      Direct Telegram Bot Link:
+                    </span>
+                    <a
+                      href={telegramBotUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-lg text-xs transition"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Start Bot on Telegram</span>
+                    </a>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsTelegramModalOpen(false)}
+                    className="w-1/2 py-2.5 border border-slate-300 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={telegramSubmitting}
+                    className="w-1/2 py-2.5 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-xl transition shadow-md flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                  >
+                    <Send className="w-4 h-4" />
+                    <span>{telegramSubmitting ? 'Saving...' : 'Save & Activate'}</span>
                   </button>
                 </div>
               </form>

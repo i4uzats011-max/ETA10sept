@@ -19,6 +19,8 @@ export interface IContainer extends Document {
   startDate?: string;           // Departure / Start date (ATD/ETD)
   destinationDate?: string;     // Final arrival ETA date (with +7d filing buffer)
   eta?: string;                 // Destination ETA
+  previousEta?: string;         // Previous Destination ETA before last modification
+  etaChangeMessage?: string;    // Human-readable change text e.g. "ETA Updated from 15 Nov to 22 Nov"
   status?: string;              // Cargo status from carrier API (e.g. 'In Transit', 'Arrived')
   vesselName?: string;          // Vessel name
   voyageNumber?: string;        // Voyage number
@@ -67,6 +69,8 @@ const ContainerSchema = new Schema<IContainer>(
     startDate: { type: String, default: '' },
     destinationDate: { type: String, default: 'N/A' },
     eta: { type: String, default: 'N/A' },
+    previousEta: { type: String, default: '' },
+    etaChangeMessage: { type: String, default: '' },
     rawEta: { type: String, default: '' },
     portDate: { type: String, default: '' },
     etaBufferDays: { type: Number, default: 7 },

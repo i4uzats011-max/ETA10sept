@@ -44,6 +44,7 @@
     "tailwind-merge": "^2.6.0",
     "translation.js": "^0.7.15",
     "typesense": "^3.0.6",
+    "web-push": "^4.0.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
@@ -51,6 +52,7 @@
     "@types/node": "^20.17.12",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
+    "@types/web-push": "^3.6.4",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",

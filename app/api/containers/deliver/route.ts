@@ -6,6 +6,8 @@ import { isStaffOrAdminAuthenticated, getAuthenticatedUser } from '@/lib/auth';
 import { recordEditLog } from '@/lib/auditLog';
 import { calculateDaysBetween, formatReceiptDate } from '@/lib/dateUtils';
 import { invalidateContainerCache } from '@/lib/redis';
+import { notifyWebPushOfDelivery } from '@/lib/webPushNotifier';
+import { notifyTelegramOfDelivery } from '@/lib/telegramNotifier';
 
 export const dynamic = 'force-dynamic';
 
@@ -338,6 +340,22 @@ export async function POST(req: NextRequest) {
       username: modifiedBy,
       role: modifiedByRole,
     });
+
+    // Notify party of delivered container & shipments via Web Push & Telegram
+    const deliveredReceiptNos = toDeliverShipments.map((s) => s.receipt).filter(Boolean);
+    notifyWebPushOfDelivery({
+      container: cleanAlias,
+      containerNumber: updatedContainer?.containerNumber,
+      deliveryDate: formattedDelivery,
+      receiptNos: deliveredReceiptNos,
+    }).catch((err) => console.error('[Deliver] Web push error:', err));
+
+    notifyTelegramOfDelivery({
+      container: cleanAlias,
+      containerNumber: updatedContainer?.containerNumber,
+      deliveryDate: formattedDelivery,
+      receiptNos: deliveredReceiptNos,
+    }).catch((err) => console.error('[Deliver] Telegram error:', err));
 
     return NextResponse.json({
       success: true,

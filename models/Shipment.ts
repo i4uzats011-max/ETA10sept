@@ -37,6 +37,8 @@ export interface IShipment extends Document {
 
   // Tracking & ETA Metadata
   eta?: string;                 // Final Destination ETA (Format: ISO string or YYYY-MM-DD)
+  previousEta?: string;         // Previous Destination ETA before last modification
+  etaChangeMessage?: string;    // Human-readable change text e.g. "ETA Updated from 15 Nov to 22 Nov"
   status?: string;              // Cargo status from carrier API (e.g., 'In Transit', 'Arrived')
   shippedFrom?: string;         // Start port / location (e.g., 'Ningbo / Shanghai, China')
   shippedTo?: string;           // Destination port / location (e.g., 'Nhava Sheva / Mundra, India')
@@ -184,6 +186,8 @@ const ShipmentSchema = new Schema<IShipment>({
   splitIndex: { type: Number, default: 1 },
 
   eta: { type: String, default: 'N/A' },
+  previousEta: { type: String, default: '' },
+  etaChangeMessage: { type: String, default: '' },
   rawEta: { type: String, default: '' },
   portDate: { type: String, default: '' },
   etaBufferDays: { type: Number, default: 7 },

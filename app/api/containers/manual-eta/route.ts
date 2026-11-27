@@ -8,6 +8,8 @@ import { calculateDaysBetween, formatReceiptDate } from '@/lib/dateUtils';
 import { invalidateContainerCache } from '@/lib/redis';
 import { recordEditLog } from '@/lib/auditLog';
 import { detectCarrierWithGemini, ensureShippingLineExists } from '@/lib/carrierDetector';
+import { notifyWebPushOfContainerUpdate, notifyWebPushOfDelivery } from '@/lib/webPushNotifier';
+import { notifySubscribersOfContainerUpdate, notifyTelegramOfDelivery } from '@/lib/telegramNotifier';
 
 export const dynamic = 'force-dynamic';
 
@@ -169,6 +171,21 @@ export async function POST(req: NextRequest) {
       if (!resolvedActual && d.containerNumber) resolvedActual = d.containerNumber;
       if (!resolvedBL && d.blNumber) resolvedBL = d.blNumber;
     });
+
+    const oldEta = existingDocs[0]?.destinationDate || existingDocs[0]?.eta || '';
+    const isEtaChanged = Boolean(
+      inputGraceEta &&
+      oldEta &&
+      inputGraceEta.trim().toLowerCase() !== oldEta.trim().toLowerCase() &&
+      oldEta !== '-' &&
+      oldEta.toLowerCase() !== 'pending' &&
+      oldEta.toLowerCase() !== 'n/a'
+    );
+
+    if (isEtaChanged) {
+      updateFields.previousEta = oldEta;
+      updateFields.etaChangeMessage = `ETA updated from ${oldEta} to ${inputGraceEta}`;
+    }
 
     // Auto-detect carrier using Gemini AI if container number or BL number available
     if (resolvedActual || resolvedBL) {
@@ -332,6 +349,45 @@ export async function POST(req: NextRequest) {
       : updateResult.matchedCount > 0
       ? `Successfully updated details and dates for container '${effectiveTargetAlias}' across ${updateResult.modifiedCount} shipment receipt(s)!`
       : `Successfully saved details for container '${effectiveTargetAlias}' in fleet master directory.`;
+
+    // Dispatch notifications if container marked delivered or ETA changed
+    if (isMarkedDelivered) {
+      notifyWebPushOfDelivery({
+        container: effectiveTargetAlias,
+        containerNumber: finalContainerNo || resolvedActual,
+        deliveryDate: updateFields.deliveryDate || '',
+      }).catch((err) => console.error('[ManualETA] Web push delivery error:', err));
+
+      notifyTelegramOfDelivery({
+        container: effectiveTargetAlias,
+        containerNumber: finalContainerNo || resolvedActual,
+        deliveryDate: updateFields.deliveryDate || '',
+      }).catch((err) => console.error('[ManualETA] Telegram delivery error:', err));
+    } else if (isEtaChanged) {
+      notifyWebPushOfContainerUpdate({
+        container: effectiveTargetAlias,
+        containerNumber: finalContainerNo || resolvedActual,
+        blNumber: updateFields.blNumber || resolvedBL,
+        shippingLine: updateFields.shippingLine,
+        portName: updateFields.shippedTo,
+        loadingDate: inputLoading,
+        oldEta,
+        newEta: inputGraceEta,
+        remarks: newRemark?.remarks || remarkText || '',
+      }).catch((err) => console.error('[ManualETA] Web push ETA error:', err));
+
+      notifySubscribersOfContainerUpdate({
+        container: effectiveTargetAlias,
+        containerNumber: finalContainerNo || resolvedActual,
+        blNumber: updateFields.blNumber || resolvedBL,
+        shippingLine: updateFields.shippingLine,
+        portName: updateFields.shippedTo,
+        loadingDate: inputLoading,
+        oldEta,
+        newEta: inputGraceEta,
+        remarks: newRemark?.remarks || remarkText || '',
+      }).catch((err) => console.error('[ManualETA] Telegram ETA error:', err));
+    }
 
     return NextResponse.json({
       success: true,
