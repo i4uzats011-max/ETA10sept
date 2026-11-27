@@ -1,6 +1,7 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose, { Schema } from 'mongoose';
 
-export interface IApiUsageLog extends Document {
+export interface IApiUsageLog {
+  _id?: any;
   apiName: 'gemini' | 'china_warehouse' | 'jsoncargo' | 'typesense' | string;
   action: string;
   endpoint?: string;
@@ -16,7 +17,7 @@ export interface IApiUsageLog extends Document {
   createdAt: Date;
 }
 
-const ApiUsageLogSchema = new Schema<IApiUsageLog>(
+const ApiUsageLogSchema = new Schema(
   {
     apiName: { type: String, required: true, index: true },
     action: { type: String, required: true, index: true },
@@ -41,4 +42,4 @@ const ApiUsageLogSchema = new Schema<IApiUsageLog>(
 ApiUsageLogSchema.index({ apiName: 1, createdAt: -1 });
 
 export default mongoose.models.ApiUsageLog ||
-  mongoose.model<IApiUsageLog>('ApiUsageLog', ApiUsageLogSchema);
+  mongoose.model('ApiUsageLog', ApiUsageLogSchema);
