@@ -37,9 +37,11 @@ import {
   Truck,
   FileText,
   Briefcase,
+  Cpu,
 } from 'lucide-react';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
 import UserManager from '@/components/UserManager';
+import ApiTelemetryManager from '@/components/ApiTelemetryManager';
 
 interface VisitorLogItem {
   _id: string;
@@ -122,7 +124,7 @@ export default function VisitorLogsPage() {
   const [error, setError] = useState<string | null>(null);
 
   // Filters & Pagination
-  const [activeTab, setActiveTab] = useState<'stream' | 'ips' | 'analytics' | 'users'>('stream');
+  const [activeTab, setActiveTab] = useState<'stream' | 'ips' | 'analytics' | 'users' | 'api-telemetry'>('stream');
   const [search, setSearch] = useState('');
   const [deviceFilter, setDeviceFilter] = useState<'all' | 'mobile' | 'desktop' | 'tablet'>('all');
   const [period, setPeriod] = useState<'all' | 'today' | '24h' | '7d' | '30d'>('all');
