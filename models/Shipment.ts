@@ -67,6 +67,9 @@ export interface IShipment extends Document {
   lastModifiedByRole?: string;  // Role of the user who last changed/updated data
   phone?: string;               // Party contact / WhatsApp mobile
   partyPhone?: string;          // Party phone
+  plate?: string;               // Vehicle plate (e.g. 粤EDZ0505)
+  delivery?: string;            // Delivery party / Driver (e.g. HUBERT, 货拉拉)
+  type?: string;                // Cargo type (e.g. custom, battery, normal)
   rate?: string;                // Party freight/shipping rate (e.g. '23k', '500')
   'Overall / Receipt Freight Rate'?: string; // Exact DB field head for Overall / Receipt Freight Rate
   rateFixed?: boolean;          // Rate fixed flag
@@ -146,6 +149,9 @@ const ShipmentSchema = new Schema<IShipment>({
   party: { type: String, default: '', index: true, trim: true },
   phone: { type: String, default: '', trim: true },
   partyPhone: { type: String, default: '', trim: true },
+  plate: { type: String, default: '', trim: true },
+  delivery: { type: String, default: '', trim: true },
+  type: { type: String, default: '', trim: true },
   rate: { type: String, default: '', trim: true },
   'Overall / Receipt Freight Rate': { type: String, default: '', trim: true },
   rateFixed: { type: Boolean, default: false },

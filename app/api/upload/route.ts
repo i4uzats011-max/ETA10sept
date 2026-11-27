@@ -79,11 +79,24 @@ export async function POST(req: NextRequest) {
         records = XLSX.utils.sheet_to_json(sheet, { defval: '' });
       } catch {
         const fileContent = buffer.toString('utf-8');
-        records = parse(fileContent, {
-          columns: true,
-          skip_empty_lines: true,
-          trim: true,
-        });
+        // Handle duplicate column headers (e.g. two "Container No." columns)
+        const lines = fileContent.split(/\r?\n/).filter((l) => l.trim().length > 0);
+        if (lines.length > 0) {
+          const rawHeaderCols = parse(lines[0], { trim: true })[0] || [];
+          const seen = new Map<string, number>();
+          const dedupedHeaders = rawHeaderCols.map((h: string) => {
+            const clean = h.trim();
+            const count = (seen.get(clean.toLowerCase()) || 0) + 1;
+            seen.set(clean.toLowerCase(), count);
+            return count === 1 ? clean : `${clean}_${count - 1}`;
+          });
+          const restContent = lines.slice(1).join('\n');
+          records = parse(restContent, {
+            columns: dedupedHeaders,
+            skip_empty_lines: true,
+            trim: true,
+          });
+        }
       }
     }
 
@@ -109,12 +122,44 @@ export async function POST(req: NextRequest) {
       return findHeader(candidates);
     };
 
-    // 1. Container Column (Optional if Inward China Receipts, Mandatory for Manifests)
-    const containerHeader = getResolvedHeader('container', [
+    // 1. Container Column (Internal Container / Plan Alias)
+    let containerHeader = getResolvedHeader('container', [
       'container', 'containernumber', 'container_number', 'container no', 'container_no',
       'container alias', 'container_alias', 'cntr', 'cntr no', 'cntr_no', 'cntrno', 'container id', 'container_id',
       '柜号', '集装箱号', '箱号', '货柜号', '内部柜号', '柜号别名', '集装箱'
     ]);
+
+    // 1b. Actual Carrier Container Column (Shipping Line Container Number e.g. GESU6221024)
+    let actualContainerHeader = getResolvedHeader('containerNumber', [
+      'containernumber', 'container_number', 'actual container', 'actual container no', 'actual container number',
+      'carrier container', 'container no. (actual)', 'container no (actual)', 'container no. _1', 'container no._1',
+      'container no_1', 'container_1', 'containernumber_1', 'actual_container_no', 'actual_container',
+      '实际柜号', '大柜号', '船公司柜号', '真实柜号'
+    ]);
+
+    // If both resolve to the same column, or if a second container column exists:
+    if (containerHeader && (!actualContainerHeader || containerHeader === actualContainerHeader)) {
+      const altHeader = rawHeaders.find(
+        (h) => h !== containerHeader && /container|cntr|柜号|箱号/i.test(h)
+      );
+      if (altHeader) {
+        actualContainerHeader = altHeader;
+      }
+    }
+
+    // Auto-disambiguate based on standard ISO 6346 container number format (e.g. GESU6221024)
+    if (containerHeader && actualContainerHeader && containerHeader !== actualContainerHeader && records.length > 0) {
+      const isIso6346 = (v: string) => /^[A-Z]{4}\d{6,7}$/i.test(String(v || '').replace(/[\s-_]/g, ''));
+      const sampleInternalVal = String(records[0][containerHeader] || '').trim();
+      const sampleActualVal = String(records[0][actualContainerHeader] || '').trim();
+
+      // If the containerHeader has an ISO container code and actualContainerHeader has an internal alias (like USSI-358), swap them!
+      if (isIso6346(sampleInternalVal) && !isIso6346(sampleActualVal)) {
+        const temp = containerHeader;
+        containerHeader = actualContainerHeader;
+        actualContainerHeader = temp;
+      }
+    }
 
     // 2. Resolve All Other Headers (English + Chinese Logistics Headers)
     const receiptHeader = getResolvedHeader('receipt', [
