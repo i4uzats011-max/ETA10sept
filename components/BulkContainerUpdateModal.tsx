@@ -34,6 +34,18 @@ interface DateChangeItem {
   oldPortDate: string;
   newPortDate: string;
   portDaysShift: number | null;
+  isLoadingDateChanged?: boolean;
+  oldLoadingDate?: string;
+  newLoadingDate?: string;
+  isPortNameChanged?: boolean;
+  oldPortName?: string;
+  newPortName?: string;
+  isShippingLineChanged?: boolean;
+  oldShippingLine?: string;
+  newShippingLine?: string;
+  isBlChanged?: boolean;
+  oldBlNumber?: string;
+  newBlNumber?: string;
   remarks: string;
 }
 
@@ -215,7 +227,7 @@ export default function BulkContainerUpdateModal({
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-1">
-                Download pre-filled Excel template, enter new ETA Date, Port Date & Remarks, then upload.
+                Download pre-filled Excel template, inspect or correct dates/ports/carrier, and upload to sync all linked containers.
               </p>
             </div>
           </div>
@@ -236,13 +248,13 @@ export default function BulkContainerUpdateModal({
             <Clock className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
             <div className="text-xs text-amber-950 space-y-1">
               <p className="font-black text-[13px] text-amber-900">
-                🎯 Date Change Focus (Date Auto-Detection & Text Log):
+                🎯 Pre-filled Data &amp; Date Change Focus (Auto-Sync Across Shared B/L Groups):
               </p>
               <p>
-                If <strong>ANY</strong> container has its <strong>Port Date (rawEta)</strong> or{' '}
-                <strong>ETA Date (Destination ETA)</strong> modified in the uploaded file, the system will{' '}
-                <strong>automatically generate and download a detailed .txt audit file</strong> listing previous
-                dates, new dates, and day differences (+/- days).
+                The downloaded spreadsheet is <strong>pre-filled with current DB values</strong> (Loading Date, ETA, Port Date, Port Name, Remarks).
+                Containers sharing the same <strong>B/L No.</strong> are grouped together.
+                If <strong>ANY</strong> field (Loading Date, Port Name, Port Date, ETA Date, Carrier, or BL) is corrected or modified in the uploaded file, the system will{' '}
+                <strong>synchronize all linked sibling containers</strong> and <strong>automatically download a detailed .txt audit file</strong>.
               </p>
             </div>
           </div>
@@ -257,14 +269,14 @@ export default function BulkContainerUpdateModal({
                 <div>
                   <div className="flex items-center space-x-2">
                     <h4 className="text-sm font-black text-slate-900">
-                      Download Undelivered Containers Template
+                      Download Pre-filled Undelivered Containers Template
                     </h4>
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
-                      Undelivered Only
+                      Pre-filled &amp; Grouped by B/L
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Includes only active/undelivered containers. Delivered containers are excluded per policy and cannot be updated.
+                    Pre-filled with all current database values. Delivered containers are excluded per policy and cannot be modified.
                   </p>
                 </div>
               </div>
@@ -283,7 +295,7 @@ export default function BulkContainerUpdateModal({
                 ) : (
                   <>
                     <Download className="w-4 h-4" />
-                    <span>Download Undelivered Excel (.xlsx)</span>
+                    <span>Download Pre-filled Excel (.xlsx)</span>
                   </>
                 )}
               </button>
@@ -293,7 +305,7 @@ export default function BulkContainerUpdateModal({
             <div className="pt-2 border-t border-slate-200/80">
               <div className="text-[11px] font-bold text-slate-600 mb-1.5 flex items-center space-x-1">
                 <Info className="w-3.5 h-3.5 text-blue-600" />
-                <span>Columns included in downloaded Excel:</span>
+                <span>Columns included in downloaded Excel (Pre-filled with DB values):</span>
               </div>
               <div className="flex flex-wrap gap-1.5 text-[10px]">
                 <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-bold border border-blue-200">
@@ -305,23 +317,29 @@ export default function BulkContainerUpdateModal({
                 <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-bold border border-blue-200">
                   Internal Container
                 </span>
-                <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-bold border border-blue-200">
-                  BL No. (Blank if not set)
+                <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-900 font-black border border-indigo-300">
+                  🔗 BL No. &amp; Group Info
                 </span>
                 <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-bold border border-blue-200">
                   Shipping Line Company Name
                 </span>
                 <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-black border border-emerald-300">
-                  👉 ETA Date [BLANK]
+                  ✏️ Loading Date [Pre-filled]
                 </span>
                 <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-black border border-emerald-300">
-                  👉 Port Date [BLANK]
+                  ✏️ ETA Date [Pre-filled]
                 </span>
                 <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-black border border-emerald-300">
-                  👉 Port Name [BLANK]
+                  ✏️ Port Date [Pre-filled]
                 </span>
                 <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-black border border-emerald-300">
-                  👉 Remarks [BLANK]
+                  ✏️ Port Name [Pre-filled]
+                </span>
+                <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-black border border-emerald-300">
+                  ✏️ Remarks [Pre-filled]
+                </span>
+                <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-bold border border-slate-300">
+                  Current Loading Date (Ref)
                 </span>
                 <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-bold border border-slate-300">
                   Last ETA (Ref)
@@ -531,10 +549,35 @@ export default function BulkContainerUpdateModal({
                                   {c.containerNumber}
                                 </div>
                               )}
+                              {c.blNumber && (
+                                <div className="text-[10px] text-indigo-700 font-mono font-bold">
+                                  BL: {c.blNumber}
+                                </div>
+                              )}
                             </td>
                             <td className="p-2.5 text-slate-600 font-bold">
                               <div>{c.shippingLine || 'MSC'}</div>
                               <div className="text-[10px] text-slate-500">{c.portName}</div>
+                              {c.isLoadingDateChanged && (
+                                <div className="text-[9px] bg-emerald-100 text-emerald-800 px-1 py-0.2 rounded mt-1 font-bold inline-block">
+                                  Load Date: {c.oldLoadingDate || 'N/A'} ➔ {c.newLoadingDate}
+                                </div>
+                              )}
+                              {c.isPortNameChanged && (
+                                <div className="text-[9px] bg-blue-100 text-blue-800 px-1 py-0.2 rounded mt-1 font-bold inline-block">
+                                  Port: {c.oldPortName || 'N/A'} ➔ {c.newPortName}
+                                </div>
+                              )}
+                              {c.isShippingLineChanged && (
+                                <div className="text-[9px] bg-purple-100 text-purple-800 px-1 py-0.2 rounded mt-1 font-bold inline-block">
+                                  Carrier: {c.oldShippingLine || 'N/A'} ➔ {c.newShippingLine}
+                                </div>
+                              )}
+                              {c.isBlChanged && (
+                                <div className="text-[9px] bg-amber-100 text-amber-800 px-1 py-0.2 rounded mt-1 font-bold inline-block">
+                                  BL: {c.oldBlNumber || 'N/A'} ➔ {c.newBlNumber}
+                                </div>
+                              )}
                             </td>
                             <td className="p-2.5">
                               {c.isPortDateChanged ? (

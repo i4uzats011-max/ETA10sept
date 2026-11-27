@@ -1,5 +1,6 @@
 import './globals.css';
 import type { Metadata, Viewport } from 'next';
+import Script from 'next/script';
 import { ReduxProvider } from '@/store/ReduxProvider';
 
 import VisitorTracker from '@/components/VisitorTracker';
@@ -37,6 +38,11 @@ export default function RootLayout({
           <AppNotificationManager />
           {children}
         </ReduxProvider>
+        {/* Chatwith.tools AI Chatbot Widget */}
+        <Script
+          src="https://chatwith.tools/chatbot/371ff58c-8f67-4972-bd88-14386b4e1c1f.js"
+          strategy="afterInteractive"
+        />
       </body>
     </html>
   );

@@ -26,6 +26,18 @@ interface RowDateChange {
   oldPortDate: string;
   newPortDate: string;
   portDaysShift: number | null;
+  isLoadingDateChanged?: boolean;
+  oldLoadingDate?: string;
+  newLoadingDate?: string;
+  isPortNameChanged?: boolean;
+  oldPortName?: string;
+  newPortName?: string;
+  isShippingLineChanged?: boolean;
+  oldShippingLine?: string;
+  newShippingLine?: string;
+  isBlChanged?: boolean;
+  oldBlNumber?: string;
+  newBlNumber?: string;
   remarks: string;
 }
 
@@ -114,6 +126,30 @@ function generateDateChangeTxtReport(
     out += `    Shipping Line   : ${c.shippingLine || 'Default'}\n`;
     out += `    Destination Port: ${c.portName || 'India Port'}\n`;
 
+    if (c.isLoadingDateChanged) {
+      out += `\n    * LOADING DATE [CORRECTED/UPDATED VIA EXCEL]:\n`;
+      out += `      - Previous Loading Date : ${c.oldLoadingDate || 'Not Set'} (${c.oldLoadingDate ? formatGlobalDate(c.oldLoadingDate) : 'N/A'})\n`;
+      out += `      - New Loading Date      : ${c.newLoadingDate} (${c.newLoadingDate ? formatGlobalDate(c.newLoadingDate) : 'N/A'})\n`;
+    }
+
+    if (c.isPortNameChanged) {
+      out += `\n    * PORT NAME / DESTINATION [CORRECTED/UPDATED VIA EXCEL]:\n`;
+      out += `      - Previous Port Name    : ${c.oldPortName || 'Not Set'}\n`;
+      out += `      - New Port Name         : ${c.newPortName}\n`;
+    }
+
+    if (c.isShippingLineChanged) {
+      out += `\n    * SHIPPING LINE COMPANY [CORRECTED/UPDATED VIA EXCEL]:\n`;
+      out += `      - Previous Carrier      : ${c.oldShippingLine || 'Not Set'}\n`;
+      out += `      - New Carrier           : ${c.newShippingLine}\n`;
+    }
+
+    if (c.isBlChanged) {
+      out += `\n    * BILL OF LADING (B/L NO.) [UPDATED VIA EXCEL]:\n`;
+      out += `      - Previous B/L No       : ${c.oldBlNumber || 'Not Set'}\n`;
+      out += `      - New B/L No            : ${c.newBlNumber}\n`;
+    }
+
     if (c.isPortDateChanged) {
       const shiftStr =
         c.portDaysShift !== null
@@ -199,6 +235,8 @@ export async function GET(req: NextRequest) {
         containerNumber: 1,
         blNumber: 1,
         shippingLine: 1,
+        loadingDate: 1,
+        startDate: 1,
         destinationDate: 1,
         eta: 1,
         rawEta: 1,
@@ -226,6 +264,8 @@ export async function GET(req: NextRequest) {
           containerNumber: { $first: '$containerNumber' },
           blNumber: { $first: '$blNumber' },
           shippingLine: { $first: '$shippingLine' },
+          loadingDate: { $first: '$loadingDate' },
+          startDate: { $first: '$startDate' },
           destinationDate: { $first: '$destinationDate' },
           eta: { $first: '$eta' },
           rawEta: { $first: '$rawEta' },
@@ -246,6 +286,8 @@ export async function GET(req: NextRequest) {
           containerNumber: s.containerNumber || '',
           blNumber: s.blNumber || '',
           shippingLine: s.shippingLine || 'MSC',
+          loadingDate: s.loadingDate || s.startDate || '',
+          startDate: s.startDate || s.loadingDate || '',
           destinationDate: s.destinationDate || s.eta || '',
           eta: s.eta || '',
           rawEta: s.rawEta || s.portDate || '',
@@ -259,28 +301,49 @@ export async function GET(req: NextRequest) {
         if (!existing.containerNumber && s.containerNumber) existing.containerNumber = s.containerNumber;
         if (!existing.blNumber && s.blNumber) existing.blNumber = s.blNumber;
         if (!existing.shippingLine && s.shippingLine) existing.shippingLine = s.shippingLine;
+        if (!existing.loadingDate && s.loadingDate) existing.loadingDate = s.loadingDate;
+        if (!existing.startDate && s.startDate) existing.startDate = s.startDate;
         if (!existing.destinationDate && s.destinationDate) existing.destinationDate = s.destinationDate;
         if (!existing.rawEta && s.rawEta) existing.rawEta = s.rawEta;
+        if (!existing.portDate && s.portDate) existing.portDate = s.portDate;
         if (!existing.shippedTo && s.shippedTo) existing.shippedTo = s.shippedTo;
       }
     }
 
     const allContainers = Array.from(containerMap.values());
-    allContainers.sort((a, b) => {
-      // Group containers sharing the same BL Number together
-      const blA = (a.blNumber || '').trim().toUpperCase();
-      const blB = (b.blNumber || '').trim().toUpperCase();
-      if (blA && blB && blA !== blB) {
-        return blA.localeCompare(blB);
-      }
-      if (blA && !blB) return -1;
-      if (!blA && blB) return 1;
-      return String(a.container).localeCompare(String(b.container), undefined, { numeric: true });
-    });
 
     // User requirement: Delivered containers are not required to be updated anymore.
     // Exclude delivered containers and export only undelivered / active containers.
     const undeliveredContainers = allContainers.filter((c) => !isContainerDelivered(c));
+
+    // Calculate B/L counts to detect and group containers sharing the same B/L number
+    const blCountMap = new Map<string, number>();
+    for (const c of undeliveredContainers) {
+      const bl = String(c.blNumber || '').trim().toUpperCase();
+      if (bl && bl !== 'N/A' && bl !== 'PENDING' && bl !== '-') {
+        blCountMap.set(bl, (blCountMap.get(bl) || 0) + 1);
+      }
+    }
+
+    // Sort containers: Group containers having the same B/L number together
+    undeliveredContainers.sort((a, b) => {
+      const blA = String(a.blNumber || '').trim().toUpperCase();
+      const blB = String(b.blNumber || '').trim().toUpperCase();
+      const hasBlA = blA && blA !== 'N/A' && blA !== 'PENDING' && blA !== '-';
+      const hasBlB = blB && blB !== 'N/A' && blB !== 'PENDING' && blB !== '-';
+
+      // If both have valid BL, sort by BL first so all containers under same BL are grouped together
+      if (hasBlA && hasBlB) {
+        if (blA !== blB) return blA.localeCompare(blB);
+        return String(a.container).localeCompare(String(b.container), undefined, { numeric: true });
+      }
+      // Containers with BL come first
+      if (hasBlA && !hasBlB) return -1;
+      if (!hasBlA && hasBlB) return 1;
+
+      // Otherwise sort by internal container alias
+      return String(a.container).localeCompare(String(b.container), undefined, { numeric: true });
+    });
 
     // 3. Create Excel Workbook using ExcelJS with clean styling
     const workbook = new ExcelJS.Workbook();
@@ -291,17 +354,20 @@ export async function GET(req: NextRequest) {
       views: [{ state: 'frozen', xSplit: 0, ySplit: 1 }],
     });
 
-    // Define column headers exactly as requested
+    // Define column headers with enhanced B/L Grouping, Loading Date, and Port Name
     worksheet.columns = [
       { header: 'Container No.', key: 'sr', width: 14 },
       { header: 'Actual Container No.', key: 'actual', width: 24 },
       { header: 'Internal Container', key: 'internal', width: 20 },
-      { header: 'BL No.', key: 'blNumber', width: 22 },
+      { header: 'BL No.', key: 'blNumber', width: 24 },
+      { header: 'BL Group Info', key: 'blGroup', width: 22 },
       { header: 'Shipping Line Company Name', key: 'shippingLine', width: 26 },
+      { header: 'Loading Date', key: 'newLoadingDate', width: 18 },
       { header: 'ETA Date', key: 'newEta', width: 18 },
       { header: 'Port Date', key: 'newPortDate', width: 18 },
       { header: 'Port Name', key: 'newPortName', width: 28 },
       { header: 'Remarks', key: 'newRemarks', width: 35 },
+      { header: 'Current Loading Date', key: 'lastLoadingDate', width: 18 },
       { header: 'Last ETA', key: 'lastEta', width: 18 },
       { header: 'Last Port Date', key: 'lastPortDate', width: 18 },
       { header: 'Current Port Name', key: 'currentPortName', width: 28 },
@@ -316,15 +382,15 @@ export async function GET(req: NextRequest) {
       cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
       cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
 
-      if (colNumber <= 5) {
+      if (colNumber <= 6) {
         // Container & BL info columns: Navy Blue (#1E3A8A)
         cell.fill = {
           type: 'pattern',
           pattern: 'solid',
           fgColor: { argb: 'FF1E3A8A' },
         };
-      } else if (colNumber <= 9) {
-        // Editable update columns: Forest Green (#047857)
+      } else if (colNumber <= 11) {
+        // Editable update columns (Pre-filled with DB values): Forest Green (#047857)
         cell.fill = {
           type: 'pattern',
           pattern: 'solid',
@@ -347,15 +413,23 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    // Populate rows (Undelivered Containers Only)
+    // Populate rows (Undelivered Containers Only, grouped by BL No. and pre-filled with current data)
     undeliveredContainers.forEach((c, idx) => {
+      const rawLoadingDate = c.loadingDate || c.startDate || '';
+      const cleanLoadingDate = rawLoadingDate && rawLoadingDate !== 'N/A' && rawLoadingDate !== 'Pending' ? rawLoadingDate : '';
+
       const rawLastEta = c.destinationDate || c.eta || '';
       const cleanLastEta = rawLastEta && rawLastEta !== 'N/A' && rawLastEta !== 'Pending' ? rawLastEta : '';
 
       const rawLastPortDate = c.portDate || c.rawEta || '';
       const cleanLastPortDate = rawLastPortDate && rawLastPortDate !== 'N/A' && rawLastPortDate !== 'Pending' ? rawLastPortDate : '';
 
-      const cleanBlNumber = c.blNumber && c.blNumber !== 'N/A' && c.blNumber !== 'Pending' && c.blNumber !== '-' ? String(c.blNumber).trim() : '';
+      const cleanBlNumber = c.blNumber && c.blNumber !== 'N/A' && c.blNumber !== 'Pending' && c.blNumber !== '-' ? String(c.blNumber).trim().toUpperCase() : '';
+
+      const blGroupCount = cleanBlNumber ? (blCountMap.get(cleanBlNumber) || 1) : 0;
+      const blGroupInfo = cleanBlNumber
+        ? (blGroupCount > 1 ? `Group (${blGroupCount} Conts)` : 'Single Container')
+        : 'No BL Set';
 
       let latestRemark = '';
       if (Array.isArray(c.remarks) && c.remarks.length > 0) {
@@ -367,12 +441,15 @@ export async function GET(req: NextRequest) {
         sr: idx + 1,
         actual: c.containerNumber || '',
         internal: c.container || '',
-        blNumber: cleanBlNumber, // If found, show it; if not found, blank!
+        blNumber: cleanBlNumber,
+        blGroup: blGroupInfo,
         shippingLine: c.shippingLine || 'MSC',
-        newEta: '',       // Blank for user to enter
-        newPortDate: '',  // Blank for user to enter
-        newPortName: '',  // Blank for user to enter
-        newRemarks: '',   // Blank for user to enter
+        newLoadingDate: cleanLoadingDate,          // PRE-FILLED WITH CURRENT DB VALUE
+        newEta: cleanLastEta,                      // PRE-FILLED WITH CURRENT DB VALUE
+        newPortDate: cleanLastPortDate,            // PRE-FILLED WITH CURRENT DB VALUE
+        newPortName: c.shippedTo || 'India Port',  // PRE-FILLED WITH CURRENT DB VALUE
+        newRemarks: latestRemark,                  // PRE-FILLED WITH LATEST REMARK
+        lastLoadingDate: cleanLoadingDate,
         lastEta: cleanLastEta,
         lastPortDate: cleanLastPortDate,
         currentPortName: c.shippedTo || 'India Port',
@@ -381,21 +458,31 @@ export async function GET(req: NextRequest) {
 
       row.height = 24;
 
+      const isMultiContainerBlGroup = blGroupCount > 1;
+
       // Cell formatting
       row.eachCell((cell, colNumber) => {
         cell.font = { name: 'Calibri', size: 10 };
         cell.alignment = {
           vertical: 'middle',
-          horizontal: [1, 6, 7, 10, 11].includes(colNumber) ? 'center' : 'left',
+          horizontal: [1, 5, 7, 8, 9, 12, 13, 14].includes(colNumber) ? 'center' : 'left',
         };
 
-        // Light highlight for editable blank update columns (6 to 9)
-        if (colNumber >= 6 && colNumber <= 9) {
+        // Light emerald tint for editable update columns (7 to 11) to indicate they are editable
+        if (colNumber >= 7 && colNumber <= 11) {
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'FFF0FDF4' }, // Light emerald tint to prompt user input
+            fgColor: { argb: 'FFF0FDF4' }, // Soft emerald tint
           };
+        } else if (isMultiContainerBlGroup && (colNumber === 4 || colNumber === 5)) {
+          // Soft amber highlight for linked B/L grouping indicator
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFFEF3C7' }, // Soft amber highlight for shared BL group
+          };
+          cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF92400E' } };
         }
 
         cell.border = {
@@ -524,6 +611,17 @@ export async function POST(req: NextRequest) {
         getRowVal(row, ['shipping line company name', 'shipping line', 'carrier', 'company']) || ''
       ).trim();
 
+      const loadingDateRaw = getRowVal(row, [
+        'loading date',
+        'new loading date',
+        'load date',
+        'loading_date',
+        'start date',
+        'atd',
+        '装柜日期',
+        '装船日期',
+      ]);
+
       const etaDateRaw = getRowVal(row, [
         'eta date',
         'new eta date',
@@ -556,10 +654,14 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
+      const parsedLoadingDate = normalizeDate(loadingDateRaw);
       const parsedEta = normalizeDate(etaDateRaw);
       const parsedPortDate = normalizeDate(portDateRaw);
 
       // Check if user entered invalid date in non-empty date cell
+      if (loadingDateRaw && !parsedLoadingDate && String(loadingDateRaw).trim() !== '' && String(loadingDateRaw).trim() !== '—') {
+        warnings.push(`Row ${rowNum} (${internalContainerVal || actualContainerVal}): Could not parse Loading Date "${loadingDateRaw}"`);
+      }
       if (etaDateRaw && !parsedEta && String(etaDateRaw).trim() !== '' && String(etaDateRaw).trim() !== '—') {
         warnings.push(`Row ${rowNum} (${internalContainerVal || actualContainerVal}): Could not parse ETA Date "${etaDateRaw}"`);
       }
@@ -569,13 +671,14 @@ export async function POST(req: NextRequest) {
 
       // Check if any actual update was provided for this row
       const hasAnyUpdate =
+        Boolean(parsedLoadingDate) ||
         Boolean(parsedEta) ||
         Boolean(parsedPortDate) ||
         Boolean(portNameVal) ||
         Boolean(remarksVal) ||
         Boolean(blVal) ||
         (Boolean(shippingLineVal) && shippingLineVal !== 'Default') ||
-        (Boolean(actualContainerVal));
+        Boolean(actualContainerVal);
 
       if (!hasAnyUpdate) {
         skippedCount++;
@@ -583,27 +686,35 @@ export async function POST(req: NextRequest) {
       }
 
       // Find existing container in Container collection
-      const queryOr: any[] = [];
+      let existingContainer: any = null;
       if (internalContainerVal) {
         const escaped = internalContainerVal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/[-_\s]+/g, '[-_\\s]*');
-        queryOr.push({ container: new RegExp(`^${escaped}$`, 'i') });
+        existingContainer = await Container.findOne({ container: new RegExp(`^${escaped}$`, 'i') });
       }
-      if (actualContainerVal) {
+      if (!existingContainer && actualContainerVal) {
         const escapedAct = actualContainerVal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/[-_\s]+/g, '[-_\\s]*');
-        queryOr.push({ containerNumber: new RegExp(`^${escapedAct}$`, 'i') });
+        existingContainer = await Container.findOne({ containerNumber: new RegExp(`^${escapedAct}$`, 'i') });
       }
-
-      let existingContainer: any = await Container.findOne({ $or: queryOr });
 
       // Fallback: check Shipment collection if Container collection doesn't have it yet
       if (!existingContainer) {
-        const existingShipment: any = await Shipment.findOne({ $or: queryOr });
+        let existingShipment: any = null;
+        if (internalContainerVal) {
+          const escaped = internalContainerVal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/[-_\s]+/g, '[-_\\s]*');
+          existingShipment = await Shipment.findOne({ container: new RegExp(`^${escaped}$`, 'i') });
+        }
+        if (!existingShipment && actualContainerVal) {
+          const escapedAct = actualContainerVal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/[-_\s]+/g, '[-_\\s]*');
+          existingShipment = await Shipment.findOne({ containerNumber: new RegExp(`^${escapedAct}$`, 'i') });
+        }
         if (existingShipment) {
           existingContainer = {
             container: existingShipment.container || internalContainerVal,
             containerNumber: existingShipment.containerNumber || actualContainerVal,
             blNumber: existingShipment.blNumber || blVal || '',
             shippingLine: existingShipment.shippingLine || shippingLineVal || 'MSC',
+            loadingDate: existingShipment.loadingDate || existingShipment.startDate || '',
+            startDate: existingShipment.startDate || existingShipment.loadingDate || '',
             shippedTo: existingShipment.shippedTo || portNameVal || 'India Port',
             destinationDate: existingShipment.destinationDate || existingShipment.eta || '',
             eta: existingShipment.eta || '',
@@ -625,13 +736,18 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // Compare Previous vs New Dates to detect DATE CHANGES
+      // Compare Previous vs New Dates & Fields to detect modifications & mistakes corrections
+      const oldLoadingRaw = existingContainer?.loadingDate || existingContainer?.startDate || '';
+      const oldLoadingNorm = normalizeDate(oldLoadingRaw) || '';
+      let isLoadingDateChanged = false;
+      if (parsedLoadingDate && oldLoadingNorm && parsedLoadingDate !== oldLoadingNorm) {
+        isLoadingDateChanged = true;
+      } else if (parsedLoadingDate && !oldLoadingNorm) {
+        isLoadingDateChanged = true;
+      }
+
       const oldEtaRaw = existingContainer?.destinationDate || existingContainer?.eta || '';
       const oldEtaNorm = normalizeDate(oldEtaRaw) || '';
-
-      const oldPortDateRaw = existingContainer?.portDate || existingContainer?.rawEta || '';
-      const oldPortDateNorm = normalizeDate(oldPortDateRaw) || '';
-
       let isEtaChanged = false;
       let etaDaysShift: number | null = null;
       if (parsedEta) {
@@ -641,6 +757,8 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      const oldPortDateRaw = existingContainer?.portDate || existingContainer?.rawEta || '';
+      const oldPortDateNorm = normalizeDate(oldPortDateRaw) || '';
       let isPortDateChanged = false;
       let portDaysShift: number | null = null;
       if (parsedPortDate) {
@@ -650,37 +768,54 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // If either date changed, record in dateChanges list for .txt file generation
-      if (isEtaChanged || isPortDateChanged) {
-        dateChanges.push({
-          container: effectiveAlias,
-          containerNumber: effectiveActual,
-          blNumber: blVal || existingContainer?.blNumber || '',
-          shippingLine: effectiveShippingLine,
-          portName: portNameVal || existingContainer?.shippedTo || 'India Port',
-          isEtaChanged,
-          oldEta: oldEtaNorm,
-          newEta: parsedEta || oldEtaNorm,
-          etaDaysShift,
-          isPortDateChanged,
-          oldPortDate: oldPortDateNorm,
-          newPortDate: parsedPortDate || oldPortDateNorm,
-          portDaysShift,
-          remarks: remarksVal,
-        });
+      const oldPortName = String(existingContainer?.shippedTo || '').trim();
+      let isPortNameChanged = false;
+      if (portNameVal && oldPortName && portNameVal.toLowerCase() !== oldPortName.toLowerCase()) {
+        isPortNameChanged = true;
+      } else if (portNameVal && !oldPortName) {
+        isPortNameChanged = true;
       }
 
-      // Prepare DB update fields
-      const containerSetFields: Record<string, any> = {
-        lastModifiedBy: username,
-        lastModifiedByRole: userRole,
-        etaUpdatedAt: now,
-      };
+      const oldShippingLine = String(existingContainer?.shippingLine || '').trim();
+      let isShippingLineChanged = false;
+      if (
+        shippingLineVal &&
+        shippingLineVal !== 'Default' &&
+        oldShippingLine &&
+        shippingLineVal.toLowerCase() !== oldShippingLine.toLowerCase()
+      ) {
+        isShippingLineChanged = true;
+      }
 
-      // Auto-detect shipping line via Gemini AI if missing or generic 'MSC'
+      const oldBlNumber = String(existingContainer?.blNumber || '').trim().toUpperCase();
+      let isBlChanged = false;
+      if (blVal && oldBlNumber && blVal !== oldBlNumber) {
+        isBlChanged = true;
+      } else if (blVal && !oldBlNumber) {
+        isBlChanged = true;
+      }
+
+      // Check remarks to avoid duplicating the same pre-filled remark
+      let latestExistingRemark = '';
+      if (Array.isArray(existingContainer?.remarks) && existingContainer.remarks.length > 0) {
+        const last = existingContainer.remarks[existingContainer.remarks.length - 1];
+        latestExistingRemark = String(last?.remarks || '').trim();
+      }
+
+      let remarkToPush: any = null;
+      if (remarksVal && remarksVal.trim() && remarksVal.trim() !== latestExistingRemark) {
+        remarkToPush = {
+          date: todayStr,
+          remarks: remarksVal.trim(),
+          createdAt: now,
+          createdBy: username,
+        };
+      }
+
+      // Auto-detect shipping line via Gemini AI if missing, generic 'MSC', or shipping line changed
       let resolvedShippingLine = effectiveShippingLine;
       if (effectiveActual || blVal) {
-        if (!resolvedShippingLine || resolvedShippingLine === 'MSC') {
+        if (!resolvedShippingLine || resolvedShippingLine === 'MSC' || isShippingLineChanged) {
           try {
             const detected = await detectCarrierWithGemini(effectiveActual, resolvedShippingLine, blVal);
             if (detected.canonicalCode) {
@@ -691,10 +826,63 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // If any date, port, carrier, or BL changed or new remark entered, record in dateChanges list
+      const hasAnyFieldChange =
+        isEtaChanged ||
+        isPortDateChanged ||
+        isLoadingDateChanged ||
+        isPortNameChanged ||
+        isShippingLineChanged ||
+        isBlChanged ||
+        Boolean(remarkToPush);
+
+      if (hasAnyFieldChange) {
+        dateChanges.push({
+          container: effectiveAlias,
+          containerNumber: effectiveActual,
+          blNumber: blVal || existingContainer?.blNumber || '',
+          shippingLine: resolvedShippingLine || effectiveShippingLine,
+          portName: portNameVal || existingContainer?.shippedTo || 'India Port',
+          isEtaChanged,
+          oldEta: oldEtaNorm,
+          newEta: parsedEta || oldEtaNorm,
+          etaDaysShift,
+          isPortDateChanged,
+          oldPortDate: oldPortDateNorm,
+          newPortDate: parsedPortDate || oldPortDateNorm,
+          portDaysShift,
+          isLoadingDateChanged,
+          oldLoadingDate: oldLoadingNorm,
+          newLoadingDate: parsedLoadingDate || oldLoadingNorm,
+          isPortNameChanged,
+          oldPortName,
+          newPortName: portNameVal || oldPortName,
+          isShippingLineChanged,
+          oldShippingLine,
+          newShippingLine: resolvedShippingLine || effectiveShippingLine,
+          isBlChanged,
+          oldBlNumber,
+          newBlNumber: blVal || oldBlNumber,
+          remarks: remarkToPush ? remarksVal.trim() : '',
+        });
+      }
+
+      // Prepare DB update fields
+      const containerSetFields: Record<string, any> = {
+        lastModifiedBy: username,
+        lastModifiedByRole: userRole,
+        etaUpdatedAt: now,
+      };
+
       if (effectiveActual) containerSetFields.containerNumber = effectiveActual;
       if (blVal) containerSetFields.blNumber = blVal;
       if (resolvedShippingLine) containerSetFields.shippingLine = resolvedShippingLine;
       if (portNameVal) containerSetFields.shippedTo = portNameVal;
+
+      if (parsedLoadingDate) {
+        containerSetFields.loadingDate = parsedLoadingDate;
+        containerSetFields.startDate = parsedLoadingDate;
+      }
 
       if (parsedEta) {
         containerSetFields.destinationDate = parsedEta;
@@ -706,17 +894,7 @@ export async function POST(req: NextRequest) {
         containerSetFields.portDate = parsedPortDate;
       }
 
-      let remarkToPush: any = null;
-      if (remarksVal) {
-        remarkToPush = {
-          date: todayStr,
-          remarks: remarksVal,
-          createdAt: now,
-          createdBy: username,
-        };
-      }
-
-      // Update or create Container
+      // Update or create target Container
       const containerUpdateOps: any = {
         $set: containerSetFields,
         $setOnInsert: {
@@ -732,44 +910,44 @@ export async function POST(req: NextRequest) {
         containerUpdateOps.$push = { remarks: remarkToPush };
       }
 
-      // Build conditions for this container and any linked sibling containers sharing the same BL No. or Actual No.
-      const linkedOrConditions: any[] = [
-        { container: effectiveAlias },
-        ...(effectiveActual ? [{ containerNumber: effectiveActual }] : []),
-        ...(blVal ? [{ blNumber: blVal }] : []),
-      ];
-
+      // 1. Update the target container document
       const savedContainer = await Container.findOneAndUpdate(
-        { $or: linkedOrConditions },
+        { container: effectiveAlias },
         containerUpdateOps,
         { upsert: true, new: true }
       );
 
-      // Link and synchronize all sibling containers sharing the same BL No. or Actual Container No.
-      if (effectiveActual || blVal) {
+      // 2. Link and synchronize all sibling containers sharing the same BL No. or Actual Container No.
+      const effectiveBL = blVal || savedContainer?.blNumber || existingContainer?.blNumber;
+      const effectiveActualNo = effectiveActual || savedContainer?.containerNumber || existingContainer?.containerNumber;
+
+      const siblingConditions: any[] = [];
+      if (effectiveActualNo) siblingConditions.push({ containerNumber: effectiveActualNo });
+      if (effectiveBL) siblingConditions.push({ blNumber: effectiveBL });
+
+      if (siblingConditions.length > 0) {
+        const siblingQuery = {
+          container: { $ne: effectiveAlias },
+          $or: siblingConditions,
+        };
+
         const siblingSetFields: any = { ...containerSetFields };
         delete siblingSetFields.container; // Preserve each sibling's own unique plan alias
 
-        await Container.updateMany(
-          {
-            _id: { $ne: savedContainer?._id },
-            $or: linkedOrConditions,
-          },
-          { $set: siblingSetFields }
-        ).catch(() => {});
+        await Container.updateMany(siblingQuery, { $set: siblingSetFields }).catch(() => {});
 
         if (remarkToPush) {
-          await Container.updateMany(
-            {
-              _id: { $ne: savedContainer?._id },
-              $or: linkedOrConditions,
-            },
-            { $push: { remarks: remarkToPush } }
-          ).catch(() => {});
+          await Container.updateMany(siblingQuery, { $push: { remarks: remarkToPush } }).catch(() => {});
         }
       }
 
-      // Also update matching Shipments across all linked containers
+      // 3. Also update matching Shipments across all linked containers
+      const shipmentOrConditions: any[] = [
+        { container: effectiveAlias },
+        ...(effectiveActualNo ? [{ containerNumber: effectiveActualNo }] : []),
+        ...(effectiveBL ? [{ blNumber: effectiveBL }] : []),
+      ];
+
       const shipmentSetFields: Record<string, any> = { ...containerSetFields };
       delete shipmentSetFields.remarks;
 
@@ -779,19 +957,19 @@ export async function POST(req: NextRequest) {
       }
 
       await Shipment.updateMany(
-        { $or: linkedOrConditions },
+        { $or: shipmentOrConditions },
         shipmentUpdateOps
       ).catch((err) => {
         console.error(`Error updating shipments for container ${effectiveAlias}:`, err);
       });
 
-      // Invalidate Redis cache
+      // 4. Invalidate Redis cache
       await invalidateContainerCache(effectiveAlias).catch(() => {});
-      if (effectiveActual) {
-        await invalidateContainerCache(effectiveActual).catch(() => {});
+      if (effectiveActualNo) {
+        await invalidateContainerCache(effectiveActualNo).catch(() => {});
       }
-      if (blVal) {
-        await invalidateContainerCache(blVal).catch(() => {});
+      if (effectiveBL) {
+        await invalidateContainerCache(effectiveBL).catch(() => {});
       }
 
       totalUpdated++;
@@ -830,6 +1008,16 @@ export async function POST(req: NextRequest) {
           isPortDateChanged: d.isPortDateChanged,
           newPortDate: d.newPortDate,
           oldPortDate: d.oldPortDate,
+          isLoadingDateChanged: d.isLoadingDateChanged,
+          newLoadingDate: d.newLoadingDate,
+          oldLoadingDate: d.oldLoadingDate,
+          isPortNameChanged: d.isPortNameChanged,
+          newPortName: d.newPortName,
+          oldPortName: d.oldPortName,
+          isShippingLineChanged: d.isShippingLineChanged,
+          newShippingLine: d.newShippingLine,
+          isBlChanged: d.isBlChanged,
+          newBlNumber: d.newBlNumber,
         })),
       },
     }).catch(() => {});

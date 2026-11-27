@@ -238,6 +238,14 @@ export async function POST(req: NextRequest) {
       'shippedto', 'shipped to', 'destination', 'dest', 'destination port', 'port of discharge', 'pod',
       '目的港', '目的地', '目的国', '卸货港', '到达港'
     ]);
+    const blHeader = getResolvedHeader('blNumber', [
+      'blnumber', 'bl number', 'bl_number', 'bl no', 'bl no.', 'b/l no', 'b/l no.', 'b/l number', 'bl', 'bill of lading',
+      '提单', '提单号', '海运提单'
+    ]);
+    const loadingDateHeader = getResolvedHeader('loadingDate', [
+      'loadingdate', 'loading date', 'loading_date', 'load date', 'start date', 'atd',
+      '装柜日期', '装船日期', '发运日期', '装箱日期'
+    ]);
     const rateHeader = getResolvedHeader('rate', [
       'rate', 'goods_rate', 'rate_of_goods', 'item_rate', 'price', 'unit_rate', 'unit rate', 'goods rate', 'rate of goods',
       '单价', '费率', '价格', '单价(元)', '单价(₹)', '运费单价'
@@ -757,6 +765,8 @@ export async function POST(req: NextRequest) {
     const fileKeyToMeta = new Map<string, { warehouse: string; receipt: string; entry?: string }>();
     const containerToActualMap = new Map<string, string>();
     const containerToWarehouseMap = new Map<string, string>();
+    const containerToBLMap = new Map<string, string>();
+    const containerToLoadingDateMap = new Map<string, string>();
     const missingPlanDetails: Array<{ row: number; reason: string }> = [];
 
     const isIsoContainer = (v: string) => /^[A-Z]{4}\d{6,7}$/i.test(String(v || '').replace(/[\s-_]/g, ''));
@@ -780,6 +790,17 @@ export async function POST(req: NextRequest) {
 
       if (actualVal && !containerToActualMap.has(containerVal)) {
         containerToActualMap.set(containerVal, actualVal);
+      }
+
+      const rowBL = blHeader && row[blHeader] !== undefined ? String(row[blHeader]).trim().toUpperCase() : '';
+      if (rowBL && !containerToBLMap.has(containerVal)) {
+        containerToBLMap.set(containerVal, rowBL);
+      }
+
+      const rowLoadingDate = loadingDateHeader && row[loadingDateHeader] !== undefined ? String(row[loadingDateHeader]).trim() : '';
+      if (rowLoadingDate && !containerToLoadingDateMap.has(containerVal)) {
+        const fmtLoad = formatReceiptDate(rowLoadingDate) || rowLoadingDate;
+        containerToLoadingDateMap.set(containerVal, fmtLoad);
       }
 
       const rVal = receiptHeader && row[receiptHeader] !== undefined ? String(row[receiptHeader]).trim() : '';
@@ -1237,11 +1258,15 @@ export async function POST(req: NextRequest) {
       const finalActualNumber = actualFromUpload || existingC?.containerNumber || '';
       const finalIsFinalized = Boolean(finalActualNumber && finalActualNumber.trim().length > 0);
       const containerWh = containerToWarehouseMap.get(cAlias) || defaultWarehouse;
+      const uploadBlNumber = containerToBLMap.get(cAlias) || '';
+      const finalBlNumber = uploadBlNumber || existingC?.blNumber || '';
+      const uploadLoadingDate = containerToLoadingDateMap.get(cAlias) || '';
+      const finalLoadingDate = uploadLoadingDate || existingC?.loadingDate || existingC?.startDate || '';
 
       let resolvedShippingLine = existingC?.shippingLine || mappingMap.get(cAlias)?.shippingLine;
-      if ((!resolvedShippingLine || resolvedShippingLine === 'MSC') && finalActualNumber) {
+      if ((!resolvedShippingLine || resolvedShippingLine === 'MSC') && (finalActualNumber || finalBlNumber)) {
         try {
-          const detected = await detectCarrierWithGemini(finalActualNumber, resolvedShippingLine);
+          const detected = await detectCarrierWithGemini(finalActualNumber, resolvedShippingLine, finalBlNumber);
           if (detected.canonicalCode) {
             resolvedShippingLine = detected.canonicalCode;
           }
@@ -1250,19 +1275,29 @@ export async function POST(req: NextRequest) {
       }
       if (!resolvedShippingLine) resolvedShippingLine = 'MSC';
 
+      const containerSetFields: any = {
+        container: cAlias,
+        planNumber: cAlias,
+        containerNumber: finalActualNumber,
+        shippingLine: resolvedShippingLine,
+        warehouse: containerWh,
+        planStatus: finalIsFinalized ? 'Finalized' : 'Loaded',
+        isFinalized: finalIsFinalized,
+        status: 'Loaded',
+      };
+
+      if (finalBlNumber) {
+        containerSetFields.blNumber = finalBlNumber;
+      }
+      if (finalLoadingDate) {
+        containerSetFields.loadingDate = finalLoadingDate;
+        containerSetFields.startDate = finalLoadingDate;
+      }
+
       await Container.findOneAndUpdate(
         { container: cAlias },
         {
-          $set: {
-            container: cAlias,
-            planNumber: cAlias,
-            containerNumber: finalActualNumber,
-            shippingLine: resolvedShippingLine,
-            warehouse: containerWh,
-            planStatus: finalIsFinalized ? 'Finalized' : 'Loaded',
-            isFinalized: finalIsFinalized,
-            status: 'Loaded',
-          },
+          $set: containerSetFields,
           $setOnInsert: {
             shippedFrom: `${containerWh}, China`,
             shippedTo: 'Nhava Sheva / Mundra, India',
@@ -1272,12 +1307,52 @@ export async function POST(req: NextRequest) {
         { upsert: true }
       );
 
-      // Also ensure all shipments under this container have the detected shippingLine
+      // Also ensure all shipments under this container have shippingLine, blNumber, and loadingDate
+      const shipmentSetUpdates: any = {};
       if (resolvedShippingLine && resolvedShippingLine !== 'MSC') {
+        shipmentSetUpdates.shippingLine = resolvedShippingLine;
+      }
+      if (finalBlNumber) {
+        shipmentSetUpdates.blNumber = finalBlNumber;
+      }
+      if (finalLoadingDate) {
+        shipmentSetUpdates.loadingDate = finalLoadingDate;
+        shipmentSetUpdates.startDate = finalLoadingDate;
+      }
+
+      if (Object.keys(shipmentSetUpdates).length > 0) {
         await Shipment.updateMany(
           { container: cAlias },
-          { $set: { shippingLine: resolvedShippingLine } }
+          { $set: shipmentSetUpdates }
         );
+      }
+
+      // Sibling synchronization: Link and update any other containers sharing the same BL No. or Container No.
+      if (finalBlNumber || finalActualNumber) {
+        const siblingOrConditions: any[] = [
+          ...(finalActualNumber ? [{ containerNumber: finalActualNumber }] : []),
+          ...(finalBlNumber ? [{ blNumber: finalBlNumber }] : []),
+        ];
+
+        const siblingSyncFields: any = {};
+        if (resolvedShippingLine && resolvedShippingLine !== 'MSC') siblingSyncFields.shippingLine = resolvedShippingLine;
+        if (finalBlNumber) siblingSyncFields.blNumber = finalBlNumber;
+        if (finalLoadingDate) {
+          siblingSyncFields.loadingDate = finalLoadingDate;
+          siblingSyncFields.startDate = finalLoadingDate;
+        }
+
+        if (Object.keys(siblingSyncFields).length > 0) {
+          await Container.updateMany(
+            { container: { $ne: cAlias }, $or: siblingOrConditions },
+            { $set: siblingSyncFields }
+          ).catch(() => {});
+
+          await Shipment.updateMany(
+            { container: { $ne: cAlias }, $or: siblingOrConditions },
+            { $set: siblingSyncFields }
+          ).catch(() => {});
+        }
       }
 
       const totalQty = await Shipment.aggregate([
