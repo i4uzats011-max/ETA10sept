@@ -20,6 +20,7 @@ import {
   translateMark,
 } from '@/lib/translate';
 import { batchTranslateWithGemini } from '@/lib/geminiTranslate';
+import { detectCarrierWithGemini, ensureShippingLineExists } from '@/lib/carrierDetector';
 import { parseMetricNumber } from '@/lib/metricUtils';
 import { evaluateMetricsMismatch } from '@/lib/exceptionReport';
 
@@ -1237,6 +1238,18 @@ export async function POST(req: NextRequest) {
       const finalIsFinalized = Boolean(finalActualNumber && finalActualNumber.trim().length > 0);
       const containerWh = containerToWarehouseMap.get(cAlias) || defaultWarehouse;
 
+      let resolvedShippingLine = existingC?.shippingLine || mappingMap.get(cAlias)?.shippingLine;
+      if ((!resolvedShippingLine || resolvedShippingLine === 'MSC') && finalActualNumber) {
+        try {
+          const detected = await detectCarrierWithGemini(finalActualNumber, resolvedShippingLine);
+          if (detected.canonicalCode) {
+            resolvedShippingLine = detected.canonicalCode;
+          }
+          await ensureShippingLineExists(detected);
+        } catch {}
+      }
+      if (!resolvedShippingLine) resolvedShippingLine = 'MSC';
+
       await Container.findOneAndUpdate(
         { container: cAlias },
         {
@@ -1244,7 +1257,7 @@ export async function POST(req: NextRequest) {
             container: cAlias,
             planNumber: cAlias,
             containerNumber: finalActualNumber,
-            shippingLine: existingC?.shippingLine || mappingMap.get(cAlias)?.shippingLine || 'MSC',
+            shippingLine: resolvedShippingLine,
             warehouse: containerWh,
             planStatus: finalIsFinalized ? 'Finalized' : 'Loaded',
             isFinalized: finalIsFinalized,
@@ -1258,6 +1271,14 @@ export async function POST(req: NextRequest) {
         },
         { upsert: true }
       );
+
+      // Also ensure all shipments under this container have the detected shippingLine
+      if (resolvedShippingLine && resolvedShippingLine !== 'MSC') {
+        await Shipment.updateMany(
+          { container: cAlias },
+          { $set: { shippingLine: resolvedShippingLine } }
+        );
+      }
 
       const totalQty = await Shipment.aggregate([
         { $match: { container: cAlias } },

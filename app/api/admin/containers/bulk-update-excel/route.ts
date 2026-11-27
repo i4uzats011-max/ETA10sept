@@ -6,6 +6,7 @@ import { isAdminAuthenticated, getAuthenticatedUser } from '@/lib/auth';
 import { parseReceiptDate, formatReceiptDate, formatGlobalDate, calculateDaysBetween } from '@/lib/dateUtils';
 import { invalidateContainerCache } from '@/lib/redis';
 import { recordEditLog } from '@/lib/auditLog';
+import { detectCarrierWithGemini, ensureShippingLineExists } from '@/lib/carrierDetector';
 import ExcelJS from 'exceljs';
 import * as XLSX from 'xlsx';
 
@@ -265,7 +266,17 @@ export async function GET(req: NextRequest) {
     }
 
     const allContainers = Array.from(containerMap.values());
-    allContainers.sort((a, b) => String(a.container).localeCompare(String(b.container), undefined, { numeric: true }));
+    allContainers.sort((a, b) => {
+      // Group containers sharing the same BL Number together
+      const blA = (a.blNumber || '').trim().toUpperCase();
+      const blB = (b.blNumber || '').trim().toUpperCase();
+      if (blA && blB && blA !== blB) {
+        return blA.localeCompare(blB);
+      }
+      if (blA && !blB) return -1;
+      if (!blA && blB) return 1;
+      return String(a.container).localeCompare(String(b.container), undefined, { numeric: true });
+    });
 
     // User requirement: Delivered containers are not required to be updated anymore.
     // Exclude delivered containers and export only undelivered / active containers.
@@ -666,9 +677,23 @@ export async function POST(req: NextRequest) {
         etaUpdatedAt: now,
       };
 
+      // Auto-detect shipping line via Gemini AI if missing or generic 'MSC'
+      let resolvedShippingLine = effectiveShippingLine;
+      if (effectiveActual || blVal) {
+        if (!resolvedShippingLine || resolvedShippingLine === 'MSC') {
+          try {
+            const detected = await detectCarrierWithGemini(effectiveActual, resolvedShippingLine, blVal);
+            if (detected.canonicalCode) {
+              resolvedShippingLine = detected.canonicalCode;
+            }
+            await ensureShippingLineExists(detected);
+          } catch {}
+        }
+      }
+
       if (effectiveActual) containerSetFields.containerNumber = effectiveActual;
       if (blVal) containerSetFields.blNumber = blVal;
-      if (effectiveShippingLine) containerSetFields.shippingLine = effectiveShippingLine;
+      if (resolvedShippingLine) containerSetFields.shippingLine = resolvedShippingLine;
       if (portNameVal) containerSetFields.shippedTo = portNameVal;
 
       if (parsedEta) {
@@ -707,18 +732,44 @@ export async function POST(req: NextRequest) {
         containerUpdateOps.$push = { remarks: remarkToPush };
       }
 
-      await Container.findOneAndUpdate(
-        {
-          $or: [
-            { container: effectiveAlias },
-            ...(effectiveActual ? [{ containerNumber: effectiveActual }] : []),
-          ],
-        },
+      // Build conditions for this container and any linked sibling containers sharing the same BL No. or Actual No.
+      const linkedOrConditions: any[] = [
+        { container: effectiveAlias },
+        ...(effectiveActual ? [{ containerNumber: effectiveActual }] : []),
+        ...(blVal ? [{ blNumber: blVal }] : []),
+      ];
+
+      const savedContainer = await Container.findOneAndUpdate(
+        { $or: linkedOrConditions },
         containerUpdateOps,
         { upsert: true, new: true }
       );
 
-      // Also update matching Shipments
+      // Link and synchronize all sibling containers sharing the same BL No. or Actual Container No.
+      if (effectiveActual || blVal) {
+        const siblingSetFields: any = { ...containerSetFields };
+        delete siblingSetFields.container; // Preserve each sibling's own unique plan alias
+
+        await Container.updateMany(
+          {
+            _id: { $ne: savedContainer?._id },
+            $or: linkedOrConditions,
+          },
+          { $set: siblingSetFields }
+        ).catch(() => {});
+
+        if (remarkToPush) {
+          await Container.updateMany(
+            {
+              _id: { $ne: savedContainer?._id },
+              $or: linkedOrConditions,
+            },
+            { $push: { remarks: remarkToPush } }
+          ).catch(() => {});
+        }
+      }
+
+      // Also update matching Shipments across all linked containers
       const shipmentSetFields: Record<string, any> = { ...containerSetFields };
       delete shipmentSetFields.remarks;
 
@@ -728,12 +779,7 @@ export async function POST(req: NextRequest) {
       }
 
       await Shipment.updateMany(
-        {
-          $or: [
-            { container: effectiveAlias },
-            ...(effectiveActual ? [{ containerNumber: effectiveActual }] : []),
-          ],
-        },
+        { $or: linkedOrConditions },
         shipmentUpdateOps
       ).catch((err) => {
         console.error(`Error updating shipments for container ${effectiveAlias}:`, err);

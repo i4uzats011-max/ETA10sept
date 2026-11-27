@@ -73,6 +73,40 @@ export default function ShippingLineManager({ onLinesUpdated, readOnly = false }
   const [lineToDelete, setLineToDelete] = useState<ShippingLineItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Gemini AI Auto-detect State
+  const [isDetectingAi, setIsDetectingAi] = useState(false);
+
+  const handleAiAutoDetect = async () => {
+    if (!confirm('Run Google Gemini AI to analyze all container numbers, verify shipping line company names, and auto-register new carriers?')) {
+      return;
+    }
+    setIsDetectingAi(true);
+    setBannerStatus(null);
+    try {
+      const res = await fetch('/api/containers/detect-carrier', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fixDatabase: true }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to auto-detect carriers via Gemini AI');
+      }
+      setBannerStatus({
+        type: 'success',
+        message: data.message || `Successfully verified containers and updated carrier mappings with Gemini AI!`,
+      });
+      fetchShippingLines();
+    } catch (err: any) {
+      setBannerStatus({
+        type: 'error',
+        message: err.message || 'Error running Gemini carrier detection',
+      });
+    } finally {
+      setIsDetectingAi(false);
+    }
+  };
+
   // Fetch all shipping lines
   const fetchShippingLines = async () => {
     setLoading(true);
@@ -307,14 +341,27 @@ export default function ShippingLineManager({ onLinesUpdated, readOnly = false }
             </button>
 
             {!readOnly && (
-              <button
-                type="button"
-                onClick={() => setIsAddOpen(true)}
-                className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black transition shadow-sm flex items-center space-x-1.5"
-              >
-                <Plus className="w-4 h-4" />
-                <span>+ Add Shipping Line</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={handleAiAutoDetect}
+                  disabled={isDetectingAi}
+                  className="px-3.5 py-2.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white rounded-xl text-xs font-black transition shadow-sm flex items-center space-x-1.5 disabled:opacity-50"
+                  title="Analyze all containers via Gemini AI and auto-map verified shipping lines"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isDetectingAi ? 'animate-spin' : ''}`} />
+                  <span>{isDetectingAi ? 'AI Verifying...' : '🤖 AI Auto-Detect Carriers'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsAddOpen(true)}
+                  className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black transition shadow-sm flex items-center space-x-1.5"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>+ Add Shipping Line</span>
+                </button>
+              </>
             )}
           </div>
         </div>

@@ -7,6 +7,7 @@ import { addFilingBufferDays } from '@/lib/jsoncargo';
 import { calculateDaysBetween, formatReceiptDate } from '@/lib/dateUtils';
 import { invalidateContainerCache } from '@/lib/redis';
 import { recordEditLog } from '@/lib/auditLog';
+import { detectCarrierWithGemini, ensureShippingLineExists } from '@/lib/carrierDetector';
 
 export const dynamic = 'force-dynamic';
 
@@ -148,20 +149,66 @@ export async function POST(req: NextRequest) {
     const fuzzyPattern = escapedQuery.replace(/[-_\s]+/g, '[-_\\s]*');
     const regex = new RegExp(`^${fuzzyPattern}$`, 'i');
 
+    // 1. Identify target containers and any linked siblings (by Container Number or B/L Number)
+    const targetAliases = new Set<string>();
+    if (queryInput) targetAliases.add(queryInput);
+    if (finalAlias) targetAliases.add(finalAlias);
+
+    const existingDocs: any[] = await Container.find({
+      $or: [
+        { container: regex },
+        { container: effectiveTargetAlias },
+        ...(finalContainerNo ? [{ containerNumber: finalContainerNo }] : []),
+      ],
+    }).lean();
+
+    let resolvedActual = finalContainerNo;
+    let resolvedBL = updateFields.blNumber;
+    existingDocs.forEach((d) => {
+      if (d.container) targetAliases.add(d.container);
+      if (!resolvedActual && d.containerNumber) resolvedActual = d.containerNumber;
+      if (!resolvedBL && d.blNumber) resolvedBL = d.blNumber;
+    });
+
+    // Auto-detect carrier using Gemini AI if container number or BL number available
+    if (resolvedActual || resolvedBL) {
+      if (!updateFields.shippingLine || updateFields.shippingLine === 'MSC') {
+        try {
+          const detected = await detectCarrierWithGemini(resolvedActual || '', updateFields.shippingLine, resolvedBL);
+          if (detected.canonicalCode) {
+            updateFields.shippingLine = detected.canonicalCode;
+          }
+          await ensureShippingLineExists(detected);
+        } catch {}
+      }
+    }
+
+    // Find all sibling containers linked by same Actual Container No. or same B/L No.
+    const siblingQuery: any[] = [];
+    if (resolvedActual) siblingQuery.push({ containerNumber: resolvedActual });
+    if (resolvedBL) siblingQuery.push({ blNumber: resolvedBL });
+
+    if (siblingQuery.length > 0) {
+      const siblings: any[] = await Container.find({ $or: siblingQuery }).lean();
+      siblings.forEach((s) => {
+        if (s.container) targetAliases.add(s.container);
+      });
+    }
+
+    const linkedContainerOrQuery: any[] = [
+      { container: { $in: Array.from(targetAliases) } },
+      { container: regex },
+    ];
+    if (resolvedActual) linkedContainerOrQuery.push({ containerNumber: resolvedActual });
+    if (resolvedBL) linkedContainerOrQuery.push({ blNumber: resolvedBL });
+
     let updateResult = { matchedCount: 0, modifiedCount: 0 };
 
     if (!isNewContainer && queryInput) {
-      // Execute updateMany for all shipment records associated with this container
+      // Execute updateMany for all shipment records associated with this container and linked siblings
       updateResult = await Shipment.updateMany(
-        {
-          $or: [
-            { container: regex },
-            { containerNumber: regex },
-          ],
-        },
-        {
-          $set: updateFields,
-        }
+        { $or: linkedContainerOrQuery },
+        { $set: updateFields }
       );
     }
 
@@ -169,7 +216,8 @@ export async function POST(req: NextRequest) {
     const containerSetFields: any = {
       ...updateFields,
       container: effectiveTargetAlias,
-      containerNumber: finalContainerNo,
+      containerNumber: finalContainerNo || resolvedActual || '',
+      blNumber: updateFields.blNumber || resolvedBL || '',
     };
 
     if (updateResult.matchedCount > 0) {
@@ -198,8 +246,8 @@ export async function POST(req: NextRequest) {
       $setOnInsert: {
         warehouse: 'China Warehouse',
         planStatus: 'Planning',
-        isFinalized: Boolean(finalContainerNo),
-        allottedActualAt: finalContainerNo ? new Date() : null,
+        isFinalized: Boolean(finalContainerNo || resolvedActual),
+        allottedActualAt: (finalContainerNo || resolvedActual) ? new Date() : null,
       },
     };
 
@@ -219,17 +267,33 @@ export async function POST(req: NextRequest) {
       { upsert: true, new: true }
     );
 
-    if (remarkToPush) {
-      await Shipment.updateMany(
+    // Also link and update all sibling containers sharing the same actual container number or B/L number
+    if (resolvedActual || resolvedBL || targetAliases.size > 1) {
+      const siblingUpdateFields: any = { ...updateFields };
+      delete siblingUpdateFields.container; // Preserve each sibling's own unique plan alias
+
+      await Container.updateMany(
         {
-          $or: [
-            { container: regex },
-            { containerNumber: regex },
-          ],
+          _id: { $ne: savedContainer?._id },
+          $or: linkedContainerOrQuery,
         },
+        { $set: siblingUpdateFields }
+      ).catch(() => {});
+    }
+
+    if (remarkToPush) {
+      // Push day-wise remark to all linked sibling containers
+      await Container.updateMany(
         {
-          $push: { containerRemarks: remarkToPush },
-        }
+          _id: { $ne: savedContainer?._id },
+          $or: linkedContainerOrQuery,
+        },
+        { $push: { remarks: remarkToPush } }
+      ).catch(() => {});
+
+      await Shipment.updateMany(
+        { $or: linkedContainerOrQuery },
+        { $push: { containerRemarks: remarkToPush } }
       ).catch(() => {});
     }
 

@@ -4,6 +4,7 @@ import Shipment from '@/models/Shipment';
 import Container from '@/models/Container';
 import { isSuperAdminAuthenticated, getAuthenticatedUser } from '@/lib/auth';
 import { recordEditLog } from '@/lib/auditLog';
+import { detectCarrierWithGemini, ensureShippingLineExists } from '@/lib/carrierDetector';
 
 export const dynamic = 'force-dynamic';
 
@@ -75,9 +76,20 @@ export async function POST(req: NextRequest) {
     const modifiedBy = user?.username || 'admin';
     const modifiedByRole = user?.role || 'admin';
 
+    let finalShippingLine = shippingLine.trim();
+    if (actualContainerNo) {
+      try {
+        const detected = await detectCarrierWithGemini(actualContainerNo.trim(), finalShippingLine);
+        if (detected.canonicalCode && (finalShippingLine === 'MSC' || !finalShippingLine)) {
+          finalShippingLine = detected.canonicalCode;
+        }
+        await ensureShippingLineExists(detected);
+      } catch {}
+    }
+
     const updateFields: Record<string, any> = {
       containerNumber: actualContainerNo.trim(),
-      shippingLine: shippingLine.trim(),
+      shippingLine: finalShippingLine,
       lastModifiedBy: modifiedBy,
       lastModifiedByRole: modifiedByRole,
     };
