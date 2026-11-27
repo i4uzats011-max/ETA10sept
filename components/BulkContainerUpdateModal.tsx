@@ -248,13 +248,12 @@ export default function BulkContainerUpdateModal({
             <Clock className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
             <div className="text-xs text-amber-950 space-y-1">
               <p className="font-black text-[13px] text-amber-900">
-                🎯 Pre-filled Data &amp; Date Change Focus (Auto-Sync Across Shared B/L Groups):
+                🎯 Smart Pre-fill &amp; Time-to-Time Updates (B/L Group Sync):
               </p>
               <p>
-                The downloaded spreadsheet is <strong>pre-filled with current DB values</strong> (Loading Date, ETA, Port Date, Port Name, Remarks).
-                Containers sharing the same <strong>B/L No.</strong> are grouped together.
-                If <strong>ANY</strong> field (Loading Date, Port Name, Port Date, ETA Date, Carrier, or BL) is corrected or modified in the uploaded file, the system will{' '}
-                <strong>synchronize all linked sibling containers</strong> and <strong>automatically download a detailed .txt audit file</strong>.
+                <strong>Pre-filled Info:</strong> Container No., Actual No., Internal Container, BL No., Shipping Line, <strong>Loading Date</strong> &amp; <strong>Port Name</strong> are pre-filled with DB values (you can edit them to fix mistakes in DB).<br />
+                <strong>Blank For Updates:</strong> <strong>Port Date</strong>, <strong>ETA Date</strong> &amp; <strong>Remarks</strong> are left blank so you can enter time-to-time changes without clearing old text.<br />
+                If <strong>ANY</strong> field is updated or corrected, all linked sibling containers sharing that B/L No. or Container No. are synchronized automatically.
               </p>
             </div>
           </div>
@@ -269,14 +268,14 @@ export default function BulkContainerUpdateModal({
                 <div>
                   <div className="flex items-center space-x-2">
                     <h4 className="text-sm font-black text-slate-900">
-                      Download Pre-filled Undelivered Containers Template
+                      Download Undelivered Containers Template
                     </h4>
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
-                      Pre-filled &amp; Grouped by B/L
+                      Grouped by B/L
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Pre-filled with all current database values. Delivered containers are excluded per policy and cannot be modified.
+                    Pre-filled with Loading Date &amp; Port Name; Port Date, ETA Date &amp; Remarks blank for fresh entries.
                   </p>
                 </div>
               </div>
@@ -295,7 +294,7 @@ export default function BulkContainerUpdateModal({
                 ) : (
                   <>
                     <Download className="w-4 h-4" />
-                    <span>Download Pre-filled Excel (.xlsx)</span>
+                    <span>Download Excel Template (.xlsx)</span>
                   </>
                 )}
               </button>
@@ -305,7 +304,7 @@ export default function BulkContainerUpdateModal({
             <div className="pt-2 border-t border-slate-200/80">
               <div className="text-[11px] font-bold text-slate-600 mb-1.5 flex items-center space-x-1">
                 <Info className="w-3.5 h-3.5 text-blue-600" />
-                <span>Columns included in downloaded Excel (Pre-filled with DB values):</span>
+                <span>Columns included in downloaded Excel:</span>
               </div>
               <div className="flex flex-wrap gap-1.5 text-[10px]">
                 <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-bold border border-blue-200">
@@ -327,28 +326,28 @@ export default function BulkContainerUpdateModal({
                   ✏️ Loading Date [Pre-filled]
                 </span>
                 <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-black border border-emerald-300">
-                  ✏️ ETA Date [Pre-filled]
-                </span>
-                <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-black border border-emerald-300">
-                  ✏️ Port Date [Pre-filled]
-                </span>
-                <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-black border border-emerald-300">
                   ✏️ Port Name [Pre-filled]
                 </span>
-                <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 font-black border border-emerald-300">
-                  ✏️ Remarks [Pre-filled]
+                <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-900 font-black border border-amber-300">
+                  👉 Port Date [BLANK]
+                </span>
+                <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-900 font-black border border-amber-300">
+                  👉 ETA Date [BLANK]
+                </span>
+                <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-900 font-black border border-amber-300">
+                  👉 Remarks [BLANK]
                 </span>
                 <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-bold border border-slate-300">
                   Current Loading Date (Ref)
                 </span>
                 <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-bold border border-slate-300">
-                  Last ETA (Ref)
+                  Current Port Name (Ref)
                 </span>
                 <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-bold border border-slate-300">
                   Last Port Date (Ref)
                 </span>
                 <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-bold border border-slate-300">
-                  Current Port Name (Ref)
+                  Last ETA (Ref)
                 </span>
                 <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-bold border border-slate-300">
                   Latest Remark (Ref)
@@ -375,7 +374,7 @@ export default function BulkContainerUpdateModal({
                   Upload Updated Excel File
                 </h4>
                 <p className="text-xs text-slate-500">
-                  Fill new values in the blank columns (ETA Date, Port Date, Port Name, Remarks) and upload.
+                  Enter new Port Date, ETA Date, or Remarks in the blank columns (or edit Loading Date / Port Name to fix mistakes) and upload.
                 </p>
               </div>
             </div>

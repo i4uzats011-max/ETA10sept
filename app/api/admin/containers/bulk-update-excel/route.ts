@@ -354,7 +354,7 @@ export async function GET(req: NextRequest) {
       views: [{ state: 'frozen', xSplit: 0, ySplit: 1 }],
     });
 
-    // Define column headers with enhanced B/L Grouping, Loading Date, and Port Name
+    // Define column headers with enhanced B/L Grouping, Loading Date, Port Name, and blank update fields
     worksheet.columns = [
       { header: 'Container No.', key: 'sr', width: 14 },
       { header: 'Actual Container No.', key: 'actual', width: 24 },
@@ -363,14 +363,14 @@ export async function GET(req: NextRequest) {
       { header: 'BL Group Info', key: 'blGroup', width: 22 },
       { header: 'Shipping Line Company Name', key: 'shippingLine', width: 26 },
       { header: 'Loading Date', key: 'newLoadingDate', width: 18 },
-      { header: 'ETA Date', key: 'newEta', width: 18 },
-      { header: 'Port Date', key: 'newPortDate', width: 18 },
       { header: 'Port Name', key: 'newPortName', width: 28 },
+      { header: 'Port Date', key: 'newPortDate', width: 18 },
+      { header: 'ETA Date', key: 'newEta', width: 18 },
       { header: 'Remarks', key: 'newRemarks', width: 35 },
       { header: 'Current Loading Date', key: 'lastLoadingDate', width: 18 },
-      { header: 'Last ETA', key: 'lastEta', width: 18 },
-      { header: 'Last Port Date', key: 'lastPortDate', width: 18 },
       { header: 'Current Port Name', key: 'currentPortName', width: 28 },
+      { header: 'Last Port Date', key: 'lastPortDate', width: 18 },
+      { header: 'Last ETA', key: 'lastEta', width: 18 },
       { header: 'Latest Remark', key: 'latestRemark', width: 35 },
     ];
 
@@ -390,7 +390,7 @@ export async function GET(req: NextRequest) {
           fgColor: { argb: 'FF1E3A8A' },
         };
       } else if (colNumber <= 11) {
-        // Editable update columns (Pre-filled with DB values): Forest Green (#047857)
+        // Editable update columns (Loading Date & Port Name pre-filled; Port Date, ETA & Remarks blank): Forest Green (#047857)
         cell.fill = {
           type: 'pattern',
           pattern: 'solid',
@@ -413,7 +413,9 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    // Populate rows (Undelivered Containers Only, grouped by BL No. and pre-filled with current data)
+    // Populate rows (Undelivered Containers Only, grouped by BL No.)
+    // Loading Date and Port Name are pre-filled (editable to fix mistakes)
+    // Port Date, ETA Date, and Remarks are BLANK for user to enter time-to-time changes
     undeliveredContainers.forEach((c, idx) => {
       const rawLoadingDate = c.loadingDate || c.startDate || '';
       const cleanLoadingDate = rawLoadingDate && rawLoadingDate !== 'N/A' && rawLoadingDate !== 'Pending' ? rawLoadingDate : '';
@@ -444,15 +446,15 @@ export async function GET(req: NextRequest) {
         blNumber: cleanBlNumber,
         blGroup: blGroupInfo,
         shippingLine: c.shippingLine || 'MSC',
-        newLoadingDate: cleanLoadingDate,          // PRE-FILLED WITH CURRENT DB VALUE
-        newEta: cleanLastEta,                      // PRE-FILLED WITH CURRENT DB VALUE
-        newPortDate: cleanLastPortDate,            // PRE-FILLED WITH CURRENT DB VALUE
-        newPortName: c.shippedTo || 'India Port',  // PRE-FILLED WITH CURRENT DB VALUE
-        newRemarks: latestRemark,                  // PRE-FILLED WITH LATEST REMARK
+        newLoadingDate: cleanLoadingDate,          // PRE-FILLED (user can edit if mistake in DB)
+        newPortName: c.shippedTo || 'India Port',  // PRE-FILLED (user can edit if mistake in DB)
+        newPortDate: '',                           // BLANK for user to enter new vessel ETA time-to-time
+        newEta: '',                                // BLANK for user to enter new destination ETA time-to-time
+        newRemarks: '',                            // BLANK for user to enter new day-wise remarks time-to-time
         lastLoadingDate: cleanLoadingDate,
-        lastEta: cleanLastEta,
-        lastPortDate: cleanLastPortDate,
         currentPortName: c.shippedTo || 'India Port',
+        lastPortDate: cleanLastPortDate,
+        lastEta: cleanLastEta,
         latestRemark: latestRemark,
       });
 
@@ -465,15 +467,15 @@ export async function GET(req: NextRequest) {
         cell.font = { name: 'Calibri', size: 10 };
         cell.alignment = {
           vertical: 'middle',
-          horizontal: [1, 5, 7, 8, 9, 12, 13, 14].includes(colNumber) ? 'center' : 'left',
+          horizontal: [1, 5, 7, 9, 10, 12, 14, 15].includes(colNumber) ? 'center' : 'left',
         };
 
-        // Light emerald tint for editable update columns (7 to 11) to indicate they are editable
+        // Light emerald tint for editable update columns (7 to 11) to prompt user input / edits
         if (colNumber >= 7 && colNumber <= 11) {
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'FFF0FDF4' }, // Soft emerald tint
+            fgColor: { argb: colNumber >= 9 ? 'FFF0FDF4' : 'FFF8FAFC' }, // Mint tint for blank input columns (9-11), subtle clean for prefilled (7-8)
           };
         } else if (isMultiContainerBlGroup && (colNumber === 4 || colNumber === 5)) {
           // Soft amber highlight for linked B/L grouping indicator
