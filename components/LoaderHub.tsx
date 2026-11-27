@@ -2635,18 +2635,28 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
 
   const SYSTEM_MAPPING_FIELDS = useMemo(
     () => [
-      { key: 'receipt', label: 'Receipt # / Bill No', mandatory: true, hint: '单号, 收据号, 入库单号' },
+      { key: 'receipt', label: 'Receipt # / Bill No (MANDATORY)', mandatory: true, hint: '单号, 收据号, 入库单号' },
+      { key: 'warehouse', label: 'Warehouse Name (MANDATORY)', mandatory: true, hint: '仓库, 仓库名称, 九边仓库, 总部, GZ, YW' },
+      { key: 'warehouseEntry', label: 'Warehouse Entry Code (RS-21 / AS-14)', mandatory: false, hint: '入库号, 进仓号, RS-21, AS-14, YW-55' },
+      { key: 'container', label: 'Internal Container / Plan No (e.g. USSI-358)', mandatory: false, hint: '内部柜号, 柜号, 箱号, USSI-358' },
+      { key: 'containerNumber', label: 'Actual Container No (e.g. GESU6221024)', mandatory: false, hint: '实际柜号, 大柜号, GESU6221024' },
       { key: 'commodity', label: 'Item / Commodity Name', mandatory: true, hint: '品名, 货物名称, item name' },
       { key: 'quantity', label: 'Cartons / Qty (CTN)', mandatory: true, hint: '件数, 数量, 箱数' },
       { key: 'volume', label: 'Volume (CBM)', mandatory: false, hint: '体积, 方数, cbm' },
       { key: 'weight', label: 'Weight (KG)', mandatory: false, hint: '重量, 毛重, kg' },
+      { key: 'packaging', label: 'Packaging Type / Code', mandatory: false, hint: '包装, QR1119, 纸箱, Carton' },
+      { key: 'mainMarka', label: 'Shipping Mark / Marka', mandatory: false, hint: '唛头, TED, CS, VIP-1' },
+      { key: 'delivery', label: 'Delivery Party / Driver', mandatory: false, hint: '送货, 送货人, HUBERT, 货拉拉' },
+      { key: 'plate', label: 'Vehicle Plate', mandatory: false, hint: '车牌, 粤EDZ0505' },
+      { key: 'phone', label: 'Contact Phone', mandatory: false, hint: '电话, 手机号' },
+      { key: 'type', label: 'Cargo Type (normal/battery/custom)', mandatory: false, hint: '类型, normal, battery, custom' },
+      { key: 'stockstatus', label: 'Stock Status', mandatory: false, hint: '库存状态, 库存中, In Stock' },
+      { key: 'date', label: 'Receipt / Entry Date', mandatory: false, hint: '日期, 入库日期' },
       { key: 'rate', label: 'Rate of Goods', mandatory: false, hint: '单价, 费率, price' },
       { key: 'rateUnit', label: 'Rate Unit (CTN / CBM / KG / Fixed)', mandatory: false, hint: '单位, 计费单位' },
       { key: 'cost', label: 'Cost of Item / Total Amount', mandatory: false, hint: '金额, 费用, 成本' },
       { key: 'remarks', label: 'Remarks / Labeller Goods', mandatory: false, hint: '备注, 说明, 贴标' },
       { key: 'party', label: 'Party / Customer Name', mandatory: false, hint: '客户, 货主, 发货人' },
-      { key: 'date', label: 'Receipt / Entry Date', mandatory: false, hint: '日期, 入库日期' },
-      { key: 'container', label: 'Container / Plan No', mandatory: false, hint: '柜号, 箱号 (For Loading Plans)' },
     ],
     []
   );
@@ -2736,7 +2746,36 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
       autoMapping.remarks = findBestHeader([/remark|note|label|备注|说明|标签|贴标/i]);
       autoMapping.party = findBestHeader([/party|shipper|customer|client|客户|货主|发货人|供应商/i]);
       autoMapping.date = findBestHeader([/date|time|日期|收货日期|入库日期/i]);
-      autoMapping.container = findBestHeader([/container|cntr|柜号|箱号|集装箱/i]);
+
+      // Disambiguate container columns (Internal vs Actual Carrier Container)
+      const containerCandidates = rawHeaders.filter((h) => /container|cntr|柜号|箱号|集装箱/i.test(h));
+      if (containerCandidates.length >= 2) {
+        const isIso6346 = (v: string) => /^[A-Z]{4}\d{6,7}$/i.test(String(v || '').replace(/[\s-_]/g, ''));
+        const val0 = String(rows[0]?.[containerCandidates[0]] || '');
+        const val1 = String(rows[0]?.[containerCandidates[1]] || '');
+        if (isIso6346(val1) && !isIso6346(val0)) {
+          autoMapping.container = containerCandidates[0];
+          autoMapping.containerNumber = containerCandidates[1];
+        } else if (isIso6346(val0) && !isIso6346(val1)) {
+          autoMapping.container = containerCandidates[1];
+          autoMapping.containerNumber = containerCandidates[0];
+        } else {
+          autoMapping.container = containerCandidates[0];
+          autoMapping.containerNumber = containerCandidates[1];
+        }
+      } else if (containerCandidates.length === 1) {
+        autoMapping.container = containerCandidates[0];
+      }
+
+      autoMapping.warehouse = findBestHeader([/warehouse$|wh$|仓库|仓位/i]);
+      autoMapping.warehouseEntry = findBestHeader([/warehouse entry|warehouseentry|entry no|entry|进仓号|入库号/i]);
+      autoMapping.packaging = findBestHeader([/packaging|pkg|packing|包装/i]);
+      autoMapping.mainMarka = findBestHeader([/main_marka|main mark|marka|mark|唛头|主唛/i]);
+      autoMapping.plate = findBestHeader([/plate|车牌/i]);
+      autoMapping.phone = findBestHeader([/phone|mobile|tel|电话|手机/i]);
+      autoMapping.delivery = findBestHeader([/delivery|sender|driver|送货/i]);
+      autoMapping.type = findBestHeader([/type$|cargo type|类型/i]);
+      autoMapping.stockstatus = findBestHeader([/stockstatus|stock status|库存状态|库存/i]);
 
       setExcelColumnMapping(autoMapping);
       buildExcelPreview(rows, autoMapping);
@@ -2755,13 +2794,23 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
       return;
     }
 
-    if (!excelUploadWarehouse || excelUploadWarehouse.trim() === '' || excelUploadWarehouse === 'ALL') {
-      alert('Selecting a China Warehouse is strictly mandatory while uploading. Please select or create a warehouse first.');
+    const hasContainerInFile = Boolean(
+      excelColumnMapping.container ||
+      excelHeaders.some((h) => /container|cntr|柜号|箱号/i.test(h))
+    );
+
+    if (excelUploadType === 'plan' && !excelTargetContainer.trim() && !hasContainerInFile) {
+      alert('Internal Loading Plan (Internal Container Number) is mandatory when uploading a loading plan. Either enter an internal container number or ensure your file has a container column.');
       return;
     }
 
-    if (excelUploadType === 'plan' && !excelTargetContainer.trim()) {
-      alert('Internal Loading Plan (Internal Container Number) is strictly mandatory when uploading a loading plan.');
+    const hasWarehouseInFile = Boolean(
+      excelColumnMapping.warehouse ||
+      excelHeaders.some((h) => /warehouse|wh|仓库|进仓号/i.test(h))
+    );
+
+    if (!hasWarehouseInFile && (!excelUploadWarehouse || excelUploadWarehouse.trim() === '' || excelUploadWarehouse === 'ALL')) {
+      alert('Selecting a China Warehouse is strictly mandatory when your file does not contain a warehouse column. Please select a warehouse.');
       return;
     }
 
@@ -6430,6 +6479,43 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
                     </div>
                   )}
 
+                  {/* Download Official Loading Plan Excel Template Banner */}
+                  <div className="p-3 bg-gradient-to-r from-blue-50 via-indigo-50 to-indigo-100/60 border border-indigo-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                    <div className="flex items-center space-x-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                        <Download className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-black text-indigo-950 flex items-center space-x-1.5">
+                          <span>Official Loading Plan Excel Template</span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            ✓ Ready Format
+                          </span>
+                        </p>
+                        <p className="text-[11px] text-indigo-700 leading-snug">
+                          Download format with <strong>Internal & Actual Container No.</strong>, Warehouse & Receipt columns. Just paste data and upload!
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2 shrink-0">
+                      <a
+                        href="/api/loading-plan/template?format=xlsx"
+                        download="Loading_Plan_Upload_Template.xlsx"
+                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded-xl shadow-xs transition flex items-center space-x-1 cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download .XLSX</span>
+                      </a>
+                      <a
+                        href="/api/loading-plan/template?format=csv"
+                        download="Loading_Plan_Upload_Template.csv"
+                        className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-indigo-800 border border-indigo-300 text-[11px] font-bold rounded-xl transition flex items-center space-x-1 cursor-pointer"
+                      >
+                        <span>.CSV</span>
+                      </a>
+                    </div>
+                  </div>
+
                   {/* File Dropzone */}
                   {!excelFile ? (
                     <div className="border-2 border-dashed border-indigo-200 hover:border-indigo-500 rounded-2xl p-6 text-center cursor-pointer transition bg-indigo-50/30 hover:bg-indigo-50/60 relative group">
@@ -6669,9 +6755,8 @@ export default function LoaderHub({ readOnly = false }: LoaderHubProps = {}) {
                         !excelFile ||
                         isUploadingExcel ||
                         availableWarehouses.filter((w) => w !== 'ALL').length === 0 ||
-                        !excelUploadWarehouse ||
-                        excelUploadWarehouse === 'ALL' ||
-                        (excelUploadType === 'plan' && !excelTargetContainer.trim())
+                        (!excelColumnMapping.warehouse && !excelHeaders.some((h) => /warehouse|wh|仓库/i.test(h)) && (!excelUploadWarehouse || excelUploadWarehouse === 'ALL')) ||
+                        (excelUploadType === 'plan' && !excelTargetContainer.trim() && !excelColumnMapping.container && !excelHeaders.some((h) => /container|cntr|柜号|箱号/i.test(h)))
                       }
                       className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition disabled:opacity-50 flex items-center space-x-1.5"
                     >

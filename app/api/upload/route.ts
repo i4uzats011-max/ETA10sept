@@ -972,7 +972,6 @@ export async function POST(req: NextRequest) {
     }
 
     const bulkOperations = [];
-    const missingPlanDetails: Array<{ row: number; reason: string }> = [];
 
     for (let index = 0; index < records.length; index++) {
       const row = records[index];
@@ -982,9 +981,17 @@ export async function POST(req: NextRequest) {
       }
       if (!containerVal) continue;
 
+      let actualVal = actualContainerHeader && row[actualContainerHeader] !== undefined ? String(row[actualContainerHeader]).trim().toUpperCase() : '';
+
+      // If containerVal has standard ISO 6346 container number and actualVal is internal alias, swap them
+      if (isIsoContainer(containerVal) && actualVal && !isIsoContainer(actualVal)) {
+        const tmp = containerVal;
+        containerVal = actualVal;
+        actualVal = tmp;
+      }
+
       const rawReceipt = receiptHeader && row[receiptHeader] !== undefined ? String(row[receiptHeader]).trim() : '';
       if (!rawReceipt) {
-        missingPlanDetails.push({ row: index + 2, reason: `Row ${index + 2}: Missing mandatory Receipt Number in loading plan` });
         continue;
       }
 
@@ -999,8 +1006,8 @@ export async function POST(req: NextRequest) {
 
       // Internal container alias lookup
       const existingC = existingContainerMap.get(containerVal) || mappingMap.get(containerVal);
-      // ACTUAL container number is strictly what was previously manually allotted, or empty!
-      const finalContainerNumber = existingC?.containerNumber || '';
+      // ACTUAL container number is mapped from upload file or existing allocation
+      const finalContainerNumber = actualVal || containerToActualMap.get(containerVal) || existingC?.containerNumber || '';
       const finalShippingLine = existingC?.shippingLine || (shippingLineHeader && row[shippingLineHeader] ? String(row[shippingLineHeader]).trim() : 'MSC');
 
       const partyVal = partyHeader && row[partyHeader] !== undefined && String(row[partyHeader]).trim()
@@ -1028,10 +1035,23 @@ export async function POST(req: NextRequest) {
       const finalPackaging = hasChineseCharacters(rawPackaging)
         ? (aiTranslationMap[rawPackaging] || translatePackaging(rawPackaging) || 'Carton')
         : (translatePackaging(rawPackaging) || 'Carton');
-      const finalWarehouse = translateWarehouse(warehouseHeader && row[warehouseHeader] !== undefined ? String(row[warehouseHeader]).trim() : defaultWarehouse);
+
+      const rawEntry = warehouseEntryHeader && row[warehouseEntryHeader] !== undefined ? String(row[warehouseEntryHeader]).trim() : '';
+      const rawWh = warehouseHeader && row[warehouseHeader] !== undefined ? String(row[warehouseHeader]).trim() : '';
+      const finalWarehouse = normalizeWarehouse(rawWh || defaultWarehouse, rawEntry);
+
       const finalMainMark = translateMark(mainMarkHeader && row[mainMarkHeader] !== undefined ? String(row[mainMarkHeader]).trim() : '');
       const finalSubMark = translateMark(subMarkHeader && row[subMarkHeader] !== undefined ? String(row[subMarkHeader]).trim() : '');
       const destVal = destinationHeader && row[destinationHeader] ? String(row[destinationHeader]).trim() : 'Nhava Sheva / Mundra, India';
+
+      // Additional fields in user format
+      const rawPlate = plateHeader && row[plateHeader] !== undefined ? String(row[plateHeader]).trim() : '';
+      const rawPhone = phoneHeader && row[phoneHeader] !== undefined ? String(row[phoneHeader]).trim() : '';
+      const rawDelivery = deliveryHeader && row[deliveryHeader] !== undefined ? String(row[deliveryHeader]).trim() : '';
+      const finalDelivery = hasChineseCharacters(rawDelivery) ? (aiTranslationMap[rawDelivery] || translateToEnglish(rawDelivery)) : rawDelivery;
+      const rawType = typeHeader && row[typeHeader] !== undefined ? String(row[typeHeader]).trim() : '';
+      const rawStockStatus = stockStatusHeader && row[stockStatusHeader] !== undefined ? String(row[stockStatusHeader]).trim() : '';
+      const finalStockStatus = hasChineseCharacters(rawStockStatus) ? (aiTranslationMap[rawStockStatus] || 'In Stock') : (rawStockStatus || 'In Stock');
 
       // ETA & Status from file if present
       const fileEta = etaHeader && row[etaHeader] !== undefined ? String(row[etaHeader]).trim() : '';
@@ -1064,10 +1084,10 @@ export async function POST(req: NextRequest) {
         containerNumber: finalContainerNumber,
         shippingLine: finalShippingLine,
         uploadBatchId,
-        stockstatus: stockStatusHeader && row[stockStatusHeader] !== undefined ? String(row[stockStatusHeader]).trim() : '',
+        stockstatus: finalStockStatus,
         warehouse: finalWarehouse,
         date: formattedDate,
-        warehouseEntry: warehouseEntryHeader && row[warehouseEntryHeader] !== undefined ? String(row[warehouseEntryHeader]).trim() : '',
+        warehouseEntry: rawEntry,
         quantity: quantityHeader && row[quantityHeader] !== undefined ? String(row[quantityHeader]).trim() : '',
         weight: weightHeader && row[weightHeader] !== undefined ? String(row[weightHeader]).trim() : '',
         volume: volumeHeader && row[volumeHeader] !== undefined ? String(row[volumeHeader]).trim() : '',
@@ -1085,6 +1105,10 @@ export async function POST(req: NextRequest) {
         remarks: rowRemarks,
         isLabblerGoods: rowIsLabbler,
         goodsItems: rowGoodsItems,
+        plate: rawPlate,
+        phone: rawPhone,
+        delivery: finalDelivery,
+        type: rawType,
       };
 
       const rowKey = `${finalWarehouse.toLowerCase()}___${receiptVal.toLowerCase()}`;
@@ -1212,20 +1236,27 @@ export async function POST(req: NextRequest) {
     );
     for (const cAlias of distinctUploadContainers) {
       const existingC = existingContainerMap.get(cAlias);
+      const actualFromUpload = containerToActualMap.get(cAlias) || '';
+      const finalActualNumber = actualFromUpload || existingC?.containerNumber || '';
+      const finalIsFinalized = Boolean(finalActualNumber && finalActualNumber.trim().length > 0);
+      const containerWh = containerToWarehouseMap.get(cAlias) || defaultWarehouse;
+
       await Container.findOneAndUpdate(
         { container: cAlias },
         {
-          $setOnInsert: {
+          $set: {
             container: cAlias,
             planNumber: cAlias,
-            containerNumber: existingC?.containerNumber || '',
+            containerNumber: finalActualNumber,
             shippingLine: existingC?.shippingLine || mappingMap.get(cAlias)?.shippingLine || 'MSC',
-            warehouse: defaultWarehouse,
-            planStatus: 'Planning',
-            isFinalized: false,
-            shippedFrom: `${defaultWarehouse}, China`,
+            warehouse: containerWh,
+            planStatus: finalIsFinalized ? 'Finalized' : 'Loaded',
+            isFinalized: finalIsFinalized,
+            status: 'Loaded',
+          },
+          $setOnInsert: {
+            shippedFrom: `${containerWh}, China`,
             shippedTo: 'Nhava Sheva / Mundra, India',
-            status: 'Planning',
             eta: 'Pending',
           },
         },
