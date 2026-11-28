@@ -56,6 +56,7 @@ import {
   FileCheck2,
 } from 'lucide-react';
 import { getCarrierTrackingUrl, getLdbRailwayTrackingUrl } from '@/lib/trackingUrls';
+import PublicCargoChatBot from '@/components/PublicCargoChatBot';
 
 function formatCBM(volume: any): string {
   if (volume === null || volume === undefined || volume === '' || volume === 'N/A') {
@@ -1191,6 +1192,7 @@ export default function PublicTrackerPage() {
                         <option value="Nhava Sheva / JNPT (INNSA)">Nhava Sheva / JNPT (INNSA) - Mumbai</option>
                         <option value="Mundra Port (INMUN)">Mundra Port (INMUN) - Gujarat</option>
                         <option value="Delhi ICD Tughlakabad">Delhi ICD Tughlakabad (INDEL) - Rail Inward</option>
+                        <option value="KATHUWAS, RJ">ICD Kathuwas (Rajasthan) - KATHUWAS, RJ</option>
                         <option value="Chennai Port (INMAA)">Chennai Port (INMAA) - South India</option>
                       </select>
                     </div>
@@ -1377,6 +1379,7 @@ export default function PublicTrackerPage() {
                             className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900"
                           >
                             <option value="Delhi NCR (ICD Tughlakabad)">Delhi NCR (ICD Tughlakabad - Rail)</option>
+                            <option value="KATHUWAS, RJ">ICD Kathuwas (Rajasthan) - KATHUWAS, RJ</option>
                             <option value="Nhava Sheva / JNPT (Mumbai)">Nhava Sheva / JNPT (Mumbai)</option>
                             <option value="Mundra Port (Gujarat)">Mundra Port (Gujarat)</option>
                             <option value="Chennai Port">Chennai Port (South India)</option>
@@ -2639,6 +2642,14 @@ export default function PublicTrackerPage() {
           <p>Global ocean carrier tracking powered by live API connectivity.</p>
         </div>
       </footer>
+
+      {/* 24/7 AI Cargo Customer Support Chatbot (NVIDIA Nemotron powered) */}
+      <PublicCargoChatBot
+        receipts={receiptShipmentsList}
+        trackingName={receiptShipmentsList[0]?.party || undefined}
+        isPublicSite={true}
+        allowDismiss={true}
+      />
     </div>
   );
 }

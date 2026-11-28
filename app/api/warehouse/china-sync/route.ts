@@ -26,11 +26,11 @@ export async function GET(req: NextRequest) {
       recentMismatches,
       lastSyncedReceipt,
     ] = await Promise.all([
-      WarehouseReceipt.countDocuments({ warehouse: 'GZ' }),
-      WarehouseReceipt.countDocuments({ warehouse: 'YW' }),
+      WarehouseReceipt.countDocuments({ warehouse: { $in: ['RS-21', 'GZ'] } }),
+      WarehouseReceipt.countDocuments({ warehouse: { $in: ['AS-14', 'YW'] } }),
       WarehouseReceipt.countDocuments({ warehouse: { $in: ['YW-55', 'YW55'] } }),
-      WarehouseReceipt.countDocuments({ warehouse: 'GZ', isVerified: true }),
-      WarehouseReceipt.countDocuments({ warehouse: 'YW', isVerified: true }),
+      WarehouseReceipt.countDocuments({ warehouse: { $in: ['RS-21', 'GZ'] }, isVerified: true }),
+      WarehouseReceipt.countDocuments({ warehouse: { $in: ['AS-14', 'YW'] }, isVerified: true }),
       WarehouseReceipt.countDocuments({ warehouse: { $in: ['YW-55', 'YW55'] }, isVerified: true }),
       ChinaSyncMismatch.countDocuments({ status: 'PENDING' }),
       ChinaSyncMismatch.find({ status: 'PENDING' })

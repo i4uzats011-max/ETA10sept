@@ -173,18 +173,18 @@ export async function POST(req: NextRequest) {
     });
 
     const oldEta = existingDocs[0]?.destinationDate || existingDocs[0]?.eta || '';
+    const cleanOldEta = (oldEta || '').trim();
+    const cleanNewEta = (inputGraceEta || '').trim();
     const isEtaChanged = Boolean(
-      inputGraceEta &&
-      oldEta &&
-      inputGraceEta.trim().toLowerCase() !== oldEta.trim().toLowerCase() &&
-      oldEta !== '-' &&
-      oldEta.toLowerCase() !== 'pending' &&
-      oldEta.toLowerCase() !== 'n/a'
+      cleanNewEta &&
+      cleanNewEta.toLowerCase() !== cleanOldEta.toLowerCase()
     );
 
     if (isEtaChanged) {
-      updateFields.previousEta = oldEta;
-      updateFields.etaChangeMessage = `ETA updated from ${oldEta} to ${inputGraceEta}`;
+      updateFields.previousEta = cleanOldEta || 'Pending';
+      updateFields.etaChangeMessage = cleanOldEta && !/pending|n\/a|-/i.test(cleanOldEta)
+        ? `ETA updated from ${cleanOldEta} to ${cleanNewEta}`
+        : `ETA scheduled for ${cleanNewEta}`;
     }
 
     // Auto-detect carrier using Gemini AI if container number or BL number available

@@ -11,6 +11,7 @@ import {
   ChinaWarehouseClient,
   ChinaWarehouseRecord,
   getDateRange,
+  toCanonicalWarehouse,
 } from '@/lib/chinaWarehouseClient';
 import { batchTranslateWithGemini } from '@/lib/geminiTranslate';
 import { translatePackaging, translateMark } from '@/lib/translate';
@@ -61,7 +62,7 @@ export async function runChinaWarehouseSync(
 
   const client = new ChinaWarehouseClient();
   const whList: string[] =
-    targetWh === 'ALL' ? ['GZ', 'YW', 'YW-55'] : [targetWh];
+    targetWh === 'ALL' ? ['RS-21', 'AS-14', 'YW-55'] : [toCanonicalWarehouse(targetWh)];
 
   const overall = {
     totalChecked: 0,
@@ -114,10 +115,11 @@ export async function runChinaWarehouseSync(
 
       const translationMap = await batchTranslateWithGemini(termsToTranslate);
 
-      // 3. Query existing WarehouseReceipt records in DB for this warehouse
+      // 3. Query existing WarehouseReceipt records in DB for this warehouse (matching canonical and legacy)
+      const canonicalWh = toCanonicalWarehouse(wh);
       const portalCodes = portalRecords.map((r) => r.code).filter(Boolean);
       const existingInDb = await WarehouseReceipt.find({
-        warehouse: wh,
+        warehouse: { $in: [canonicalWh, wh, canonicalWh === 'RS-21' ? 'GZ' : canonicalWh === 'AS-14' ? 'YW' : 'YW-55'] },
         receipt: { $in: portalCodes },
       }).lean();
 
@@ -148,8 +150,8 @@ export async function runChinaWarehouseSync(
           const receiptDoc = new WarehouseReceipt({
             receipt: item.code,
             party: item.customerName || 'General Party',
-            warehouse: wh,
-            warehouseEntry: item.entryCode || (wh === 'GZ' ? 'RS-21' : wh === 'YW-55' ? 'YW-55' : 'AS-14'),
+            warehouse: canonicalWh,
+            warehouseEntry: item.entryCode || canonicalWh,
             date: item.formattedDate || new Date().toISOString().slice(0, 10),
             quantity: item.actualQuantity,
             loadedQuantity: 0,
@@ -446,7 +448,7 @@ export async function fetchSingleReceiptFromChina(
   }
 
   const client = new ChinaWarehouseClient();
-  const whsToCheck: string[] = targetWh === 'ALL' ? ['GZ', 'YW', 'YW-55'] : [targetWh];
+  const whsToCheck: string[] = targetWh === 'ALL' ? ['RS-21', 'AS-14', 'YW-55'] : [toCanonicalWarehouse(targetWh)];
 
   let foundRecord: ChinaWarehouseRecord | null = null;
   let foundWh: string | null = null;
@@ -562,11 +564,12 @@ export async function fetchSingleReceiptFromChina(
   } else {
     // Insert brand new receipt
     const uploadBatchId = `SYNC-CLICK-${Date.now()}`;
+    const canonicalFoundWh = toCanonicalWarehouse(foundWh || '');
     const newDoc = new WarehouseReceipt({
       receipt: foundRecord.code,
       party: foundRecord.customerName || 'General Party',
-      warehouse: foundWh,
-      warehouseEntry: foundRecord.entryCode || (foundWh === 'GZ' ? 'RS-21' : foundWh === 'YW-55' ? 'YW-55' : 'AS-14'),
+      warehouse: canonicalFoundWh,
+      warehouseEntry: foundRecord.entryCode || canonicalFoundWh,
       date: foundRecord.formattedDate || new Date().toISOString().slice(0, 10),
       quantity: foundRecord.actualQuantity,
       loadedQuantity: 0,

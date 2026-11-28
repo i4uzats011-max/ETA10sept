@@ -96,7 +96,7 @@ export async function notifySubscribersOfContainerUpdate(payload: ContainerUpdat
     let totalSubscribers = 0;
 
     for (const link of trackingLinks) {
-      const subscribers = (link.telegramSubscribers || []).filter((s: any) => s.active && (s.chatId || s.phone));
+      const subscribers = (link.telegramSubscribers || []).filter((s: any) => s.active && s.chatId);
       if (subscribers.length === 0) continue;
 
       // Strict Data Isolation: ensure we only message if this specific customer's link owns matching receipts
@@ -107,7 +107,7 @@ export async function notifySubscribersOfContainerUpdate(payload: ContainerUpdat
       if (matchingReceiptsForThisLink.length === 0) continue;
 
       const linkName = link.name || 'Your Cargo Tracking';
-      const trackingUrl = `${appBaseUrl}/track/${link.token}`;
+      const trackingUrl = `${appBaseUrl}/track/${link.token}?notif=eta`;
 
       let shiftInfo = '';
       if (payload.etaDaysShift !== null && payload.etaDaysShift !== undefined && payload.etaDaysShift !== 0) {
@@ -146,9 +146,9 @@ export async function notifySubscribersOfContainerUpdate(payload: ContainerUpdat
       ].filter(Boolean).join('\n');
 
       for (const sub of subscribers) {
+        if (!sub.chatId) continue;
         totalSubscribers++;
-        const targetId = sub.chatId || sub.phone;
-        const sendRes = await sendTelegramMessage(targetId, message);
+        const sendRes = await sendTelegramMessage(sub.chatId, message);
         if (sendRes.success) {
           totalNotified++;
         }
@@ -201,11 +201,11 @@ export async function notifyTelegramOfGoodsLoaded(payload: GoodsLoadedTelegramPa
     let totalSubscribers = 0;
 
     for (const link of trackingLinks) {
-      const subscribers = (link.telegramSubscribers || []).filter((s: any) => s.active && (s.chatId || s.phone));
+      const subscribers = (link.telegramSubscribers || []).filter((s: any) => s.active && s.chatId);
       if (subscribers.length === 0) continue;
 
       const linkName = link.name || 'Your Cargo Tracking';
-      const trackingUrl = `${appBaseUrl}/track/${link.token}`;
+      const trackingUrl = `${appBaseUrl}/track/${link.token}?notif=loaded`;
 
       const message = [
         `🚢 *US INTERNATIONAL LOGISTICS*`,
@@ -225,9 +225,9 @@ export async function notifyTelegramOfGoodsLoaded(payload: GoodsLoadedTelegramPa
       ].filter(Boolean).join('\n');
 
       for (const sub of subscribers) {
+        if (!sub.chatId) continue;
         totalSubscribers++;
-        const targetId = sub.chatId || sub.phone;
-        const sendRes = await sendTelegramMessage(targetId, message);
+        const sendRes = await sendTelegramMessage(sub.chatId, message);
         if (sendRes.success) {
           totalNotified++;
         }
@@ -299,11 +299,11 @@ export async function notifyTelegramOfDelivery(payload: ContainerDeliveryTelegra
 
       if (matchingReceiptsForThisLink.length === 0) continue;
 
-      const subscribers = (link.telegramSubscribers || []).filter((s: any) => s.active && (s.chatId || s.phone));
+      const subscribers = (link.telegramSubscribers || []).filter((s: any) => s.active && s.chatId);
       if (subscribers.length === 0) continue;
 
       const linkName = link.name || 'Your Cargo Tracking';
-      const trackingUrl = `${appBaseUrl}/track/${link.token}`;
+      const trackingUrl = `${appBaseUrl}/track/${link.token}?notif=delivered`;
 
       const message = [
         `🚢 *US INTERNATIONAL LOGISTICS*`,
@@ -321,9 +321,9 @@ export async function notifyTelegramOfDelivery(payload: ContainerDeliveryTelegra
       ].filter(Boolean).join('\n');
 
       for (const sub of subscribers) {
+        if (!sub.chatId) continue;
         totalSubscribers++;
-        const targetId = sub.chatId || sub.phone;
-        const sendRes = await sendTelegramMessage(targetId, message);
+        const sendRes = await sendTelegramMessage(sub.chatId, message);
         if (sendRes.success) {
           totalNotified++;
         }

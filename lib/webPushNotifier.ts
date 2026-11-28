@@ -1,20 +1,27 @@
-import * as webpushModule from 'web-push';
-const webpush: any = (webpushModule as any).default || webpushModule;
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const webpush = require('web-push');
 import { connectToDatabase } from '@/lib/mongodb';
 import ReceiptTracking from '@/models/ReceiptTracking';
 import WebPushSubscription from '@/models/WebPushSubscription';
 import Shipment from '@/models/Shipment';
 
 // Configure Web Push VAPID credentials
-const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || '';
-const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || '';
-const vapidSubject = process.env.VAPID_SUBJECT || 'mailto:admin@usinternationallogistics.com';
+function ensureVapidDetails(): boolean {
+  const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || '';
+  const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || '';
+  const vapidSubject = process.env.VAPID_SUBJECT || 'mailto:admin@usinternationallogistics.com';
 
-if (vapidPublicKey && vapidPrivateKey) {
+  if (!vapidPublicKey || !vapidPrivateKey) {
+    console.warn('[WebPushNotifier] VAPID keys not configured in environment.');
+    return false;
+  }
+
   try {
     webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
+    return true;
   } catch (err: any) {
     console.error('[WebPushNotifier] Failed to configure VAPID details:', err?.message);
+    return false;
   }
 }
 
@@ -46,8 +53,7 @@ export async function notifyWebPushOfContainerUpdate(payload: ContainerPushPaylo
   notifiedCount: number;
   tokensCount: number;
 }> {
-  if (!vapidPublicKey || !vapidPrivateKey) {
-    console.warn('[WebPushNotifier] VAPID keys not configured in .env. Push notification skipped.');
+  if (!ensureVapidDetails()) {
     return { notifiedCount: 0, tokensCount: 0 };
   }
 
@@ -128,7 +134,7 @@ export async function notifyWebPushOfContainerUpdate(payload: ContainerPushPaylo
 
       const title = `🚢 Cargo Update: Container ${payload.container}`;
       const body = `${etaChangeSummary}\nReceipt(s): ${receiptsSummary}`;
-      const trackingUrl = `${appBaseUrl}/track/${link.token}`;
+      const trackingUrl = `${appBaseUrl}/track/${link.token}?notif=eta&t=${Date.now()}`;
 
       const pushPayload = JSON.stringify({
         title,
@@ -190,7 +196,7 @@ export async function notifyWebPushOfGoodsLoaded(payload: GoodsLoadedPushPayload
   notifiedCount: number;
   tokensCount: number;
 }> {
-  if (!vapidPublicKey || !vapidPrivateKey) return { notifiedCount: 0, tokensCount: 0 };
+  if (!ensureVapidDetails()) return { notifiedCount: 0, tokensCount: 0 };
   const cleanReceipt = (payload.receiptNo || '').trim();
   if (!cleanReceipt) return { notifiedCount: 0, tokensCount: 0 };
 
@@ -225,7 +231,7 @@ export async function notifyWebPushOfGoodsLoaded(payload: GoodsLoadedPushPayload
       const whStr = payload.warehouse ? ` from ${payload.warehouse} WH` : '';
       const etaStr = payload.eta && payload.eta !== 'Pending' ? ` • ETA: ${payload.eta}` : '';
       const body = `Your goods (${qtyStr})have been loaded into Container ${payload.container}${whStr}.${etaStr}`;
-      const trackingUrl = `${appBaseUrl}/track/${link.token}`;
+      const trackingUrl = `${appBaseUrl}/track/${link.token}?notif=loaded&t=${Date.now()}`;
 
       const pushPayload = JSON.stringify({
         title,
@@ -274,7 +280,7 @@ export async function notifyWebPushOfDelivery(payload: ContainerDeliveryPushPayl
   notifiedCount: number;
   tokensCount: number;
 }> {
-  if (!vapidPublicKey || !vapidPrivateKey) return { notifiedCount: 0, tokensCount: 0 };
+  if (!ensureVapidDetails()) return { notifiedCount: 0, tokensCount: 0 };
   const cleanAlias = (payload.container || '').trim();
   if (!cleanAlias) return { notifiedCount: 0, tokensCount: 0 };
 
@@ -332,7 +338,7 @@ export async function notifyWebPushOfDelivery(payload: ContainerDeliveryPushPayl
 
       const title = `✅ Cargo Delivered: Container ${cleanAlias}`;
       const body = `Receipt(s) [${receiptsStr}] marked as DELIVERED on ${payload.deliveryDate}. Tap to view live cargo status.`;
-      const trackingUrl = `${appBaseUrl}/track/${link.token}`;
+      const trackingUrl = `${appBaseUrl}/track/${link.token}?notif=loaded&t=${Date.now()}`;
 
       const pushPayload = JSON.stringify({
         title,
@@ -365,3 +371,58 @@ export async function notifyWebPushOfDelivery(payload: ContainerDeliveryPushPayl
     return { notifiedCount: 0, tokensCount: 0 };
   }
 }
+
+/**
+ * Sends a test Web Push notification to all active devices subscribed to this token
+ */
+export async function sendTestPushNotification(token: string): Promise<{ success: boolean; sentCount: number; message: string }> {
+  if (!ensureVapidDetails()) {
+    return { success: false, sentCount: 0, message: 'Push server keys not configured' };
+  }
+
+  try {
+    await connectToDatabase();
+    const subs = await WebPushSubscription.find({ token, active: true }).lean();
+    if (!subs || subs.length === 0) {
+      return { success: false, sentCount: 0, message: 'No active device subscriptions found for this link.' };
+    }
+
+    const appBaseUrl =
+      process.env.NEXT_PUBLIC_APP_URL ||
+      process.env.APP_URL ||
+      'https://cargotracker.usinternationallogistics.com';
+
+    const testPayload = JSON.stringify({
+      title: '🔔 Test Alert: US International Logistics',
+      body: 'Screen push alerts are active on your device! You will receive live arrival and delivery updates.',
+      icon: '/favicon.ico',
+      badge: '/favicon.ico',
+      url: `${appBaseUrl}/track/${token}?notif=test&t=${Date.now()}`,
+      token,
+    });
+
+    let sent = 0;
+    for (const sub of subs) {
+      try {
+        await webpush.sendNotification({
+          endpoint: sub.endpoint,
+          keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth },
+        }, testPayload);
+        sent++;
+      } catch (err: any) {
+        if (err?.statusCode === 410 || err?.statusCode === 404) {
+          await WebPushSubscription.updateOne({ endpoint: sub.endpoint }, { $set: { active: false } }).catch(() => {});
+        }
+      }
+    }
+
+    return {
+      success: sent > 0,
+      sentCount: sent,
+      message: sent > 0 ? `Test notification sent successfully to ${sent} device(s)!` : 'Could not deliver push notification to device.',
+    };
+  } catch (err: any) {
+    return { success: false, sentCount: 0, message: err?.message || 'Error sending test push' };
+  }
+}
+

@@ -246,7 +246,7 @@ export async function POST(
           requireWarehouseSelect: true,
           availableWarehouses: ctnMatchedCandidates.map(c => ({
             code: c.warehouse,
-            name: c.warehouse === 'GZ' ? 'Guangzhou (GZ)' : c.warehouse === 'YW' ? 'Yiwu (YW)' : `${c.warehouse} Warehouse`,
+            name: c.warehouse === 'GZ' || c.warehouse === 'RS-21' ? 'RS-21 (Guangzhou)' : c.warehouse === 'YW' || c.warehouse === 'AS-14' ? 'AS-14 (Yiwu)' : `${c.warehouse} Warehouse`,
             ctn: c.totalCtn,
             marka: c.marka || '-'
           })),

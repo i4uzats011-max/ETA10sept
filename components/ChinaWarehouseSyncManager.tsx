@@ -70,14 +70,14 @@ export default function ChinaWarehouseSyncManager() {
   const [error, setError] = useState<string | null>(null);
 
   // Filters for Mismatch List
-  const [selectedWarehouse, setSelectedWarehouse] = useState<'ALL' | 'GZ' | 'YW' | 'YW-55'>('ALL');
+  const [selectedWarehouse, setSelectedWarehouse] = useState<'ALL' | 'RS-21' | 'AS-14' | 'YW-55' | 'GZ' | 'YW'>('ALL');
   const [selectedStatus, setSelectedStatus] = useState<'PENDING' | 'RESOLVED' | 'IGNORED' | 'ALL'>('PENDING');
   const [selectedPeriod, setSelectedPeriod] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
   // 1-Click Single Receipt Fetch state
   const [fetchReceiptInput, setFetchReceiptInput] = useState('');
-  const [fetchWhInput, setFetchWhInput] = useState<'ALL' | 'GZ' | 'YW' | 'YW-55'>('ALL');
+  const [fetchWhInput, setFetchWhInput] = useState<'ALL' | 'RS-21' | 'AS-14' | 'YW-55' | 'GZ' | 'YW'>('ALL');
   const [isFetchingSingle, setIsFetchingSingle] = useState(false);
   const [singleFetchResult, setSingleFetchResult] = useState<any | null>(null);
 
@@ -231,7 +231,7 @@ export default function ChinaWarehouseSyncManager() {
           <div className="bg-slate-50 rounded-lg p-4 border border-slate-200/80">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                Guangzhou (GZ / RS-21)
+                RS-21 (Guangzhou)
               </span>
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" title="Connected" />
             </div>
@@ -255,7 +255,7 @@ export default function ChinaWarehouseSyncManager() {
           <div className="bg-slate-50 rounded-lg p-4 border border-slate-200/80">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                Yiwu (YW / AS-14)
+                AS-14 (Yiwu)
               </span>
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" title="Connected" />
             </div>
@@ -375,8 +375,8 @@ export default function ChinaWarehouseSyncManager() {
                 className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
               >
                 <option value="ALL">Auto-Detect WH</option>
-                <option value="GZ">Guangzhou (GZ)</option>
-                <option value="YW">Yiwu (YW)</option>
+                <option value="RS-21">RS-21 (Guangzhou)</option>
+                <option value="AS-14">AS-14 (Yiwu)</option>
                 <option value="YW-55">Yiwu 55 (YW-55)</option>
               </select>
 
@@ -435,7 +435,7 @@ export default function ChinaWarehouseSyncManager() {
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold text-slate-600 uppercase">Target:</span>
             <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5">
-              {(['ALL', 'GZ', 'YW', 'YW-55'] as const).map((wh) => (
+              {(['ALL', 'RS-21', 'AS-14', 'YW-55'] as const).map((wh) => (
                 <button
                   key={wh}
                   onClick={() => setSelectedWarehouse(wh)}

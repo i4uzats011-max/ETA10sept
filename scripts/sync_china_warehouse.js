@@ -164,7 +164,7 @@ async function fetchWithRetry(url, options = {}, retries = 3, timeoutMs = 25000)
 async function loginChinaWh(wh) {
   const norm = String(wh || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   let uid, pwd;
-  if (norm === 'GZ') {
+  if (norm === 'GZ' || norm === 'RS-21' || norm === 'RS21') {
     uid = GZ_UID;
     pwd = GZ_PWD;
   } else if (norm === 'YW55' || norm === 'YW-55') {
@@ -286,7 +286,7 @@ async function runCliSync() {
 
   const whArg = args.find((a) => a.startsWith('--wh='));
   const targetWh = whArg ? whArg.split('=')[1].toUpperCase() : 'ALL';
-  const whList = targetWh === 'ALL' ? ['GZ', 'YW', 'YW-55'] : [targetWh];
+  const whList = targetWh === 'ALL' ? ['RS-21', 'AS-14', 'YW-55'] : [targetWh === 'GZ' ? 'RS-21' : targetWh === 'YW' ? 'AS-14' : targetWh];
 
   const receiptArg = args.find((a) => a.startsWith('--receipt='));
   const singleReceiptCode = receiptArg ? receiptArg.split('=')[1].trim() : null;

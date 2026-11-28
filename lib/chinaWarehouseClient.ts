@@ -36,19 +36,28 @@ export interface ChinaWarehouseRecord {
   networkName: string;
 }
 
+export function toCanonicalWarehouse(wh: string): string {
+  const clean = (wh || '').trim().toUpperCase();
+  const norm = clean.replace(/[^A-Z0-9]/g, '');
+  if (clean === 'RS-21' || clean === 'GZ' || clean === 'GUANGZHOU' || norm === 'RS21' || norm === 'GZ') return 'RS-21';
+  if (clean === 'AS-14' || clean === 'YW' || clean === 'YIWU' || norm === 'AS14' || norm === 'YW') return 'AS-14';
+  if (clean === 'YW-55' || clean === 'YW55' || norm === 'YW55') return 'YW-55';
+  return wh || 'RS-21';
+}
+
 export function getWarehouseCreds(wh: string): { UID: string; PASSWORD: string; CODE: string } {
   const clean = wh.trim();
   const upper = clean.toUpperCase();
   const normalized = upper.replace(/[^A-Z0-9]/g, '');
 
-  if (upper === 'GZ' || normalized === 'GZ') {
-    return CONFIG.CHINA_WH.GZ;
+  if (upper === 'RS-21' || upper === 'GZ' || upper === 'GUANGZHOU' || normalized === 'RS21' || normalized === 'GZ') {
+    return { ...CONFIG.CHINA_WH.GZ, CODE: 'RS-21' };
+  }
+  if (upper === 'AS-14' || upper === 'YW' || upper === 'YIWU' || normalized === 'AS14' || normalized === 'YW') {
+    return { ...CONFIG.CHINA_WH.YW, CODE: 'AS-14' };
   }
   if (upper === 'YW-55' || upper === 'YW55' || normalized === 'YW55') {
-    return (CONFIG.CHINA_WH as any).YW55 || (CONFIG.CHINA_WH as any)['YW-55'];
-  }
-  if (upper === 'YW' || normalized === 'YW') {
-    return CONFIG.CHINA_WH.YW;
+    return { ...((CONFIG.CHINA_WH as any).YW55 || (CONFIG.CHINA_WH as any)['YW-55']), CODE: 'YW-55' };
   }
   if ((CONFIG.CHINA_WH as any)[clean]) {
     return (CONFIG.CHINA_WH as any)[clean];
@@ -179,7 +188,7 @@ export class ChinaWarehouseClient {
     }
 
     const defaultEntryCode =
-      wh === 'GZ' ? 'RS-21' : wh === 'YW-55' ? 'YW-55' : 'AS-14';
+      wh === 'GZ' || wh === 'RS-21' ? 'RS-21' : (wh === 'YW-55' || wh === 'YW55') ? 'YW-55' : 'AS-14';
 
     const records: ChinaWarehouseRecord[] = data.data.map((row: any) => {
       const rawDate = String(row.date || '').trim();

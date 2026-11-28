@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import ReceiptTracking from '@/models/ReceiptTracking';
 import WebPushSubscription from '@/models/WebPushSubscription';
+import { sendTestPushNotification } from '@/lib/webPushNotifier';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,6 +49,13 @@ export async function POST(
     }
 
     const body = await req.json().catch(() => ({}));
+
+    // Action: Send test push notification to this token's subscribed devices
+    if (body.action === 'test') {
+      const testRes = await sendTestPushNotification(token);
+      return NextResponse.json(testRes);
+    }
+
     const { subscription, userAgent = '', active = true } = body;
 
     if (!subscription || !subscription.endpoint || !subscription.keys?.p256dh || !subscription.keys?.auth) {

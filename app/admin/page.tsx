@@ -2447,6 +2447,7 @@ export default function AdminDashboardPage() {
                     'Kolkata Port',
                     'Pipavav Port, Gujarat',
                     'ICD Tughlakabad / Delhi',
+                    'KATHUWAS, RJ',
                   ].map((port) => (
                     <button
                       key={port}

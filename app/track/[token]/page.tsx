@@ -43,6 +43,7 @@ import {
   Smartphone
 } from 'lucide-react';
 import { toJpeg, toPng } from 'html-to-image';
+import PublicCargoChatBot from '@/components/PublicCargoChatBot';
 
 interface ITrackingQuery {
   id: string;
@@ -796,10 +797,79 @@ export default function PublicReceiptTrackingPage() {
     }
   };
 
-  // Detect whether any receipt in this link had its ETA changed
-  const hasUpdatedEtas = useMemo(() => {
-    return receipts.some((r) => r.isEtaUpdated);
-  }, [receipts]);
+  const [isTestingTelegram, setIsTestingTelegram] = useState(false);
+  const handleSendTestTelegram = async () => {
+    try {
+      setIsTestingTelegram(true);
+      const res = await fetch(`/api/track/receipt-link/${encodeURIComponent(token)}/telegram`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'test' }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('🔔 Test alert sent! Please check your Telegram app.');
+      } else {
+        showToast(data.message || 'Could not send test message.');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Error testing Telegram alert.');
+    } finally {
+      setIsTestingTelegram(false);
+    }
+  };
+
+  const [isTestingPush, setIsTestingPush] = useState(false);
+  const handleSendTestPush = async () => {
+    try {
+      setIsTestingPush(true);
+      const res = await fetch(`/api/track/receipt-link/${encodeURIComponent(token)}/push-subscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'test' }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('🔔 Screen push alert sent! Check your notification bar.');
+      } else {
+        showToast(data.message || 'Could not send push notification.');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Error testing push notification.');
+    } finally {
+      setIsTestingPush(false);
+    }
+  };
+
+  // One-time Notification Click Highlighting
+  // Green highlight shows ONLY when opened via notification click, and ONLY one time.
+  const [isNotificationClick, setIsNotificationClick] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const searchParams = new URLSearchParams(window.location.search);
+      const notifType = searchParams.get('notif') || searchParams.get('from');
+      const timestamp = searchParams.get('t') || 'latest';
+
+      if (notifType) {
+        const sessionKey = `seen_notif_${token}_${notifType}_${timestamp}`;
+        const alreadySeen = sessionStorage.getItem(sessionKey);
+        if (!alreadySeen) {
+          setIsNotificationClick(true);
+          sessionStorage.setItem(sessionKey, '1');
+          if (window.history && window.history.replaceState) {
+            window.history.replaceState({}, '', window.location.pathname);
+          }
+        }
+      }
+    } catch (e) {}
+  }, [token]);
+
+  // Detect whether any receipt in this link had its ETA changed (highlight ONLY on notification click)
+  const shouldHighlightNotification = useMemo(() => {
+    return isNotificationClick && receipts.some((r) => r.isEtaUpdated);
+  }, [isNotificationClick, receipts]);
 
   // Auto-focus / scroll directly to ETA cargo cards on mobile so users immediately see their ETA without scrolling down
   useEffect(() => {
@@ -1986,24 +2056,34 @@ export default function PublicReceiptTrackingPage() {
 
         {/* Active Push Status Pill */}
         {!loading && isPushSubscribed && (
-          <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 flex items-center justify-between text-xs text-emerald-900 shadow-2xs">
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 flex items-center justify-between text-xs text-emerald-900 shadow-2xs flex-wrap gap-2">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="font-bold">🔔 Screen Push Notifications Active on this Device:</span>
+              <span className="font-bold">🔔 Screen Push Notifications Active:</span>
               <span className="text-emerald-800 text-[11px]">Direct screen alerts will arrive whenever ETA changes for your shipments.</span>
             </div>
-            <button
-              type="button"
-              onClick={handleEnablePush}
-              className="text-[11px] font-bold text-emerald-700 underline hover:text-emerald-900 ml-2 cursor-pointer"
-            >
-              Refresh Settings
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleSendTestPush}
+                disabled={isTestingPush}
+                className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] transition cursor-pointer disabled:opacity-50"
+              >
+                {isTestingPush ? 'Sending...' : 'Test Screen Alert'}
+              </button>
+              <button
+                type="button"
+                onClick={handleEnablePush}
+                className="text-[11px] font-bold text-emerald-700 underline hover:text-emerald-900 ml-1 cursor-pointer"
+              >
+                Refresh
+              </button>
+            </div>
           </div>
         )}
 
-        {/* Updated ETA Alert Banner (Green Highlight Notice) */}
-        {!loading && hasUpdatedEtas && (
+        {/* Updated ETA Alert Banner (Highlighted ONLY on Notification Click, Dismissible) */}
+        {!loading && shouldHighlightNotification && (
           <div className="bg-emerald-50 border-2 border-emerald-400 rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3 text-emerald-950 animate-fadeIn">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm shadow-emerald-600/30">
@@ -2013,17 +2093,23 @@ export default function PublicReceiptTrackingPage() {
                 <div className="font-black text-sm text-emerald-950 flex items-center gap-2">
                   <span>⚡ Container ETA Updated For Your Cargo</span>
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-200 text-emerald-900 border border-emerald-300">
-                    Live DB Sync
+                    Opened From Alert
                   </span>
                 </div>
                 <p className="text-xs text-emerald-800 mt-0.5">
-                  Arrival dates have been updated for one or more containers. The affected shipment receipt(s) are highlighted in <strong>GREEN</strong> below with the exact date change.
+                  Arrival dates have been updated for one or more containers. The affected shipment receipt(s) are highlighted in <strong>GREEN</strong> below for this view.
                 </p>
               </div>
             </div>
-            <span className="text-[11px] font-black uppercase tracking-wider text-emerald-900 bg-emerald-200/80 px-3 py-1.5 rounded-xl border border-emerald-300 whitespace-nowrap">
-              Auto-Highlighted in Green
-            </span>
+            <button
+              type="button"
+              onClick={() => setIsNotificationClick(false)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition shadow-xs cursor-pointer shrink-0"
+              title="Click to dismiss green highlight and return to normal view"
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>Got It (Normal View)</span>
+            </button>
           </div>
         )}
 
@@ -2318,7 +2404,7 @@ export default function PublicReceiptTrackingPage() {
               <div className="md:hidden p-2.5 space-y-3 bg-slate-50/60 no-jpg">
                 {filteredReceipts.map((r, idx) => {
                   const isDelivered = isReceiptDelivered(r);
-                  const isEtaUpdated = Boolean(r.isEtaUpdated);
+                  const isEtaHighlighted = Boolean(shouldHighlightNotification && r.isEtaUpdated);
                   const effDate = isDelivered ? getEffectiveDeliveryDate(r) : r.eta;
                   const dateText = effDate ? formatDisplayDate(effDate) : 'Pending Schedule';
                   const cleanStat = cleanDisplayStatus(r.status);
@@ -2328,17 +2414,17 @@ export default function PublicReceiptTrackingPage() {
                   return (
                     <div
                       key={`card-${r.id || r.receiptNo}-${idx}`}
-                      style={{ borderLeft: isEtaUpdated ? '6px solid #059669' : `5px solid ${colorTheme.borderHex}` }}
+                      style={{ borderLeft: isEtaHighlighted ? '6px solid #059669' : `5px solid ${colorTheme.borderHex}` }}
                       className={`p-3.5 rounded-xl shadow-xs transition ${
-                        isEtaUpdated
+                        isEtaHighlighted
                           ? 'bg-emerald-50/80 border-2 border-emerald-400 ring-2 ring-emerald-300/40'
                           : isSelected
                           ? 'border-blue-400 bg-blue-50/40 ring-1 ring-blue-300 border'
                           : 'bg-white border border-slate-200'
                       }`}
                     >
-                      {/* Live ETA Update Notice for Mobile Card */}
-                      {isEtaUpdated && (
+                      {/* Live ETA Update Notice for Mobile Card (Only when opened from notification) */}
+                      {isEtaHighlighted && (
                         <div className="p-2.5 rounded-xl bg-emerald-100 border border-emerald-300 text-emerald-950 font-bold text-xs space-y-1 mb-2.5 animate-fadeIn">
                           <div className="flex items-center gap-1.5 font-black text-emerald-900 text-[10px] uppercase tracking-wide">
                             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -2781,13 +2867,14 @@ export default function PublicReceiptTrackingPage() {
                 <tbody className="divide-y divide-slate-100">
                   {filteredReceipts.map((r, idx) => {
                     const colorTheme = getReceiptColorTheme(r.receiptNo, receipts);
-                    const isRowEtaUpdated = Boolean(r.isEtaUpdated);
+                    const isRowEtaHighlighted = Boolean(shouldHighlightNotification && r.isEtaUpdated);
+                    const isRowEtaUpdated = isRowEtaHighlighted;
                     return (
                     <tr
                       key={`row-${r.id || r.receiptNo}-${idx}`}
-                      style={{ borderLeft: isRowEtaUpdated ? '6px solid #059669' : `5px solid ${colorTheme.borderHex}` }}
+                      style={{ borderLeft: isRowEtaHighlighted ? '6px solid #059669' : `5px solid ${colorTheme.borderHex}` }}
                       className={`transition-colors ${
-                        isRowEtaUpdated
+                        isRowEtaHighlighted
                           ? 'bg-emerald-50/70 hover:bg-emerald-100/50 border-y border-emerald-300'
                           : selectedReceiptNos.has(r.receiptNo)
                           ? 'bg-blue-50/70 ring-1 ring-inset ring-blue-300'
@@ -3516,79 +3603,105 @@ export default function PublicReceiptTrackingPage() {
                 </p>
               </div>
 
+              {/* 1-Click Telegram Bot Connection Box */}
+              <div className="p-4 bg-gradient-to-br from-sky-50 to-blue-50 border-2 border-sky-300 rounded-2xl space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="font-black text-sky-950 text-xs">Recommended: 1-Click Bot Activation</span>
+                  </div>
+                  <span className="text-[10px] font-bold text-sky-700 bg-sky-200/80 px-2 py-0.5 rounded-full">
+                    Instant
+                  </span>
+                </div>
+                <p className="text-[11px] text-sky-900 leading-relaxed">
+                  Click below to open our official Telegram Bot (<strong>@Hell_agent28N26_bot</strong>), then simply tap the <strong>START</strong> button in Telegram. Your chat will automatically link to this cargo link!
+                </p>
+                <a
+                  href={telegramBotUrl || `https://t.me/Hell_agent28N26_bot?start=${token}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-2.5 px-4 bg-sky-600 hover:bg-sky-700 text-white font-extrabold rounded-xl text-xs transition shadow-md flex items-center justify-center gap-2"
+                >
+                  <Send className="w-4 h-4 text-sky-200" />
+                  <span>Open &amp; Start Bot on Telegram</span>
+                </a>
+              </div>
+
+              {/* Active Connection & Test Button */}
               {isTelegramSubscribed && (
-                <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-950 font-bold flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>You are currently subscribed for Telegram alerts on this link.</span>
+                <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl space-y-2 text-emerald-950">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 font-bold text-xs">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>Telegram Alerts Active for This Link</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleSendTestTelegram}
+                      disabled={isTestingTelegram}
+                      className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] transition cursor-pointer disabled:opacity-50"
+                    >
+                      {isTestingTelegram ? 'Sending...' : 'Send Test Alert'}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-emerald-800">
+                    You will receive automated alerts whenever container ETA changes, vessel arrives at port, or shipments are delivered.
+                  </p>
                 </div>
               )}
 
-              <form onSubmit={handleSaveTelegram} className="space-y-4">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Your Mobile Number *
-                  </label>
-                  <input
-                    type="tel"
-                    required
-                    placeholder="e.g. +91 9876543210"
-                    value={telegramPhone}
-                    onChange={(e) => setTelegramPhone(e.target.value)}
-                    className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:border-sky-600 font-mono font-bold text-slate-900 text-sm"
-                  />
-                  <span className="text-[10px] text-slate-500 mt-0.5 block">
-                    Enter your mobile number to receive automated Telegram alerts whenever container arrival dates change or goods are delivered.
-                  </span>
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Telegram Username (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. @yourusername"
-                    value={telegramUsername}
-                    onChange={(e) => setTelegramUsername(e.target.value)}
-                    className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:border-sky-600 font-bold text-slate-900 text-sm"
-                  />
-                </div>
-
-                {telegramBotUrl && (
-                  <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-center">
-                    <span className="text-[11px] text-slate-600 block mb-1">
-                      Direct Telegram Bot Link:
-                    </span>
-                    <a
-                      href={telegramBotUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-lg text-xs transition"
-                    >
-                      <Send className="w-3.5 h-3.5" />
-                      <span>Start Bot on Telegram</span>
-                    </a>
+              {/* Secondary Option: Manual Mobile Number Form */}
+              <div className="pt-2 border-t border-slate-200">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-2">
+                  Or Save Mobile Number / Handle
+                </span>
+                <form onSubmit={handleSaveTelegram} className="space-y-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      Your Mobile Number
+                    </label>
+                    <input
+                      type="tel"
+                      placeholder="e.g. +91 9876543210"
+                      value={telegramPhone}
+                      onChange={(e) => setTelegramPhone(e.target.value)}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:border-sky-600 font-mono font-bold text-slate-900 text-sm"
+                    />
                   </div>
-                )}
 
-                <div className="flex items-center gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsTelegramModalOpen(false)}
-                    className="w-1/2 py-2.5 border border-slate-300 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={telegramSubmitting}
-                    className="w-1/2 py-2.5 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-xl transition shadow-md flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
-                  >
-                    <Send className="w-4 h-4" />
-                    <span>{telegramSubmitting ? 'Saving...' : 'Save & Activate'}</span>
-                  </button>
-                </div>
-              </form>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      Telegram Username (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. @yourusername"
+                      value={telegramUsername}
+                      onChange={(e) => setTelegramUsername(e.target.value)}
+                      className="w-full p-2.5 border border-slate-300 rounded-xl outline-none focus:border-sky-600 font-bold text-slate-900 text-sm"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsTelegramModalOpen(false)}
+                      className="w-1/2 py-2.5 border border-slate-300 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition cursor-pointer"
+                    >
+                      Close
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={telegramSubmitting}
+                      className="w-1/2 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl transition shadow-md flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                    >
+                      <Send className="w-4 h-4" />
+                      <span>{telegramSubmitting ? 'Saving...' : 'Save Mobile'}</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
             </div>
           </div>
         </div>
@@ -3601,6 +3714,15 @@ export default function PublicReceiptTrackingPage() {
           <span>{toastMessage}</span>
         </div>
       )}
+
+      {/* 24/7 AI Cargo Customer Support Chatbot (NVIDIA Nemotron powered) */}
+      <PublicCargoChatBot
+        token={token}
+        receipts={receipts}
+        trackingName={linkName || undefined}
+        hideAfterLoaded={false}
+        allowDismiss={true}
+      />
 
     </div>
   );

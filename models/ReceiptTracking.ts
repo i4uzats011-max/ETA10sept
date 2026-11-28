@@ -22,7 +22,7 @@ export interface IReceiptEntry {
 }
 
 export interface ITelegramSubscriber {
-  phone: string;               // Customer mobile number e.g. 9876543210
+  phone?: string;              // Customer mobile number e.g. 9876543210
   chatId?: string;             // Telegram Chat ID
   username?: string;           // Telegram @username
   subscribedAt?: Date;

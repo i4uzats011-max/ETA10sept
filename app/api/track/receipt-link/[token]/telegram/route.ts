@@ -74,6 +74,30 @@ export async function POST(
       return NextResponse.json({ success: false, message: 'Tracking link not found' }, { status: 404 });
     }
 
+    // Action: Test alert to linked chats
+    if (body.action === 'test') {
+      const activeSubs = (doc.telegramSubscribers || []).filter((s: any) => s.active && s.chatId);
+      if (activeSubs.length === 0) {
+        return NextResponse.json({
+          success: false,
+          message: 'No active Telegram Chat linked yet. Please click "Start Bot on Telegram" and tap START in Telegram first.',
+        });
+      }
+      let sentCount = 0;
+      for (const sub of activeSubs) {
+        if (!sub.chatId) continue;
+        const testRes = await sendTelegramMessage(
+          sub.chatId,
+          `🔔 *Test Notification from US International Logistics*\n\nYour Telegram live alerts for *${doc.name}* are working perfectly! You will receive instant notifications whenever container ETA or delivery changes.`
+        );
+        if (testRes.success) sentCount++;
+      }
+      return NextResponse.json({
+        success: true,
+        message: `Test alert sent successfully to ${sentCount} linked Telegram device(s)! Check your Telegram app.`,
+      });
+    }
+
     if (!doc.telegramSubscribers) {
       doc.telegramSubscribers = [];
     }

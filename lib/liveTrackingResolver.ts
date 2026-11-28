@@ -127,8 +127,13 @@ export function pickTargetWarehouseReceipt(
   // Filter pool by warehouse if warehouse was explicitly specified
   let candidatePool = whList;
   if (entryWh) {
-    candidatePool = whList.filter(w => (w.warehouse || '').toUpperCase().trim() === entryWh);
-    // If an explicit warehouse was requested (e.g. GZ), but whList has none for that warehouse,
+    const normEntryWh = (entryWh === 'GZ' || entryWh === 'RS-21') ? 'RS-21' : (entryWh === 'YW' || entryWh === 'AS-14') ? 'AS-14' : entryWh;
+    candidatePool = whList.filter(w => {
+      const wWh = (w.warehouse || '').toUpperCase().trim();
+      const normW = (wWh === 'GZ' || wWh === 'RS-21') ? 'RS-21' : (wWh === 'YW' || wWh === 'AS-14') ? 'AS-14' : wWh;
+      return normW === normEntryWh;
+    });
+    // If an explicit warehouse was requested (e.g. RS-21 / GZ), but whList has none for that warehouse,
     // we MUST NOT blindly fall back to another warehouse (Rule 1: Never cross warehouses).
     if (candidatePool.length === 0) return null;
   }
@@ -484,9 +489,11 @@ export async function resolveLiveReceiptsForTrackingDoc(
     // NEVER SHOW OTHER WAREHOUSE SAME RECEIPT NO.
     let rShipments: any[] = allShipmentsForReceipt.filter((s: any) => {
       const sWh = (s.warehouse || '').toUpperCase().trim();
-      // 1. Strict Warehouse match: GZ and YW never mix - NEVER show other warehouse
+      // 1. Strict Warehouse match: RS-21 (GZ) and AS-14 (YW) never mix - NEVER show other warehouse
       if (targetWarehouse) {
-        if (!sWh || sWh !== targetWarehouse) return false;
+        const normTarget = (targetWarehouse === 'GZ' || targetWarehouse === 'RS-21') ? 'RS-21' : (targetWarehouse === 'YW' || targetWarehouse === 'AS-14') ? 'AS-14' : targetWarehouse;
+        const normSWh = (sWh === 'GZ' || sWh === 'RS-21') ? 'RS-21' : (sWh === 'YW' || sWh === 'AS-14') ? 'AS-14' : sWh;
+        if (!normSWh || normSWh !== normTarget) return false;
       }
 
       // 2. Exact receiptId match
